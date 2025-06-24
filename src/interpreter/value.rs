@@ -1,6 +1,7 @@
 use super::environment::Environment;
 use super::error::RuntimeError;
 use crate::parser::ast::Statement;
+use crate::stdlib::pattern::CompiledPattern;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -19,6 +20,7 @@ pub enum Value {
     Date(Rc<chrono::NaiveDate>),
     Time(Rc<chrono::NaiveTime>),
     DateTime(Rc<chrono::NaiveDateTime>),
+    Pattern(Rc<CompiledPattern>),
     Null,
 }
 
@@ -56,6 +58,7 @@ impl Value {
             Value::Date(_) => "Date",
             Value::Time(_) => "Time",
             Value::DateTime(_) => "DateTime",
+            Value::Pattern(_) => "Pattern",
             Value::Null => "Null",
         }
     }
@@ -71,6 +74,7 @@ impl Value {
             Value::Function(_) | Value::NativeFunction(_, _) => true,
             Value::Future(future) => future.borrow().completed,
             Value::Date(_) | Value::Time(_) | Value::DateTime(_) => true,
+            Value::Pattern(_) => true,
         }
     }
 }
@@ -115,6 +119,7 @@ impl fmt::Debug for Value {
             Value::Date(d) => write!(f, "Date({})", d),
             Value::Time(t) => write!(f, "Time({})", t),
             Value::DateTime(dt) => write!(f, "DateTime({})", dt),
+            Value::Pattern(_) => write!(f, "[Pattern]"),
             Value::Null => write!(f, "null"),
         }
     }
@@ -127,7 +132,27 @@ impl fmt::Display for Value {
             Value::Text(s) => write!(f, "{}", s),
             Value::Bool(b) => write!(f, "{}", if *b { "yes" } else { "no" }),
             Value::List(_) => write!(f, "[List]"),
-            Value::Object(_) => write!(f, "[Object]"),
+            Value::Object(o) => {
+                let map = o.borrow();
+                if map.len() == 1 {
+                    if let Some((_, value)) = map.iter().next() {
+                        write!(f, "{}", value)
+                    } else {
+                        write!(f, "[Object]")
+                    }
+                } else if map.is_empty() {
+                    write!(f, "[Object]")
+                } else {
+                    write!(f, "{{")?;
+                    for (i, (k, v)) in map.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}: {}", k, v)?;
+                    }
+                    write!(f, "}}")
+                }
+            }
             Value::Function(func) => {
                 write!(
                     f,
@@ -140,6 +165,7 @@ impl fmt::Display for Value {
             Value::Date(d) => write!(f, "{}", d.format("%Y-%m-%d")),
             Value::Time(t) => write!(f, "{}", t.format("%H:%M:%S")),
             Value::DateTime(dt) => write!(f, "{}", dt.format("%Y-%m-%d %H:%M:%S")),
+            Value::Pattern(_) => write!(f, "[Pattern]"),
             Value::Null => write!(f, "nothing"),
         }
     }

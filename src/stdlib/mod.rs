@@ -1,7 +1,9 @@
 pub mod core;
+pub mod legacy_pattern;
 pub mod list;
 pub mod math;
 pub mod pattern;
+pub mod pattern_test;
 pub mod text;
 pub mod time;
 pub mod typechecker;
