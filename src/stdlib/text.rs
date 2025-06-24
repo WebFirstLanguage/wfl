@@ -107,6 +107,112 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Text(Rc::from(substring)))
 }
 
+pub fn native_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("split expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let delimiter = expect_text(&args[1])?;
+
+    let parts: Vec<Value> = text
+        .split(&*delimiter)
+        .map(|s| Value::Text(Rc::from(s)))
+        .collect();
+
+    Ok(Value::List(Rc::new(std::cell::RefCell::new(parts))))
+}
+
+pub fn native_join(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("join expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let list = match &args[0] {
+        Value::List(list_ref) => list_ref.borrow().clone(),
+        _ => {
+            return Err(RuntimeError::new(
+                format!("Expected list, got {}", args[0].type_name()),
+                0,
+                0,
+            ));
+        }
+    };
+
+    let delimiter = expect_text(&args[1])?;
+
+    let text_parts: Result<Vec<String>, RuntimeError> = list
+        .iter()
+        .map(|v| match v {
+            Value::Text(s) => Ok(s.to_string()),
+            _ => Err(RuntimeError::new(
+                format!("List contains non-text value: {}", v.type_name()),
+                0,
+                0,
+            )),
+        })
+        .collect();
+
+    let parts = text_parts?;
+    let result = parts.join(&*delimiter);
+    Ok(Value::Text(Rc::from(result)))
+}
+
+pub fn native_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 3 {
+        return Err(RuntimeError::new(
+            format!("replace expects 3 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let old_str = expect_text(&args[1])?;
+    let new_str = expect_text(&args[2])?;
+
+    #[allow(clippy::explicit_auto_deref)]
+    let result = text.replace(&*old_str, &*new_str);
+    Ok(Value::Text(Rc::from(result)))
+}
+
+pub fn native_trim(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("trim expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let trimmed = text.trim();
+    Ok(Value::Text(Rc::from(trimmed)))
+}
+
+pub fn native_starts_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("starts_with expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let prefix = expect_text(&args[1])?;
+
+    Ok(Value::Bool(text.starts_with(&*prefix)))
+}
+
 pub fn register_text(env: &mut Environment) {
     env.define("length", Value::NativeFunction("length", native_length));
     env.define(
@@ -124,6 +230,14 @@ pub fn register_text(env: &mut Environment) {
     env.define(
         "substring",
         Value::NativeFunction("substring", native_substring),
+    );
+    env.define("split", Value::NativeFunction("split", native_split));
+    env.define("join", Value::NativeFunction("join", native_join));
+    env.define("replace", Value::NativeFunction("replace", native_replace));
+    env.define("trim", Value::NativeFunction("trim", native_trim));
+    env.define(
+        "starts_with",
+        Value::NativeFunction("starts_with", native_starts_with),
     );
 
     env.define(

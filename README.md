@@ -227,6 +227,30 @@ otherwise:
 end try
 ```
 
+## 🔧 Tools
+
+### WFL Combiner
+
+WFL includes a powerful file combiner tool for merging markdown and source files with table of contents generation:
+
+```bash
+# Combine markdown files with table of contents
+wfl run tools/combiner.wfl --input Docs/ --type docs --output combined/docs.md
+
+# Combine Rust source files
+wfl run tools/combiner.wfl --input src/ --type src --output combined/src.md
+
+# Available options:
+# --input DIR     Input directory to search
+# --type TYPE     File type: 'docs' (.md) or 'src' (.rs)  
+# --output FILE   Output file path
+# --no-toc        Disable table of contents generation
+# --no-txt        Skip .txt file generation
+# --help          Show detailed help
+```
+
+**⚠️ Deprecation Notice**: The legacy Python combiner (`Tools/wfl_md_combiner.py`) is deprecated and will be removed in the next release cycle. Please migrate to the WFL version above.
+
 ## 📦 Standard Library
 
 WFL includes a comprehensive standard library:
@@ -262,6 +286,34 @@ WFL includes a comprehensive standard library:
 - `time.now()` - Current timestamp
 - `time.sleep(seconds)` - Pause execution
 - `time.format(timestamp, format)` - Format time
+
+### I/O Module
+
+The WFL standard library includes comprehensive file and directory operations:
+
+#### Directory Operations
+- `walk_dir(path, recursive)` - Walk directory tree with optional recursion
+- `list_files(path)` - List files in directory
+- `create_dir(path)` - Create directory
+
+#### File Operations  
+- `read_file(path)` - Read file contents as text
+- `write_file(path, content)` - Write text to file
+- `file_exists(path)` - Check if file exists
+- `file_size(path)` - Get file size in bytes
+- `file_modified_time(path)` - Get last modification time
+
+#### Glob Pattern Matching
+- `glob_match(pattern, text)` - Match glob patterns
+- Supported patterns: `*.md`, `**/*.rs`, `src/**/*.wfl`
+- Character classes: `[abc]`, `[a-z]`, `[!abc]`
+- Wildcards: `*` (any chars), `?` (single char)
+
+#### CLI Argument Parsing
+- `parse_cli_flags(args)` - Parse command-line arguments
+- Supports: `--flag`, `--key=value`, `--key value`
+- Boolean flags and value parameters
+- Automatic help text generation
 
 ## ⚙️ Configuration
 
