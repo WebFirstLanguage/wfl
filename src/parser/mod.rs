@@ -2205,16 +2205,16 @@ impl<'a> Parser<'a> {
                 Token::KeywordFile => {
                     // Existing file handling
                     self.tokens.next(); // Consume "file"
-                },
+                }
                 Token::KeywordUrl => {
                     // New URL handling
                     self.tokens.next(); // Consume "url"
-                    
+
                     // Continue with URL-specific parsing
                     if let Some(token) = self.tokens.peek().cloned() {
                         if token.token == Token::KeywordAt {
                             self.tokens.next(); // Consume "at"
-                            
+
                             let url_expr = if let Some(token) = self.tokens.peek().cloned() {
                                 if let Token::StringLiteral(url_str) = &token.token {
                                     let token_clone = token;
@@ -2235,21 +2235,33 @@ impl<'a> Parser<'a> {
                                     ));
                                 }
                             } else {
-                                return Err(ParseError::new("Unexpected end of input".to_string(), 0, 0));
+                                return Err(ParseError::new(
+                                    "Unexpected end of input".to_string(),
+                                    0,
+                                    0,
+                                ));
                             };
-                            
+
                             // Check for "and read content as" pattern
                             if let Some(next_token) = self.tokens.peek().cloned() {
                                 if next_token.token == Token::KeywordAnd {
                                     self.tokens.next(); // Consume "and"
-                                    self.expect_token(Token::KeywordRead, "Expected 'read' after 'and'")?;
+                                    self.expect_token(
+                                        Token::KeywordRead,
+                                        "Expected 'read' after 'and'",
+                                    )?;
                                     self.expect_token(
                                         Token::KeywordContent,
                                         "Expected 'content' after 'read'",
                                     )?;
-                                    self.expect_token(Token::KeywordAs, "Expected 'as' after 'content'")?;
-                                    
-                                    let variable_name = if let Some(token) = self.tokens.peek().cloned() {
+                                    self.expect_token(
+                                        Token::KeywordAs,
+                                        "Expected 'as' after 'content'",
+                                    )?;
+
+                                    let variable_name = if let Some(token) =
+                                        self.tokens.peek().cloned()
+                                    {
                                         if let Token::Identifier(name) = &token.token {
                                             self.tokens.next(); // Consume the identifier
                                             name.clone()
@@ -2270,7 +2282,7 @@ impl<'a> Parser<'a> {
                                             0,
                                         ));
                                     };
-                                    
+
                                     // Use HttpGetStatement for URL handling
                                     return Ok(Statement::HttpGetStatement {
                                         url: url_expr,
@@ -2281,8 +2293,10 @@ impl<'a> Parser<'a> {
                                 } else if next_token.token == Token::KeywordAs {
                                     // Handle "open url at "..." as variable" syntax
                                     self.tokens.next(); // Consume "as"
-                                    
-                                    let variable_name = if let Some(token) = self.tokens.peek().cloned() {
+
+                                    let variable_name = if let Some(token) =
+                                        self.tokens.peek().cloned()
+                                    {
                                         if let Token::Identifier(name) = &token.token {
                                             self.tokens.next(); // Consume the identifier
                                             name.clone()
@@ -2303,7 +2317,7 @@ impl<'a> Parser<'a> {
                                             0,
                                         ));
                                     };
-                                    
+
                                     // Use HttpGetStatement for URL handling with direct "as" syntax
                                     return Ok(Statement::HttpGetStatement {
                                         url: url_expr,
@@ -2324,16 +2338,19 @@ impl<'a> Parser<'a> {
                             }
                         }
                     }
-                    
+
                     return Err(ParseError::new(
                         "Expected 'at' after 'url'".to_string(),
                         open_token.line,
                         open_token.column + 5, // Approximate position after "open url"
                     ));
-                },
+                }
                 _ => {
                     return Err(ParseError::new(
-                        format!("Expected 'file' or 'url' after 'open', found {:?}", next_token.token),
+                        format!(
+                            "Expected 'file' or 'url' after 'open', found {:?}",
+                            next_token.token
+                        ),
                         next_token.line,
                         next_token.column,
                     ));
