@@ -1,59 +1,74 @@
 # Rust Code Line Count Report
-*Generated on: 2025-04-19 12:07:45*
+*Generated on: 2025-06-24 07:41:41*
 
 
 ## Overall Statistics
-Total files processed: 31
-Total lines: 11032
-Code lines: 9713 (88.0%)
-Comment lines: 25 (0.2%)
-Blank lines: 1294 (11.7%)
+Total files processed: 43
+Total lines: 20835
+Code lines: 18242 (87.6%)
+Comment lines: 299 (1.4%)
+Blank lines: 2294 (11.0%)
 
 ## Lines by Directory
 Directory                                Total      Code       Comments   Blank     
 | Directory | Total | Code | Comments | Blank |
 | --- | --- | --- | --- | --- |
-| src\parser | 2503 | 2247 | 3 | 253 |
-| src\interpreter | 2126 | 1859 | 17 | 250 |
-| src\stdlib | 1770 | 1461 | 0 | 309 |
-| src\typechecker | 1574 | 1469 | 0 | 105 |
-| src | 1405 | 1194 | 2 | 209 |
-| src\analyzer | 752 | 674 | 0 | 78 |
-| src\lexer | 537 | 499 | 2 | 36 |
-| src\diagnostics | 365 | 310 | 1 | 54 |
+| src\parser | 4614 | 4116 | 69 | 429 |
+| src\interpreter | 3344 | 2920 | 62 | 362 |
+| src | 2947 | 2495 | 76 | 376 |
+| src\analyzer | 2522 | 2205 | 59 | 258 |
+| src\stdlib | 2402 | 2025 | 14 | 363 |
+| src\typechecker | 1771 | 1643 | 11 | 117 |
+| src\wfl_config | 751 | 650 | 0 | 101 |
+| src\fixer | 724 | 638 | 0 | 86 |
+| src\lexer | 644 | 590 | 5 | 49 |
+| src\linter | 627 | 534 | 2 | 91 |
+| src\diagnostics | 489 | 426 | 1 | 62 |
 
 ## Lines by File
 | File |  | Total | Code | Comment |
 | Directory | Total | Code | Comments | Blank |
 | --- | --- | --- | --- | --- |
-| src\parser\mod.rs |  | 1813 | 1618 | 3 |
-| src\typechecker\mod.rs |  | 1574 | 1469 | 0 |
-| src\interpreter\mod.rs |  | 1480 | 1326 | 1 |
-| src\stdlib\pattern.rs |  | 805 | 682 | 0 |
-| src\analyzer\mod.rs |  | 752 | 674 | 0 |
-| src\parser\tests.rs |  | 368 | 321 | 0 |
-| src\debug_report.rs |  | 360 | 302 | 0 |
-| src\repl.rs |  | 329 | 282 | 0 |
-| src\parser\ast.rs |  | 322 | 308 | 0 |
+| src\parser\mod.rs |  | 2941 | 2606 | 45 |
+| src\interpreter\mod.rs |  | 2490 | 2224 | 25 |
+| src\typechecker\mod.rs |  | 1771 | 1643 | 11 |
+| src\analyzer\static_analyzer.rs |  | 1328 | 1164 | 46 |
+| src\analyzer\mod.rs |  | 1105 | 971 | 13 |
+| src\parser\mod_complete.rs |  | 816 | 735 | 17 |
+| src\stdlib\pattern.rs |  | 808 | 685 | 0 |
+| src\main.rs |  | 789 | 671 | 27 |
+| src\config.rs |  | 762 | 653 | 30 |
+| src\wfl_config\checker.rs |  | 746 | 646 | 0 |
+| src\fixer\mod.rs |  | 679 | 603 | 0 |
+| src\stdlib\time.rs |  | 597 | 529 | 14 |
+| src\linter\mod.rs |  | 566 | 482 | 2 |
+| src\logging.rs |  | 510 | 432 | 12 |
+| src\parser\tests.rs |  | 504 | 437 | 7 |
+| src\diagnostics\mod.rs |  | 439 | 384 | 1 |
+| src\repl.rs |  | 411 | 349 | 0 |
+| src\debug_report.rs |  | 394 | 329 | 0 |
+| src\lexer\mod.rs |  | 373 | 338 | 3 |
+| src\parser\ast.rs |  | 353 | 338 | 0 |
 | src\stdlib\pattern_test.rs |  | 319 | 257 | 0 |
-| src\diagnostics\mod.rs |  | 315 | 268 | 1 |
-| src\lexer\mod.rs |  | 290 | 267 | 0 |
-| src\main.rs |  | 269 | 239 | 0 |
-| src\config.rs |  | 256 | 214 | 2 |
-| src\lexer\token.rs |  | 247 | 232 | 2 |
+| src\lexer\token.rs |  | 271 | 252 | 2 |
+| src\interpreter\tests.rs |  | 228 | 176 | 16 |
 | src\stdlib\typechecker.rs |  | 203 | 147 | 0 |
-| src\interpreter\tests.rs |  | 173 | 130 | 16 |
-| src\interpreter\io_tests.rs |  | 157 | 125 | 0 |
-| src\logging.rs |  | 153 | 125 | 0 |
-| src\interpreter\value.rs |  | 133 | 125 | 0 |
-| src\stdlib\list.rs |  | 132 | 111 | 0 |
+| src\interpreter\io_tests.rs |  | 191 | 151 | 0 |
+| src\interpreter\value.rs |  | 161 | 152 | 0 |
+| src\stdlib\list.rs |  | 138 | 117 | 0 |
+| src\stdlib\text.rs |  | 137 | 118 | 0 |
+| src\interpreter\memory_tests.rs |  | 136 | 95 | 21 |
 | src\stdlib\math.rs |  | 123 | 105 | 0 |
-| src\stdlib\text.rs |  | 119 | 100 | 0 |
-| src\interpreter\memory_tests.rs |  | 86 | 67 | 0 |
-| src\interpreter\environment.rs |  | 67 | 60 | 0 |
-| src\stdlib\core.rs |  | 53 | 45 | 0 |
+| src\analyzer\tests.rs |  | 89 | 70 | 0 |
+| src\interpreter\environment.rs |  | 76 | 66 | 0 |
+| src\lib.rs |  | 72 | 53 | 7 |
+| src\linter\tests.rs |  | 61 | 52 | 0 |
+| src\stdlib\core.rs |  | 59 | 51 | 0 |
+| src\interpreter\error.rs |  | 53 | 47 | 0 |
 | src\diagnostics\tests.rs |  | 50 | 42 | 0 |
-| src\lib.rs |  | 30 | 25 | 0 |
-| src\interpreter\error.rs |  | 30 | 26 | 0 |
-| src\stdlib\mod.rs |  | 16 | 14 | 0 |
+| src\fixer\tests.rs |  | 45 | 35 | 0 |
+| src\stdlib\mod.rs |  | 18 | 16 | 0 |
+| src\interpreter\control_flow.rs |  | 9 | 9 | 0 |
 | src\repl_tests.rs |  | 8 | 7 | 0 |
+| src\wfl_config\mod.rs |  | 5 | 4 | 0 |
+| src\version.rs |  | 1 | 1 | 0 |

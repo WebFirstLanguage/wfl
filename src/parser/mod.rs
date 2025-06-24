@@ -2199,7 +2199,170 @@ impl<'a> Parser<'a> {
     fn parse_open_file_statement(&mut self) -> Result<Statement, ParseError> {
         let open_token = self.tokens.next().unwrap(); // Consume "open"
 
-        self.expect_token(Token::KeywordFile, "Expected 'file' after 'open'")?;
+        // Check if the next token is "file" or "url"
+        if let Some(next_token) = self.tokens.peek() {
+            match next_token.token {
+                Token::KeywordFile => {
+                    // Existing file handling
+                    self.tokens.next(); // Consume "file"
+                }
+                Token::KeywordUrl => {
+                    // New URL handling
+                    self.tokens.next(); // Consume "url"
+
+                    // Continue with URL-specific parsing
+                    if let Some(token) = self.tokens.peek().cloned() {
+                        if token.token == Token::KeywordAt {
+                            self.tokens.next(); // Consume "at"
+
+                            let url_expr = if let Some(token) = self.tokens.peek().cloned() {
+                                if let Token::StringLiteral(url_str) = &token.token {
+                                    let token_clone = token;
+                                    self.tokens.next(); // Consume the string literal
+                                    Expression::Literal(
+                                        Literal::String(url_str.clone()),
+                                        token_clone.line,
+                                        token_clone.column,
+                                    )
+                                } else {
+                                    return Err(ParseError::new(
+                                        format!(
+                                            "Expected string literal for URL, found {:?}",
+                                            token.token
+                                        ),
+                                        token.line,
+                                        token.column,
+                                    ));
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Unexpected end of input".to_string(),
+                                    0,
+                                    0,
+                                ));
+                            };
+
+                            // Check for "and read content as" pattern
+                            if let Some(next_token) = self.tokens.peek().cloned() {
+                                if next_token.token == Token::KeywordAnd {
+                                    self.tokens.next(); // Consume "and"
+                                    self.expect_token(
+                                        Token::KeywordRead,
+                                        "Expected 'read' after 'and'",
+                                    )?;
+                                    self.expect_token(
+                                        Token::KeywordContent,
+                                        "Expected 'content' after 'read'",
+                                    )?;
+                                    self.expect_token(
+                                        Token::KeywordAs,
+                                        "Expected 'as' after 'content'",
+                                    )?;
+
+                                    let variable_name = if let Some(token) =
+                                        self.tokens.peek().cloned()
+                                    {
+                                        if let Token::Identifier(name) = &token.token {
+                                            self.tokens.next(); // Consume the identifier
+                                            name.clone()
+                                        } else {
+                                            return Err(ParseError::new(
+                                                format!(
+                                                    "Expected identifier for variable name, found {:?}",
+                                                    token.token
+                                                ),
+                                                token.line,
+                                                token.column,
+                                            ));
+                                        }
+                                    } else {
+                                        return Err(ParseError::new(
+                                            "Unexpected end of input".to_string(),
+                                            0,
+                                            0,
+                                        ));
+                                    };
+
+                                    // Use HttpGetStatement for URL handling
+                                    return Ok(Statement::HttpGetStatement {
+                                        url: url_expr,
+                                        variable_name,
+                                        line: open_token.line,
+                                        column: open_token.column,
+                                    });
+                                } else if next_token.token == Token::KeywordAs {
+                                    // Handle "open url at "..." as variable" syntax
+                                    self.tokens.next(); // Consume "as"
+
+                                    let variable_name = if let Some(token) =
+                                        self.tokens.peek().cloned()
+                                    {
+                                        if let Token::Identifier(name) = &token.token {
+                                            self.tokens.next(); // Consume the identifier
+                                            name.clone()
+                                        } else {
+                                            return Err(ParseError::new(
+                                                format!(
+                                                    "Expected identifier for variable name, found {:?}",
+                                                    token.token
+                                                ),
+                                                token.line,
+                                                token.column,
+                                            ));
+                                        }
+                                    } else {
+                                        return Err(ParseError::new(
+                                            "Unexpected end of input".to_string(),
+                                            0,
+                                            0,
+                                        ));
+                                    };
+
+                                    // Use HttpGetStatement for URL handling with direct "as" syntax
+                                    return Ok(Statement::HttpGetStatement {
+                                        url: url_expr,
+                                        variable_name,
+                                        line: open_token.line,
+                                        column: open_token.column,
+                                    });
+                                } else {
+                                    return Err(ParseError::new(
+                                        format!(
+                                            "Expected 'and' or 'as' after URL, found {:?}",
+                                            next_token.token
+                                        ),
+                                        next_token.line,
+                                        next_token.column,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    return Err(ParseError::new(
+                        "Expected 'at' after 'url'".to_string(),
+                        open_token.line,
+                        open_token.column + 5, // Approximate position after "open url"
+                    ));
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        format!(
+                            "Expected 'file' or 'url' after 'open', found {:?}",
+                            next_token.token
+                        ),
+                        next_token.line,
+                        next_token.column,
+                    ));
+                }
+            }
+        } else {
+            return Err(ParseError::new(
+                "Unexpected end of input after 'open'".to_string(),
+                open_token.line,
+                open_token.column + 4, // Approximate position after "open"
+            ));
+        }
 
         if let Some(token) = self.tokens.peek().cloned() {
             if token.token == Token::KeywordAt {
