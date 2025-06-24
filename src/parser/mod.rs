@@ -1303,7 +1303,10 @@ impl<'a> Parser<'a> {
                 Token::KeywordFind => {
                     self.tokens.next(); // Consume "find"
                     let pattern_expr = self.parse_expression()?;
-                    self.expect_token(Token::KeywordIn, "Expected 'in' after pattern in find expression")?;
+                    self.expect_token(
+                        Token::KeywordIn,
+                        "Expected 'in' after pattern in find expression",
+                    )?;
                     let text_expr = self.parse_expression()?;
                     Ok(Expression::PatternFind {
                         pattern: Box::new(pattern_expr),
@@ -1315,9 +1318,15 @@ impl<'a> Parser<'a> {
                 Token::KeywordReplace => {
                     self.tokens.next(); // Consume "replace"
                     let pattern_expr = self.parse_primary_expression()?;
-                    self.expect_token(Token::KeywordWith, "Expected 'with' after pattern in replace expression")?;
+                    self.expect_token(
+                        Token::KeywordWith,
+                        "Expected 'with' after pattern in replace expression",
+                    )?;
                     let replacement_expr = self.parse_expression()?;
-                    self.expect_token(Token::KeywordIn, "Expected 'in' after replacement in replace expression")?;
+                    self.expect_token(
+                        Token::KeywordIn,
+                        "Expected 'in' after replacement in replace expression",
+                    )?;
                     let text_expr = self.parse_expression()?;
                     Ok(Expression::PatternReplace {
                         pattern: Box::new(pattern_expr),
@@ -1330,8 +1339,14 @@ impl<'a> Parser<'a> {
                 Token::KeywordSplit => {
                     self.tokens.next(); // Consume "split"
                     let text_expr = self.parse_expression()?;
-                    self.expect_token(Token::KeywordOn, "Expected 'on' after text in split expression")?;
-                    self.expect_token(Token::KeywordPattern, "Expected 'pattern' after 'on' in split expression")?;
+                    self.expect_token(
+                        Token::KeywordOn,
+                        "Expected 'on' after text in split expression",
+                    )?;
+                    self.expect_token(
+                        Token::KeywordPattern,
+                        "Expected 'pattern' after 'on' in split expression",
+                    )?;
                     let pattern_expr = self.parse_expression()?;
                     Ok(Expression::PatternSplit {
                         text: Box::new(text_expr),
@@ -1687,10 +1702,13 @@ impl<'a> Parser<'a> {
                     _ => {
                         let stmt = self.parse_statement()?;
                         then_block.push(stmt);
-                        
+
                         // Check if there's more content after this statement
                         if let Some(next_token) = self.tokens.peek() {
-                            if matches!(next_token.token, Token::KeywordOtherwise | Token::KeywordEnd) {
+                            if matches!(
+                                next_token.token,
+                                Token::KeywordOtherwise | Token::KeywordEnd
+                            ) {
                                 is_multiline = true;
                                 break;
                             }
@@ -1708,7 +1726,7 @@ impl<'a> Parser<'a> {
         let else_block = if let Some(token) = self.tokens.peek() {
             if matches!(token.token, Token::KeywordOtherwise) {
                 self.tokens.next(); // Consume "otherwise"
-                
+
                 let mut else_stmts = Vec::new();
                 loop {
                     if let Some(token) = self.tokens.peek() {
@@ -3164,7 +3182,7 @@ impl<'a> Parser<'a> {
     fn compile_pattern_to_ir(tokens: &[TokenWithPosition]) -> Result<String, ParseError> {
         let mut i = 0;
         let sequence_parts = Self::parse_sequence(tokens, &mut i)?;
-        
+
         if sequence_parts.is_empty() {
             return Err(ParseError::new(
                 "Empty pattern definition".to_string(),
@@ -3172,17 +3190,20 @@ impl<'a> Parser<'a> {
                 0,
             ));
         }
-        
+
         if sequence_parts.len() == 1 {
             Ok(sequence_parts[0].clone())
         } else {
             Ok(format!("seq({})", sequence_parts.join(",")))
         }
     }
-    
-    fn parse_sequence(tokens: &[TokenWithPosition], i: &mut usize) -> Result<Vec<String>, ParseError> {
+
+    fn parse_sequence(
+        tokens: &[TokenWithPosition],
+        i: &mut usize,
+    ) -> Result<Vec<String>, ParseError> {
         let mut sequence_parts = Vec::new();
-        
+
         while *i < tokens.len() {
             let token = &tokens[*i];
             match &token.token {
@@ -3196,10 +3217,10 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        
+
         Ok(sequence_parts)
     }
-    
+
     fn parse_element(tokens: &[TokenWithPosition], i: &mut usize) -> Result<String, ParseError> {
         if *i >= tokens.len() {
             return Err(ParseError::new(
@@ -3208,7 +3229,7 @@ impl<'a> Parser<'a> {
                 0,
             ));
         }
-        
+
         let token = &tokens[*i];
         match &token.token {
             // Handle quantifiers first
@@ -3235,13 +3256,13 @@ impl<'a> Parser<'a> {
                     ))
                 }
             }
-            
+
             Token::KeywordOptional => {
                 *i += 1;
                 let inner = Self::parse_quantified_content(tokens, i)?;
                 Ok(format!("rep(0,1,{})", inner))
             }
-            
+
             Token::KeywordBetween => {
                 *i += 1;
                 if *i + 3 < tokens.len() {
@@ -3284,7 +3305,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
             }
-            
+
             // Handle captures
             Token::KeywordCapture => {
                 *i += 1;
@@ -3292,7 +3313,7 @@ impl<'a> Parser<'a> {
                     *i += 1;
                     let mut capture_tokens = Vec::new();
                     let mut brace_count = 1;
-                    
+
                     while *i < tokens.len() && brace_count > 0 {
                         match &tokens[*i].token {
                             Token::LeftBrace => brace_count += 1,
@@ -3304,7 +3325,7 @@ impl<'a> Parser<'a> {
                         }
                         *i += 1;
                     }
-                    
+
                     if *i + 1 < tokens.len() && tokens[*i].token == Token::KeywordAs {
                         *i += 1;
                         if let Token::Identifier(name) = &tokens[*i].token {
@@ -3334,7 +3355,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
             }
-            
+
             // Handle anchors
             Token::KeywordAt => {
                 *i += 1;
@@ -3388,7 +3409,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
             }
-            
+
             // Handle basic elements
             Token::StringLiteral(s) => {
                 *i += 1;
@@ -3406,25 +3427,26 @@ impl<'a> Parser<'a> {
                 *i += 1;
                 Ok("class(whitespace)".to_string())
             }
-            
-            _ => {
-                Err(ParseError::new(
-                    "Invalid pattern element".to_string(),
-                    token.line,
-                    token.column,
-                ))
-            }
+
+            _ => Err(ParseError::new(
+                "Invalid pattern element".to_string(),
+                token.line,
+                token.column,
+            )),
         }
     }
-    
-    fn parse_quantified_content(tokens: &[TokenWithPosition], i: &mut usize) -> Result<String, ParseError> {
+
+    fn parse_quantified_content(
+        tokens: &[TokenWithPosition],
+        i: &mut usize,
+    ) -> Result<String, ParseError> {
         let mut alternatives = Vec::new();
-        
+
         loop {
             if *i >= tokens.len() {
                 break;
             }
-            
+
             let token = &tokens[*i];
             match &token.token {
                 Token::StringLiteral(s) => {
@@ -3452,7 +3474,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            
+
             // Check if there's an "or" following
             if *i < tokens.len() && tokens[*i].token == Token::KeywordOr {
                 continue;
@@ -3460,7 +3482,7 @@ impl<'a> Parser<'a> {
                 break; // End of alternatives
             }
         }
-        
+
         if alternatives.is_empty() {
             return Err(ParseError::new(
                 "Expected pattern element after quantifier".to_string(),
@@ -3468,12 +3490,11 @@ impl<'a> Parser<'a> {
                 0,
             ));
         }
-        
+
         if alternatives.len() == 1 {
             Ok(alternatives[0].clone())
         } else {
             Ok(format!("alt({})", alternatives.join(",")))
         }
     }
-
 }
