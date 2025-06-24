@@ -1687,38 +1687,34 @@ impl<'a> Parser<'a> {
         let mut is_multiline = false;
 
         // Parse then block - could be single statement or multiple statements
-        loop {
-            if let Some(token) = self.tokens.peek() {
-                match &token.token {
-                    Token::KeywordOtherwise | Token::KeywordEnd => {
-                        is_multiline = true;
-                        break;
-                    }
-                    Token::Newline => {
-                        self.tokens.next(); // Consume newline
-                        is_multiline = true;
-                        continue;
-                    }
-                    _ => {
-                        let stmt = self.parse_statement()?;
-                        then_block.push(stmt);
+        while let Some(token) = self.tokens.peek() {
+            match &token.token {
+                Token::KeywordOtherwise | Token::KeywordEnd => {
+                    is_multiline = true;
+                    break;
+                }
+                Token::Newline => {
+                    self.tokens.next(); // Consume newline
+                    is_multiline = true;
+                    continue;
+                }
+                _ => {
+                    let stmt = self.parse_statement()?;
+                    then_block.push(stmt);
 
-                        // Check if there's more content after this statement
-                        if let Some(next_token) = self.tokens.peek() {
-                            if matches!(
-                                next_token.token,
-                                Token::KeywordOtherwise | Token::KeywordEnd
-                            ) {
-                                is_multiline = true;
-                                break;
-                            }
-                        } else {
+                    // Check if there's more content after this statement
+                    if let Some(next_token) = self.tokens.peek() {
+                        if matches!(
+                            next_token.token,
+                            Token::KeywordOtherwise | Token::KeywordEnd
+                        ) {
+                            is_multiline = true;
                             break;
                         }
+                    } else {
+                        break;
                     }
                 }
-            } else {
-                break;
             }
         }
 
@@ -1728,21 +1724,17 @@ impl<'a> Parser<'a> {
                 self.tokens.next(); // Consume "otherwise"
 
                 let mut else_stmts = Vec::new();
-                loop {
-                    if let Some(token) = self.tokens.peek() {
-                        match &token.token {
-                            Token::KeywordEnd => break,
-                            Token::Newline => {
-                                self.tokens.next(); // Consume newline
-                                continue;
-                            }
-                            _ => {
-                                let stmt = self.parse_statement()?;
-                                else_stmts.push(stmt);
-                            }
+                while let Some(token) = self.tokens.peek() {
+                    match &token.token {
+                        Token::KeywordEnd => break,
+                        Token::Newline => {
+                            self.tokens.next(); // Consume newline
+                            continue;
                         }
-                    } else {
-                        break;
+                        _ => {
+                            let stmt = self.parse_statement()?;
+                            else_stmts.push(stmt);
+                        }
                     }
                 }
                 Some(else_stmts)
@@ -1777,7 +1769,7 @@ impl<'a> Parser<'a> {
                 Box::new(then_block.into_iter().next().unwrap())
             };
 
-            let else_stmt = else_block.and_then(|mut stmts| {
+            let else_stmt = else_block.and_then(|stmts| {
                 if stmts.is_empty() {
                     None
                 } else {
