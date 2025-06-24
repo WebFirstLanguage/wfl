@@ -11,9 +11,9 @@ create pattern email:
 end pattern
 
 store test_email as "user@example.com"
-if test_email matches email:
+if test_email matches email then
     display "Valid email format"
-else:
+else
     display "Invalid email format"
 end if
 
@@ -36,10 +36,10 @@ end pattern
 
 store phone_text as "(555) 123-4567"
 store result as find phone in phone_text
-if result is not nothing:
-    display "Area code: " with result["area_code"]
-    display "Exchange: " with result["exchange"]
-    display "Number: " with result["number"]
+if result is not nothing then
+    display "Area code: " with result at "area_code"
+    display "Exchange: " with result at "exchange"
+    display "Number: " with result at "number"
 end if
 
 # Example 3: Log parsing
@@ -50,7 +50,7 @@ create pattern log_entry:
     } as date
     whitespace
     capture {
-        "INFO" or "WARN" or "ERROR"
+        one or more letter
     } as level
     whitespace
     capture {
@@ -60,10 +60,10 @@ end pattern
 
 store log_line as "2025-06-24 INFO Application started successfully"
 store parsed as find log_entry in log_line
-if parsed is not nothing:
-    display "Date: " with parsed["date"]
-    display "Level: " with parsed["level"]
-    display "Message: " with parsed["message"]
+if parsed is not nothing then
+    display "Date: " with parsed at "date"
+    display "Level: " with parsed at "level"
+    display "Message: " with parsed at "message"
 end if
 
 # Example 4: Text replacement
@@ -81,13 +81,13 @@ display "Sanitized: " with sanitized
 
 # Example 5: Text splitting
 create pattern delimiter:
-    "," or ";" or "|"
+    one or more "," or ";" or "|"
 end pattern
 
 store csv_data as "apple,banana;orange|grape"
 store items as split csv_data on pattern delimiter
-for each item in items:
+for each item in items
     display "Item: " with item
-end for each
+end for
 
 display "Pattern examples completed successfully"

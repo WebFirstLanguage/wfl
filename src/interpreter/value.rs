@@ -132,7 +132,27 @@ impl fmt::Display for Value {
             Value::Text(s) => write!(f, "{}", s),
             Value::Bool(b) => write!(f, "{}", if *b { "yes" } else { "no" }),
             Value::List(_) => write!(f, "[List]"),
-            Value::Object(_) => write!(f, "[Object]"),
+            Value::Object(o) => {
+                let map = o.borrow();
+                if map.len() == 1 {
+                    if let Some((_, value)) = map.iter().next() {
+                        write!(f, "{}", value)
+                    } else {
+                        write!(f, "[Object]")
+                    }
+                } else if map.is_empty() {
+                    write!(f, "[Object]")
+                } else {
+                    write!(f, "{{")?;
+                    for (i, (k, v)) in map.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}: {}", k, v)?;
+                    }
+                    write!(f, "}}")
+                }
+            }
             Value::Function(func) => {
                 write!(
                     f,
