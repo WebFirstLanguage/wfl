@@ -3039,7 +3039,7 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        let ir_string = self.compile_pattern_to_ir(&pattern_parts)?;
+        let ir_string = Self::compile_pattern_to_ir(&pattern_parts)?;
 
         Ok(Statement::VariableDeclaration {
             name: pattern_name,
@@ -3053,10 +3053,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn compile_pattern_to_ir(
-        &mut self,
-        tokens: &[TokenWithPosition],
-    ) -> Result<String, ParseError> {
+    fn compile_pattern_to_ir(tokens: &[TokenWithPosition]) -> Result<String, ParseError> {
         let mut ir_parts = Vec::new();
         let mut i = 0;
 
@@ -3099,7 +3096,7 @@ impl<'a> Parser<'a> {
                 Token::KeywordOr => {
                     // Handle alternation - this is a simplified implementation
                     // In a full implementation, this would need proper precedence handling
-                    if ir_parts.len() >= 1 {
+                    if !ir_parts.is_empty() {
                         let left = ir_parts.pop().unwrap();
                         i += 1;
                         if i >= tokens.len() {
@@ -3110,7 +3107,7 @@ impl<'a> Parser<'a> {
                             ));
                         }
                         // Parse the right side (simplified - would need recursive parsing)
-                        let right_ir = self.compile_pattern_to_ir(&tokens[i..i + 1])?;
+                        let right_ir = Self::compile_pattern_to_ir(&tokens[i..i + 1])?;
                         ir_parts.push(format!("alt({},{})", left, right_ir));
                     }
                 }
