@@ -1,0 +1,93 @@
+# Pattern Matching Examples for WebFirst Language
+# These examples demonstrate the new create pattern syntax
+
+# Example 1: Email validation
+create pattern email:
+    one or more letter or digit or "." or "_" or "%" or "+" or "-"
+    "@"
+    one or more letter or digit or "." or "-"
+    "."
+    between 2 and 10 letter
+end pattern
+
+store test_email as "user@example.com"
+if test_email matches email:
+    display "Valid email format"
+else:
+    display "Invalid email format"
+end if
+
+# Example 2: Phone number with captures
+create pattern phone:
+    optional "("
+    capture {
+        digit digit digit
+    } as area_code
+    optional ")"
+    optional whitespace or "-"
+    capture {
+        digit digit digit
+    } as exchange
+    optional whitespace or "-"
+    capture {
+        digit digit digit digit
+    } as number
+end pattern
+
+store phone_text as "(555) 123-4567"
+store result as find phone in phone_text
+if result is not nothing:
+    display "Area code: " with result["area_code"]
+    display "Exchange: " with result["exchange"]
+    display "Number: " with result["number"]
+end if
+
+# Example 3: Log parsing
+create pattern log_entry:
+    at start of text
+    capture {
+        digit digit digit digit "-" digit digit "-" digit digit
+    } as date
+    whitespace
+    capture {
+        "INFO" or "WARN" or "ERROR"
+    } as level
+    whitespace
+    capture {
+        one or more letter or digit or whitespace or "." or ":"
+    } as message
+end pattern
+
+store log_line as "2025-06-24 INFO Application started successfully"
+store parsed as find log_entry in log_line
+if parsed is not nothing:
+    display "Date: " with parsed["date"]
+    display "Level: " with parsed["level"]
+    display "Message: " with parsed["message"]
+end if
+
+# Example 4: Text replacement
+create pattern sensitive_data:
+    one or more digit
+    "-"
+    one or more digit
+    "-"
+    one or more digit
+end pattern
+
+store original as "SSN: 123-45-6789 and ID: 987-65-4321"
+store sanitized as replace sensitive_data with "XXX-XX-XXXX" in original
+display "Sanitized: " with sanitized
+
+# Example 5: Text splitting
+create pattern delimiter:
+    "," or ";" or "|"
+end pattern
+
+store csv_data as "apple,banana;orange|grape"
+store items as split csv_data on pattern delimiter
+for each item in items:
+    display "Item: " with item
+end for each
+
+display "Pattern examples completed successfully"

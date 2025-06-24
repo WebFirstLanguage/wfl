@@ -135,6 +135,24 @@ pub enum Token {
     KeywordReplace,
     #[token("split")]
     KeywordSplit,
+    #[token("of")]
+    KeywordOf,
+    #[token("more")]
+    KeywordMore,
+    #[token("exactly")]
+    KeywordExactly,
+    #[token("capture")]
+    KeywordCapture,
+    #[token("digit")]
+    KeywordDigit,
+    #[token("letter")]
+    KeywordLetter,
+    #[token("whitespace")]
+    KeywordWhitespace,
+    #[token("greedy")]
+    KeywordGreedy,
+    #[token("lazy")]
+    KeywordLazy,
     #[token("push")]
     KeywordPush,
     #[token("above")]

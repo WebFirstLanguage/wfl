@@ -273,7 +273,21 @@ impl<'a> Parser<'a> {
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
         if let Some(token) = self.tokens.peek().cloned() {
             match &token.token {
-                Token::KeywordStore | Token::KeywordCreate => self.parse_variable_declaration(),
+                Token::KeywordStore => self.parse_variable_declaration(),
+                Token::KeywordCreate => {
+                    // Check if this is "create pattern" or regular "create"
+                    let mut tokens_clone = self.tokens.clone();
+                    tokens_clone.next(); // Skip "create"
+                    if let Some(next_token) = tokens_clone.next() {
+                        if next_token.token == Token::KeywordPattern {
+                            self.parse_create_pattern_statement()
+                        } else {
+                            self.parse_variable_declaration()
+                        }
+                    } else {
+                        self.parse_variable_declaration()
+                    }
+                }
                 Token::KeywordDisplay => self.parse_display_statement(),
                 Token::KeywordCheck => self.parse_if_statement(),
                 Token::KeywordIf => self.parse_single_line_if(),
@@ -2954,5 +2968,170 @@ impl<'a> Parser<'a> {
         };
 
         Ok(stmt)
+    }
+
+    fn parse_create_pattern_statement(&mut self) -> Result<Statement, ParseError> {
+        let create_token = self.tokens.next().unwrap(); // Consume "create"
+        self.expect_token(Token::KeywordPattern, "Expected 'pattern' after 'create'")?;
+
+        let pattern_name = if let Some(token) = self.tokens.next() {
+            if let Token::Identifier(name) = &token.token {
+                name.clone()
+            } else {
+                return Err(ParseError::new(
+                    "Expected pattern name after 'create pattern'".to_string(),
+                    token.line,
+                    token.column,
+                ));
+            }
+        } else {
+            return Err(ParseError::new(
+                "Expected pattern name after 'create pattern'".to_string(),
+                create_token.line,
+                create_token.column,
+            ));
+        };
+
+        self.expect_token(Token::Colon, "Expected ':' after pattern name")?;
+
+        let mut pattern_parts = Vec::new();
+        let mut depth = 1; // Track nesting depth for proper end matching
+
+        while let Some(token) = self.tokens.peek() {
+            match &token.token {
+                Token::KeywordEnd => {
+                    let mut tokens_clone = self.tokens.clone();
+                    tokens_clone.next(); // Skip "end"
+                    if let Some(next_token) = tokens_clone.next() {
+                        if next_token.token == Token::KeywordPattern {
+                            depth -= 1;
+                            if depth == 0 {
+                                self.tokens.next(); // Consume "end"
+                                self.tokens.next(); // Consume "pattern"
+                                break;
+                            }
+                        }
+                    }
+                    pattern_parts.push(self.tokens.next().unwrap().clone());
+                }
+                Token::KeywordCreate => {
+                    // Check for nested pattern creation
+                    let mut tokens_clone = self.tokens.clone();
+                    tokens_clone.next(); // Skip "create"
+                    if let Some(next_token) = tokens_clone.next() {
+                        if next_token.token == Token::KeywordPattern {
+                            depth += 1;
+                        }
+                    }
+                    pattern_parts.push(self.tokens.next().unwrap().clone());
+                }
+                _ => {
+                    pattern_parts.push(self.tokens.next().unwrap().clone());
+                }
+            }
+        }
+
+        if depth > 0 {
+            return Err(ParseError::new(
+                "Expected 'end pattern' to close pattern definition".to_string(),
+                create_token.line,
+                create_token.column,
+            ));
+        }
+
+        let ir_string = self.compile_pattern_to_ir(&pattern_parts)?;
+
+        Ok(Statement::VariableDeclaration {
+            name: pattern_name,
+            value: Expression::Literal(
+                Literal::Pattern(ir_string),
+                create_token.line,
+                create_token.column,
+            ),
+            line: create_token.line,
+            column: create_token.column,
+        })
+    }
+
+    fn compile_pattern_to_ir(
+        &mut self,
+        tokens: &[TokenWithPosition],
+    ) -> Result<String, ParseError> {
+        let mut ir_parts = Vec::new();
+        let mut i = 0;
+
+        while i < tokens.len() {
+            let token = &tokens[i];
+            match &token.token {
+                Token::KeywordMatches => {
+                    i += 1;
+                    if i >= tokens.len() {
+                        return Err(ParseError::new(
+                            "Expected pattern after 'matches'".to_string(),
+                            token.line,
+                            token.column,
+                        ));
+                    }
+
+                    let pattern_token = &tokens[i];
+                    match &pattern_token.token {
+                        Token::StringLiteral(s) => {
+                            ir_parts.push(format!("lit(\"{}\")", s.replace("\"", "\\\"")));
+                        }
+                        Token::KeywordDigit => {
+                            ir_parts.push("class(digit)".to_string());
+                        }
+                        Token::KeywordLetter => {
+                            ir_parts.push("class(letter)".to_string());
+                        }
+                        Token::KeywordWhitespace => {
+                            ir_parts.push("class(whitespace)".to_string());
+                        }
+                        _ => {
+                            return Err(ParseError::new(
+                                "Invalid pattern after 'matches'".to_string(),
+                                pattern_token.line,
+                                pattern_token.column,
+                            ));
+                        }
+                    }
+                }
+                Token::KeywordOr => {
+                    // Handle alternation - this is a simplified implementation
+                    // In a full implementation, this would need proper precedence handling
+                    if ir_parts.len() >= 1 {
+                        let left = ir_parts.pop().unwrap();
+                        i += 1;
+                        if i >= tokens.len() {
+                            return Err(ParseError::new(
+                                "Expected pattern after 'or'".to_string(),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                        // Parse the right side (simplified - would need recursive parsing)
+                        let right_ir = self.compile_pattern_to_ir(&tokens[i..i + 1])?;
+                        ir_parts.push(format!("alt({},{})", left, right_ir));
+                    }
+                }
+                Token::Newline => {}
+                _ => {}
+            }
+            i += 1;
+        }
+
+        if ir_parts.is_empty() {
+            return Err(ParseError::new(
+                "Empty pattern definition".to_string(),
+                0,
+                0,
+            ));
+        }
+
+        if ir_parts.len() == 1 {
+            Ok(ir_parts[0].clone())
+        } else {
+            Ok(format!("seq({})", ir_parts.join(",")))
+        }
     }
 }

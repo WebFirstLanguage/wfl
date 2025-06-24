@@ -55,6 +55,7 @@ impl fmt::Display for Type {
             Type::Number => write!(f, "Number"),
             Type::Boolean => write!(f, "Boolean"),
             Type::Nothing => write!(f, "Nothing"),
+            Type::Pattern => write!(f, "Pattern"),
             Type::Custom(name) => write!(f, "{}", name),
             Type::List(item_type) => write!(f, "List of {}", item_type),
             Type::Map(key_type, value_type) => write!(f, "Map from {} to {}", key_type, value_type),
@@ -712,7 +713,7 @@ impl TypeChecker {
                 Literal::Float(_) => Type::Number,
                 Literal::Boolean(_) => Type::Boolean,
                 Literal::Nothing => Type::Nothing,
-                Literal::Pattern(_) => Type::Text,
+                Literal::Pattern(_) => Type::Pattern,
                 Literal::List(_) => Type::List(Box::new(Type::Any)),
             },
             Expression::Variable(name, line, column) => {
@@ -1187,10 +1188,13 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern, got {}", pattern_type),
-                        Some(Type::Text),
+                        format!(
+                            "Expected Pattern for pattern matching, got {}",
+                            pattern_type
+                        ),
+                        Some(Type::Pattern),
                         Some(pattern_type),
                         0,
                         0,
@@ -1213,17 +1217,17 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern, got {}", pattern_type),
-                        Some(Type::Text),
+                        format!("Expected Pattern for pattern finding, got {}", pattern_type),
+                        Some(Type::Pattern),
                         Some(pattern_type),
                         0,
                         0,
                     );
                 }
 
-                Type::Map(Box::new(Type::Text), Box::new(Type::Text))
+                Type::Map(Box::new(Type::Text), Box::new(Type::Nothing))
             }
             Expression::PatternReplace {
                 text,
@@ -1245,10 +1249,13 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern, got {}", pattern_type),
-                        Some(Type::Text),
+                        format!(
+                            "Expected Pattern for pattern replacement, got {}",
+                            pattern_type
+                        ),
+                        Some(Type::Pattern),
                         Some(pattern_type),
                         0,
                         0,
@@ -1281,10 +1288,13 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern, got {}", pattern_type),
-                        Some(Type::Text),
+                        format!(
+                            "Expected Pattern for pattern splitting, got {}",
+                            pattern_type
+                        ),
+                        Some(Type::Pattern),
                         Some(pattern_type),
                         0,
                         0,

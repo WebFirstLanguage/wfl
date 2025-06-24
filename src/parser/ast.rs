@@ -304,6 +304,7 @@ pub enum Type {
     Number,
     Boolean,
     Nothing,
+    Pattern,
     Custom(String),
     List(Box<Type>),
     Map(Box<Type>, Box<Type>),
