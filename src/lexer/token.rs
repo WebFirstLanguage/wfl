@@ -1,7 +1,7 @@
 use logos::Logos;
 
 #[derive(Logos, Debug, PartialEq, Clone)]
-#[logos(skip r"[ \t\f\r]+|//.*")] // Skip whitespace (excluding newline) and line comments
+#[logos(skip r"[ \t\f\r]+|//.*|#.*")] // Skip whitespace (excluding newline) and line comments (// and #)
 pub enum Token {
     #[token("\n")]
     Newline,
@@ -153,6 +153,18 @@ pub enum Token {
     KeywordGreedy,
     #[token("lazy")]
     KeywordLazy,
+    #[token("one")]
+    KeywordOne,
+    #[token("optional")]
+    KeywordOptional,
+    #[token("between")]
+    KeywordBetween,
+    #[token("start")]
+    KeywordStart,
+    #[token("text")]
+    KeywordText,
+    #[token("on")]
+    KeywordOn,
     #[token("push")]
     KeywordPush,
     #[token("above")]
@@ -180,6 +192,12 @@ pub enum Token {
 
     #[token("]")]
     RightBracket,
+
+    #[token("{")]
+    LeftBrace,
+
+    #[token("}")]
+    RightBrace,
 
     #[regex("(?:yes|no|true|false)", |lex| {
         let text = lex.slice().to_ascii_lowercase();

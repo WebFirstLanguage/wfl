@@ -2093,7 +2093,7 @@ impl Interpreter {
                 let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
                 let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
 
-                let args = vec![pattern_val, text_val]; // Note: pattern first, then text
+                let args = vec![text_val, pattern_val]; // Note: text first, then pattern
                 crate::stdlib::pattern::native_pattern_find(args, *_line, *_column)
             }
 
@@ -2110,7 +2110,7 @@ impl Interpreter {
                     .evaluate_expression(replacement, Rc::clone(&env))
                     .await?;
 
-                let args = vec![pattern_val, replacement_val, text_val]; // Note: pattern, replacement, then text
+                let args = vec![text_val, pattern_val, replacement_val]; // Note: text, pattern, then replacement
                 crate::stdlib::pattern::native_pattern_replace(args, *_line, *_column)
             }
 
