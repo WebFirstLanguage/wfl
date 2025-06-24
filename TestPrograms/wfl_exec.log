@@ -1,5 +1,14 @@
-12:42:11.9603328 [INFO] WFL execution logging initialized at 2025-06-03 07:42:11 - wfl_exec.log
-12:42:11.9769694 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:661] EXEC: Declaration: 'today_value' = NativeFunction(today)
-12:42:11.977125 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:661] EXEC: Declaration: 'now_value' = NativeFunction(now)
-12:42:11.9772251 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:661] EXEC: Declaration: 'datetime_now_value' = NativeFunction(datetime_now)
-12:42:11.9773228 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:661] EXEC: Declaration: 'current_date' = NativeFunction(today)
+10:23:06.6495299 [INFO] WFL execution logging initialized at 2025-06-24 05:23:06 - TestPrograms\wfl_exec.log
+10:23:06.6503657 [DEBUG] (1) reqwest::connect: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\reqwest-0.11.27\src\connect.rs:449] starting new connection: https://www.google.com/
+10:23:06.6506561 [DEBUG] (34) hyper::client::connect::dns: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\client\connect\dns.rs:122] resolving host="www.google.com"
+10:23:06.6544684 [DEBUG] (1) hyper::client::connect::http: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\client\connect\http.rs:542] connecting to 173.194.208.106:443
+10:23:06.6668142 [DEBUG] (1) hyper::client::connect::http: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\client\connect\http.rs:545] connected to 173.194.208.106:443
+10:23:06.7009918 [DEBUG] (33) hyper::proto::h1::io: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\proto\h1\io.rs:352] flushed 53 bytes
+10:23:06.7550399 [DEBUG] (4) hyper::proto::h1::io: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\proto\h1\io.rs:211] parsed 16 headers
+10:23:06.7551307 [DEBUG] (4) hyper::proto::h1::conn: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\proto\h1\conn.rs:224] incoming body is chunked encoding
+10:23:06.7552227 [DEBUG] (4) hyper::proto::h1::decode: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\proto\h1\decode.rs:372] incoming chunked header: 0x1812 (6162 bytes)
+10:23:06.755427 [DEBUG] (4) hyper::proto::h1::decode: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\proto\h1\decode.rs:372] incoming chunked header: 0xA6 (166 bytes)
+10:23:06.7557824 [DEBUG] (32) hyper::proto::h1::decode: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\proto\h1\decode.rs:372] incoming chunked header: 0x8000 (32768 bytes)
+10:23:06.7737612 [DEBUG] (28) hyper::proto::h1::decode: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\proto\h1\decode.rs:372] incoming chunked header: 0x3D97 (15767 bytes)
+10:23:06.7818282 [DEBUG] (32) hyper::proto::h1::conn: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\proto\h1\conn.rs:300] incoming body completed
+10:23:06.7819408 [DEBUG] (32) hyper::client::pool: [C:\Users\Brad Byrd\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-0.14.32\src\client\pool.rs:380] pooling idle connection for ("https", www.google.com)
