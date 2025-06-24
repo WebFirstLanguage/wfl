@@ -7,6 +7,10 @@ and a matching text file. Original files are preserved. Table of contents is inc
 
 The script outputs to both .md and .txt formats by default, unless the --no-txt option is specified.
 
+TODO: This Python script is deprecated and will be removed in the next release cycle.
+      Please migrate to the WFL version: `wfl run tools/combiner.wfl`
+      Removal scheduled after one release cycle to allow migration time.
+
 Author: WFL Team
 """
 

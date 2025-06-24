@@ -1,0 +1,21 @@
+// WFL Combiner - Proof of Concept
+// This demonstrates the integration of WFL stdlib I/O functions
+// Note: Full combiner implementation blocked by WFL parser limitations
+
+define action called main:
+    display "WFL Combiner - Proof of Concept"
+    display "Demonstrating stdlib I/O integration"
+    
+    // Test basic file operations
+    store test_file as "README.md"
+    display "Testing file operations with: " with test_file
+    
+    // This would use the new stdlib functions once parser supports them:
+    // store files as walk_dir(".", "*.md", false)
+    // store file_content as read_file_simple(test_file)
+    // store normalized as normalize_path(test_file)
+    
+    display "Basic WFL combiner framework established"
+    display "Full implementation requires WFL parser enhancements"
+    
+end action
