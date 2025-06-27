@@ -1,0 +1,155 @@
+// WFL Path Utilities Demo - Cross-platform Path Manipulation
+// This script demonstrates basename(), dirname(), and pathjoin() functions
+
+display "=== WFL Path Utilities Demo ==="
+
+// Demonstrate basename() function
+display "=== basename() - Extract Filenames ==="
+create list as sample_paths
+push with sample_paths and "/home/user/documents/report.pdf"
+push with sample_paths and "C:\\Users\\User\\Desktop\\image.png"
+push with sample_paths and "./local/file.txt"
+push with sample_paths and "simple_file.wfl"
+push with sample_paths and "/path/to/directory/"
+
+for each path in sample_paths:
+    store filename as basename(path)
+    display "Path: " plus path
+    display "  Basename: " plus filename
+    display ""
+end for
+
+// Demonstrate dirname() function
+display "=== dirname() - Extract Directory Paths ==="
+for each path in sample_paths:
+    store directory as dirname(path)
+    display "Path: " plus path
+    display "  Directory: " plus directory
+    display ""
+end for
+
+// Demonstrate pathjoin() function
+display "=== pathjoin() - Combine Path Components ==="
+
+// Simple two-component join
+store base_dir as "/home/user"
+store filename as "document.txt"
+store joined_path as pathjoin(base_dir, filename)
+display "Join '" plus base_dir plus "' + '" plus filename plus "'"
+display "  Result: " plus joined_path
+display ""
+
+// Multi-component join
+store root as "/var"
+store subdir1 as "log"
+store subdir2 as "application"
+store logfile as "app.log"
+store full_log_path as pathjoin(root, subdir1, subdir2, logfile)
+display "Join multiple components:"
+display "  " plus root plus " + " plus subdir1 plus " + " plus subdir2 plus " + " plus logfile
+display "  Result: " plus full_log_path
+display ""
+
+// Relative path joining
+store current_dir as "."
+store relative_file as "examples/demo.wfl"
+store relative_path as pathjoin(current_dir, relative_file)
+display "Relative path join:"
+display "  " plus current_dir plus " + " plus relative_file
+display "  Result: " plus relative_path
+display ""
+
+// Practical example: building file paths from components
+display "=== Practical Example: Building Project Paths ==="
+store project_root as "/home/developer/my_project"
+create list as subdirs
+push with subdirs and "src"
+push with subdirs and "tests"
+push with subdirs and "docs"
+push with subdirs and "examples"
+
+display "Project structure paths:"
+for each subdir in subdirs:
+    store subdir_path as pathjoin(project_root, subdir)
+    display "  " plus subdir plus ": " plus subdir_path
+    
+    // Create some example files in each directory
+    check if subdir is equal to "src":
+        store main_file as pathjoin(subdir_path, "main.rs")
+        store lib_file as pathjoin(subdir_path, "lib.rs")
+        display "    " plus main_file
+        display "    " plus lib_file
+    otherwise if subdir is equal to "tests":
+        store test_file as pathjoin(subdir_path, "integration_tests.rs")
+        display "    " plus test_file
+    otherwise if subdir is equal to "docs":
+        store readme as pathjoin(subdir_path, "README.md")
+        display "    " plus readme
+    otherwise if subdir is equal to "examples":
+        store example_file as pathjoin(subdir_path, "demo.wfl")
+        display "    " plus example_file
+    end check
+end for
+
+display ""
+
+// Demonstrate path decomposition and reconstruction
+display "=== Path Decomposition and Reconstruction ==="
+store complex_path as "/home/user/projects/wfl/src/stdlib/core.rs"
+display "Original path: " plus complex_path
+
+store filename as basename(complex_path)
+store directory as dirname(complex_path)
+display "Decomposed:"
+display "  Directory: " plus directory
+display "  Filename: " plus filename
+
+store reconstructed as pathjoin(directory, filename)
+display "Reconstructed: " plus reconstructed
+
+check if reconstructed is equal to complex_path:
+    display "✓ Reconstruction successful!"
+otherwise:
+    display "✗ Reconstruction differs from original"
+end check
+
+display ""
+
+// Working with file extensions
+display "=== Working with File Extensions ==="
+create list as files_with_extensions
+push with files_with_extensions and "document.pdf"
+push with files_with_extensions and "script.wfl"
+push with files_with_extensions and "image.png"
+push with files_with_extensions and "data.json"
+
+for each file in files_with_extensions:
+    store name_only as basename(file)
+    display "File: " plus name_only
+    
+    // Extract extension (simple approach)
+    store parts as split(name_only, ".")
+    store part_count as length(parts)
+    check if part_count is greater than 1:
+        store extension as index(parts, part_count minus 1)
+        store name_without_ext as index(parts, 0)
+        display "  Name: " plus name_without_ext
+        display "  Extension: " plus extension
+        
+        // Create backup filename
+        store backup_name as name_without_ext plus ".backup." plus extension
+        display "  Backup name: " plus backup_name
+    otherwise:
+        display "  No extension found"
+    end check
+    display ""
+end for
+
+display "=== Summary ==="
+display "WFL path utilities provide cross-platform file path manipulation:"
+display "- basename(): Extract filename from full path"
+display "- dirname(): Extract directory portion from path"
+display "- pathjoin(): Combine path components safely"
+display ""
+display "These functions handle platform differences automatically,"
+display "making WFL scripts portable between Unix and Windows systems!"

@@ -1,0 +1,88 @@
+// WFL Args Demo - Command Line Arguments Example
+// This script demonstrates how to access and use command-line arguments in WFL
+// Run with: cargo run -- examples/args_demo.wfl --input file.txt --output result.txt --verbose
+
+display "=== WFL Command Line Arguments Demo ==="
+
+// Get all command-line arguments
+store cli_args as args()
+store arg_count as length(cli_args)
+
+display "Number of arguments provided: " plus arg_count
+
+check if arg_count is equal to 0:
+    display "No arguments provided!"
+    display "Try running with: cargo run -- examples/args_demo.wfl --input file.txt --output result.txt --verbose"
+    exit
+end check
+
+display "Arguments received:"
+store counter as 1
+for each arg in cli_args:
+    display "  " plus counter plus ": " plus arg
+    change counter to counter plus 1
+end for
+
+// Parse common command-line patterns
+store input_file as ""
+store output_file as ""
+store verbose_mode as false
+
+store i as 0
+count from 0 to arg_count minus 1:
+    store current_arg as index(cli_args, i)
+    
+    check if current_arg is equal to "--input":
+        check if i plus 1 is less than arg_count:
+            change i to i plus 1
+            store input_file as index(cli_args, i)
+            display "Input file set to: " plus input_file
+        otherwise:
+            display "Error: --input requires a filename"
+        end check
+    otherwise if current_arg is equal to "--output":
+        check if i plus 1 is less than arg_count:
+            change i to i plus 1
+            store output_file as index(cli_args, i)
+            display "Output file set to: " plus output_file
+        otherwise:
+            display "Error: --output requires a filename"
+        end check
+    otherwise if current_arg is equal to "--verbose":
+        store verbose_mode as true
+        display "Verbose mode enabled"
+    otherwise if current_arg is equal to "--help":
+        display "Usage: args_demo.wfl [options]"
+        display "Options:"
+        display "  --input <file>    Specify input file"
+        display "  --output <file>   Specify output file"
+        display "  --verbose         Enable verbose output"
+        display "  --help            Show this help message"
+        exit
+    otherwise:
+        check if verbose_mode is equal to true:
+            display "Unknown argument: " plus current_arg
+        end check
+    end check
+    
+    change i to i plus 1
+end count
+
+display ""
+display "=== Parsed Configuration ==="
+check if input_file is not equal to "":
+    display "Input file: " plus input_file
+otherwise:
+    display "Input file: (not specified)"
+end check
+
+check if output_file is not equal to "":
+    display "Output file: " plus output_file
+otherwise:
+    display "Output file: (not specified)"
+end check
+
+display "Verbose mode: " plus verbose_mode
+
+display ""
+display "This demonstrates how WFL scripts can accept and process command-line arguments!"

@@ -1,0 +1,198 @@
+// WFL Filesystem Demo - Complete File System Operations Example
+// This script combines all new filesystem and path functions in a practical scenario
+
+display "=== WFL Complete Filesystem Operations Demo ==="
+
+// Get target directory from command line or use current directory
+store cli_args as args()
+store scan_dir as "."
+
+check if length(cli_args) is greater than 0:
+    store scan_dir as index(cli_args, 0)
+end check
+
+display "Analyzing directory: " plus scan_dir
+display ""
+
+// Scan for different file types
+display "=== File Type Analysis ==="
+store all_files as dirlist(scan_dir, true, "*")
+store total_files as length(all_files)
+
+// Count files by extension
+create list as wfl_files
+create list as rust_files
+create list as md_files
+create list as other_files
+
+for each file in all_files:
+    store filename as basename(file)
+    store parts as split(filename, ".")
+    store part_count as length(parts)
+    
+    check if part_count is greater than 1:
+        store extension as index(parts, part_count minus 1)
+        check if extension is equal to "wfl":
+            push with wfl_files and file
+        otherwise if extension is equal to "rs":
+            push with rust_files and file
+        otherwise if extension is equal to "md":
+            push with md_files and file
+        otherwise:
+            push with other_files and file
+        end check
+    otherwise:
+        push with other_files and file
+    end check
+end for
+
+display "File type summary:"
+display "  WFL files: " plus length(wfl_files)
+display "  Rust files: " plus length(rust_files)
+display "  Markdown files: " plus length(md_files)
+display "  Other files: " plus length(other_files)
+display "  Total files: " plus total_files
+display ""
+
+// Analyze file modification times
+display "=== File Age Analysis ==="
+check if total_files is greater than 0:
+    create list as file_times
+    for each file in all_files:
+        store mtime as filemtime(file)
+        push with file_times and mtime
+    end for
+    
+    store sorted_times as sort(file_times)
+    store oldest_time as index(sorted_times, 0)
+    store newest_time as index(sorted_times, length(sorted_times) minus 1)
+    
+    display "Oldest file timestamp: " plus oldest_time
+    display "Newest file timestamp: " plus newest_time
+    
+    // Find the actual oldest and newest files
+    for each file in all_files:
+        store mtime as filemtime(file)
+        check if mtime is equal to oldest_time:
+            store filename as basename(file)
+            display "Oldest file: " plus filename
+        end check
+        check if mtime is equal to newest_time:
+            store filename as basename(file)
+            display "Newest file: " plus filename
+        end check
+    end for
+otherwise:
+    display "No files found for analysis"
+end check
+
+display ""
+
+// Directory structure analysis
+display "=== Directory Structure ==="
+create list as directories
+for each file in all_files:
+    store dir as dirname(file)
+    
+    // Check if directory is already in our list
+    store found as false
+    for each existing_dir in directories:
+        check if existing_dir is equal to dir:
+            store found as true
+        end check
+    end for
+    
+    check if found is equal to false:
+        push with directories and dir
+    end check
+end for
+
+store sorted_dirs as sort(directories)
+display "Unique directories found: " plus length(sorted_dirs)
+for each dir in sorted_dirs:
+    display "  " plus dir
+end for
+
+display ""
+
+// Create a file organization report
+display "=== File Organization Report ==="
+check if length(wfl_files) is greater than 0:
+    display "WFL Files (sorted by name):"
+    store sorted_wfl as sort(wfl_files)
+    for each file in sorted_wfl:
+        store filename as basename(file)
+        store dir as dirname(file)
+        store mtime as filemtime(file)
+        display "  " plus filename plus " (in " plus dir plus ", modified: " plus mtime plus ")"
+    end for
+    display ""
+end check
+
+check if length(rust_files) is greater than 0:
+    display "Rust Files (sorted by name):"
+    store sorted_rust as sort(rust_files)
+    store max_rust_display as 10
+    store rust_displayed as 0
+    
+    for each file in sorted_rust:
+        check if rust_displayed is less than max_rust_display:
+            store filename as basename(file)
+            store dir as dirname(file)
+            display "  " plus filename plus " (in " plus dir plus ")"
+            change rust_displayed to rust_displayed plus 1
+        end check
+    end for
+    
+    check if length(rust_files) is greater than max_rust_display:
+        store remaining as length(rust_files) minus max_rust_display
+        display "  ... and " plus remaining plus " more Rust files"
+    end check
+    display ""
+end check
+
+// Demonstrate path manipulation for file operations
+display "=== Path Manipulation Examples ==="
+check if total_files is greater than 0:
+    store sample_file as index(all_files, 0)
+    store filename as basename(sample_file)
+    store directory as dirname(sample_file)
+    
+    display "Sample file analysis:"
+    display "  Full path: " plus sample_file
+    display "  Directory: " plus directory
+    display "  Filename: " plus filename
+    
+    // Create backup and temp file paths
+    store backup_dir as pathjoin(directory, "backup")
+    store backup_file as pathjoin(backup_dir, filename plus ".bak")
+    store temp_file as pathjoin(directory, "temp_" plus filename)
+    
+    display "  Backup path: " plus backup_file
+    display "  Temp path: " plus temp_file
+    
+    // Demonstrate relative path creation
+    store relative_backup as pathjoin(".", "backup", filename)
+    display "  Relative backup: " plus relative_backup
+end check
+
+display ""
+
+// Summary statistics
+display "=== Summary Statistics ==="
+display "Scan completed for directory: " plus scan_dir
+display "Total files analyzed: " plus total_files
+display "Unique directories: " plus length(directories)
+display "File types found:"
+display "  - WFL: " plus length(wfl_files)
+display "  - Rust: " plus length(rust_files)
+display "  - Markdown: " plus length(md_files)
+display "  - Other: " plus length(other_files)
+
+display ""
+display "This demo showcases WFL's filesystem capabilities:"
+display "- Recursive directory scanning with dirlist()"
+display "- File modification time analysis with filemtime()"
+display "- Path manipulation with basename(), dirname(), pathjoin()"
+display "- List sorting and data organization with sort()"
+display "- Command-line argument processing with args()"
