@@ -47,8 +47,6 @@ jobs:
         run: cargo build --verbose --target ${{ matrix.target }}
       - name: Run Unit Tests
         run: cargo test --verbose --target ${{ matrix.target }}
-      - name: Run Native Function Tests
-        run: cargo test --verbose --target ${{ matrix.target }} --test native_function_tests
       - name: Run Integration Tests
         run: cargo test --verbose --target ${{ matrix.target }} --test combiner_port
       - name: Test Demo Scripts (Unix)
