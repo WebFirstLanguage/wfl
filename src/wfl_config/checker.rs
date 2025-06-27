@@ -560,17 +560,14 @@ impl ConfigChecker {
                 if fix_mode {
                     println!("   Fix: {}", fix_message);
                 } else {
-                    println!("   Suggested fix: {}", fix_message);
+                    println!("   Suggested fix: {fix_message}");
                 }
             }
 
             println!();
         }
 
-        println!(
-            "{} errors, {} warnings found in configuration files",
-            error_count, warning_count
-        );
+        println!("{error_count} errors, {warning_count} warnings found in configuration files");
 
         if !fix_mode && error_count > 0 {
             println!("\n🛠️  Run 'wfl --configFix' to automatically fix these issues");
