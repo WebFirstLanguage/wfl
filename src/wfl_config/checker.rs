@@ -298,7 +298,7 @@ impl ConfigChecker {
                         file_path: file_path.to_path_buf(),
                         kind: ConfigIssueKind::UnknownKey,
                         issue_type: ConfigIssueType::Warning,
-                        message: format!("Unknown configuration key: {}", key),
+                        message: format!("Unknown configuration key: {key}"),
                         setting_name: Some(key.to_string()),
                         line_number: Some(line_number + 1),
                         fix_message: Some("Remove the line or correct the key name".to_string()),
@@ -324,7 +324,7 @@ impl ConfigChecker {
                                 fix_message: setting
                                     .default_value
                                     .as_ref()
-                                    .map(|default| format!("Set to default value: {}", default)),
+                                    .map(|default| format!("Set to default value: {default}")),
                             });
                         }
                     }
@@ -343,7 +343,7 @@ impl ConfigChecker {
                                 fix_message: setting
                                     .default_value
                                     .as_ref()
-                                    .map(|default| format!("Set to default value: {}", default)),
+                                    .map(|default| format!("Set to default value: {default}")),
                             });
                         }
                     }
@@ -361,7 +361,7 @@ impl ConfigChecker {
                                     setting_name: Some(key.to_string()),
                                     line_number: Some(line_number + 1),
                                     fix_message: setting.default_value.as_ref().map(|default| {
-                                        format!("Set to default value: {}", default)
+                                        format!("Set to default value: {default}")
                                     }),
                                 });
                             }
@@ -381,7 +381,7 @@ impl ConfigChecker {
                                     setting_name: Some(key.to_string()),
                                     line_number: Some(line_number + 1),
                                     fix_message: setting.default_value.as_ref().map(|default| {
-                                        format!("Set to default value: {}", default)
+                                        format!("Set to default value: {default}")
                                     }),
                                 });
                             }
@@ -420,11 +420,11 @@ impl ConfigChecker {
                         file_path: file_path.to_path_buf(),
                         kind: ConfigIssueKind::MissingSetting,
                         issue_type: ConfigIssueType::Error,
-                        message: format!("Missing required setting: {}", key),
+                        message: format!("Missing required setting: {key}"),
                         setting_name: Some(key.to_string()),
                         line_number: None,
                         fix_message: setting.default_value.as_ref().map(|default| {
-                            format!("Add '{}' with default value: {}", key, default)
+                            format!("Add '{key}' with default value: {default}")
                         }),
                     });
                 }
@@ -448,7 +448,7 @@ impl ConfigChecker {
             for setting in self.expected_settings.values() {
                 if let Some(default) = &setting.default_value {
                     content.push_str(&format!("# {}\n", setting.description));
-                    content.push_str(&format!("{} = {}\n\n", setting.name, default));
+                    content.push_str(&format!("{} = {default}\n\n", setting.name));
                 }
             }
 
@@ -478,7 +478,7 @@ impl ConfigChecker {
                         if line_number <= lines.len() {
                             lines[line_number - 1] =
                                 format!("# {} (unknown key)", lines[line_number - 1]);
-                            println!("✅ Commented out unknown key at line {}", line_number);
+                            println!("✅ Commented out unknown key at line {line_number}");
                         }
                     }
                 }
@@ -490,11 +490,8 @@ impl ConfigChecker {
                             if let Some(setting) = self.expected_settings.get(setting_name) {
                                 if let Some(default_value) = &setting.default_value {
                                     lines[line_number - 1] =
-                                        format!("{} = {}", setting_name, default_value);
-                                    println!(
-                                        "✅ Fixed value for '{}' at line {}",
-                                        setting_name, line_number
-                                    );
+                                        format!("{setting_name} = {default_value}");
+                                    println!("✅ Fixed value for '{setting_name}' at line {line_number}");
                                 }
                             }
                         }
@@ -507,9 +504,9 @@ impl ConfigChecker {
                                 if !added_settings.contains_key(setting_name) {
                                     lines.push(String::new());
                                     lines.push(format!("# {}", setting.description));
-                                    lines.push(format!("{} = {}", setting_name, default_value));
+                                    lines.push(format!("{setting_name} = {default_value}"));
                                     added_settings.insert(setting_name.clone(), true);
-                                    println!("✅ Added missing setting: {}", setting_name);
+                                    println!("✅ Added missing setting: {setting_name}");
                                 }
                             }
                         }
@@ -558,7 +555,7 @@ impl ConfigChecker {
 
             if let Some(fix_message) = &issue.fix_message {
                 if fix_mode {
-                    println!("   Fix: {}", fix_message);
+                    println!("   Fix: {fix_message}");
                 } else {
                     println!("   Suggested fix: {fix_message}");
                 }
