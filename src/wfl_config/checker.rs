@@ -360,9 +360,10 @@ impl ConfigChecker {
                                     ),
                                     setting_name: Some(key.to_string()),
                                     line_number: Some(line_number + 1),
-                                    fix_message: setting.default_value.as_ref().map(|default| {
-                                        format!("Set to default value: {default}")
-                                    }),
+                                    fix_message: setting
+                                        .default_value
+                                        .as_ref()
+                                        .map(|default| format!("Set to default value: {default}")),
                                 });
                             }
                         }
@@ -380,9 +381,10 @@ impl ConfigChecker {
                                     ),
                                     setting_name: Some(key.to_string()),
                                     line_number: Some(line_number + 1),
-                                    fix_message: setting.default_value.as_ref().map(|default| {
-                                        format!("Set to default value: {default}")
-                                    }),
+                                    fix_message: setting
+                                        .default_value
+                                        .as_ref()
+                                        .map(|default| format!("Set to default value: {default}")),
                                 });
                             }
                         }
@@ -423,9 +425,10 @@ impl ConfigChecker {
                         message: format!("Missing required setting: {key}"),
                         setting_name: Some(key.to_string()),
                         line_number: None,
-                        fix_message: setting.default_value.as_ref().map(|default| {
-                            format!("Add '{key}' with default value: {default}")
-                        }),
+                        fix_message: setting
+                            .default_value
+                            .as_ref()
+                            .map(|default| format!("Add '{key}' with default value: {default}")),
                     });
                 }
             }
@@ -491,7 +494,9 @@ impl ConfigChecker {
                                 if let Some(default_value) = &setting.default_value {
                                     lines[line_number - 1] =
                                         format!("{setting_name} = {default_value}");
-                                    println!("✅ Fixed value for '{setting_name}' at line {line_number}");
+                                    println!(
+                                        "✅ Fixed value for '{setting_name}' at line {line_number}"
+                                    );
                                 }
                             }
                         }
