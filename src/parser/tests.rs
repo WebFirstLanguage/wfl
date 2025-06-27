@@ -222,7 +222,7 @@ fn test_parse_wait_for_open_file() {
 
         println!("Testing open file statement:");
         for (i, token) in tokens.iter().enumerate() {
-            println!("{}: {:?}", i, token);
+            println!("{i}: {token:?}");
         }
 
         let result = parser.parse_statement();
@@ -242,12 +242,12 @@ fn test_parse_wait_for_open_file() {
 
         println!("\nTesting new open file syntax:");
         for (i, token) in tokens.iter().enumerate() {
-            println!("{}: {:?}", i, token);
+            println!("{i}: {token:?}");
         }
 
         let result = parser.parse_statement();
         if let Err(ref e) = result {
-            println!("Parse error for new open file syntax: {:?}", e);
+            println!("Parse error for new open file syntax: {e:?}");
         } else {
             println!("Successfully parsed new open file syntax");
         }
@@ -277,12 +277,12 @@ fn test_parse_wait_for_open_file() {
 
         println!("\nTesting wait for statement:");
         for (i, token) in tokens.iter().enumerate() {
-            println!("{}: {:?}", i, token);
+            println!("{i}: {token:?}");
         }
 
         let result = parser.parse_statement();
         if let Err(ref e) = result {
-            println!("Parse error for wait for: {:?}", e);
+            println!("Parse error for wait for: {e:?}");
         } else {
             println!("Successfully parsed wait for statement");
         }
