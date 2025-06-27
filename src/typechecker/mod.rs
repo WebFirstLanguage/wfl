@@ -1314,7 +1314,7 @@ impl TypeChecker {
                     Type::Async(inner_type) => *inner_type,
                     _ => {
                         self.type_error(
-                            format!("Cannot await non-async value of type {}", expr_type),
+                            format!("Cannot await non-async value of type {expr_type}"),
                             Some(Type::Async(Box::new(Type::Unknown))),
                             Some(expr_type),
                             *line,
@@ -1342,7 +1342,7 @@ impl TypeChecker {
                         return Type::Unknown;
                     } else {
                         self.type_error(
-                            format!("Undefined action '{}'", name),
+                            format!("Undefined action '{name}'"),
                             None,
                             None,
                             *line,
@@ -1356,7 +1356,7 @@ impl TypeChecker {
 
                 if symbol.symbol_type.is_none() {
                     self.type_error(
-                        format!("Cannot determine type of action '{}'", name),
+                        format!("Cannot determine type of action '{name}'"),
                         None,
                         None,
                         *line,
@@ -1418,7 +1418,7 @@ impl TypeChecker {
                     }
                     _ => {
                         self.type_error(
-                            format!("'{}' is not an action", name),
+                            format!("'{name}' is not an action"),
                             Some(Type::Function {
                                 parameters: vec![],
                                 return_type: Box::new(Type::Unknown),

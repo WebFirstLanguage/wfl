@@ -316,8 +316,7 @@ impl ConfigChecker {
                                 kind: ConfigIssueKind::InvalidType,
                                 issue_type: ConfigIssueType::Error,
                                 message: format!(
-                                    "Invalid type for {}: expected integer, got '{}'",
-                                    key, value
+                                    "Invalid type for {key}: expected integer, got '{value}'"
                                 ),
                                 setting_name: Some(key.to_string()),
                                 line_number: Some(line_number + 1),
@@ -335,8 +334,7 @@ impl ConfigChecker {
                                 kind: ConfigIssueKind::InvalidType,
                                 issue_type: ConfigIssueType::Error,
                                 message: format!(
-                                    "Invalid type for {}: expected boolean (true/false), got '{}'",
-                                    key, value
+                                    "Invalid type for {key}: expected boolean (true/false), got '{value}'"
                                 ),
                                 setting_name: Some(key.to_string()),
                                 line_number: Some(line_number + 1),
@@ -355,8 +353,7 @@ impl ConfigChecker {
                                     kind: ConfigIssueKind::InvalidValue,
                                     issue_type: ConfigIssueType::Error,
                                     message: format!(
-                                        "Invalid value for {}: expected one of {:?}, got '{}'",
-                                        key, valid_values, value
+                                        "Invalid value for {key}: expected one of {valid_values:?}, got '{value}'"
                                     ),
                                     setting_name: Some(key.to_string()),
                                     line_number: Some(line_number + 1),
@@ -376,8 +373,7 @@ impl ConfigChecker {
                                     kind: ConfigIssueKind::InvalidValue,
                                     issue_type: ConfigIssueType::Error,
                                     message: format!(
-                                        "Invalid value for {}: expected one of {:?}, got '{}'",
-                                        key, valid_values, value
+                                        "Invalid value for {key}: expected one of {valid_values:?}, got '{value}'"
                                     ),
                                     setting_name: Some(key.to_string()),
                                     line_number: Some(line_number + 1),
