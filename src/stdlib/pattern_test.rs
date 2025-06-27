@@ -468,7 +468,7 @@ mod tests {
 
         let mut pattern_parts = Vec::new();
         for i in 0..20 {
-            pattern_parts.push(format!("rep(0,1,lit(\"{}\"))", i));
+            pattern_parts.push(format!("rep(0,1,lit(\"{i}\"))"));
         }
         let pattern_ir = format!("seq({})", pattern_parts.join(","));
         let pattern = parse_ir(&pattern_ir).unwrap();

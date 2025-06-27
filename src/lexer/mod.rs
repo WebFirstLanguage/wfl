@@ -239,7 +239,7 @@ mod tests {
             "#;
         let tokens = lex_wfl(input);
 
-        println!("Tokens: {:?}", tokens);
+        println!("Tokens: {tokens:?}");
 
         assert!(tokens.contains(&Token::KeywordCreate));
         assert!(tokens.contains(&Token::KeywordCount)); // "count" is recognized as a keyword

@@ -340,7 +340,7 @@ mod tests {
         list.borrow_mut().push(list_value.clone());
 
         let safe_debug = SafeDebug::new(&list_value, 4);
-        let debug_output = format!("{:?}", safe_debug);
+        let debug_output = format!("{safe_debug:?}");
 
         assert!(debug_output.contains("<cycle>"));
 

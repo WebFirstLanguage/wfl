@@ -1,0 +1,134 @@
+// WFL Directory Listing Demo - Filesystem Operations Example
+// This script demonstrates directory listing, file filtering, and file metadata access
+
+display "=== WFL Directory Listing and Filesystem Demo ==="
+
+// Get command line arguments for directory to scan
+store cli_args as args()
+store target_dir as "."
+
+check if length(cli_args) is greater than 0:
+    store target_dir as index(cli_args, 0)
+    display "Scanning directory: " plus target_dir
+otherwise:
+    display "Scanning current directory (use: cargo run -- examples/dir_list_demo.wfl /path/to/dir)"
+end check
+
+display ""
+
+// List all files in the directory
+display "=== All Files ==="
+store all_files as dirlist(target_dir, false, null)
+store file_count as length(all_files)
+display "Found " plus file_count plus " files:"
+
+for each file in all_files:
+    store filename as basename(file)
+    display "  " plus filename
+end for
+
+display ""
+
+// List only WFL files
+display "=== WFL Files Only ==="
+store wfl_files as dirlist(target_dir, false, "*.wfl")
+store wfl_count as length(wfl_files)
+display "Found " plus wfl_count plus " WFL files:"
+
+for each file in wfl_files:
+    store filename as basename(file)
+    display "  " plus filename
+end for
+
+display ""
+
+// List Rust files recursively
+display "=== Rust Files (Recursive) ==="
+store rust_files as dirlist(target_dir, true, "*.rs")
+store rust_count as length(rust_files)
+display "Found " plus rust_count plus " Rust files:"
+
+store max_display as 10
+store displayed as 0
+for each file in rust_files:
+    check if displayed is less than max_display:
+        store relative_path as file
+        display "  " plus relative_path
+        change displayed to displayed plus 1
+    end check
+end for
+
+check if rust_count is greater than max_display:
+    store remaining as rust_count minus max_display
+    display "  ... and " plus remaining plus " more files"
+end check
+
+display ""
+
+// Demonstrate file metadata and sorting
+display "=== File Metadata and Sorting ==="
+check if wfl_count is greater than 0:
+    display "WFL files with modification times:"
+    
+    // Create list of file info with timestamps
+    create list as file_info_list
+    for each file in wfl_files:
+        store filename as basename(file)
+        store mtime as filemtime(file)
+        store info as filename plus " (modified: " plus mtime plus ")"
+        push with file_info_list and info
+    end for
+    
+    // Sort files alphabetically by name
+    store sorted_files as sort(wfl_files)
+    display "Sorted alphabetically:"
+    for each file in sorted_files:
+        store filename as basename(file)
+        display "  " plus filename
+    end for
+    
+    display ""
+    display "With modification times:"
+    for each info in file_info_list:
+        display "  " plus info
+    end for
+otherwise:
+    display "No WFL files found to demonstrate metadata"
+end check
+
+display ""
+
+// Demonstrate path utilities
+display "=== Path Utilities Demo ==="
+check if file_count is greater than 0:
+    store sample_file as index(all_files, 0)
+    display "Sample file: " plus sample_file
+    
+    store filename as basename(sample_file)
+    store directory as dirname(sample_file)
+    
+    display "  Filename: " plus filename
+    display "  Directory: " plus directory
+    
+    // Demonstrate path joining
+    store reconstructed as pathjoin(directory, filename)
+    display "  Reconstructed path: " plus reconstructed
+    
+    // Create a new path
+    store new_path as pathjoin(target_dir, "subdir", "newfile.txt")
+    display "  Example joined path: " plus new_path
+end check
+
+display ""
+display "=== Summary ==="
+display "Total files found: " plus file_count
+display "WFL files: " plus wfl_count
+display "Rust files (recursive): " plus rust_count
+
+display ""
+display "This demonstrates WFL's filesystem capabilities:"
+display "- dirlist() for directory scanning with patterns"
+display "- filemtime() for file modification times"
+display "- basename() and dirname() for path manipulation"
+display "- pathjoin() for cross-platform path construction"
+display "- sort() for organizing file lists"

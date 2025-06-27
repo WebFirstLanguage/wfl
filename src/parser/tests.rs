@@ -20,10 +20,7 @@ fn parses_concatenation_correctly() {
                     "Left side should be variable 'currentLog'"
                 );
             } else {
-                panic!(
-                    "Left side of concatenation should be a Variable, not {:?}",
-                    left
-                );
+                panic!("Left side of concatenation should be a Variable, not {left:?}");
             }
 
             // Right side of the outer concatenation should be another concatenation
@@ -40,17 +37,14 @@ fn parses_concatenation_correctly() {
                         "Left side should be variable 'message_text'"
                     );
                 } else {
-                    panic!("Inner left side should be a Variable, not {:?}", inner_left);
+                    panic!("Inner left side should be a Variable, not {inner_left:?}");
                 }
 
                 // Inner right should be a string literal
                 if let Expression::Literal(Literal::String(s), ..) = *inner_right {
                     assert_eq!(s, "\\n", "Right side should be string '\\n'");
                 } else {
-                    panic!(
-                        "Inner right side should be a String literal, not {:?}",
-                        inner_right
-                    );
+                    panic!("Inner right side should be a String literal, not {inner_right:?}");
                 }
             } else if let Expression::Variable(var_name, ..) = *right {
                 // For simple concatenation, right side could be just the variable
@@ -59,16 +53,13 @@ fn parses_concatenation_correctly() {
                     "Right side should be variable 'message_text'"
                 );
             } else {
-                panic!(
-                    "Right side should be a Variable or Concatenation, not {:?}",
-                    right
-                );
+                panic!("Right side should be a Variable or Concatenation, not {right:?}");
             }
         } else {
-            panic!("Expected Concatenation expression, got: {:?}", value);
+            panic!("Expected Concatenation expression, got: {value:?}");
         }
     } else {
-        panic!("Expected VariableDeclaration, got: {:?}", result);
+        panic!("Expected VariableDeclaration, got: {result:?}");
     }
 }
 
@@ -222,12 +213,12 @@ fn test_parse_wait_for_open_file() {
 
         println!("Testing open file statement:");
         for (i, token) in tokens.iter().enumerate() {
-            println!("{}: {:?}", i, token);
+            println!("{i}: {token:?}");
         }
 
         let result = parser.parse_statement();
         if let Err(ref e) = result {
-            println!("Parse error for open file: {:?}", e);
+            println!("Parse error for open file: {e:?}");
         } else {
             println!("Successfully parsed open file statement");
         }
@@ -242,12 +233,12 @@ fn test_parse_wait_for_open_file() {
 
         println!("\nTesting new open file syntax:");
         for (i, token) in tokens.iter().enumerate() {
-            println!("{}: {:?}", i, token);
+            println!("{i}: {token:?}");
         }
 
         let result = parser.parse_statement();
         if let Err(ref e) = result {
-            println!("Parse error for new open file syntax: {:?}", e);
+            println!("Parse error for new open file syntax: {e:?}");
         } else {
             println!("Successfully parsed new open file syntax");
         }
@@ -277,12 +268,12 @@ fn test_parse_wait_for_open_file() {
 
         println!("\nTesting wait for statement:");
         for (i, token) in tokens.iter().enumerate() {
-            println!("{}: {:?}", i, token);
+            println!("{i}: {token:?}");
         }
 
         let result = parser.parse_statement();
         if let Err(ref e) = result {
-            println!("Parse error for wait for: {:?}", e);
+            println!("Parse error for wait for: {e:?}");
         } else {
             println!("Successfully parsed wait for statement");
         }

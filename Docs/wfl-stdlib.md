@@ -349,3 +349,141 @@ display "Job: " with values[3]
   - `split by pattern` returns a List<Text>
 
 The pattern module makes text processing more accessible by using natural language constructs instead of cryptic regular expression syntax, aligning with WFL's goal of being beginner-friendly while still powerful.
+
+## Args Module (Command Line Arguments)
+
+The **args module** provides access to command-line arguments passed to WFL scripts. This enables WFL programs to accept input parameters and behave differently based on user-provided options, making scripts more flexible and reusable.
+
+- **`args()`** – Returns a list of command-line arguments passed to the script.  
+  • *Behavior:* Returns all command-line arguments as a list of text strings, excluding the program name itself. For example, if a script is run with `wfl script.wfl --output file.txt --verbose`, then `args()` returns `["--output", "file.txt", "--verbose"]`. If no arguments are provided, returns an empty list.  
+  • *Parameters:* None. This function takes no arguments.  
+  • *Return:* List of Text values containing the command-line arguments.  
+  • *Implementation:* Uses Rust's `std::env::args().skip(1)` to get arguments excluding the program name. Each argument is converted to a WFL Text value and collected into a List.  
+  • *Typechecking:* No parameters required; return type is `List<Text>`. Calling with any arguments is a type error.  
+  • *Example Usage:*
+    ```wfl
+    store cli_args as args()
+    store arg_count as length(cli_args)
+    
+    check if arg_count is greater than 0:
+        store first_arg as index(cli_args, 0)
+        display "First argument: " plus first_arg
+    otherwise:
+        display "No arguments provided"
+    end check
+    ```
+
+## Filesystem Module (File and Directory Operations)
+
+The **filesystem module** provides functions for interacting with the file system, including directory listing and file metadata access. These functions enable WFL scripts to discover files, check modification times, and work with file system structures.
+
+- **`dirlist(path, recursive, pattern)`** – Lists files in a directory with optional filtering.  
+  • *Behavior:* Returns a list of file paths found in the specified directory. The `recursive` parameter controls whether to search subdirectories. The `pattern` parameter allows filtering files using glob patterns (e.g., "*.md", "**/*.rs"). If `recursive` is true, searches all subdirectories. If `pattern` is provided, only files matching the pattern are included.  
+  • *Parameters:* 
+    - `path` (Text): Directory path to search
+    - `recursive` (Boolean): Whether to search subdirectories recursively
+    - `pattern` (Text, optional): Glob pattern to filter files (can be null)
+  • *Return:* List of Text values containing file paths.  
+  • *Implementation:* Uses Rust's `std::fs` and `glob` functionality to traverse directories and match patterns. Handles both simple patterns like "*.txt" and complex patterns like "**/*.rs" for recursive matching.  
+  • *Typechecking:* First parameter must be Text (directory path), second must be Boolean (recursive flag), third must be Text or null (pattern). Return type is `List<Text>`.  
+  • *Example Usage:*
+    ```wfl
+    store md_files as dirlist("./docs", true, "*.md")
+    store file_count as length(md_files)
+    display "Found " plus file_count plus " markdown files"
+    
+    for each file in md_files:
+        display "File: " plus file
+    end for
+    ```
+
+- **`filemtime(path)`** – Returns the modification time of a file as a Unix timestamp.  
+  • *Behavior:* Gets the last modification time of the specified file and returns it as a number representing seconds since Unix epoch (January 1, 1970). This is useful for sorting files by modification time or checking if files have been updated.  
+  • *Parameters:* `path` (Text): File path to check.  
+  • *Return:* Number representing Unix timestamp (seconds since epoch).  
+  • *Implementation:* Uses Rust's `std::fs::metadata()` to get file metadata, then extracts the modification time and converts it to a Unix timestamp as f64.  
+  • *Typechecking:* Parameter must be Text (file path). Return type is Number. If the file doesn't exist or cannot be accessed, results in a runtime error.  
+  • *Example Usage:*
+    ```wfl
+    store file_time as filemtime("document.txt")
+    display "File was last modified at timestamp: " plus file_time
+    
+    store current_time as time()
+    store age_seconds as current_time minus file_time
+    display "File is " plus age_seconds plus " seconds old"
+    ```
+
+## Path Module (Path Manipulation Utilities)
+
+The **path module** provides utilities for working with file paths in a cross-platform manner. These functions help with extracting parts of paths, combining path components, and manipulating file system paths safely across different operating systems.
+
+- **`basename(path)`** – Extracts the filename from a file path.  
+  • *Behavior:* Returns the final component of a path, typically the filename. For example, `basename("/home/user/document.txt")` returns `"document.txt"`, and `basename("/home/user/")` returns `"user"`. Works with both Unix-style and Windows-style paths.  
+  • *Parameters:* `path` (Text): File or directory path.  
+  • *Return:* Text containing the base name (filename or directory name).  
+  • *Implementation:* Uses Rust's `std::path::Path::file_name()` to extract the final path component, handling cross-platform path separators automatically.  
+  • *Typechecking:* Parameter must be Text. Return type is Text.  
+  • *Example Usage:*
+    ```wfl
+    store full_path as "/home/user/documents/report.pdf"
+    store filename as basename(full_path)
+    display "Filename: " plus filename  // Outputs: "report.pdf"
+    ```
+
+- **`dirname(path)`** – Extracts the directory portion from a file path.  
+  • *Behavior:* Returns the directory part of a path, excluding the final component. For example, `dirname("/home/user/document.txt")` returns `"/home/user"`, and `dirname("document.txt")` returns `"."` (current directory). Handles both absolute and relative paths.  
+  • *Parameters:* `path` (Text): File or directory path.  
+  • *Return:* Text containing the directory path.  
+  • *Implementation:* Uses Rust's `std::path::Path::parent()` to get the parent directory, converting the result to a string representation.  
+  • *Typechecking:* Parameter must be Text. Return type is Text.  
+  • *Example Usage:*
+    ```wfl
+    store full_path as "/home/user/documents/report.pdf"
+    store directory as dirname(full_path)
+    display "Directory: " plus directory  // Outputs: "/home/user/documents"
+    ```
+
+- **`pathjoin(component1, component2, ...)`** – Combines path components into a single path.  
+  • *Behavior:* Takes multiple path components and joins them using the appropriate path separator for the current operating system. Automatically handles path separators (forward slashes on Unix, backslashes on Windows). For example, `pathjoin("/home", "user", "documents")` returns `"/home/user/documents"` on Unix systems.  
+  • *Parameters:* Variable number of Text arguments representing path components to join.  
+  • *Return:* Text containing the combined path.  
+  • *Implementation:* Uses Rust's `std::path::PathBuf::join()` to combine path components, ensuring proper path separator usage for the target platform.  
+  • *Typechecking:* All parameters must be Text. Return type is Text. Requires at least one argument.  
+  • *Example Usage:*
+    ```wfl
+    store base_dir as "/home/user"
+    store subdir as "documents"
+    store filename as "report.pdf"
+    store full_path as pathjoin(base_dir, subdir, filename)
+    display "Full path: " plus full_path  // Outputs: "/home/user/documents/report.pdf"
+    ```
+
+## Enhanced List Module (Extended Sorting)
+
+The existing **list module** has been enhanced with additional sorting capabilities to support more complex data manipulation scenarios.
+
+- **`sort(list, key_function, reverse)`** – Sorts a list with optional key function and reverse order.  
+  • *Behavior:* Sorts the elements of a list in ascending order by default. The `key_function` parameter (currently reserved for future implementation) will allow custom sorting criteria. The `reverse` parameter, when true, sorts in descending order. For mixed-type lists, uses string representation for comparison.  
+  • *Parameters:* 
+    - `list` (List): The list to sort
+    - `key_function` (Function, optional): Custom sorting function (currently null/unimplemented)
+    - `reverse` (Boolean, optional): Whether to sort in descending order (default: false)
+  • *Return:* List containing the sorted elements (creates a new list, original is unchanged).  
+  • *Implementation:* Uses Rust's sorting algorithms with custom comparison logic. Numbers are sorted numerically, text alphabetically, and other types by their string representation. The reverse parameter controls sort order.  
+  • *Typechecking:* First parameter must be List. Second parameter must be Function or null. Third parameter must be Boolean. Return type is List with the same element type as input.  
+  • *Example Usage:*
+    ```wfl
+    create list as numbers
+    push with numbers and 3
+    push with numbers and 1
+    push with numbers and 4
+    push with numbers and 2
+    
+    store ascending as sort(numbers)
+    store descending as sort(numbers, null, true)
+    
+    display "Ascending: " plus ascending   // [1, 2, 3, 4]
+    display "Descending: " plus descending // [4, 3, 2, 1]
+    ```
+
+These new modules extend WFL's capabilities for system interaction, file management, and data processing while maintaining the language's commitment to readable, natural syntax. All functions follow WFL's error handling conventions and integrate seamlessly with the existing type system.

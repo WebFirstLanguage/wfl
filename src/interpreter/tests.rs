@@ -22,7 +22,7 @@ async fn test_literal_evaluation() {
                 .unwrap();
             match result {
                 Value::Number(n) => assert_eq!(n, 42.0),
-                _ => panic!("Expected number, got {:?}", result),
+                _ => panic!("Expected number, got {result:?}"),
             }
         } else {
             panic!("Expected expression statement");
@@ -45,7 +45,7 @@ async fn test_variable_declaration_and_access() {
 
     match result {
         Value::Number(n) => assert_eq!(n, 42.0),
-        _ => panic!("Expected number, got {:?}", result),
+        _ => panic!("Expected number, got {result:?}"),
     }
 }
 
@@ -60,7 +60,7 @@ async fn test_binary_operations() {
     let result = interpreter.interpret(&program).await.unwrap();
     match result {
         Value::Number(n) => assert_eq!(n, 5.0),
-        _ => panic!("Expected number, got {:?}", result),
+        _ => panic!("Expected number, got {result:?}"),
     }
 
     let source = "2 is less than 3";
@@ -70,7 +70,7 @@ async fn test_binary_operations() {
     let result = interpreter.interpret(&program).await.unwrap();
     match result {
         Value::Bool(b) => assert!(b),
-        _ => panic!("Expected boolean, got {:?}", result),
+        _ => panic!("Expected boolean, got {result:?}"),
     }
 }
 
@@ -86,7 +86,7 @@ async fn test_if_statement() {
 
     match result {
         Value::Null => {}
-        _ => panic!("Expected null, got {:?}", result),
+        _ => panic!("Expected null, got {result:?}"),
     }
 }
 
@@ -103,7 +103,7 @@ async fn test_function_definition_and_call() {
 
     match result {
         Value::Number(n) => assert_eq!(n, 5.0),
-        _ => panic!("Expected number, got {:?}", result),
+        _ => panic!("Expected number, got {result:?}"),
     }
 }
 */
@@ -125,7 +125,7 @@ async fn test_count_loop_with_direct_access() {
 
     match result {
         Value::Null => {}
-        _ => panic!("Expected null, got {:?}", result),
+        _ => panic!("Expected null, got {result:?}"),
     }
 }
 #[tokio::test]
@@ -168,8 +168,7 @@ async fn test_timeout_forever_loop() {
 
     assert!(
         elapsed.as_millis() <= 1100,
-        "Timeout took too long: {:?}",
-        elapsed
+        "Timeout took too long: {elapsed:?}"
     );
 }
 

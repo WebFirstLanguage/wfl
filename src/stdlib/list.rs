@@ -121,6 +121,55 @@ pub fn native_indexof(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Number(-1.0))
 }
 
+pub fn native_sort(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.is_empty() || args.len() > 3 {
+        return Err(RuntimeError::new(
+            format!("sort expects 1-3 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let list = expect_list(&args[0])?;
+    let key_fn = if args.len() > 1 && !matches!(&args[1], Value::Null) {
+        Some(&args[1])
+    } else {
+        None
+    };
+    let reverse = if args.len() > 2 {
+        match &args[2] {
+            Value::Bool(b) => *b,
+            _ => false,
+        }
+    } else {
+        false
+    };
+
+    let mut items = list.borrow().clone();
+
+    if let Some(_key_fn) = key_fn {
+        return Err(RuntimeError::new(
+            "Key function sorting not yet implemented".to_string(),
+            0,
+            0,
+        ));
+    } else {
+        items.sort_by(|a, b| match (a, b) {
+            (Value::Number(n1), Value::Number(n2)) => {
+                n1.partial_cmp(n2).unwrap_or(std::cmp::Ordering::Equal)
+            }
+            (Value::Text(s1), Value::Text(s2)) => s1.cmp(s2),
+            _ => format!("{:?}", a).cmp(&format!("{:?}", b)),
+        });
+    }
+
+    if reverse {
+        items.reverse();
+    }
+
+    Ok(Value::List(Rc::new(RefCell::new(items))))
+}
+
 pub fn register_list(env: &mut Environment) {
     env.define("length", Value::NativeFunction("length", native_length));
     env.define("push", Value::NativeFunction("push", native_push));
@@ -130,6 +179,7 @@ pub fn register_list(env: &mut Environment) {
         Value::NativeFunction("contains", native_contains),
     );
     env.define("indexof", Value::NativeFunction("indexof", native_indexof));
+    env.define("sort", Value::NativeFunction("sort", native_sort));
 
     env.define(
         "index_of",

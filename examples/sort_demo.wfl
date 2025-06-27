@@ -1,0 +1,140 @@
+// WFL Sort Demo - List Sorting Examples
+// This script demonstrates the enhanced sort() function with various data types
+
+display "=== WFL Sort Function Demo ==="
+
+// Demonstrate sorting numbers
+display "=== Number Sorting ==="
+create list as numbers
+push with numbers and 42
+push with numbers and 7
+push with numbers and 23
+push with numbers and 1
+push with numbers and 89
+push with numbers and 15
+
+display "Original numbers: " plus numbers
+
+store sorted_asc as sort(numbers)
+display "Sorted ascending: " plus sorted_asc
+
+store sorted_desc as sort(numbers, null, true)
+display "Sorted descending: " plus sorted_desc
+
+display ""
+
+// Demonstrate sorting text
+display "=== Text Sorting ==="
+create list as words
+push with words and "zebra"
+push with words and "apple"
+push with words and "banana"
+push with words and "cherry"
+push with words and "date"
+
+display "Original words: " plus words
+
+store sorted_words as sort(words)
+display "Sorted alphabetically: " plus sorted_words
+
+store sorted_words_desc as sort(words, null, true)
+display "Sorted reverse alphabetically: " plus sorted_words_desc
+
+display ""
+
+// Demonstrate sorting mixed content (converted to strings)
+display "=== Mixed Type Sorting ==="
+create list as mixed
+push with mixed and 100
+push with mixed and "apple"
+push with mixed and 50
+push with mixed and "zebra"
+push with mixed and true
+push with mixed and false
+
+display "Original mixed list: " plus mixed
+
+store sorted_mixed as sort(mixed)
+display "Sorted mixed (by string representation): " plus sorted_mixed
+
+display ""
+
+// Demonstrate empty list sorting
+display "=== Edge Cases ==="
+create list as empty_list
+store sorted_empty as sort(empty_list)
+display "Sorted empty list: " plus sorted_empty
+
+// Single element list
+create list as single
+push with single and "only"
+store sorted_single as sort(single)
+display "Sorted single element: " plus sorted_single
+
+display ""
+
+// Practical example: sorting file extensions
+display "=== Practical Example: File Extensions ==="
+create list as filenames
+push with filenames and "document.pdf"
+push with filenames and "script.wfl"
+push with filenames and "image.png"
+push with filenames and "data.json"
+push with filenames and "readme.md"
+push with filenames and "config.toml"
+
+display "Original filenames: " plus filenames
+
+store sorted_files as sort(filenames)
+display "Sorted filenames: " plus sorted_files
+
+// Extract and sort just the extensions
+create list as extensions
+for each filename in filenames:
+    // Simple extension extraction (find last dot)
+    store parts as split(filename, ".")
+    store ext_count as length(parts)
+    check if ext_count is greater than 1:
+        store extension as index(parts, ext_count minus 1)
+        push with extensions and extension
+    end check
+end for
+
+store sorted_extensions as sort(extensions)
+display "File extensions found: " plus sorted_extensions
+
+display ""
+
+// Demonstrate sorting with different data sizes
+display "=== Performance Example: Larger Dataset ==="
+create list as large_numbers
+store counter as 1
+count from 1 to 20:
+    // Generate some pseudo-random numbers for demo
+    store value as counter times 7 mod 100
+    push with large_numbers and value
+    change counter to counter plus 1
+end count
+
+display "Large dataset (20 numbers): " plus large_numbers
+
+store sorted_large as sort(large_numbers)
+display "Sorted large dataset: " plus sorted_large
+
+// Find min and max using sorted list
+store min_value as index(sorted_large, 0)
+store max_value as index(sorted_large, length(sorted_large) minus 1)
+display "Minimum value: " plus min_value
+display "Maximum value: " plus max_value
+
+display ""
+display "=== Summary ==="
+display "The sort() function in WFL supports:"
+display "- Ascending and descending order (reverse parameter)"
+display "- Numbers (numerical sorting)"
+display "- Text (alphabetical sorting)"
+display "- Mixed types (string representation sorting)"
+display "- Empty and single-element lists"
+display "- Large datasets efficiently"
+display ""
+display "Future enhancements will include custom key functions for advanced sorting!"

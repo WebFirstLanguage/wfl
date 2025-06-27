@@ -1,0 +1,100 @@
+define action called find_files needs directory, extension, recursive, prefix_filter:
+    store pattern as pathjoin(directory, extension)
+    check if recursive is equal to true:
+        store files as dirlist(directory, true, pattern)
+    otherwise:
+        store files as dirlist(directory, false, pattern)
+    end check
+    
+    check if prefix_filter is equal to true:
+        create list as filtered_files
+        for each file in files:
+            store base_name as basename(file)
+            check if base_name contains "wfl-":
+                push with filtered_files and file
+            end check
+        end for
+        give back filtered_files
+    otherwise:
+        give back files
+    end check
+end action
+
+define action called sort_files_by_time needs files:
+    create list as file_time_pairs
+    for each file in files:
+        store mtime as filemtime(file)
+        create list as pair
+        push with pair and file
+        push with pair and mtime
+        push with file_time_pairs and pair
+    end for
+    
+    store sorted_pairs as sort(file_time_pairs, null, false)
+    create list as sorted_files
+    for each pair in sorted_pairs:
+        store file as index(pair, 0)
+        push with sorted_files and file
+    end for
+    give back sorted_files
+end action
+
+define action called combine_files needs files, output_file:
+    store content as ""
+    store count as 0
+    
+    for each file in files:
+        change count to count plus 1
+        store base_name as basename(file)
+        store file_content as read_file(file)
+        
+        store separator as "---"
+        check if count is greater than 1:
+            change content to content plus separator plus "\n\n"
+        end check
+        
+        change content to content plus "**Start of file: " plus base_name plus "**\n\n"
+        change content to content plus "# " plus base_name plus "\n\n"
+        change content to content plus file_content plus "\n\n"
+        change content to content plus "**End of file: " plus base_name plus "**\n\n"
+    end for
+    
+    write_file with output_file and content
+    give back count
+end action
+
+store cli_args as args()
+store arg_count as length(cli_args)
+
+check if arg_count is less than 2:
+    display "Usage: combiner_test.wfl <input_dir> <output_file> [sort_by_time]"
+    exit
+end check
+
+store input_dir as index(cli_args, 0)
+store output_file as index(cli_args, 1)
+store sort_by_time as false
+
+check if arg_count is greater than 2:
+    store sort_arg as index(cli_args, 2)
+    check if sort_arg is equal to "time":
+        store sort_by_time as true
+    end check
+end check
+
+store files as find_files(input_dir, "*.md", false, false)
+store file_count as length(files)
+
+check if file_count is equal to 0:
+    display "No files found in directory"
+    exit
+end check
+
+check if sort_by_time is equal to true:
+    store files as sort_files_by_time(files)
+otherwise:
+    store files as sort(files)
+end check
+
+store combined_count as combine_files(files, output_file)
+display "Combined " plus combined_count plus " files into " plus output_file
