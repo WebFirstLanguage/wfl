@@ -1,0 +1,12 @@
+// Minimal argument test
+display "Total arguments: " with arg_count
+
+// Show usage if no arguments
+if arg_count is 0 then
+    display "No arguments provided"
+end if
+
+// Check a flag
+if flag_test then
+    display "Test flag is set"
+end if

@@ -128,7 +128,8 @@ pub struct Interpreter {
     call_stack: RefCell<Vec<CallFrame>>,
     #[allow(dead_code)]
     io_client: Rc<IoClient>,
-    step_mode: bool, // Controls single-step execution mode
+    step_mode: bool,          // Controls single-step execution mode
+    script_args: Vec<String>, // Command-line arguments passed to the script
 }
 
 #[allow(dead_code)]
@@ -339,7 +340,8 @@ impl Interpreter {
             max_duration: Duration::from_secs(u64::MAX), // Effectively no timeout by default
             call_stack: RefCell::new(Vec::new()),
             io_client: Rc::new(IoClient::new()),
-            step_mode: false, // Default to non-step mode
+            step_mode: false,        // Default to non-step mode
+            script_args: Vec::new(), // Initialize empty, will be set later
         }
     }
 
@@ -352,6 +354,10 @@ impl Interpreter {
 
     pub fn set_step_mode(&mut self, step_mode: bool) {
         self.step_mode = step_mode;
+    }
+
+    pub fn set_script_args(&mut self, args: Vec<String>) {
+        self.script_args = args;
     }
 
     fn dump_state(
@@ -483,6 +489,79 @@ impl Interpreter {
     pub async fn interpret(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
         self.assert_invariants();
         self.call_stack.borrow_mut().clear();
+
+        // Set up script arguments in the global environment
+        {
+            let mut env = self.global_env.borrow_mut();
+
+            // Create args list with all arguments
+            let args_list: Vec<Value> = self
+                .script_args
+                .iter()
+                .map(|arg| Value::Text(Rc::from(arg.as_str())))
+                .collect();
+            env.define("args", Value::List(Rc::new(RefCell::new(args_list))));
+
+            // Parse and set up flags (arguments starting with - or --)
+            let mut flags = HashMap::new();
+            let mut positional_args = Vec::new();
+            let mut i = 0;
+
+            while i < self.script_args.len() {
+                let arg = &self.script_args[i];
+                if arg.starts_with("--") {
+                    let flag_name = arg.trim_start_matches("--");
+                    // Check if next argument is a value for this flag
+                    if i + 1 < self.script_args.len() && !self.script_args[i + 1].starts_with("-") {
+                        flags.insert(
+                            flag_name.to_string(),
+                            Value::Text(Rc::from(self.script_args[i + 1].as_str())),
+                        );
+                        i += 2;
+                    } else {
+                        flags.insert(flag_name.to_string(), Value::Bool(true));
+                        i += 1;
+                    }
+                } else if arg.starts_with("-") && arg.len() > 1 {
+                    // Handle short flags like -f
+                    let flag_name = arg.trim_start_matches("-");
+                    // Check if next argument is a value for this flag
+                    if i + 1 < self.script_args.len() && !self.script_args[i + 1].starts_with("-") {
+                        flags.insert(
+                            flag_name.to_string(),
+                            Value::Text(Rc::from(self.script_args[i + 1].as_str())),
+                        );
+                        i += 2;
+                    } else {
+                        flags.insert(flag_name.to_string(), Value::Bool(true));
+                        i += 1;
+                    }
+                } else {
+                    positional_args.push(Value::Text(Rc::from(arg.as_str())));
+                    i += 1;
+                }
+            }
+
+            // Convert flags HashMap to Value
+            let mut flags_map = HashMap::new();
+            for (key, value) in flags {
+                flags_map.insert(key, value);
+            }
+
+            // Store positional arguments
+            env.define(
+                "positional_args",
+                Value::List(Rc::new(RefCell::new(positional_args.clone()))),
+            );
+
+            // Store argument count
+            env.define("arg_count", Value::Number(self.script_args.len() as f64));
+
+            // Store flags as individual variables with flag_ prefix
+            for (key, value) in flags_map {
+                env.define(&format!("flag_{}", key), value);
+            }
+        }
 
         // Use exec_trace for execution logs instead of println
         if !self.step_mode {
