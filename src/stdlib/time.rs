@@ -431,9 +431,7 @@ pub fn native_create_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
     match NaiveDate::from_ymd_opt(year, month, day) {
         Some(date) => Ok(Value::Date(Rc::new(date))),
         None => Err(RuntimeError::new(
-            format!(
-                "Failed to create date with year: {year}, month: {month}, day: {day}"
-            ),
+            format!("Failed to create date with year: {year}, month: {month}, day: {day}"),
             0,
             0,
         )),

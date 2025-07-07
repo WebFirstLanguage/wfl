@@ -97,11 +97,7 @@ pub fn native_glob(args: Vec<Value>) -> Result<Value, RuntimeError> {
             }
             Ok(Value::List(Rc::new(RefCell::new(results))))
         }
-        Err(e) => Err(RuntimeError::new(
-            format!("Glob pattern error: {e}"),
-            0,
-            0,
-        )),
+        Err(e) => Err(RuntimeError::new(format!("Glob pattern error: {e}"), 0, 0)),
     }
 }
 
@@ -231,9 +227,8 @@ pub fn native_write_stream_open(args: Vec<Value>) -> Result<Value, RuntimeError>
 
     if let Some(parent) = validated_path.parent() {
         if !parent.exists() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                RuntimeError::new(format!("Failed to create directory: {e}"), 0, 0)
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| RuntimeError::new(format!("Failed to create directory: {e}"), 0, 0))?;
         }
     }
 
@@ -310,11 +305,7 @@ pub fn native_write_stream_close(args: Vec<Value>) -> Result<Value, RuntimeError
 
     if let Some(mut writer) = handles.remove(&*handle_id) {
         writer.flush().map_err(|e| {
-            RuntimeError::new(
-                format!("Failed to flush stream before closing: {e}"),
-                0,
-                0,
-            )
+            RuntimeError::new(format!("Failed to flush stream before closing: {e}"), 0, 0)
         })?;
         Ok(Value::Null)
     } else {

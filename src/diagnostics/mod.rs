@@ -255,9 +255,7 @@ impl DiagnosticReporter {
         let mut message_text = error.message.clone();
 
         if let (Some(expected), Some(found)) = (&error.expected, &error.found) {
-            message_text = format!(
-                "{message_text} - Expected {expected} but found {found}"
-            );
+            message_text = format!("{message_text} - Expected {expected} but found {found}");
         }
 
         let start_offset = self

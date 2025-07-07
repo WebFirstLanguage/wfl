@@ -31,9 +31,7 @@ display myVariable
 
     // Run the binary with --lint file_path --fix --diff
     let file_path_str = file_path.to_str().unwrap();
-    println!(
-        "Running: {binary_path:?} --lint {file_path_str} --fix {file_path_str} --diff"
-    );
+    println!("Running: {binary_path:?} --lint {file_path_str} --fix {file_path_str} --diff");
 
     let output = Command::new(binary_path)
         .args(["--lint", file_path_str, "--fix", file_path_str, "--diff"])

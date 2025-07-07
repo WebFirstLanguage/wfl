@@ -419,9 +419,10 @@ impl ConfigChecker {
                         message: format!("Missing required setting: {key}"),
                         setting_name: Some(key.to_string()),
                         line_number: None,
-                        fix_message: setting.default_value.as_ref().map(|default| {
-                            format!("Add '{key}' with default value: {default}")
-                        }),
+                        fix_message: setting
+                            .default_value
+                            .as_ref()
+                            .map(|default| format!("Add '{key}' with default value: {default}")),
                     });
                 }
             }
@@ -562,9 +563,7 @@ impl ConfigChecker {
             println!();
         }
 
-        println!(
-            "{error_count} errors, {warning_count} warnings found in configuration files"
-        );
+        println!("{error_count} errors, {warning_count} warnings found in configuration files");
 
         if !fix_mode && error_count > 0 {
             println!("\n🛠️  Run 'wfl --configFix' to automatically fix these issues");

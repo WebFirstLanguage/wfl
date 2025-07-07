@@ -451,9 +451,7 @@ impl<'a> Parser<'a> {
             }
         } else {
             return Err(ParseError::new(
-                format!(
-                    "Expected 'as' after variable name '{name}', but found end of input"
-                ),
+                format!("Expected 'as' after variable name '{name}', but found end of input"),
                 token_pos.line,
                 token_pos.column,
             ));

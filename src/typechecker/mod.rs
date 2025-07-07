@@ -309,9 +309,7 @@ impl TypeChecker {
 
                 if need_type_error {
                     self.type_error(
-                        format!(
-                            "Cannot initialize variable '{name}' with incompatible type"
-                        ),
+                        format!("Cannot initialize variable '{name}' with incompatible type"),
                         symbol_type_option.clone(),
                         Some(inferred_type.clone()),
                         *line,
@@ -801,9 +799,7 @@ impl TypeChecker {
                             && !self.are_types_compatible(&right_type, &left_type)
                         {
                             self.type_error(
-                                format!(
-                                    "Cannot compare {left_type} and {right_type} for equality"
-                                ),
+                                format!("Cannot compare {left_type} and {right_type} for equality"),
                                 Some(left_type.clone()),
                                 Some(right_type),
                                 *line,
@@ -895,9 +891,7 @@ impl TypeChecker {
                         Type::Text => {
                             if right_type != Type::Text {
                                 self.type_error(
-                                    format!(
-                                        "Cannot check if {left_type} contains {right_type}"
-                                    ),
+                                    format!("Cannot check if {left_type} contains {right_type}"),
                                     Some(Type::Text),
                                     Some(right_type),
                                     *line,
@@ -1180,9 +1174,7 @@ impl TypeChecker {
 
                 if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!(
-                            "Expected Pattern for pattern matching, got {pattern_type}"
-                        ),
+                        format!("Expected Pattern for pattern matching, got {pattern_type}"),
                         Some(Type::Pattern),
                         Some(pattern_type),
                         0,
@@ -1240,9 +1232,7 @@ impl TypeChecker {
 
                 if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!(
-                            "Expected Pattern for pattern replacement, got {pattern_type}"
-                        ),
+                        format!("Expected Pattern for pattern replacement, got {pattern_type}"),
                         Some(Type::Pattern),
                         Some(pattern_type),
                         0,
@@ -1278,9 +1268,7 @@ impl TypeChecker {
 
                 if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!(
-                            "Expected Pattern for pattern splitting, got {pattern_type}"
-                        ),
+                        format!("Expected Pattern for pattern splitting, got {pattern_type}"),
                         Some(Type::Pattern),
                         Some(pattern_type),
                         0,

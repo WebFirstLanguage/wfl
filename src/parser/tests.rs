@@ -20,9 +20,7 @@ fn parses_concatenation_correctly() {
                     "Left side should be variable 'currentLog'"
                 );
             } else {
-                panic!(
-                    "Left side of concatenation should be a Variable, not {left:?}"
-                );
+                panic!("Left side of concatenation should be a Variable, not {left:?}");
             }
 
             // Right side of the outer concatenation should be another concatenation
@@ -46,9 +44,7 @@ fn parses_concatenation_correctly() {
                 if let Expression::Literal(Literal::String(s), ..) = *inner_right {
                     assert_eq!(s, "\\n", "Right side should be string '\\n'");
                 } else {
-                    panic!(
-                        "Inner right side should be a String literal, not {inner_right:?}"
-                    );
+                    panic!("Inner right side should be a String literal, not {inner_right:?}");
                 }
             } else if let Expression::Variable(var_name, ..) = *right {
                 // For simple concatenation, right side could be just the variable
@@ -57,9 +53,7 @@ fn parses_concatenation_correctly() {
                     "Right side should be variable 'message_text'"
                 );
             } else {
-                panic!(
-                    "Right side should be a Variable or Concatenation, not {right:?}"
-                );
+                panic!("Right side should be a Variable or Concatenation, not {right:?}");
             }
         } else {
             panic!("Expected Concatenation expression, got: {value:?}");

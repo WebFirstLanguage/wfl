@@ -6,9 +6,7 @@ use wfl::parser::Parser;
 async fn execute_wfl(code: &str) -> Result<Value, String> {
     let tokens = lex_wfl_with_positions(code);
     let mut parser = Parser::new(&tokens);
-    let program = parser
-        .parse()
-        .map_err(|e| format!("Parse error: {e:?}"))?;
+    let program = parser.parse().map_err(|e| format!("Parse error: {e:?}"))?;
 
     let mut interpreter = Interpreter::default();
     interpreter

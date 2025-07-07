@@ -929,9 +929,7 @@ impl Interpreter {
 
                 if iterations >= max_iterations {
                     return Err(RuntimeError::new(
-                        format!(
-                            "Count loop exceeded maximum iterations ({max_iterations})"
-                        ),
+                        format!("Count loop exceeded maximum iterations ({max_iterations})"),
                         *line,
                         *column,
                     ));
@@ -1239,9 +1237,7 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!(
-                                "Expected string for file path or handle, got {path_value:?}"
-                            ),
+                            format!("Expected string for file path or handle, got {path_value:?}"),
                             *line,
                             *column,
                         ));
@@ -1388,9 +1384,7 @@ impl Interpreter {
                             Value::Text(s) => s.clone(),
                             _ => {
                                 return Err(RuntimeError::new(
-                                    format!(
-                                        "Expected string for file handle, got {file_value:?}"
-                                    ),
+                                    format!("Expected string for file handle, got {file_value:?}"),
                                     *line,
                                     *column,
                                 ));
