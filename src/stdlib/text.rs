@@ -1,9 +1,9 @@
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use std::rc::Rc;
-use std::cell::RefCell;
 use regex::Regex;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 fn expect_text(value: &Value) -> Result<Rc<str>, RuntimeError> {
     match value {
@@ -122,12 +122,10 @@ pub fn native_regex_find(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let pattern = expect_text(&args[1])?;
 
     match Regex::new(&pattern) {
-        Ok(re) => {
-            match re.find(&text) {
-                Some(mat) => Ok(Value::Text(Rc::from(mat.as_str()))),
-                None => Ok(Value::Null),
-            }
-        }
+        Ok(re) => match re.find(&text) {
+            Some(mat) => Ok(Value::Text(Rc::from(mat.as_str()))),
+            None => Ok(Value::Null),
+        },
         Err(e) => Err(RuntimeError::new(
             format!("Invalid regex pattern: {}", e),
             0,
@@ -150,7 +148,8 @@ pub fn native_regex_match_all(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     match Regex::new(&pattern) {
         Ok(re) => {
-            let matches: Vec<Value> = re.find_iter(&text)
+            let matches: Vec<Value> = re
+                .find_iter(&text)
                 .map(|mat| Value::Text(Rc::from(mat.as_str())))
                 .collect();
             Ok(Value::List(Rc::new(RefCell::new(matches))))

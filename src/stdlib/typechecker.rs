@@ -241,35 +241,51 @@ fn register_sort_by(analyzer: &mut Analyzer) {
 
 fn register_cli_functions(analyzer: &mut Analyzer) {
     analyzer.register_builtin_function("get_args", vec![], Type::List(Box::new(Type::Text)));
-    
-    analyzer.register_builtin_function("parse_flags", vec![Type::Text], Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)));
-    
+
+    analyzer.register_builtin_function(
+        "parse_flags",
+        vec![Type::Text],
+        Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)),
+    );
+
     analyzer.register_builtin_function("usage", vec![Type::Text], Type::Text);
 }
 
 fn register_fs_functions(analyzer: &mut Analyzer) {
-    analyzer.register_builtin_function("glob", vec![Type::Text, Type::Text], Type::List(Box::new(Type::Text)));
-    
-    analyzer.register_builtin_function("rglob", vec![Type::Text, Type::Text], Type::List(Box::new(Type::Text)));
-    
+    analyzer.register_builtin_function(
+        "glob",
+        vec![Type::Text, Type::Text],
+        Type::List(Box::new(Type::Text)),
+    );
+
+    analyzer.register_builtin_function(
+        "rglob",
+        vec![Type::Text, Type::Text],
+        Type::List(Box::new(Type::Text)),
+    );
+
     analyzer.register_builtin_function("read_text", vec![Type::Text], Type::Text);
-    
+
     analyzer.register_builtin_function("write_stream_open", vec![Type::Text], Type::Number);
-    
-    analyzer.register_builtin_function("write_stream_write", vec![Type::Number, Type::Text], Type::Nothing);
-    
+
+    analyzer.register_builtin_function(
+        "write_stream_write",
+        vec![Type::Number, Type::Text],
+        Type::Nothing,
+    );
+
     analyzer.register_builtin_function("write_stream_close", vec![Type::Number], Type::Nothing);
 }
 
 fn register_path_functions(analyzer: &mut Analyzer) {
     analyzer.register_builtin_function("path_join", vec![Type::Text, Type::Text], Type::Text);
-    
+
     analyzer.register_builtin_function("path_basename", vec![Type::Text], Type::Text);
-    
+
     analyzer.register_builtin_function("path_dirname", vec![Type::Text], Type::Text);
-    
+
     analyzer.register_builtin_function("path_relpath", vec![Type::Text, Type::Text], Type::Text);
-    
+
     analyzer.register_builtin_function("path_normalize", vec![Type::Text], Type::Text);
 }
 

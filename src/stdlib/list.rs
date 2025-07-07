@@ -144,9 +144,9 @@ pub fn native_sort_by(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let list = expect_list(&args[0])?;
     let sort_type = expect_text(&args[1])?;
-    
+
     let mut items = list.borrow().clone();
-    
+
     match sort_type.as_ref() {
         "alpha" => {
             items.sort_by(|a, b| {
@@ -171,7 +171,9 @@ pub fn native_sort_by(args: Vec<Value>) -> Result<Value, RuntimeError> {
                     Value::Number(n) => *n,
                     _ => 0.0,
                 };
-                a_num.partial_cmp(&b_num).unwrap_or(std::cmp::Ordering::Equal)
+                a_num
+                    .partial_cmp(&b_num)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
         }
         _ => {
@@ -189,7 +191,7 @@ pub fn native_sort_by(args: Vec<Value>) -> Result<Value, RuntimeError> {
                         }
                     })
                     .collect();
-                
+
                 items.sort_by(|a, b| {
                     let a_str = match a {
                         Value::Text(s) => s.to_string(),
@@ -199,10 +201,10 @@ pub fn native_sort_by(args: Vec<Value>) -> Result<Value, RuntimeError> {
                         Value::Text(s) => s.to_string(),
                         _ => format!("{:?}", b),
                     };
-                    
+
                     let a_order = order_map.get(&a_str).copied().unwrap_or(usize::MAX);
                     let b_order = order_map.get(&b_str).copied().unwrap_or(usize::MAX);
-                    
+
                     match (a_order, b_order) {
                         (usize::MAX, usize::MAX) => a_str.cmp(&b_str),
                         (usize::MAX, _) => std::cmp::Ordering::Greater,
@@ -219,7 +221,7 @@ pub fn native_sort_by(args: Vec<Value>) -> Result<Value, RuntimeError> {
             }
         }
     }
-    
+
     Ok(Value::List(Rc::new(RefCell::new(items))))
 }
 
