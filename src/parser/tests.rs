@@ -21,8 +21,7 @@ fn parses_concatenation_correctly() {
                 );
             } else {
                 panic!(
-                    "Left side of concatenation should be a Variable, not {:?}",
-                    left
+                    "Left side of concatenation should be a Variable, not {left:?}"
                 );
             }
 
@@ -40,7 +39,7 @@ fn parses_concatenation_correctly() {
                         "Left side should be variable 'message_text'"
                     );
                 } else {
-                    panic!("Inner left side should be a Variable, not {:?}", inner_left);
+                    panic!("Inner left side should be a Variable, not {inner_left:?}");
                 }
 
                 // Inner right should be a string literal
@@ -48,8 +47,7 @@ fn parses_concatenation_correctly() {
                     assert_eq!(s, "\\n", "Right side should be string '\\n'");
                 } else {
                     panic!(
-                        "Inner right side should be a String literal, not {:?}",
-                        inner_right
+                        "Inner right side should be a String literal, not {inner_right:?}"
                     );
                 }
             } else if let Expression::Variable(var_name, ..) = *right {
@@ -60,15 +58,14 @@ fn parses_concatenation_correctly() {
                 );
             } else {
                 panic!(
-                    "Right side should be a Variable or Concatenation, not {:?}",
-                    right
+                    "Right side should be a Variable or Concatenation, not {right:?}"
                 );
             }
         } else {
-            panic!("Expected Concatenation expression, got: {:?}", value);
+            panic!("Expected Concatenation expression, got: {value:?}");
         }
     } else {
-        panic!("Expected VariableDeclaration, got: {:?}", result);
+        panic!("Expected VariableDeclaration, got: {result:?}");
     }
 }
 
@@ -227,7 +224,7 @@ fn test_parse_wait_for_open_file() {
 
         let result = parser.parse_statement();
         if let Err(ref e) = result {
-            println!("Parse error for open file: {:?}", e);
+            println!("Parse error for open file: {e:?}");
         } else {
             println!("Successfully parsed open file statement");
         }
@@ -247,7 +244,7 @@ fn test_parse_wait_for_open_file() {
 
         let result = parser.parse_statement();
         if let Err(ref e) = result {
-            println!("Parse error for new open file syntax: {:?}", e);
+            println!("Parse error for new open file syntax: {e:?}");
         } else {
             println!("Successfully parsed new open file syntax");
         }

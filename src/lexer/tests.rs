@@ -66,8 +66,7 @@ fn test_keyword_uniqueness() {
     for keyword in &keywords {
         assert!(
             keyword.is_keyword(),
-            "Token {:?} should be recognized as a keyword",
-            keyword
+            "Token {keyword:?} should be recognized as a keyword"
         );
     }
 
@@ -90,8 +89,7 @@ fn test_keyword_uniqueness() {
     for non_keyword in &non_keywords {
         assert!(
             !non_keyword.is_keyword(),
-            "Token {:?} should not be recognized as a keyword",
-            non_keyword
+            "Token {non_keyword:?} should not be recognized as a keyword"
         );
     }
 }
@@ -123,13 +121,11 @@ fn test_container_keywords_lexing() {
         let mut lexer = Token::lexer(input);
         let token = lexer
             .next()
-            .unwrap_or_else(|| panic!("Failed to tokenize '{}'", input));
+            .unwrap_or_else(|| panic!("Failed to tokenize '{input}'"));
         assert_eq!(
             token,
             Ok(expected.clone()),
-            "Input '{}' should tokenize to {:?}",
-            input,
-            expected
+            "Input '{input}' should tokenize to {expected:?}"
         );
     }
 }
@@ -149,13 +145,11 @@ fn test_keyword_case_sensitivity() {
         let mut lexer = Token::lexer(input);
         let token = lexer
             .next()
-            .unwrap_or_else(|| panic!("Failed to tokenize '{}'", input));
+            .unwrap_or_else(|| panic!("Failed to tokenize '{input}'"));
         assert_eq!(
             token,
             Ok(expected.clone()),
-            "Input '{}' should tokenize to {:?}",
-            input,
-            expected
+            "Input '{input}' should tokenize to {expected:?}"
         );
     }
 }
