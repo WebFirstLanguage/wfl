@@ -2,6 +2,8 @@ use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use std::rc::Rc;
+use std::cell::RefCell;
+use regex::Regex;
 
 fn expect_text(value: &Value) -> Result<Rc<str>, RuntimeError> {
     match value {
@@ -107,6 +109,86 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Text(Rc::from(substring)))
 }
 
+pub fn native_regex_find(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("regex_find expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let pattern = expect_text(&args[1])?;
+
+    match Regex::new(&pattern) {
+        Ok(re) => {
+            match re.find(&text) {
+                Some(mat) => Ok(Value::Text(Rc::from(mat.as_str()))),
+                None => Ok(Value::Null),
+            }
+        }
+        Err(e) => Err(RuntimeError::new(
+            format!("Invalid regex pattern: {}", e),
+            0,
+            0,
+        )),
+    }
+}
+
+pub fn native_regex_match_all(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("regex_match_all expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let pattern = expect_text(&args[1])?;
+
+    match Regex::new(&pattern) {
+        Ok(re) => {
+            let matches: Vec<Value> = re.find_iter(&text)
+                .map(|mat| Value::Text(Rc::from(mat.as_str())))
+                .collect();
+            Ok(Value::List(Rc::new(RefCell::new(matches))))
+        }
+        Err(e) => Err(RuntimeError::new(
+            format!("Invalid regex pattern: {}", e),
+            0,
+            0,
+        )),
+    }
+}
+
+pub fn native_regex_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 3 {
+        return Err(RuntimeError::new(
+            format!("regex_replace expects 3 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let pattern = expect_text(&args[1])?;
+    let replacement = expect_text(&args[2])?;
+
+    match Regex::new(&pattern) {
+        Ok(re) => {
+            let result = re.replace_all(&text, &*replacement);
+            Ok(Value::Text(Rc::from(result.as_ref())))
+        }
+        Err(e) => Err(RuntimeError::new(
+            format!("Invalid regex pattern: {}", e),
+            0,
+            0,
+        )),
+    }
+}
+
 pub fn register_text(env: &mut Environment) {
     env.define("length", Value::NativeFunction("length", native_length));
     env.define(
@@ -124,6 +206,18 @@ pub fn register_text(env: &mut Environment) {
     env.define(
         "substring",
         Value::NativeFunction("substring", native_substring),
+    );
+    env.define(
+        "regex_find",
+        Value::NativeFunction("regex_find", native_regex_find),
+    );
+    env.define(
+        "regex_match_all",
+        Value::NativeFunction("regex_match_all", native_regex_match_all),
+    );
+    env.define(
+        "regex_replace",
+        Value::NativeFunction("regex_replace", native_regex_replace),
     );
 
     env.define(

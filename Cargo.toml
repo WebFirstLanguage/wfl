@@ -41,6 +41,7 @@ conf-files = ["/etc/wfl/wfl.cfg"]
 logos = "0.15.0"
 rand = "0.9.1"
 regex = "1.10.3"
+glob = "0.3.1"
 log = "0.4.20"
 rustyline = "12.0.0"
 tokio = { version = "1.35.1", features = ["full"] }

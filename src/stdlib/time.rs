@@ -546,10 +546,26 @@ pub fn native_current_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Text(formatted.into()))
 }
 
+/// Returns the current date and time as ISO string
+pub fn native_now_iso(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if !args.is_empty() {
+        return Err(RuntimeError::new(
+            format!("now_iso expects 0 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let now = chrono::Utc::now();
+    let iso_string = now.to_rfc3339();
+    Ok(Value::Text(Rc::from(iso_string)))
+}
+
 /// Register all time-related functions in the environment
 pub fn register_time(env: &mut Environment) {
     env.define("today", Value::NativeFunction("today", native_today));
     env.define("now", Value::NativeFunction("now", native_now));
+    env.define("now_iso", Value::NativeFunction("now_iso", native_now_iso));
     env.define(
         "datetime_now",
         Value::NativeFunction("datetime_now", native_datetime_now),

@@ -18,17 +18,26 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_tolowercase(analyzer);
     register_text_contains(analyzer);
     register_substring(analyzer);
+    register_regex_find(analyzer);
+    register_regex_match_all(analyzer);
+    register_regex_replace(analyzer);
 
     register_list_length(analyzer);
     register_push(analyzer);
     register_pop(analyzer);
     register_list_contains(analyzer);
     register_indexof(analyzer);
+    register_sort_by(analyzer);
 
     register_pattern_matches(analyzer);
     register_pattern_find(analyzer);
     register_pattern_replace(analyzer);
     register_pattern_split(analyzer);
+
+    register_cli_functions(analyzer);
+    register_fs_functions(analyzer);
+    register_path_functions(analyzer);
+    register_time_iso(analyzer);
 }
 
 fn register_print(analyzer: &mut Analyzer) {
@@ -200,4 +209,70 @@ fn register_pattern_split(analyzer: &mut Analyzer) {
     let param_types = vec![Type::Text, Type::Text];
 
     analyzer.register_builtin_function("split_by_pattern", param_types, return_type);
+}
+
+fn register_regex_find(analyzer: &mut Analyzer) {
+    let return_type = Type::Unknown; // Can return Text or Nothing
+    let param_types = vec![Type::Text, Type::Text];
+
+    analyzer.register_builtin_function("regex_find", param_types, return_type);
+}
+
+fn register_regex_match_all(analyzer: &mut Analyzer) {
+    let return_type = Type::List(Box::new(Type::Text));
+    let param_types = vec![Type::Text, Type::Text];
+
+    analyzer.register_builtin_function("regex_match_all", param_types, return_type);
+}
+
+fn register_regex_replace(analyzer: &mut Analyzer) {
+    let return_type = Type::Text;
+    let param_types = vec![Type::Text, Type::Text, Type::Text];
+
+    analyzer.register_builtin_function("regex_replace", param_types, return_type);
+}
+
+fn register_sort_by(analyzer: &mut Analyzer) {
+    let return_type = Type::List(Box::new(Type::Unknown));
+    let param_types = vec![Type::List(Box::new(Type::Unknown)), Type::Text]; // Optional third param for custom order
+
+    analyzer.register_builtin_function("sort_by", param_types, return_type);
+}
+
+fn register_cli_functions(analyzer: &mut Analyzer) {
+    analyzer.register_builtin_function("get_args", vec![], Type::List(Box::new(Type::Text)));
+    
+    analyzer.register_builtin_function("parse_flags", vec![Type::Text], Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)));
+    
+    analyzer.register_builtin_function("usage", vec![Type::Text], Type::Text);
+}
+
+fn register_fs_functions(analyzer: &mut Analyzer) {
+    analyzer.register_builtin_function("glob", vec![Type::Text, Type::Text], Type::List(Box::new(Type::Text)));
+    
+    analyzer.register_builtin_function("rglob", vec![Type::Text, Type::Text], Type::List(Box::new(Type::Text)));
+    
+    analyzer.register_builtin_function("read_text", vec![Type::Text], Type::Text);
+    
+    analyzer.register_builtin_function("write_stream_open", vec![Type::Text], Type::Number);
+    
+    analyzer.register_builtin_function("write_stream_write", vec![Type::Number, Type::Text], Type::Nothing);
+    
+    analyzer.register_builtin_function("write_stream_close", vec![Type::Number], Type::Nothing);
+}
+
+fn register_path_functions(analyzer: &mut Analyzer) {
+    analyzer.register_builtin_function("path_join", vec![Type::Text, Type::Text], Type::Text);
+    
+    analyzer.register_builtin_function("path_basename", vec![Type::Text], Type::Text);
+    
+    analyzer.register_builtin_function("path_dirname", vec![Type::Text], Type::Text);
+    
+    analyzer.register_builtin_function("path_relpath", vec![Type::Text, Type::Text], Type::Text);
+    
+    analyzer.register_builtin_function("path_normalize", vec![Type::Text], Type::Text);
+}
+
+fn register_time_iso(analyzer: &mut Analyzer) {
+    analyzer.register_builtin_function("now_iso", vec![], Type::Text);
 }
