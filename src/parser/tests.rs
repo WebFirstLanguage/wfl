@@ -283,7 +283,7 @@ fn test_parse_wait_for_open_file() {
         let result = parser.parse_statement();
         if let Err(ref e) = result {
             println!("Parse error for wait for: {e:?}");
-        }else {
+        } else {
             println!("Successfully parsed wait for statement");
         }
         assert!(result.is_ok());
