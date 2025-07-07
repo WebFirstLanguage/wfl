@@ -73,6 +73,8 @@ mod tests {
             name: "message_text".to_string(),
             param_type: Some(Type::Text),
             default_value: None,
+            line: 0,
+            column: 0,
         }];
 
         let body = vec![Statement::DisplayStatement {

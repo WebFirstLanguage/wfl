@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(/mnt/c/logbie/wfl/target/release/wfl TestPrograms/simple_test.wfl)"
+    ],
+    "deny": []
+  }
+}

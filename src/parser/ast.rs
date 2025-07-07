@@ -12,16 +12,11 @@ impl Program {
 }
 
 /// Represents the visibility of a container member (property or method)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Visibility {
+    #[default]
     Public,
     Private,
-}
-
-impl Default for Visibility {
-    fn default() -> Self {
-        Visibility::Public // Default to public visibility
-    }
 }
 
 /// Types of validation rules that can be applied to properties
@@ -392,6 +387,12 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    PropertyAccess {
+        object: Box<Expression>,
+        property: String,
+        line: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -433,6 +434,8 @@ pub struct Parameter {
     pub name: String,
     pub param_type: Option<Type>,
     pub default_value: Option<Expression>,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -447,6 +450,7 @@ pub enum Type {
     Number,
     Boolean,
     Nothing,
+    Pattern,
     Custom(String),
     List(Box<Type>),
     Map(Box<Type>, Box<Type>),

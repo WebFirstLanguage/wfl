@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: Test Programs/time_call_keyword_test.wfl
+Time: 2025-06-03 05:08:04
+
+=== Error Summary ===
+Runtime error at line 4, column 23: Undefined variable 'call today'
+
+=== Stack Trace ===
+In main script at line 4, column 23
+
+=== Source Code ===
+   2: 
+   3: // Test current date and time functions with call keyword
+>> 4: store current_date as call today
+   5: display "Current date: " with current_date
+   6: 
+
+=== Local Variables ===
+(No local variables in global scope)

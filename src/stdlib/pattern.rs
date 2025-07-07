@@ -1,805 +1,922 @@
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use regex::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-#[derive(Debug, Clone)]
-pub enum PatternPart {
-    Literal(String),
-    Digits {
-        min: usize,
-        max: Option<usize>,
-    },
-    Letters {
-        min: usize,
-        max: Option<usize>,
-    },
-    Whitespace {
-        min: usize,
-        max: Option<usize>,
-    },
-    Placeholder(String),
-    Optional(Box<PatternPart>),
-    OneOrMore(Box<PatternPart>),
-    Exactly {
-        count: usize,
-        part: Box<PatternPart>,
-    },
-    Between {
-        min: usize,
-        max: usize,
-        part: Box<PatternPart>,
-    },
-    Sequence(Vec<PatternPart>),
-    Alternation(Vec<PatternPart>),
-    BeginsWith(Box<PatternPart>),
-    EndsWith(Box<PatternPart>),
-}
+const MAX_STEPS: u32 = 100_000;
+const MAX_RECURSION_DEPTH: usize = 1000;
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct Pattern {
-    parts: Vec<PatternPart>,
-    source: String,
-    regex: Option<Regex>,
-    capture_names: Vec<String>,
+pub enum PatternError {
+    ParseError(String),
+    RuntimeError(String),
+    StepLimitExceeded,
+    RecursionLimitExceeded,
 }
 
-impl Pattern {
-    pub fn parse(pattern_str: &str) -> Result<Self, String> {
-        let mut parts = Vec::new();
-        let mut capture_names = Vec::new();
-        let mut regex_str = String::new();
-        let mut current_pos = 0;
-
-        while current_pos < pattern_str.len() {
-            let remaining = &pattern_str[current_pos..];
-
-            if remaining.starts_with('{') {
-                let end_pos = remaining
-                    .find('}')
-                    .ok_or_else(|| "Unclosed placeholder".to_string())?;
-
-                let placeholder_content = &remaining[1..end_pos];
-                let placeholder_name = placeholder_content.trim();
-
-                capture_names.push(placeholder_name.to_string());
-
-                regex_str.push_str(&format!("(?P<{}>.*?)", placeholder_name));
-
-                parts.push(PatternPart::Placeholder(placeholder_name.to_string()));
-                current_pos += end_pos + 1;
-                continue;
-            }
-
-            if remaining.starts_with("digit") {
-                current_pos += 5;
-
-                let is_plural = current_pos < pattern_str.len()
-                    && &pattern_str[current_pos..current_pos + 1] == "s";
-                if is_plural {
-                    current_pos += 1;
-                }
-
-                if let Some((min, max, new_pos)) = parse_quantifier(pattern_str, current_pos) {
-                    current_pos = new_pos;
-
-                    parts.push(PatternPart::Digits { min, max });
-                    regex_str.push_str(&format!(
-                        "\\d{{{},{}}}",
-                        min,
-                        max.map_or("".to_string(), |m| m.to_string())
-                    ));
-                } else if is_plural {
-                    parts.push(PatternPart::Digits { min: 1, max: None });
-                    regex_str.push_str("\\d+");
-                } else {
-                    parts.push(PatternPart::Digits {
-                        min: 1,
-                        max: Some(1),
-                    });
-                    regex_str.push_str("\\d");
-                }
-                continue;
-            }
-
-            if remaining.starts_with("letter") {
-                current_pos += 6;
-
-                let is_plural = current_pos < pattern_str.len()
-                    && &pattern_str[current_pos..current_pos + 1] == "s";
-                if is_plural {
-                    current_pos += 1;
-                }
-
-                if let Some((min, max, new_pos)) = parse_quantifier(pattern_str, current_pos) {
-                    current_pos = new_pos;
-
-                    parts.push(PatternPart::Letters { min, max });
-                    regex_str.push_str(&format!(
-                        "[a-zA-Z]{{{},{}}}",
-                        min,
-                        max.map_or("".to_string(), |m| m.to_string())
-                    ));
-                } else if is_plural {
-                    parts.push(PatternPart::Letters { min: 1, max: None });
-                    regex_str.push_str("[a-zA-Z]+");
-                } else {
-                    parts.push(PatternPart::Letters {
-                        min: 1,
-                        max: Some(1),
-                    });
-                    regex_str.push_str("[a-zA-Z]");
-                }
-                continue;
-            }
-
-            if remaining.starts_with("whitespace") {
-                current_pos += 10;
-
-                if let Some((min, max, new_pos)) = parse_quantifier(pattern_str, current_pos) {
-                    current_pos = new_pos;
-
-                    parts.push(PatternPart::Whitespace { min, max });
-                    regex_str.push_str(&format!(
-                        "\\s{{{},{}}}",
-                        min,
-                        max.map_or("".to_string(), |m| m.to_string())
-                    ));
-                } else {
-                    parts.push(PatternPart::Whitespace { min: 1, max: None });
-                    regex_str.push_str("\\s+");
-                }
-                continue;
-            }
-
-            if remaining.starts_with("optional ") {
-                current_pos += 9;
-
-                while current_pos < pattern_str.len()
-                    && pattern_str[current_pos..current_pos + 1].trim().is_empty()
-                {
-                    current_pos += 1;
-                }
-
-                let (part, part_regex, new_pos) = parse_part(pattern_str, current_pos)?;
-                current_pos = new_pos;
-
-                parts.push(PatternPart::Optional(Box::new(part)));
-                regex_str.push_str(&format!("(?:{})?", part_regex));
-                continue;
-            }
-
-            if remaining.starts_with("one or more ") {
-                current_pos += 12;
-
-                while current_pos < pattern_str.len()
-                    && pattern_str[current_pos..current_pos + 1].trim().is_empty()
-                {
-                    current_pos += 1;
-                }
-
-                let (part, part_regex, new_pos) = parse_part(pattern_str, current_pos)?;
-                current_pos = new_pos;
-
-                parts.push(PatternPart::OneOrMore(Box::new(part)));
-                regex_str.push_str(&format!("(?:{})+", part_regex));
-                continue;
-            }
-
-            if remaining.starts_with("exactly ") {
-                current_pos += 8;
-
-                let num_start = current_pos;
-                while current_pos < pattern_str.len()
-                    && pattern_str[current_pos..current_pos + 1]
-                        .chars()
-                        .next()
-                        .unwrap()
-                        .is_ascii_digit()
-                {
-                    current_pos += 1;
-                }
-
-                if num_start == current_pos {
-                    return Err("Expected number after 'exactly'".to_string());
-                }
-
-                let count = pattern_str[num_start..current_pos]
-                    .parse::<usize>()
-                    .map_err(|_| "Invalid number after 'exactly'".to_string())?;
-
-                while current_pos < pattern_str.len()
-                    && pattern_str[current_pos..current_pos + 1].trim().is_empty()
-                {
-                    current_pos += 1;
-                }
-
-                let (part, part_regex, new_pos) = parse_part(pattern_str, current_pos)?;
-                current_pos = new_pos;
-
-                parts.push(PatternPart::Exactly {
-                    count,
-                    part: Box::new(part),
-                });
-                regex_str.push_str(&format!("(?:{}){{{}}}", part_regex, count));
-                continue;
-            }
-
-            if remaining.starts_with("between ") {
-                current_pos += 8;
-
-                let num_start = current_pos;
-                while current_pos < pattern_str.len()
-                    && pattern_str[current_pos..current_pos + 1]
-                        .chars()
-                        .next()
-                        .unwrap()
-                        .is_ascii_digit()
-                {
-                    current_pos += 1;
-                }
-
-                if num_start == current_pos {
-                    return Err("Expected number after 'between'".to_string());
-                }
-
-                let min = pattern_str[num_start..current_pos]
-                    .parse::<usize>()
-                    .map_err(|_| "Invalid number after 'between'".to_string())?;
-
-                if !remaining[current_pos - num_start..].starts_with(" and ") {
-                    return Err("Expected 'and' after first number in 'between'".to_string());
-                }
-                current_pos += 5; // Skip " and "
-
-                let num_start = current_pos;
-                while current_pos < pattern_str.len()
-                    && pattern_str[current_pos..current_pos + 1]
-                        .chars()
-                        .next()
-                        .unwrap()
-                        .is_ascii_digit()
-                {
-                    current_pos += 1;
-                }
-
-                if num_start == current_pos {
-                    return Err("Expected number after 'and' in 'between'".to_string());
-                }
-
-                let max = pattern_str[num_start..current_pos]
-                    .parse::<usize>()
-                    .map_err(|_| "Invalid number after 'and' in 'between'".to_string())?;
-
-                while current_pos < pattern_str.len()
-                    && pattern_str[current_pos..current_pos + 1].trim().is_empty()
-                {
-                    current_pos += 1;
-                }
-
-                let (part, part_regex, new_pos) = parse_part(pattern_str, current_pos)?;
-                current_pos = new_pos;
-
-                parts.push(PatternPart::Between {
-                    min,
-                    max,
-                    part: Box::new(part),
-                });
-                regex_str.push_str(&format!("(?:{}){{{},{}}}", part_regex, min, max));
-                continue;
-            }
-
-            if remaining.starts_with("begins with ") {
-                current_pos += 12;
-
-                while current_pos < pattern_str.len()
-                    && pattern_str[current_pos..current_pos + 1].trim().is_empty()
-                {
-                    current_pos += 1;
-                }
-
-                let (part, part_regex, new_pos) = parse_part(pattern_str, current_pos)?;
-                current_pos = new_pos;
-
-                parts.push(PatternPart::BeginsWith(Box::new(part)));
-                regex_str = format!("^{}{}", part_regex, regex_str);
-                continue;
-            }
-
-            if remaining.starts_with("ends with ") {
-                current_pos += 10;
-
-                while current_pos < pattern_str.len()
-                    && pattern_str[current_pos..current_pos + 1].trim().is_empty()
-                {
-                    current_pos += 1;
-                }
-
-                let (part, part_regex, new_pos) = parse_part(pattern_str, current_pos)?;
-                current_pos = new_pos;
-
-                parts.push(PatternPart::EndsWith(Box::new(part)));
-                regex_str.push_str(&format!("{}$", part_regex));
-                continue;
-            }
-
-            if remaining.starts_with("or ") {
-                current_pos += 3;
-
-                while current_pos < pattern_str.len()
-                    && pattern_str[current_pos..current_pos + 1].trim().is_empty()
-                {
-                    current_pos += 1;
-                }
-
-                let (part, part_regex, new_pos) = parse_part(pattern_str, current_pos)?;
-                current_pos = new_pos;
-
-                if let Some(PatternPart::Alternation(alts)) = parts.last_mut() {
-                    alts.push(part);
-
-                    regex_str.push_str(&format!("|{}", part_regex));
-                } else if let Some(prev_part) = parts.pop() {
-                    let prev_regex = regex_str.clone();
-                    regex_str = format!("(?:{}|{})", prev_regex, part_regex);
-
-                    parts.push(PatternPart::Alternation(vec![prev_part, part]));
-                } else {
-                    return Err("'or' without preceding pattern part".to_string());
-                }
-                continue;
-            }
-
-            let c = pattern_str[current_pos..current_pos + 1]
-                .chars()
-                .next()
-                .unwrap();
-            parts.push(PatternPart::Literal(c.to_string()));
-
-            if "\\.*+?()[]{}|^$".contains(c) {
-                regex_str.push('\\');
-            }
-            regex_str.push(c);
-
-            current_pos += 1;
+impl std::fmt::Display for PatternError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PatternError::ParseError(msg) => write!(f, "Pattern parse error: {}", msg),
+            PatternError::RuntimeError(msg) => write!(f, "Pattern runtime error: {}", msg),
+            PatternError::StepLimitExceeded => write!(f, "Pattern execution step limit exceeded"),
+            PatternError::RecursionLimitExceeded => write!(f, "Pattern recursion limit exceeded"),
         }
+    }
+}
 
-        let regex = Regex::new(&regex_str).map_err(|e| format!("Invalid regex: {}", e))?;
+impl std::error::Error for PatternError {}
 
-        Ok(Pattern {
-            parts,
-            source: pattern_str.to_string(),
-            regex: Some(regex),
-            capture_names,
-        })
+#[derive(Debug, Clone, PartialEq)]
+pub enum CharClass {
+    Digit,
+    Letter,
+    Whitespace,
+    Any,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AnchorType {
+    Start,
+    End,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PatternNode {
+    Literal(String),
+    CharClass(CharClass),
+    Sequence(Vec<PatternNode>), // Critical: needed for proper IR structure
+    Alt {
+        alternatives: Vec<PatternNode>,
+    },
+    Rep {
+        min: u32,
+        max: u32,
+        child: Box<PatternNode>,
+    }, // min, max (u32::MAX = infinite), pattern
+    Capture {
+        name: String,
+        child: Box<PatternNode>,
+    }, // capture name, pattern
+    Anchor(AnchorType),
+}
+
+#[derive(Debug, Clone)]
+pub struct CompiledPattern {
+    pub root: PatternNode,
+    pub captures: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchResult {
+    pub matched_text: String,
+    pub captures: HashMap<String, String>,
+    pub start: usize,
+    pub end: usize,
+}
+
+impl CompiledPattern {
+    pub fn new(root: PatternNode) -> Self {
+        let captures = Self::extract_captures(&root);
+        Self { root, captures }
     }
 
-    pub fn matches(&self, text: &str) -> bool {
-        if let Some(regex) = &self.regex {
-            regex.is_match(text)
+    fn extract_captures(node: &PatternNode) -> Vec<String> {
+        let mut captures = Vec::new();
+        Self::collect_captures(node, &mut captures);
+        captures
+    }
+
+    fn collect_captures(node: &PatternNode, captures: &mut Vec<String>) {
+        match node {
+            PatternNode::Capture { name, child } => {
+                captures.push(name.clone());
+                Self::collect_captures(child, captures);
+            }
+            PatternNode::Sequence(nodes) => {
+                for node in nodes {
+                    Self::collect_captures(node, captures);
+                }
+            }
+            PatternNode::Alt { alternatives } => {
+                for alt in alternatives {
+                    Self::collect_captures(alt, captures);
+                }
+            }
+            PatternNode::Rep { child, .. } => {
+                Self::collect_captures(child, captures);
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn parse_ir(ir_string: &str) -> Result<CompiledPattern, PatternError> {
+    let root = parse_ir_node(ir_string.trim())?;
+    Ok(CompiledPattern::new(root))
+}
+
+fn parse_ir_node(ir: &str) -> Result<PatternNode, PatternError> {
+    if ir.starts_with("lit(") && ir.ends_with(')') {
+        let content = &ir[4..ir.len() - 1];
+        if content.starts_with('"') && content.ends_with('"') {
+            let literal = content[1..content.len() - 1].replace("\\\"", "\"");
+            Ok(PatternNode::Literal(literal))
         } else {
+            Err(PatternError::ParseError(format!(
+                "Invalid literal format: {}",
+                ir
+            )))
+        }
+    } else if ir.starts_with("class(") && ir.ends_with(')') {
+        let class_name = &ir[6..ir.len() - 1];
+        match class_name {
+            "digit" => Ok(PatternNode::CharClass(CharClass::Digit)),
+            "letter" => Ok(PatternNode::CharClass(CharClass::Letter)),
+            "whitespace" => Ok(PatternNode::CharClass(CharClass::Whitespace)),
+            "any" => Ok(PatternNode::CharClass(CharClass::Any)),
+            _ => Err(PatternError::ParseError(format!(
+                "Unknown character class: {}",
+                class_name
+            ))),
+        }
+    } else if ir.starts_with("seq(") && ir.ends_with(')') {
+        let content = &ir[4..ir.len() - 1];
+        let parts = parse_comma_separated(content)?;
+        let mut nodes = Vec::new();
+        for part in parts {
+            nodes.push(parse_ir_node(&part)?);
+        }
+        Ok(PatternNode::Sequence(nodes))
+    } else if ir.starts_with("alt(") && ir.ends_with(')') {
+        let content = &ir[4..ir.len() - 1];
+        let parts = parse_comma_separated(content)?;
+        if parts.len() < 2 {
+            return Err(PatternError::ParseError(
+                "Alt requires at least 2 arguments".to_string(),
+            ));
+        }
+        let mut alternatives = Vec::new();
+        for part in parts {
+            alternatives.push(parse_ir_node(&part)?);
+        }
+        Ok(PatternNode::Alt { alternatives })
+    } else if ir.starts_with("rep(") && ir.ends_with(')') {
+        let content = &ir[4..ir.len() - 1];
+        let parts = parse_comma_separated(content)?;
+        if parts.len() != 3 {
+            return Err(PatternError::ParseError(
+                "Rep requires exactly 3 arguments".to_string(),
+            ));
+        }
+
+        let min: u32 = parts[0]
+            .parse()
+            .map_err(|_| PatternError::ParseError(format!("Invalid min count: {}", parts[0])))?;
+
+        let max = if parts[1] == "inf" {
+            u32::MAX
+        } else {
+            parts[1]
+                .parse()
+                .map_err(|_| PatternError::ParseError(format!("Invalid max count: {}", parts[1])))?
+        };
+
+        if min > max && max != u32::MAX {
+            return Err(PatternError::ParseError(format!(
+                "Invalid range: min {} > max {}",
+                min, max
+            )));
+        }
+
+        let child = Box::new(parse_ir_node(&parts[2])?);
+        Ok(PatternNode::Rep { min, max, child })
+    } else if ir.starts_with("cap(") && ir.ends_with(')') {
+        let content = &ir[4..ir.len() - 1];
+        let parts = parse_comma_separated(content)?;
+        if parts.len() != 2 {
+            return Err(PatternError::ParseError(
+                "Capture requires exactly 2 arguments".to_string(),
+            ));
+        }
+
+        let name = if parts[0].starts_with('"') && parts[0].ends_with('"') {
+            parts[0][1..parts[0].len() - 1].to_string()
+        } else {
+            return Err(PatternError::ParseError(format!(
+                "Capture name must be quoted: {}",
+                parts[0]
+            )));
+        };
+
+        let child = Box::new(parse_ir_node(&parts[1])?);
+        Ok(PatternNode::Capture { name, child })
+    } else if ir.starts_with("opt(") && ir.ends_with(')') {
+        let content = &ir[4..ir.len() - 1];
+        let child = Box::new(parse_ir_node(content)?);
+        Ok(PatternNode::Rep {
+            min: 0,
+            max: 1,
+            child,
+        })
+    } else if ir.starts_with("anchor(") && ir.ends_with(')') {
+        let anchor_type = &ir[7..ir.len() - 1];
+        match anchor_type {
+            "start" => Ok(PatternNode::Anchor(AnchorType::Start)),
+            "end" => Ok(PatternNode::Anchor(AnchorType::End)),
+            _ => Err(PatternError::ParseError(format!(
+                "Unknown anchor type: {}",
+                anchor_type
+            ))),
+        }
+    } else {
+        Err(PatternError::ParseError(format!(
+            "Unknown IR function: {}",
+            ir.split('(').next().unwrap_or(ir)
+        )))
+    }
+}
+
+fn parse_comma_separated(content: &str) -> Result<Vec<String>, PatternError> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut paren_depth = 0;
+    let mut in_quotes = false;
+    let mut escape_next = false;
+
+    for ch in content.chars() {
+        if escape_next {
+            current.push(ch);
+            escape_next = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if in_quotes => {
+                escape_next = true;
+                current.push(ch);
+            }
+            '"' => {
+                in_quotes = !in_quotes;
+                current.push(ch);
+            }
+            '(' if !in_quotes => {
+                paren_depth += 1;
+                current.push(ch);
+            }
+            ')' if !in_quotes => {
+                paren_depth -= 1;
+                current.push(ch);
+            }
+            ',' if !in_quotes && paren_depth == 0 => {
+                parts.push(current.trim().to_string());
+                current.clear();
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+
+    if paren_depth > 0 {
+        return Err(PatternError::ParseError(
+            "Expected closing parenthesis".to_string(),
+        ));
+    }
+
+    if !current.trim().is_empty() {
+        parts.push(current.trim().to_string());
+    }
+
+    Ok(parts)
+}
+
+pub fn exec_match(
+    pattern: &CompiledPattern,
+    text: &str,
+) -> Result<Option<MatchResult>, PatternError> {
+    let mut steps = 0;
+    let result = exec_match_with_steps(pattern, text, &mut steps);
+
+    if let Some(ref match_result) = result {
+        if should_match_entire_input(&pattern.root) && match_result.end != text.len() {
+            return Ok(None);
+        }
+    }
+
+    Ok(result)
+}
+
+fn should_match_entire_input(node: &PatternNode) -> bool {
+    match node {
+        PatternNode::Rep { max, .. } => *max != u32::MAX, // Bounded repetitions should match exactly
+        PatternNode::Sequence(nodes) => nodes.iter().any(should_match_entire_input),
+        PatternNode::Capture { child, .. } => should_match_entire_input(child),
+        _ => false,
+    }
+}
+
+pub fn exec_match_with_steps(
+    pattern: &CompiledPattern,
+    text: &str,
+    steps: &mut u32,
+) -> Option<MatchResult> {
+    let mut captures = HashMap::new();
+    for capture_name in &pattern.captures {
+        captures.insert(capture_name.clone(), None);
+    }
+
+    for start_pos in 0..=text.len() {
+        *steps += 1;
+        if *steps > MAX_STEPS {
+            return None; // Step limit exceeded
+        }
+
+        let mut local_captures = captures.clone();
+        let mut recursion_stack = Vec::new();
+
+        if match_at_position(
+            &pattern.root,
+            text,
+            start_pos,
+            &mut local_captures,
+            steps,
+            &mut recursion_stack,
+        ) {
+            let end_pos = find_match_end(&pattern.root, text, start_pos);
+            return Some(MatchResult {
+                matched_text: text[start_pos..end_pos].to_string(),
+                captures: local_captures
+                    .into_iter()
+                    .filter_map(|(k, v)| v.map(|val| (k, val)))
+                    .collect(),
+                start: start_pos,
+                end: end_pos,
+            });
+        }
+    }
+
+    None
+}
+
+fn match_at_position(
+    node: &PatternNode,
+    text: &str,
+    pos: usize,
+    captures: &mut HashMap<String, Option<String>>,
+    steps: &mut u32,
+    recursion_stack: &mut Vec<String>,
+) -> bool {
+    *steps += 1;
+    if *steps > MAX_STEPS {
+        return false;
+    }
+
+    if recursion_stack.len() > MAX_RECURSION_DEPTH {
+        return false;
+    }
+
+    match node {
+        PatternNode::Literal(literal) => {
+            if pos + literal.len() <= text.len() {
+                &text[pos..pos + literal.len()] == literal
+            } else {
+                false
+            }
+        }
+        PatternNode::CharClass(class) => {
+            if pos < text.len() {
+                let ch = text.chars().nth(pos).unwrap();
+                match class {
+                    CharClass::Digit => ch.is_ascii_digit(),
+                    CharClass::Letter => ch.is_alphabetic(),
+                    CharClass::Whitespace => ch.is_whitespace(),
+                    CharClass::Any => true,
+                }
+            } else {
+                false
+            }
+        }
+        PatternNode::Sequence(nodes) => {
+            let mut current_pos = pos;
+            for node in nodes {
+                if !match_at_position(node, text, current_pos, captures, steps, recursion_stack) {
+                    return false;
+                }
+                current_pos = find_match_end(node, text, current_pos);
+            }
+            true
+        }
+        PatternNode::Alt { alternatives } => {
+            for alternative in alternatives {
+                let mut alt_captures = captures.clone();
+                let mut alt_stack = recursion_stack.clone();
+
+                if match_at_position(
+                    alternative,
+                    text,
+                    pos,
+                    &mut alt_captures,
+                    steps,
+                    &mut alt_stack,
+                ) {
+                    *captures = alt_captures;
+                    *recursion_stack = alt_stack;
+                    return true;
+                }
+            }
             false
         }
-    }
+        PatternNode::Rep { min, max, child } => {
+            let mut match_count = 0;
+            let mut current_pos = pos;
 
-    pub fn find(&self, text: &str) -> Option<HashMap<String, String>> {
-        if let Some(regex) = &self.regex {
-            if let Some(captures) = regex.captures(text) {
-                let mut result = HashMap::new();
-
-                for name in &self.capture_names {
-                    if let Some(m) = captures.name(name) {
-                        result.insert(name.clone(), m.as_str().to_string());
-                    }
+            loop {
+                if *max != u32::MAX && match_count >= *max {
+                    break;
                 }
 
-                if !result.is_empty() {
-                    return Some(result);
+                if current_pos >= text.len() {
+                    break;
+                }
+
+                if !match_at_position(child, text, current_pos, captures, steps, recursion_stack) {
+                    break;
+                }
+
+                match_count += 1;
+                let next_pos = find_match_end(child, text, current_pos);
+
+                if next_pos == current_pos {
+                    break; // Prevent infinite loop on zero-width matches
+                }
+                current_pos = next_pos;
+            }
+
+            match_count >= *min
+        }
+        PatternNode::Capture { name, child } => {
+            recursion_stack.push(format!("capture:{}", name));
+            let start_pos = pos;
+            let result = match_at_position(child, text, pos, captures, steps, recursion_stack);
+
+            if result {
+                let end_pos = find_match_end(child, text, start_pos);
+                if end_pos <= text.len() {
+                    captures.insert(name.clone(), Some(text[start_pos..end_pos].to_string()));
                 }
             }
-        }
 
-        None
-    }
-
-    pub fn replace(&self, text: &str, replacement: &str) -> String {
-        if let Some(regex) = &self.regex {
-            regex.replace_all(text, replacement).to_string()
-        } else {
-            text.to_string()
+            recursion_stack.pop();
+            result
         }
-    }
-
-    pub fn split(&self, text: &str) -> Vec<String> {
-        if let Some(regex) = &self.regex {
-            regex.split(text).map(|s| s.to_string()).collect()
-        } else {
-            vec![text.to_string()]
-        }
+        PatternNode::Anchor(anchor_type) => match anchor_type {
+            AnchorType::Start => pos == 0,
+            AnchorType::End => pos == text.len(),
+        },
     }
 }
 
-fn parse_quantifier(pattern_str: &str, pos: usize) -> Option<(usize, Option<usize>, usize)> {
-    if pos >= pattern_str.len() {
-        return None;
-    }
-
-    let mut current_pos = pos;
-    while current_pos < pattern_str.len()
-        && pattern_str[current_pos..current_pos + 1].trim().is_empty()
-    {
-        current_pos += 1;
-    }
-
-    let num_start = current_pos;
-    while current_pos < pattern_str.len()
-        && pattern_str[current_pos..current_pos + 1]
-            .chars()
-            .next()
-            .unwrap()
-            .is_ascii_digit()
-    {
-        current_pos += 1;
-    }
-
-    if num_start == current_pos {
-        return None;
-    }
-
-    let min = pattern_str[num_start..current_pos].parse::<usize>().ok()?;
-
-    while current_pos < pattern_str.len()
-        && pattern_str[current_pos..current_pos + 1].trim().is_empty()
-    {
-        current_pos += 1;
-    }
-
-    if current_pos + 7 <= pattern_str.len()
-        && &pattern_str[current_pos..current_pos + 7] == "or more"
-    {
-        current_pos += 7;
-        return Some((min, None, current_pos));
-    }
-
-    Some((min, Some(min), current_pos))
-}
-
-fn parse_part(pattern_str: &str, pos: usize) -> Result<(PatternPart, String, usize), String> {
-    if pos >= pattern_str.len() {
-        return Err("Unexpected end of pattern".to_string());
-    }
-
-    let remaining = &pattern_str[pos..];
-
-    if remaining.starts_with("digit") {
-        let mut current_pos = pos + 5;
-
-        let is_plural =
-            current_pos < pattern_str.len() && &pattern_str[current_pos..current_pos + 1] == "s";
-        if is_plural {
-            current_pos += 1;
+fn find_match_end(node: &PatternNode, text: &str, start_pos: usize) -> usize {
+    match node {
+        PatternNode::Literal(literal) => start_pos + literal.len(),
+        PatternNode::CharClass(_) => start_pos + 1,
+        PatternNode::Sequence(nodes) => {
+            let mut pos = start_pos;
+            for node in nodes {
+                pos = find_match_end(node, text, pos);
+            }
+            pos
         }
-
-        if let Some((min, max, new_pos)) = parse_quantifier(pattern_str, current_pos) {
-            current_pos = new_pos;
-
-            let part = PatternPart::Digits { min, max };
-            let regex = format!(
-                "\\d{{{},{}}}",
-                min,
-                max.map_or("".to_string(), |m| m.to_string())
-            );
-
-            return Ok((part, regex, current_pos));
-        } else {
-            let part = if is_plural {
-                PatternPart::Digits { min: 1, max: None }
-            } else {
-                PatternPart::Digits {
-                    min: 1,
-                    max: Some(1),
+        PatternNode::Alt { alternatives } => {
+            for alt in alternatives {
+                let mut captures = HashMap::new();
+                let mut steps = 0;
+                let mut recursion_stack = Vec::new();
+                if match_at_position(
+                    alt,
+                    text,
+                    start_pos,
+                    &mut captures,
+                    &mut steps,
+                    &mut recursion_stack,
+                ) {
+                    return find_match_end(alt, text, start_pos);
                 }
-            };
-
-            let regex = if is_plural { "\\d+" } else { "\\d" };
-
-            return Ok((part, regex.to_string(), current_pos));
+            }
+            start_pos
         }
-    }
+        PatternNode::Rep { min, max, child } => {
+            let mut pos = start_pos;
 
-    if remaining.starts_with("letter") {
-        let mut current_pos = pos + 6;
+            let mut temp_pos = start_pos;
+            let mut actual_matches = 0;
 
-        let is_plural =
-            current_pos < pattern_str.len() && &pattern_str[current_pos..current_pos + 1] == "s";
-        if is_plural {
-            current_pos += 1;
-        }
+            while actual_matches < *max && temp_pos < text.len() {
+                let mut captures = HashMap::new();
+                let mut steps = 0;
+                let mut recursion_stack = Vec::new();
 
-        if let Some((min, max, new_pos)) = parse_quantifier(pattern_str, current_pos) {
-            current_pos = new_pos;
-
-            let part = PatternPart::Letters { min, max };
-            let regex = format!(
-                "[a-zA-Z]{{{},{}}}",
-                min,
-                max.map_or("".to_string(), |m| m.to_string())
-            );
-
-            return Ok((part, regex, current_pos));
-        } else {
-            let part = if is_plural {
-                PatternPart::Letters { min: 1, max: None }
-            } else {
-                PatternPart::Letters {
-                    min: 1,
-                    max: Some(1),
+                if match_at_position(
+                    child,
+                    text,
+                    temp_pos,
+                    &mut captures,
+                    &mut steps,
+                    &mut recursion_stack,
+                ) {
+                    let next_pos = find_match_end(child, text, temp_pos);
+                    if next_pos == temp_pos {
+                        break; // Prevent infinite loop on zero-width matches
+                    }
+                    temp_pos = next_pos;
+                    actual_matches += 1;
+                } else {
+                    break;
                 }
-            };
+            }
 
-            let regex = if is_plural { "[a-zA-Z]+" } else { "[a-zA-Z]" };
+            if actual_matches >= *min {
+                pos = temp_pos;
+            }
 
-            return Ok((part, regex.to_string(), current_pos));
+            pos
         }
+        PatternNode::Capture { child, .. } => find_match_end(child, text, start_pos),
+        PatternNode::Anchor(_) => start_pos,
     }
-
-    if remaining.starts_with("whitespace") {
-        let mut current_pos = pos + 10;
-
-        if let Some((min, max, new_pos)) = parse_quantifier(pattern_str, current_pos) {
-            current_pos = new_pos;
-
-            let part = PatternPart::Whitespace { min, max };
-            let regex = format!(
-                "\\s{{{},{}}}",
-                min,
-                max.map_or("".to_string(), |m| m.to_string())
-            );
-
-            return Ok((part, regex, current_pos));
-        } else {
-            let part = PatternPart::Whitespace { min: 1, max: None };
-            let regex = "\\s+";
-
-            return Ok((part, regex.to_string(), current_pos));
-        }
-    }
-
-    let c = pattern_str[pos..pos + 1].chars().next().unwrap();
-    let part = PatternPart::Literal(c.to_string());
-
-    let mut regex = String::new();
-    if "\\.*+?()[]{}|^$".contains(c) {
-        regex.push('\\');
-    }
-    regex.push(c);
-
-    Ok((part, regex, pos + 1))
 }
 
-pub fn native_pattern_matches(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    let line = 0;
-    let column = 0;
+pub fn native_pattern_matches(
+    args: Vec<Value>,
+    line: usize,
+    column: usize,
+) -> Result<Value, RuntimeError> {
     if args.len() != 2 {
         return Err(RuntimeError::new(
-            format!("matches pattern expects 2 arguments, got {}", args.len()),
+            "pattern_matches requires exactly 2 arguments".to_string(),
             line,
             column,
         ));
     }
 
     let text = match &args[0] {
-        Value::Text(s) => s.to_string(),
+        Value::Text(t) => t.as_ref(),
         _ => {
             return Err(RuntimeError::new(
-                format!("Expected text to match, got {}", args[0].type_name()),
+                "First argument must be text".to_string(),
                 line,
                 column,
             ));
         }
     };
 
-    let pattern_str = match &args[1] {
-        Value::Text(s) => s.to_string(),
+    let pattern = match &args[1] {
+        Value::Pattern(p) => p.as_ref(),
         _ => {
             return Err(RuntimeError::new(
-                format!("Expected text pattern, got {}", args[1].type_name()),
+                "Second argument must be a pattern".to_string(),
                 line,
                 column,
             ));
         }
     };
 
-    match Pattern::parse(&pattern_str) {
-        Ok(pattern) => {
-            let result = pattern.matches(&text);
-            Ok(Value::Bool(result))
-        }
-        Err(err) => Err(RuntimeError::new(
-            format!("Error parsing pattern: {}", err),
+    match exec_match(pattern, text) {
+        Ok(Some(_)) => Ok(Value::Bool(true)),
+        Ok(None) => Ok(Value::Bool(false)),
+        Err(e) => Err(RuntimeError::new(
+            format!("Pattern execution error: {}", e),
             line,
             column,
         )),
     }
 }
 
-pub fn native_pattern_find(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    let line = 0;
-    let column = 0;
+pub fn native_pattern_find(
+    args: Vec<Value>,
+    line: usize,
+    column: usize,
+) -> Result<Value, RuntimeError> {
     if args.len() != 2 {
         return Err(RuntimeError::new(
-            format!("find pattern expects 2 arguments, got {}", args.len()),
+            "pattern_find requires exactly 2 arguments".to_string(),
             line,
             column,
         ));
     }
 
-    let pattern_str = match &args[0] {
-        Value::Text(s) => s.to_string(),
+    let text = match &args[0] {
+        Value::Text(t) => t.as_ref(),
         _ => {
             return Err(RuntimeError::new(
-                format!("Expected text pattern, got {}", args[0].type_name()),
+                "First argument must be text".to_string(),
                 line,
                 column,
             ));
         }
     };
 
-    let text = match &args[1] {
-        Value::Text(s) => s.to_string(),
+    let pattern = match &args[1] {
+        Value::Pattern(p) => p.as_ref(),
         _ => {
             return Err(RuntimeError::new(
-                format!("Expected text to search in, got {}", args[1].type_name()),
+                "Second argument must be a pattern".to_string(),
                 line,
                 column,
             ));
         }
     };
 
-    match Pattern::parse(&pattern_str) {
-        Ok(pattern) => {
-            if let Some(captures) = pattern.find(&text) {
-                let mut map = HashMap::new();
-                for (key, value) in captures {
-                    map.insert(key, Value::Text(Rc::from(value.as_str())));
-                }
-                Ok(Value::Object(Rc::new(RefCell::new(map))))
-            } else {
-                Ok(Value::Null)
+    match exec_match(pattern, text) {
+        Ok(Some(result)) => {
+            use std::rc::Rc;
+            let mut map = HashMap::new();
+            for (key, value) in result.captures {
+                map.insert(key, Value::Text(Rc::from(value)));
             }
+            Ok(Value::Object(Rc::new(RefCell::new(map))))
         }
-        Err(err) => Err(RuntimeError::new(
-            format!("Error parsing pattern: {}", err),
+        Ok(None) => Ok(Value::Null),
+        Err(e) => Err(RuntimeError::new(
+            format!("Pattern execution error: {}", e),
             line,
             column,
         )),
     }
 }
 
-pub fn native_pattern_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    let line = 0;
-    let column = 0;
+pub fn native_pattern_replace(
+    args: Vec<Value>,
+    line: usize,
+    column: usize,
+) -> Result<Value, RuntimeError> {
     if args.len() != 3 {
         return Err(RuntimeError::new(
-            format!("replace pattern expects 3 arguments, got {}", args.len()),
-            line,
-            column,
-        ));
-    }
-
-    let pattern_str = match &args[0] {
-        Value::Text(s) => s.to_string(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!("Expected text pattern, got {}", args[0].type_name()),
-                line,
-                column,
-            ));
-        }
-    };
-
-    let replacement = match &args[1] {
-        Value::Text(s) => s.to_string(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!("Expected text replacement, got {}", args[1].type_name()),
-                line,
-                column,
-            ));
-        }
-    };
-
-    let text = match &args[2] {
-        Value::Text(s) => s.to_string(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!("Expected text to replace in, got {}", args[2].type_name()),
-                line,
-                column,
-            ));
-        }
-    };
-
-    match Pattern::parse(&pattern_str) {
-        Ok(pattern) => {
-            let result = pattern.replace(&text, &replacement);
-            Ok(Value::Text(Rc::from(result.as_str())))
-        }
-        Err(err) => Err(RuntimeError::new(
-            format!("Error parsing pattern: {}", err),
-            line,
-            column,
-        )),
-    }
-}
-
-pub fn native_pattern_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    let line = 0;
-    let column = 0;
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("split by pattern expects 2 arguments, got {}", args.len()),
+            "pattern_replace requires exactly 3 arguments".to_string(),
             line,
             column,
         ));
     }
 
     let text = match &args[0] {
-        Value::Text(s) => s.to_string(),
+        Value::Text(t) => t.as_ref(),
         _ => {
             return Err(RuntimeError::new(
-                format!("Expected text to split, got {}", args[0].type_name()),
+                "First argument must be text".to_string(),
                 line,
                 column,
             ));
         }
     };
 
-    let pattern_str = match &args[1] {
-        Value::Text(s) => s.to_string(),
+    let pattern = match &args[1] {
+        Value::Pattern(p) => p.as_ref(),
         _ => {
             return Err(RuntimeError::new(
-                format!("Expected text pattern, got {}", args[1].type_name()),
+                "Second argument must be a pattern".to_string(),
                 line,
                 column,
             ));
         }
     };
 
-    match Pattern::parse(&pattern_str) {
-        Ok(pattern) => {
-            let parts = pattern.split(&text);
-            let values: Vec<Value> = parts
-                .into_iter()
-                .map(|s| Value::Text(Rc::from(s.as_str())))
-                .collect();
-
-            Ok(Value::List(Rc::new(RefCell::new(values))))
+    let replacement = match &args[2] {
+        Value::Text(t) => t.as_ref(),
+        _ => {
+            return Err(RuntimeError::new(
+                "Third argument must be text".to_string(),
+                line,
+                column,
+            ));
         }
-        Err(err) => Err(RuntimeError::new(
-            format!("Error parsing pattern: {}", err),
+    };
+
+    match exec_match(pattern, text) {
+        Ok(Some(result)) => {
+            let mut new_text = text.to_string();
+            new_text.replace_range(result.start..result.end, replacement);
+            Ok(Value::Text(Rc::from(new_text)))
+        }
+        Ok(None) => Ok(Value::Text(Rc::from(text))),
+        Err(e) => Err(RuntimeError::new(
+            format!("Pattern execution error: {}", e),
             line,
             column,
         )),
     }
+}
+
+pub fn native_pattern_split(
+    args: Vec<Value>,
+    line: usize,
+    column: usize,
+) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            "pattern_split requires exactly 2 arguments".to_string(),
+            line,
+            column,
+        ));
+    }
+
+    let text = match &args[0] {
+        Value::Text(t) => t.as_ref(),
+        _ => {
+            return Err(RuntimeError::new(
+                "First argument must be text".to_string(),
+                line,
+                column,
+            ));
+        }
+    };
+
+    let pattern = match &args[1] {
+        Value::Pattern(p) => p.as_ref(),
+        _ => {
+            return Err(RuntimeError::new(
+                "Second argument must be a pattern".to_string(),
+                line,
+                column,
+            ));
+        }
+    };
+
+    use std::rc::Rc;
+    let mut parts = Vec::new();
+    let mut last_end = 0;
+    let mut search_pos = 0;
+
+    while search_pos < text.len() {
+        let remaining_text = &text[search_pos..];
+        match exec_match(pattern, remaining_text) {
+            Ok(Some(result)) => {
+                let actual_start = search_pos + result.start;
+                let actual_end = search_pos + result.end;
+
+                if actual_start > last_end {
+                    parts.push(Value::Text(Rc::from(&text[last_end..actual_start])));
+                }
+
+                last_end = actual_end;
+                search_pos = actual_end;
+
+                // Prevent infinite loop on zero-width matches
+                if result.start == result.end {
+                    search_pos += 1;
+                }
+            }
+            Ok(None) => break,
+            Err(e) => {
+                return Err(RuntimeError::new(
+                    format!("Pattern execution error: {}", e),
+                    line,
+                    column,
+                ));
+            }
+        }
+    }
+
+    if last_end < text.len() {
+        parts.push(Value::Text(Rc::from(&text[last_end..])));
+    }
+
+    if parts.is_empty() {
+        parts.push(Value::Text(Rc::from(text)));
+    }
+
+    Ok(Value::List(Rc::new(RefCell::new(parts))))
 }
 
 pub fn register(env: &mut Environment) {
-    env.define(
-        "matches_pattern",
-        Value::NativeFunction(native_pattern_matches),
-    );
-    env.define("find_pattern", Value::NativeFunction(native_pattern_find));
-    env.define(
-        "replace_pattern",
-        Value::NativeFunction(native_pattern_replace),
-    );
-    env.define(
-        "split_by_pattern",
-        Value::NativeFunction(native_pattern_split),
-    );
+    crate::stdlib::legacy_pattern::register(env);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interpreter::value::Value;
+    use std::rc::Rc;
+
+    #[test]
+    fn test_ir_parse_literal() {
+        let pattern = parse_ir("lit(\"abc\")").unwrap();
+        assert_eq!(pattern.root, PatternNode::Literal("abc".to_string()));
+    }
+
+    #[test]
+    fn test_ir_parse_digit_class() {
+        let pattern = parse_ir("class(digit)").unwrap();
+        assert_eq!(pattern.root, PatternNode::CharClass(CharClass::Digit));
+    }
+
+    #[test]
+    fn test_match_literal_abc() {
+        let pattern = parse_ir("lit(\"abc\")").unwrap();
+        let result = exec_match(&pattern, "abc").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().matched_text, "abc");
+    }
+
+    #[test]
+    fn test_match_digit() {
+        let pattern = parse_ir("class(digit)").unwrap();
+        let result = exec_match(&pattern, "5").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().matched_text, "5");
+    }
+
+    #[test]
+    fn test_native_pattern_matches_basic() {
+        let args = vec![
+            Value::Text(Rc::from("abc")),
+            Value::Pattern(Rc::new(parse_ir("lit(\"abc\")").unwrap())),
+        ];
+        let result = native_pattern_matches(args, 0, 0).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_native_pattern_find_with_captures() {
+        let args = vec![
+            Value::Text(Rc::from("5x")),
+            Value::Pattern(Rc::new(
+                parse_ir("seq(cap(\"digit\",class(digit)),cap(\"letter\",class(letter)))").unwrap(),
+            )),
+        ];
+        let result = native_pattern_find(args, 0, 0).unwrap();
+
+        if let Value::Object(obj_rc) = result {
+            let obj = obj_rc.borrow();
+            if let Value::Text(digit) = obj.get("digit").unwrap() {
+                assert_eq!(digit.to_string(), "5");
+            } else {
+                panic!("Expected digit to be a text value");
+            }
+        } else {
+            panic!("Expected result to be an object");
+        }
+    }
+
+    #[test]
+    fn test_performance_regression_20_optional_groups() {
+        use std::time::Instant;
+
+        let mut pattern_ir = "seq(".to_string();
+        for i in 0..20 {
+            if i > 0 {
+                pattern_ir.push(',');
+            }
+            pattern_ir.push_str("opt(class(letter))");
+        }
+        pattern_ir.push(')');
+
+        let pattern = parse_ir(&pattern_ir).unwrap();
+
+        let large_input = "a".repeat(2048);
+
+        let start = Instant::now();
+        let _result = exec_match(&pattern, &large_input).unwrap();
+        let duration = start.elapsed();
+
+        assert!(
+            duration.as_millis() < 200,
+            "Pattern matching took {}ms, expected < 200ms",
+            duration.as_millis()
+        );
+    }
+
+    #[test]
+    fn test_quantifier_one_or_more() {
+        let pattern = parse_ir("rep(1,inf,class(digit))").unwrap();
+        let result = exec_match(&pattern, "123").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().matched_text, "123");
+    }
+
+    #[test]
+    fn test_quantifier_optional() {
+        let pattern = parse_ir("opt(class(digit))").unwrap();
+        let result = exec_match(&pattern, "").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().matched_text, "");
+    }
+
+    #[test]
+    fn test_alternation() {
+        let pattern = parse_ir("alt(class(digit),class(letter))").unwrap();
+        let result = exec_match(&pattern, "5").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().matched_text, "5");
+    }
+
+    #[test]
+    fn test_anchors() {
+        let pattern = parse_ir("seq(anchor(start),lit(\"abc\"))").unwrap();
+        let result = exec_match(&pattern, "abc").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().matched_text, "abc");
+    }
 }

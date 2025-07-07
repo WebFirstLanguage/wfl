@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: time_test.wfl
+Time: 2025-06-03 07:42:11
+
+=== Error Summary ===
+Runtime error at line 15, column 25: Undefined variable 'format_date of current_date'
+
+=== Stack Trace ===
+In main script at line 15, column 25
+
+=== Source Code ===
+   13: // Test date formatting
+   14: store current_date as today
+>> 15: store formatted_date as format_date of current_date and "%Y-%m-%d"
+   16: display "Formatted date (YYYY-MM-DD): " with formatted_date
+   17: 
+
+=== Local Variables ===
+(No local variables in global scope)

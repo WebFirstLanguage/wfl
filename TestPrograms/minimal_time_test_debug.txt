@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: Test Programs/minimal_time_test.wfl
+Time: 2025-06-03 05:03:06
+
+=== Error Summary ===
+Runtime error at line 9, column 43: Undefined variable 'today of'
+
+=== Stack Trace ===
+In main script at line 9, column 43
+
+=== Source Code ===
+   7: 
+   8: // Try calling with empty arguments
+>> 9: display "Today function with call: " with today of
+   10: display "Now function with call: " with now of
+   11: display "Datetime_now function with call: " with datetime_now of
+
+=== Local Variables ===
+(No local variables in global scope)

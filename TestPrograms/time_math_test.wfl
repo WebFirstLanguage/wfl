@@ -1,0 +1,13 @@
+// Time and Math Module Test
+
+// Test math functions
+display "Random number: " with random
+
+// Test time functions
+display "Current date: " with today
+display "Current time: " with now
+display "Current datetime: " with datetime_now
+
+// Try calling a function with arguments
+store decimal number as 3.7
+display "Rounded: " with round of decimal number

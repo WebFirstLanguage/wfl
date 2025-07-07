@@ -55,6 +55,24 @@ This principle has led to several recent improvements:
 
 ## Recent Changes
 
+### Static Analyzer Variable Detection Improvements (June 3, 2025)
+- Implemented comprehensive fixes for variable usage detection in the static analyzer
+- Resolved specific detection issues for:
+  - Count variables in count loops (e.g., `count from 1 to 10 as i`)
+  - Loopcounter variables in various loop constructs
+  - Variables used as arguments in action calls (both direct and nested function calls)
+  - Variables used in helper functions and nested function contexts
+- Enhanced the analyzer's ability to track variable usage across different code contexts
+- Reduced false positive "unused variable" warnings for legitimately used variables
+- Improved test reliability by eliminating inconsistent analyzer behavior
+- Enhanced developer experience by providing more accurate feedback during development
+- Strengthened backward compatibility by making the analyzer smarter about recognizing variable usage patterns without requiring code modifications
+- This improvement directly supports the project's backward compatibility commitment by:
+  - Adapting the analyzer to work with existing code rather than requiring code changes
+  - Recognizing legitimate variable usage in all supported syntax patterns
+  - Maintaining consistent behavior across different coding styles
+  - Reducing friction for developers using the language
+
 ### Nexus Test Suite Logging Optimization (June 2025)
 - Identified and fixed inefficient logging implementation in the `log_message` action in `Nexus/test.wfl`
 - Replaced console output with file-based logging for better test verification

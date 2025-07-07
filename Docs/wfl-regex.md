@@ -9,6 +9,23 @@ I’ll let you know as soon as it's ready to explore together.
 
 # Reimagining Regex in WFL: A Natural-Language Pattern Approach
 
+**⚠️ DEPRECATION NOTICE**: This document describes the legacy regex-based pattern system which is now deprecated. Please use the new `create pattern` block syntax documented in [`docs/patterns.md`](../docs/patterns.md). The legacy pattern system will be removed in a future version of WFL.
+
+**For new projects, use the modern pattern syntax:**
+```wfl
+create pattern email:
+    one or more letter or digit or "." or "_"
+    "@"
+    one or more letter or digit or "."
+    "."
+    between 2 and 10 letter
+end pattern
+```
+
+---
+
+# Legacy Documentation (Deprecated)
+
 ## Introduction  
 Regular expressions (regex) are a powerful tool for text matching, but their terse, symbol-heavy syntax makes them notoriously hard to read and write. Developers often joke that using a regex can turn one problem into two, due to how cryptic and error-prone regex patterns can become ([snobol](https://wiki.tcl-lang.org/page/snobol#:~:text=Larry%3A%20Les%27s%20ideas%20are%20no,you%20need%20to%20do%20anything)). In fact, regexes are frequently described as “unmaintainable” for non-trivial patterns ([Red Programming Language: 0.4.1: Introducing Parse](https://www.red-lang.org/2013/11/041-introducing-parse.html#:~:text=One%20of%20the%20greatest%20feature,users%2C%20in%20an%20enhanced%20version)). WFL (WebFirst Language), on the other hand, is built on the principle of **natural-language syntax with minimal special characters** ([docs.md](file://file-E4HAWbFwtx8us4PwdRXKSY#:~:text=,read%20syntax)). Writing WFL code should feel like writing simple English sentences. The challenge is to **provide regex-like capabilities (matching, extracting, replacing, splitting, validating text) in a way that fits WFL’s narrative, beginner-friendly ethos**. In this exploration, we design a pattern-matching language for WFL that is inspired by regex but far more readable, taking cues from various alternatives (parser combinators, grammar rules, search DSLs) that have sought to simplify regex. We’ll showcase how key regex tasks could be expressed in WFL’s style, and compare the approach to traditional regex to highlight the benefits.
 
@@ -221,5 +238,5 @@ Adopting a natural-language-inspired pattern system in WFL offers numerous benef
 
 - **Community Adoption and Learning:** Because WFL patterns align with how people *describe* patterns, it could lower the barrier for collaboration. One person can write a pattern and another can tweak it without both being regex gurus. It also could make it easier to auto-generate patterns. For example, an AI assistant or code generator (fitting since WFL is targeting AI agent contributions) can output WFL pattern code by literally translating a requirement. *“We need to match a time in HH:MM format”* can be turned into `pattern time = "{2 digits}:{2 digits}"` quite directly. This is much simpler than generating a correct regex and less likely to fail on edge cases because the intent is stated so plainly.
 
-In short, WFL’s natural-language regex reimagining strives to combine **the power of regex with the clarity of plain English**. By doing so, it addresses the long-standing issues with regex being “write-only code” that many fear to touch ([snobol](https://wiki.tcl-lang.org/page/snobol#:~:text=Larry%3A%20Les%27s%20ideas%20are%20no,you%20need%20to%20do%20anything)). Instead, pattern matching becomes a transparent part of the program’s logic. As one enthusiastic user said about a regex-alternative library, *“The readability improvement is immeasurable”* ([Alternatives to Regular Expressions | Hacker News](https://news.ycombinator.com/item?id=9751555#:~:text=This%20is%20going%20to%20rapidly,to%20Python%27s%20verbose%20regex%20syntax)) – we anticipate the same reaction for WFL’s pattern system. Developers can perform sophisticated text processing (match, extract, replace, split, validate) while keeping their codebase accessible and maintainable. This approach keeps with WFL’s overall narrative tone, making even complex operations feel like reading a story rather than decoding a puzzle. The result: more robust code, a gentler learning curve, and a broader range of people empowered to handle text data effectively. 
+In short, WFL’s natural-language regex reimagining strives to combine **the power of regex with the clarity of plain English**. By doing so, it addresses the long-standing issues with regex being “write-only code” that many fear to touch ([snobol](https://wiki.tcl-lang.org/page/snobol#:~:text=Larry%3A%20Les%27s%20ideas%20are%20no,you%20need%20to%20do%20anything)). Instead, pattern matching becomes a transparent part of the program’s logic. As one enthusiastic user said about a regex-alternative library, *“The readability improvement is immeasurable”* ([Alternatives to Regular Expressions | Hacker News](https://news.ycombinator.com/item?id=9751555#:~:text=This%20is%20going%20to%20rapidly,to%20Python%27s%20verbose%20regex%20syntax)) – we anticipate the same reaction for WFL’s pattern system. Developers can perform sophisticated text processing (match, extract, replace, split, validate) while keeping their codebase accessible and maintainable. This approach keeps with WFL’s overall narrative tone, making even complex operations feel like reading a story rather than decoding a puzzle. The result: more robust code, a gentler learning curve, and a broader range of people empowered to handle text data effectively.  
 

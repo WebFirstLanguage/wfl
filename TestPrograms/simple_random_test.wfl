@@ -1,0 +1,13 @@
+// Simple Random Test
+
+// Test random function
+// Note: The random function is available at runtime but not recognized by the static analyzer
+// This is why we get a warning about "Variable 'random' is not defined" but the code still runs
+// The issue is that 'random' is a function, not a value, so when we use it directly with 'with',
+// it displays "[NativeFunction]" instead of calling the function.
+
+// The solution is to use the 'run' keyword which is designed to call functions
+run random
+
+// We can also use the direct function name in a display statement, but it will show [NativeFunction]
+display "Random function: " with random

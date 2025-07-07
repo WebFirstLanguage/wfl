@@ -1,0 +1,6 @@
+// Minimal Time Module Test
+
+// Test current date and time functions
+display "Today function result: " with today
+display "Now function result: " with now
+display "Datetime_now function result: " with datetime_now

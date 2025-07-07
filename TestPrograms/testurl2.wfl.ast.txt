@@ -1,0 +1,18 @@
+AST output for: TestPrograms/testurl2.wfl
+==============================================
+
+Program with 1 statements:
+
+Statement #1: HttpGetStatement {
+    url: Literal(
+        String(
+            "https://httpbin.org/status/200",
+        ),
+        1,
+        13,
+    ),
+    variable_name: "response",
+    line: 1,
+    column: 1,
+}
+

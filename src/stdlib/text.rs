@@ -108,12 +108,30 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn register_text(env: &mut Environment) {
-    env.define("length", Value::NativeFunction(native_length));
-    env.define("touppercase", Value::NativeFunction(native_touppercase));
-    env.define("tolowercase", Value::NativeFunction(native_tolowercase));
-    env.define("contains", Value::NativeFunction(native_contains));
-    env.define("substring", Value::NativeFunction(native_substring));
+    env.define("length", Value::NativeFunction("length", native_length));
+    env.define(
+        "touppercase",
+        Value::NativeFunction("touppercase", native_touppercase),
+    );
+    env.define(
+        "tolowercase",
+        Value::NativeFunction("tolowercase", native_tolowercase),
+    );
+    env.define(
+        "contains",
+        Value::NativeFunction("contains", native_contains),
+    );
+    env.define(
+        "substring",
+        Value::NativeFunction("substring", native_substring),
+    );
 
-    env.define("to_uppercase", Value::NativeFunction(native_touppercase));
-    env.define("to_lowercase", Value::NativeFunction(native_tolowercase));
+    env.define(
+        "to_uppercase",
+        Value::NativeFunction("to_uppercase", native_touppercase),
+    );
+    env.define(
+        "to_lowercase",
+        Value::NativeFunction("to_lowercase", native_tolowercase),
+    );
 }

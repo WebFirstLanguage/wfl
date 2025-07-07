@@ -569,15 +569,14 @@ mod tests {
 
     #[test]
     fn test_load_config_defaults() {
-        // First, explicitly remove any global environment variable
-        unsafe {
-            ::std::env::remove_var("WFL_GLOBAL_CONFIG_PATH");
-        }
-
         let temp_dir = tempfile::tempdir().unwrap();
 
-        // We'll use direct function call without with_test_global_path to ensure clean state
-        let config = load_config(temp_dir.path());
+        // Use with_test_global_path to ensure we don't pick up any global config
+        let config = with_test_global_path(|| {
+            // Explicitly set a non-existent path to ensure we don't pick up any global config
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
 
         // Verify default configuration values
         assert_eq!(config.timeout_seconds, 60);
@@ -694,10 +693,6 @@ mod tests {
 
         let mut file = fs::File::create(&local_config_path).unwrap();
         file.write_all(local_config_content.as_bytes()).unwrap();
-
-        unsafe {
-            ::std::env::set_var("WFL_GLOBAL_CONFIG_PATH", "/non/existent/path");
-        }
 
         let config = with_test_global_path(|| {
             // Explicitly set a non-existent path to ensure we don't pick up any global config

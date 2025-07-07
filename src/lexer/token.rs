@@ -1,7 +1,7 @@
 use logos::Logos;
 
 #[derive(Logos, Debug, PartialEq, Clone)]
-#[logos(skip r"[ \t\f\r]+|//.*")] // Skip whitespace (excluding newline) and line comments
+#[logos(skip r"[ \t\f\r]+|//.*|#.*")] // Skip whitespace (excluding newline) and line comments (// and #)
 pub enum Token {
     #[token("\n")]
     Newline,
@@ -135,6 +135,34 @@ pub enum Token {
     KeywordReplace,
     #[token("split")]
     KeywordSplit,
+    #[token("of")]
+    KeywordOf,
+    #[token("more")]
+    KeywordMore,
+    #[token("exactly")]
+    KeywordExactly,
+    #[token("capture")]
+    KeywordCapture,
+    #[token("digit")]
+    KeywordDigit,
+    #[token("letter")]
+    KeywordLetter,
+    #[token("whitespace")]
+    KeywordWhitespace,
+    #[token("greedy")]
+    KeywordGreedy,
+    #[token("lazy")]
+    KeywordLazy,
+    #[token("one")]
+    KeywordOne,
+    #[token("optional")]
+    KeywordOptional,
+    #[token("between")]
+    KeywordBetween,
+    #[token("start")]
+    KeywordStart,
+    #[token("text")]
+    KeywordText,
     #[token("push")]
     KeywordPush,
     #[token("above")]
@@ -191,11 +219,29 @@ pub enum Token {
     #[token(":")]
     Colon,
 
+    #[token(",")]
+    Comma,
+
+    #[token("+")]
+    Plus,
+
+    #[token(".")]
+    Dot,
+
+    #[token("=")]
+    Equals,
+
     #[token("[")]
     LeftBracket,
 
     #[token("]")]
     RightBracket,
+
+    #[token("{")]
+    LeftBrace,
+
+    #[token("}")]
+    RightBrace,
 
     #[regex("(?:yes|no|true|false)", |lex| {
         let text = lex.slice().to_ascii_lowercase();

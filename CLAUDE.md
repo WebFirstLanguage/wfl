@@ -4,7 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-WFL (WebFirst Language) is a programming language designed with natural language syntax to lower the barrier to entry for programming. It's currently in active development with most core components complete and stable. The project is developed with AI assistance from Devin.ai, ChatGPT, and Claude.
+WFL (WebFirst Language) is a natural language programming language implemented in Rust. It features intuitive syntax like "store x as 5" and "display 'Hello'", with static typing, async support, and comprehensive development tooling. The project is developed with AI assistance from Devin.ai, ChatGPT, and Claude.
+
+## Memory Bank Context
+
+This project uses a comprehensive memory bank system located in `.kilocode/rules/memory-bank/`. Always consult these files for detailed context:
+- `architecture.md` - System design and processing pipeline
+- `context.md` - Development history and key decisions
+- `product.md` - Features, roadmap, and user experience
+- `tech.md` - Implementation details and technical specifications
+
+## Prime Development Directives
+
+1. **Test Programs MUST Pass**: After ANY code change, run ALL programs in TestPrograms/ and ensure they execute successfully
+2. **Backward Compatibility is Sacred**: NEVER break existing WFL programs. Maintain 100% compatibility with all syntax
+3. **User Experience First**: Error messages must be helpful, clear, and actionable
+4. **Performance Matters**: Optimize for speed without sacrificing clarity or correctness
+5. **Document Your Journey**: Create detailed Dev Diary entries for all significant changes
+
+## Critical Development Rules
+
+### Backward Compatibility Commitment
+**NEVER BREAK EXISTING WFL PROGRAMS**. This is the #1 rule. Before merging any change:
+1. Run ALL test programs in TestPrograms/
+2. Verify identical behavior for existing syntax
+3. Add new tests for new features
+4. Document any edge cases
 
 ## Core Development Commands
 
@@ -33,7 +58,7 @@ cargo test -- --nocapture
 cargo run -- path/to/program.wfl
 
 # With debug output
-cargo run -- --debug path/to/program.wfl
+cargo run -- --debug path/to/program.wfl > debug.txt 2>&1
 
 # Interactive mode (REPL)
 cargo run -- --interactive
@@ -64,10 +89,33 @@ npm run watch      # Watch mode
 npm run test       # Run tests
 ```
 
+## CLI Flag Reference
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--lex` | Output lexer tokens only | `cargo run -- --lex program.wfl` |
+| `--parse` | Output AST only | `cargo run -- --parse program.wfl` |
+| `--lint` | Check code style | `cargo run -- --lint program.wfl` |
+| `--analyze` | Static analysis | `cargo run -- --analyze program.wfl` |
+| `--fix` | Auto-format code | `cargo run -- --fix program.wfl` |
+| `--in-place` | Modify file directly | `cargo run -- --fix program.wfl --in-place` |
+| `--check` | Dry run for --fix | `cargo run -- --fix program.wfl --check` |
+| `--debug` | Enable debug output | `cargo run -- --debug program.wfl` |
+| `--config` | Specify config file | `cargo run -- --config custom.wflcfg program.wfl` |
+| `--time` | Show execution time | `cargo run -- --time program.wfl` |
+| `-v, --version` | Show version info | `cargo run -- --version` |
+
 ## Architecture Overview
 
 ### Module Structure
 The codebase follows a pipeline architecture:
+
+```
+Input (.wfl) → Lexer → Parser → Analyzer → Type Checker → Interpreter → Output
+                ↓       ↓         ↓           ↓              ↓
+              Tokens   AST    Validated   Type Info    Execution
+                              AST                       Results
+```
 
 1. **Lexer** (`src/lexer/`) - Tokenizes source code using Logos library
 2. **Parser** (`src/parser/`) - Builds AST with natural language support
@@ -79,7 +127,7 @@ The codebase follows a pipeline architecture:
 
 - **Error Handling**: Comprehensive error types with codespan-reporting for user-friendly messages
 - **Async Operations**: Full Tokio integration for concurrent operations
-- **Standard Library**: Modular design in `src/stdlib/` with core, math, text, list, and pattern modules
+- **Standard Library**: Modular design in `src/stdlib/` with core, math, text, list, time, and pattern modules
 - **Configuration**: Hierarchical config system (global → local) in `src/config.rs` and `src/wfl_config/`
 - **Logging**: Dual logging system - standard logger and execution tracer using `exec_trace!` macro
 
@@ -98,6 +146,15 @@ The parser supports English-like syntax:
 - "count from X to Y" for loops
 - Function calls like "length of mylist"
 
+## Standard Debug Procedure
+
+When debugging ANY issue:
+1. Create minimal test case in TestPrograms/
+2. Run with debug flag: `cargo run -- test.wfl --debug > test_debug.txt 2>&1`
+3. Check debug output for execution trace
+4. Run static analyzer: `cargo run -- --analyze test.wfl`
+5. Fix issues and verify ALL existing tests still pass
+
 ## AI Development Rules
 
 When working on this codebase:
@@ -114,6 +171,31 @@ When working on this codebase:
 4. **Update Dev diary** - Create entries in `Dev diary/` for significant changes
 5. **Maintain clean separation** - Debug output uses `exec_trace!`, never pollutes program output
 
+## Testing Requirements
+
+**ALL test programs in TestPrograms/ MUST pass**. Test categories:
+- Basic syntax tests (variables, loops, conditions)
+- Async/await tests
+- Error handling tests
+- Standard library tests
+- Performance benchmarks
+
+Run specific test: `cargo test test_name`
+Run module tests: `cargo test --package wfl --lib module_name`
+
+## Documentation Requirements
+
+Before making changes:
+1. Read `Docs/wfl-spec.md` for language specification
+2. Check module-specific docs in `Docs/`
+3. Review recent Dev Diary entries
+4. Consult memory bank files in `.kilocode/rules/memory-bank/`
+
+After making changes:
+1. Update relevant documentation
+2. Create Dev Diary entry with implementation details
+3. Add/update tests in appropriate locations
+
 ## Critical Implementation Notes
 
 ### Parser Stability
@@ -125,17 +207,26 @@ When working on this codebase:
 - Optional dhat heap profiling with `--features dhat-heap`
 - Careful lifetime management in parser to avoid borrow checker issues
 - Async operations properly handle cleanup
+- Variables stored in Environment HashMap
+- Scope management with push/pop
+- Automatic cleanup on scope exit
 
 ### Error Reporting
 - All errors use the unified diagnostic system
 - Include source context with precise spans
 - Provide actionable suggestions when possible
+- Use `InterpreterError` for runtime errors
 
-### Testing Strategy
-- Unit tests embedded in modules (`#[cfg(test)]`)
-- Integration tests in `tests/` directory
-- Example programs in `Test Programs/` for end-to-end testing
-- Error examples in `Test Programs/error_examples/`
+### Type System
+- Static typing with inference
+- Types: text, number, boolean, list, null, any
+- Function types for callbacks
+- Pattern matching with regex support
+
+### Async Operations
+- All I/O operations are async (web.get, file operations)
+- Use `await` keyword in WFL code
+- Tokio runtime handles execution
 
 ## Common Workflows
 
@@ -148,11 +239,15 @@ When working on this codebase:
 6. Write comprehensive tests
 7. Update documentation
 
-### Debugging Runtime Issues
-1. Enable debug logging in `.wflcfg`
-2. Check the generated `*_debug.txt` file
-3. Use `exec_trace!` macro for additional logging
-4. Review the execution flow in `wfl_exec.log`
+### Development Workflow
+1. **Understand the task**: Read all relevant documentation
+2. **Check existing code**: Search for similar patterns
+3. **Write tests first**: Add to TestPrograms/ or unit tests
+4. **Implement feature**: Follow existing code style
+5. **Run all tests**: `cargo test` and TestPrograms/
+6. **Check quality**: `cargo fmt` and `cargo clippy`
+7. **Update docs**: Modify relevant .md files
+8. **Create Dev Diary**: Document your implementation
 
 ### Updating Standard Library
 1. Add function to appropriate module in `src/stdlib/`
@@ -170,4 +265,12 @@ When working on this codebase:
 - `src/main.rs` - CLI entry point and command handling
 - `.kilocode/rules/` - Additional AI assistant context and rules
 
-Remember: This is alpha software under active development. Always prioritize stability and backward compatibility while implementing new features.
+## Current Focus Areas (June 2025)
+
+1. **Testing**: Expanding test coverage and TestPrograms
+2. **Performance**: Optimizing lexer and parser
+3. **Error Messages**: Improving clarity and helpfulness
+4. **Documentation**: Keeping all docs up-to-date
+5. **Stability**: Ensuring backward compatibility
+
+Remember: This is alpha software under active development. Always prioritize stability and backward compatibility while implementing new features. The goal is to make programming accessible while maintaining professional-grade tooling and performance.

@@ -242,6 +242,42 @@ impl DiagnosticReporter {
             diag = diag.with_note(
                 "Reserved keywords cannot be used as variable names. Choose a different name that is not a reserved word.",
             );
+        } else if message.contains("Expected ':' after container name") {
+            diag = diag.with_note(
+                "Container definitions require a colon after the name. For example: `create container Person:`",
+            );
+        } else if message.contains("Expected 'container' after 'create'") {
+            diag = diag.with_note(
+                "Use 'create container' to define a new container. For example: `create container Person:`",
+            );
+        } else if message.contains("Expected identifier for container name") {
+            diag = diag.with_note(
+                "Container names must be valid identifiers. For example: `create container Person:`",
+            );
+        } else if message.contains("Expected 'as' after container type") {
+            diag = diag.with_note(
+                "Container instantiation requires 'as' before the instance name. For example: `create new Person as alice:`",
+            );
+        } else if message.contains("Expected 'new' after 'create'") {
+            diag = diag.with_note(
+                "Use 'create new' to instantiate a container. For example: `create new Person as alice:`",
+            );
+        } else if message.contains("Expected identifier for container type") {
+            diag = diag.with_note(
+                "Specify a valid container type name. For example: `create new Person as alice:`",
+            );
+        } else if message.contains("Expected property name after 'property'") {
+            diag = diag.with_note(
+                "Property definitions require a name. For example: `property name: Text`",
+            );
+        } else if message.contains("Expected 'interface' after 'create'") {
+            diag = diag.with_note(
+                "Use 'create interface' to define a new interface. For example: `create interface Drawable:`",
+            );
+        } else if message.contains("Expected identifier for interface name") {
+            diag = diag.with_note(
+                "Interface names must be valid identifiers. For example: `create interface Drawable:`",
+            );
         }
 
         diag
@@ -411,8 +447,67 @@ impl DiagnosticReporter {
             end: start_offset + 1,
         };
 
-        let mut diag =
-            WflDiagnostic::error(message).with_primary_label(span, "Runtime error occurred here");
+        let mut diag = WflDiagnostic::error(message.clone())
+            .with_primary_label(span, "Runtime error occurred here");
+
+        if error.message.contains("Pattern compilation error") {
+            if error.message.contains("invalid range") || error.message.contains("Invalid range") {
+                return WflDiagnostic::new(
+                    Severity::Error,
+                    message,
+                    Some(
+                        "Check that quantifier ranges are valid (e.g., 'between 1 and 5')"
+                            .to_string(),
+                    ),
+                    "PATTERN-SYNTAX-INVALID-RANGE".to_string(),
+                    file_id,
+                    error.line,
+                    error.column,
+                    Some(span),
+                );
+            } else if error.message.contains("unclosed group")
+                || error.message.contains("Unclosed group")
+            {
+                return WflDiagnostic::new(
+                    Severity::Error,
+                    message,
+                    Some(
+                        "Make sure all pattern groups are properly closed with matching delimiters"
+                            .to_string(),
+                    ),
+                    "PATTERN-SYNTAX-UNCLOSED-GROUP".to_string(),
+                    file_id,
+                    error.line,
+                    error.column,
+                    Some(span),
+                );
+            } else {
+                return WflDiagnostic::new(
+                    Severity::Error,
+                    message,
+                    Some("Check pattern syntax for errors in quantifiers, groups, or character classes".to_string()),
+                    "PATTERN-SYNTAX-ERROR".to_string(),
+                    file_id,
+                    error.line,
+                    error.column,
+                    Some(span),
+                );
+            }
+        } else if error
+            .message
+            .contains("Pattern execution depth limit exceeded")
+        {
+            return WflDiagnostic::new(
+                Severity::Error,
+                message,
+                Some("Pattern matching was stopped to prevent infinite loops. Simplify your pattern or reduce input size".to_string()),
+                "PATTERN-RUNTIME-DEPTH".to_string(),
+                file_id,
+                error.line,
+                error.column,
+                Some(span),
+            );
+        }
 
         if error.message.contains("division by zero") {
             diag = diag.with_note("Check your divisor to ensure it's never zero");
@@ -432,6 +527,95 @@ impl DiagnosticReporter {
         }
 
         diag
+    }
+
+    pub fn convert_pattern_error(
+        &self,
+        file_id: usize,
+        error_message: &str,
+        pattern_name: Option<&str>,
+        input_preview: Option<&str>,
+        line: usize,
+        column: usize,
+    ) -> WflDiagnostic {
+        let start_offset = self.line_col_to_offset(file_id, line, column).unwrap_or(0);
+        let span = Span {
+            start: start_offset,
+            end: start_offset + 1,
+        };
+
+        let mut message = error_message.to_string();
+
+        if let Some(name) = pattern_name {
+            message = format!("Pattern '{}': {}", name, message);
+        }
+
+        if let Some(input) = input_preview {
+            let preview = if input.len() > 30 {
+                format!("{}...", &input[..30])
+            } else {
+                input.to_string()
+            };
+            message = format!("{} (input: \"{}\")", message, preview);
+        }
+
+        if error_message.contains("invalid range") || error_message.contains("Invalid range") {
+            WflDiagnostic::new(
+                Severity::Error,
+                message,
+                Some(
+                    "Check that quantifier ranges are valid (e.g., 'between 1 and 5')".to_string(),
+                ),
+                "PATTERN-SYNTAX-INVALID-RANGE".to_string(),
+                file_id,
+                line,
+                column,
+                Some(span),
+            )
+        } else if error_message.contains("unclosed group")
+            || error_message.contains("Unclosed group")
+        {
+            WflDiagnostic::new(
+                Severity::Error,
+                message,
+                Some(
+                    "Make sure all pattern groups are properly closed with matching delimiters"
+                        .to_string(),
+                ),
+                "PATTERN-SYNTAX-UNCLOSED-GROUP".to_string(),
+                file_id,
+                line,
+                column,
+                Some(span),
+            )
+        } else if error_message.contains("depth limit exceeded")
+            || error_message.contains("performance limit")
+        {
+            WflDiagnostic::new(
+                Severity::Error,
+                message,
+                Some("Pattern matching was stopped to prevent infinite loops. Simplify your pattern or reduce input size".to_string()),
+                "PATTERN-RUNTIME-DEPTH".to_string(),
+                file_id,
+                line,
+                column,
+                Some(span),
+            )
+        } else {
+            WflDiagnostic::new(
+                Severity::Error,
+                message,
+                Some(
+                    "Check pattern syntax for errors in quantifiers, groups, or character classes"
+                        .to_string(),
+                ),
+                "PATTERN-SYNTAX-ERROR".to_string(),
+                file_id,
+                line,
+                column,
+                Some(span),
+            )
+        }
     }
 }
 

@@ -1,0 +1,14 @@
+// Simple Time Module Test
+
+// Test current date and time
+display "Current date: " with today
+display "Current time: " with now
+display "Current datetime: " with datetime_now
+
+// Test date formatting with hardcoded values
+store test_date as create_date of 2025 and 6 and 3
+display "Test date: " with test_date
+
+// Test time formatting with hardcoded values
+store test_time as create_time of 14 and 30
+display "Test time: " with test_time
