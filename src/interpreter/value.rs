@@ -1,6 +1,7 @@
 use super::environment::Environment;
 use super::error::RuntimeError;
 use crate::parser::ast::Statement;
+use crate::stdlib::pattern::CompiledPattern;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -14,8 +15,12 @@ pub enum Value {
     List(Rc<RefCell<Vec<Value>>>),
     Object(Rc<RefCell<HashMap<String, Value>>>),
     Function(Rc<FunctionValue>),
-    NativeFunction(NativeFunction),
+    NativeFunction(&'static str, NativeFunction),
     Future(Rc<RefCell<FutureValue>>),
+    Date(Rc<chrono::NaiveDate>),
+    Time(Rc<chrono::NaiveTime>),
+    DateTime(Rc<chrono::NaiveDateTime>),
+    Pattern(Rc<CompiledPattern>),
     Null,
     Nothing, // Used for void returns
 
@@ -158,8 +163,12 @@ impl Value {
             Value::List(_) => "List",
             Value::Object(_) => "Object",
             Value::Function(_) => "Function",
-            Value::NativeFunction(_) => "NativeFunction",
+            Value::NativeFunction(_, _) => "NativeFunction",
             Value::Future(_) => "Future",
+            Value::Date(_) => "Date",
+            Value::Time(_) => "Time",
+            Value::DateTime(_) => "DateTime",
+            Value::Pattern(_) => "Pattern",
             Value::Null => "Null",
             Value::Nothing => "Nothing",
             Value::ContainerDefinition(_def) => "Container",
@@ -178,8 +187,10 @@ impl Value {
             Value::Text(s) => !s.is_empty(),
             Value::List(list) => !list.borrow().is_empty(),
             Value::Object(obj) => !obj.borrow().is_empty(),
-            Value::Function(_) | Value::NativeFunction(_) => true,
+            Value::Function(_) | Value::NativeFunction(_, _) => true,
             Value::Future(future) => future.borrow().completed,
+            Value::Date(_) | Value::Time(_) | Value::DateTime(_) => true,
+            Value::Pattern(_) => true,
             Value::Nothing => false,
             Value::ContainerDefinition(_) => true,
             Value::ContainerInstance(_) => true,
@@ -226,8 +237,12 @@ impl fmt::Debug for Value {
                     func.name.as_ref().unwrap_or(&"anonymous".to_string())
                 )
             }
-            Value::NativeFunction(_) => write!(f, "NativeFunction"),
+            Value::NativeFunction(name, _) => write!(f, "NativeFunction({})", name),
             Value::Future(_) => write!(f, "[Future]"),
+            Value::Date(d) => write!(f, "Date({})", d),
+            Value::Time(t) => write!(f, "Time({})", t),
+            Value::DateTime(dt) => write!(f, "DateTime({})", dt),
+            Value::Pattern(_) => write!(f, "[Pattern]"),
             Value::Null => write!(f, "null"),
             Value::ContainerDefinition(def) => write!(f, "<container {}>", def.name),
             Value::ContainerInstance(instance) => {
@@ -249,7 +264,27 @@ impl fmt::Display for Value {
             Value::Bool(b) => write!(f, "{}", if *b { "yes" } else { "no" }),
             Value::Nothing => write!(f, "nothing"),
             Value::List(_) => write!(f, "[List]"),
-            Value::Object(_) => write!(f, "[Object]"),
+            Value::Object(o) => {
+                let map = o.borrow();
+                if map.len() == 1 {
+                    if let Some((_, value)) = map.iter().next() {
+                        write!(f, "{}", value)
+                    } else {
+                        write!(f, "[Object]")
+                    }
+                } else if map.is_empty() {
+                    write!(f, "[Object]")
+                } else {
+                    write!(f, "{{")?;
+                    for (i, (k, v)) in map.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}: {}", k, v)?;
+                    }
+                    write!(f, "}}")
+                }
+            }
             Value::Function(func) => {
                 write!(
                     f,
@@ -257,8 +292,12 @@ impl fmt::Display for Value {
                     func.name.as_ref().unwrap_or(&"anonymous".to_string())
                 )
             }
-            Value::NativeFunction(_) => write!(f, "[NativeFunction]"),
+            Value::NativeFunction(name, _) => write!(f, "native {}", name),
             Value::Future(_) => write!(f, "[Future]"),
+            Value::Date(d) => write!(f, "{}", d.format("%Y-%m-%d")),
+            Value::Time(t) => write!(f, "{}", t.format("%H:%M:%S")),
+            Value::DateTime(dt) => write!(f, "{}", dt.format("%Y-%m-%d %H:%M:%S")),
+            Value::Pattern(_) => write!(f, "[Pattern]"),
             Value::Null => write!(f, "nothing"),
             Value::ContainerDefinition(def) => write!(f, "container {}", def.name),
             Value::ContainerInstance(instance) => {
@@ -278,6 +317,9 @@ impl PartialEq for Value {
             (Value::Number(a), Value::Number(b)) => a == b,
             (Value::Text(a), Value::Text(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Date(a), Value::Date(b)) => a == b,
+            (Value::Time(a), Value::Time(b)) => a == b,
+            (Value::DateTime(a), Value::DateTime(b)) => a == b,
             (Value::Null, Value::Null) => true,
             (Value::Nothing, Value::Nothing) => true,
             (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => a.name == b.name,

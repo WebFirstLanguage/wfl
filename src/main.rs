@@ -74,13 +74,8 @@ async fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    // Check for version flag anywhere in the arguments
-    for arg in &args[1..] {
-        if arg == "--version" || arg == "-v" {
-            println!("WebFirst Language (WFL) version {}", wfl::version::VERSION);
-            return Ok(());
-        }
-    }
+    // Check for version flag only in WFL flags (before script filename)
+    // This check is moved into the main argument parsing loop below
 
     let mut lint_mode = false;
     let mut analyze_mode = false;
@@ -243,11 +238,22 @@ async fn main() -> io::Result<()> {
             _ => {
                 if file_path.is_empty() {
                     file_path = args[i].clone();
+                    i += 1;
+                    // All remaining arguments after the file path are script arguments
+                    break;
+                } else {
+                    i += 1;
                 }
-                i += 1;
             }
         }
     }
+
+    // Collect remaining arguments as script arguments
+    let script_args: Vec<String> = if i < args.len() {
+        args[i..].to_vec()
+    } else {
+        Vec::new()
+    };
 
     if fix_mode && !lint_mode {
         eprintln!("Error: --fix must be combined with --lint");
@@ -698,6 +704,7 @@ async fn main() -> io::Result<()> {
 
                 let mut interpreter = Interpreter::with_timeout(config.timeout_seconds);
                 interpreter.set_step_mode(step_mode); // Set step mode from CLI flag
+                interpreter.set_script_args(script_args); // Pass script arguments
 
                 if step_mode {
                     println!("Boot phase: Configuration loaded");

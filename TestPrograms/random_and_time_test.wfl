@@ -1,0 +1,31 @@
+// Random and Time Test
+
+// Test random function
+display "Random number: " with random
+
+// Test current_date function
+display "Current date: " with current_date
+
+// Try to run the functions
+run random
+run current_date
+
+// Try to execute the functions
+execute random
+execute current_date
+
+// Try to call the functions
+call random
+call current_date
+
+// Try to invoke the functions
+invoke random
+invoke current_date
+
+// Try to apply the functions
+apply random
+apply current_date
+
+// Try to do the functions
+do random
+do current_date

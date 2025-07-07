@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: Test Programs/simple_random_test.wfl
+Time: 2025-06-03 05:23:37
+
+=== Error Summary ===
+Runtime error at line 10, column 1: Undefined variable 'run random'
+
+=== Stack Trace ===
+In main script at line 10, column 1
+
+=== Source Code ===
+   8: 
+   9: // The solution is to use the 'run' keyword which is designed to call functions
+>> 10: run random
+   11: 
+   12: // We can also use the direct function name in a display statement, but it will show [NativeFunction]
+
+=== Local Variables ===
+(No local variables in global scope)

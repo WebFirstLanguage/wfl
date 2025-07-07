@@ -1,3 +1,0 @@
-06:55:48.165102828 [INFO] WFL execution logging initialized at 2025-06-03 06:55:48 - Test Programs/wfl_exec.log
-06:55:48.225661336 [DEBUG] (1) wfl::interpreter: [/home/ubuntu/repos/wfl/src/interpreter/mod.rs:2788] EXEC: ┌─ Block entry: function greet
-06:55:48.226203899 [DEBUG] (1) wfl::interpreter: [/home/ubuntu/repos/wfl/src/interpreter/mod.rs:2798] EXEC:   └─ Block exit: function greet

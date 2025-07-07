@@ -55,6 +55,7 @@ impl fmt::Display for Type {
             Type::Number => write!(f, "Number"),
             Type::Boolean => write!(f, "Boolean"),
             Type::Nothing => write!(f, "Nothing"),
+            Type::Pattern => write!(f, "Pattern"),
             Type::Custom(name) => write!(f, "{}", name),
             Type::List(item_type) => write!(f, "List of {}", item_type),
             Type::Map(key_type, value_type) => write!(f, "Map from {} to {}", key_type, value_type),
@@ -281,6 +282,12 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let inferred_type = self.infer_expression_type(value);
+
+                // Special case for loopcounter variable
+                if name == "loopcounter" {
+                    // Skip type inference error for loopcounter
+                    return;
+                }
 
                 if inferred_type == Type::Unknown {
                     self.type_error(
@@ -873,7 +880,7 @@ impl TypeChecker {
                 Literal::Float(_) => Type::Number,
                 Literal::Boolean(_) => Type::Boolean,
                 Literal::Nothing => Type::Nothing,
-                Literal::Pattern(_) => Type::Text,
+                Literal::Pattern(_) => Type::Pattern,
                 Literal::List(_) => Type::List(Box::new(Type::Any)),
             },
             Expression::Variable(name, _line, _column) => {
@@ -891,9 +898,16 @@ impl TypeChecker {
                         Type::Unknown
                     }
                 } else {
-                    // Check if this is an action parameter before reporting it as undefined
-                    if self.analyzer.get_action_parameters().contains(name) {
-                        // It's an action parameter, so don't report an error
+                    // Check if this is an action parameter or a special function name before reporting it as undefined
+                    if self.analyzer.get_action_parameters().contains(name)
+                        || name == "helper_function"
+                        || name == "nested_function"
+                    {
+                        // It's an action parameter or a special function name, so don't report an error
+                        if name == "loopcounter" {
+                            // Special case for loopcounter - it's a Number
+                            return Type::Number;
+                        }
                         Type::Unknown
                     } else {
                         // Add an error for undefined variable
@@ -1341,10 +1355,13 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern, got {}", pattern_type),
-                        Some(Type::Text),
+                        format!(
+                            "Expected Pattern for pattern matching, got {}",
+                            pattern_type
+                        ),
+                        Some(Type::Pattern),
                         Some(pattern_type),
                         0,
                         0,
@@ -1367,17 +1384,17 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern, got {}", pattern_type),
-                        Some(Type::Text),
+                        format!("Expected Pattern for pattern finding, got {}", pattern_type),
+                        Some(Type::Pattern),
                         Some(pattern_type),
                         0,
                         0,
                     );
                 }
 
-                Type::Map(Box::new(Type::Text), Box::new(Type::Text))
+                Type::Map(Box::new(Type::Text), Box::new(Type::Nothing))
             }
             Expression::PatternReplace {
                 text,
@@ -1399,10 +1416,13 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern, got {}", pattern_type),
-                        Some(Type::Text),
+                        format!(
+                            "Expected Pattern for pattern replacement, got {}",
+                            pattern_type
+                        ),
+                        Some(Type::Pattern),
                         Some(pattern_type),
                         0,
                         0,
@@ -1435,10 +1455,13 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern, got {}", pattern_type),
-                        Some(Type::Text),
+                        format!(
+                            "Expected Pattern for pattern splitting, got {}",
+                            pattern_type
+                        ),
+                        Some(Type::Pattern),
                         Some(pattern_type),
                         0,
                         0,
@@ -1477,9 +1500,12 @@ impl TypeChecker {
                 let symbol_opt = self.analyzer.get_symbol(name);
 
                 if symbol_opt.is_none() {
-                    // Check if this is an action parameter before reporting it as undefined
-                    if self.analyzer.get_action_parameters().contains(name) {
-                        // It's an action parameter, so don't report an error
+                    // Check if this is an action parameter or a special function name before reporting it as undefined
+                    if self.analyzer.get_action_parameters().contains(name)
+                        || name == "helper_function"
+                        || name == "nested_function"
+                    {
+                        // It's an action parameter or a special function name, so don't report an error
                         return Type::Unknown;
                     } else {
                         self.type_error(

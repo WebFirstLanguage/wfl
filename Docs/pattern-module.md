@@ -1,6 +1,19 @@
 ## Pattern Module (Text Pattern Matching)
 
-The **pattern module** provides a natural language approach to text pattern matching, allowing users to work with patterns in a more intuitive way than traditional regular expressions. This module implements the "Not Your Father's Regex" concept, making pattern matching accessible to beginners while still being powerful enough for complex text processing tasks.
+**⚠️ DEPRECATION NOTICE**: This document describes the legacy regex-based pattern system which is now deprecated. Please use the new `create pattern` block syntax documented in [`docs/patterns.md`](../docs/patterns.md). The legacy pattern system will be removed in a future version of WFL.
+
+**For new projects, use the modern pattern syntax:**
+```wfl
+create pattern my_pattern:
+    // Natural language pattern description
+end pattern
+```
+
+---
+
+## Legacy Pattern Module Documentation (Deprecated)
+
+The **pattern module** provides a natural language approach to text pattern matching, allowing users to work with patterns in a more intuitive way than traditional regular expressions.This module implements the "Not Your Father's Regex" concept, making pattern matching accessible to beginners while still being powerful enough for complex text processing tasks.
 
 Pattern operations use plain English expressions instead of cryptic symbols, making them easier to read, write, and understand. The module includes functions for matching, finding, replacing, and splitting text using patterns.
 

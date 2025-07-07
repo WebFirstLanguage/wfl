@@ -1,0 +1,56 @@
+// Test program for command-line argument handling
+// Usage: wfl args_test.wfl [arguments...]
+
+display "=== Command Line Arguments Test ==="
+display ""
+
+// Display total argument count
+display "Total arguments: " with arg_count
+display ""
+
+// Display all arguments as a list
+display "All arguments:"
+store idx as 0
+for each arg in args
+    display "  [" with idx with "] " with arg
+    store idx as idx plus 1
+end for
+display ""
+
+// Display positional arguments (non-flag arguments)
+display "Positional arguments:"
+store pos_idx as 0
+for each arg in positional_args
+    display "  [" with pos_idx with "] " with arg
+    store pos_idx as pos_idx plus 1
+end for
+display ""
+
+// Check for specific flags
+display "Flag checks:"
+if flag_test then
+    display "  --test flag is present: " with flag_test
+end if
+
+if flag_test2 then
+    display "  --test2 flag is present: " with flag_test2
+end if
+
+if flag_verbose then
+    display "  --verbose flag is present: " with flag_verbose
+end if
+
+if flag_v then
+    display "  -v flag is present: " with flag_v
+end if
+
+if flag_output then
+    display "  --output flag value: " with flag_output
+end if
+
+if flag_o then
+    display "  -o flag value: " with flag_o
+end if
+
+display ""
+display "=== End of Arguments Test ==="

@@ -1,0 +1,24 @@
+// Time Module Call Test with call keyword
+
+// Test current date and time functions with call keyword
+store current_date as call today
+display "Current date: " with current_date
+
+store current_time as call now
+display "Current time: " with current_time
+
+store current_datetime as call datetime_now
+display "Current datetime: " with current_datetime
+
+// Test date creation with call keyword
+store year as 2025
+store month as 6
+store day as 3
+store test_date as call create_date with year and month and day
+display "Test date: " with test_date
+
+// Test time creation with call keyword
+store hour as 14
+store minute as 30
+store test_time as call create_time with hour and minute
+display "Test time: " with test_time

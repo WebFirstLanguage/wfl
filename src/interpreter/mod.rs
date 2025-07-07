@@ -36,6 +36,7 @@ use crate::exec_var_declare;
 use crate::logging::IndentGuard;
 use crate::parser::ast::{Expression, Literal, Operator, Program, Statement, UnaryOperator};
 use crate::stdlib;
+use crate::stdlib::pattern;
 use std::cell::RefCell;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -153,7 +154,8 @@ pub struct Interpreter {
     call_stack: RefCell<Vec<CallFrame>>,
     #[allow(dead_code)]
     io_client: Rc<IoClient>,
-    step_mode: bool, // Controls single-step execution mode
+    step_mode: bool,          // Controls single-step execution mode
+    script_args: Vec<String>, // Command-line arguments passed to the script
 }
 
 #[allow(dead_code)]
@@ -348,7 +350,10 @@ impl Interpreter {
 
         {
             let mut env = global_env.borrow_mut();
-            env.define("display", Value::NativeFunction(Self::native_display));
+            env.define(
+                "display",
+                Value::NativeFunction("display", Self::native_display),
+            );
 
             stdlib::register_stdlib(&mut env);
         }
@@ -361,7 +366,8 @@ impl Interpreter {
             max_duration: Duration::from_secs(u64::MAX), // Effectively no timeout by default
             call_stack: RefCell::new(Vec::new()),
             io_client: Rc::new(IoClient::new()),
-            step_mode: false, // Default to non-step mode
+            step_mode: false,        // Default to non-step mode
+            script_args: Vec::new(), // Initialize empty, will be set later
         }
     }
 
@@ -374,6 +380,10 @@ impl Interpreter {
 
     pub fn set_step_mode(&mut self, step_mode: bool) {
         self.step_mode = step_mode;
+    }
+
+    pub fn set_script_args(&mut self, args: Vec<String>) {
+        self.script_args = args;
     }
 
     fn dump_state(
@@ -505,6 +515,79 @@ impl Interpreter {
     pub async fn interpret(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
         self.assert_invariants();
         self.call_stack.borrow_mut().clear();
+
+        // Set up script arguments in the global environment
+        {
+            let mut env = self.global_env.borrow_mut();
+
+            // Create args list with all arguments
+            let args_list: Vec<Value> = self
+                .script_args
+                .iter()
+                .map(|arg| Value::Text(Rc::from(arg.as_str())))
+                .collect();
+            env.define("args", Value::List(Rc::new(RefCell::new(args_list))));
+
+            // Parse and set up flags (arguments starting with - or --)
+            let mut flags = HashMap::new();
+            let mut positional_args = Vec::new();
+            let mut i = 0;
+
+            while i < self.script_args.len() {
+                let arg = &self.script_args[i];
+                if arg.starts_with("--") {
+                    let flag_name = arg.trim_start_matches("--");
+                    // Check if next argument is a value for this flag
+                    if i + 1 < self.script_args.len() && !self.script_args[i + 1].starts_with("-") {
+                        flags.insert(
+                            flag_name.to_string(),
+                            Value::Text(Rc::from(self.script_args[i + 1].as_str())),
+                        );
+                        i += 2;
+                    } else {
+                        flags.insert(flag_name.to_string(), Value::Bool(true));
+                        i += 1;
+                    }
+                } else if arg.starts_with("-") && arg.len() > 1 {
+                    // Handle short flags like -f
+                    let flag_name = arg.trim_start_matches("-");
+                    // Check if next argument is a value for this flag
+                    if i + 1 < self.script_args.len() && !self.script_args[i + 1].starts_with("-") {
+                        flags.insert(
+                            flag_name.to_string(),
+                            Value::Text(Rc::from(self.script_args[i + 1].as_str())),
+                        );
+                        i += 2;
+                    } else {
+                        flags.insert(flag_name.to_string(), Value::Bool(true));
+                        i += 1;
+                    }
+                } else {
+                    positional_args.push(Value::Text(Rc::from(arg.as_str())));
+                    i += 1;
+                }
+            }
+
+            // Convert flags HashMap to Value
+            let mut flags_map = HashMap::new();
+            for (key, value) in flags {
+                flags_map.insert(key, value);
+            }
+
+            // Store positional arguments
+            env.define(
+                "positional_args",
+                Value::List(Rc::new(RefCell::new(positional_args.clone()))),
+            );
+
+            // Store argument count
+            env.define("arg_count", Value::Number(self.script_args.len() as f64));
+
+            // Store flags as individual variables with flag_ prefix
+            for (key, value) in flags_map {
+                env.define(&format!("flag_{}", key), value);
+            }
+        }
 
         // Use exec_trace for execution logs instead of println
         if !self.step_mode {
@@ -2307,7 +2390,14 @@ impl Interpreter {
                 Literal::Float(f) => Ok(Value::Number(*f)),
                 Literal::Boolean(b) => Ok(Value::Bool(*b)),
                 Literal::Nothing => Ok(Value::Null),
-                Literal::Pattern(s) => Ok(Value::Text(Rc::from(s.as_str()))),
+                Literal::Pattern(ir_string) => match pattern::parse_ir(ir_string) {
+                    Ok(compiled_pattern) => Ok(Value::Pattern(Rc::new(compiled_pattern))),
+                    Err(err) => Err(RuntimeError::new(
+                        format!("Pattern compilation error: {}", err),
+                        *_line,
+                        *_column,
+                    )),
+                },
                 Literal::List(elements) => {
                     let mut list_values = Vec::new();
                     for element in elements {
@@ -2454,7 +2544,7 @@ impl Interpreter {
                     Value::Function(func) => {
                         self.call_function(&func, arg_values, *line, *column).await
                     }
-                    Value::NativeFunction(native_fn) => {
+                    Value::NativeFunction(_, native_fn) => {
                         native_fn(arg_values.clone()).map_err(|e| {
                             RuntimeError::new(
                                 format!("Error in native function: {}", e),
@@ -2650,7 +2740,7 @@ impl Interpreter {
                 let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
 
                 let args = vec![text_val, pattern_val];
-                crate::stdlib::pattern::native_pattern_matches(args)
+                crate::stdlib::pattern::native_pattern_matches(args, *_line, *_column)
             }
 
             Expression::PatternFind {
@@ -2662,8 +2752,8 @@ impl Interpreter {
                 let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
                 let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
 
-                let args = vec![pattern_val, text_val]; // Note: pattern first, then text
-                crate::stdlib::pattern::native_pattern_find(args)
+                let args = vec![text_val, pattern_val]; // Note: text first, then pattern
+                crate::stdlib::pattern::native_pattern_find(args, *_line, *_column)
             }
 
             Expression::PatternReplace {
@@ -2679,8 +2769,8 @@ impl Interpreter {
                     .evaluate_expression(replacement, Rc::clone(&env))
                     .await?;
 
-                let args = vec![pattern_val, replacement_val, text_val]; // Note: pattern, replacement, then text
-                crate::stdlib::pattern::native_pattern_replace(args)
+                let args = vec![text_val, pattern_val, replacement_val]; // Note: text, pattern, then replacement
+                crate::stdlib::pattern::native_pattern_replace(args, *_line, *_column)
             }
 
             Expression::PatternSplit {
@@ -2693,7 +2783,7 @@ impl Interpreter {
                 let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
 
                 let args = vec![text_val, pattern_val];
-                crate::stdlib::pattern::native_pattern_split(args)
+                crate::stdlib::pattern::native_pattern_split(args, *_line, *_column)
             }
             Expression::PropertyAccess {
                 object,

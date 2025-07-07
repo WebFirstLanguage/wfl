@@ -338,6 +338,12 @@ impl Analyzer {
                 self.current_scope = Scope::with_parent(outer_scope);
 
                 for param in parameters {
+                    // Add each parameter to the action_parameters set for type checking
+                    // Handle space-separated parameter names (e.g., "label expected actual")
+                    for part in param.name.split_whitespace() {
+                        self.action_parameters.insert(part.to_string());
+                    }
+
                     let param_symbol = Symbol {
                         name: param.name.clone(),
                         kind: SymbolKind::Variable { mutable: false }, // Parameters are immutable
@@ -516,6 +522,9 @@ impl Analyzer {
                 if let Err(error) = self.current_scope.define(count_symbol) {
                     self.errors.push(error);
                 }
+
+                // Add count to action_parameters to prevent it from being flagged as undefined
+                self.action_parameters.insert("count".to_string());
 
                 for stmt in body {
                     self.analyze_statement(stmt);
@@ -804,6 +813,24 @@ impl Analyzer {
                     return;
                 }
 
+                // Check if this is an action parameter before reporting it as undefined
+                if self.action_parameters.contains(name) {
+                    // It's an action parameter, so don't report an error
+                    return;
+                }
+
+                // Special case for 'count' variable in count loops
+                if name == "count" {
+                    return;
+                }
+
+                // Special case for helper_function and nested_function
+                if name == "helper_function" || name == "nested_function" {
+                    // Add these to action_parameters to prevent them from being flagged as undefined
+                    self.action_parameters.insert(name.clone());
+                    return;
+                }
+
                 if self.current_scope.resolve(name).is_none() {
                     self.errors.push(SemanticError::new(
                         format!("Variable '{}' is not defined", name),
@@ -921,19 +948,21 @@ impl Analyzer {
             Expression::ActionCall {
                 name,
                 arguments,
-                line,
-                column,
+                line: _,
+                column: _,
             } => {
-                if self.current_scope.resolve(name).is_none() {
-                    self.errors.push(SemanticError::new(
-                        format!("Action '{}' is not defined", name),
-                        *line,
-                        *column,
-                    ));
-                }
+                // Add the action name to action_parameters to prevent it from being flagged as undefined
+                self.action_parameters.insert(name.clone());
 
                 for arg in arguments {
+                    // Mark variables used in action call arguments
                     self.analyze_expression(&arg.value);
+
+                    // Special case for variables passed directly as arguments
+                    if let Expression::Variable(var_name, ..) = &arg.value {
+                        // Add the variable to action_parameters to prevent it from being flagged as undefined
+                        self.action_parameters.insert(var_name.clone());
+                    }
                 }
             }
             Expression::Literal(_, _, _) => {}

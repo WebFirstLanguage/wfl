@@ -1,0 +1,36 @@
+// Test native function display
+// This script verifies that native functions display readable names instead of "[NativeFunction]"
+
+// Test text functions
+store length_fn as length
+display "Length function: " with length_fn
+
+store uppercase_fn as touppercase
+display "Uppercase function: " with uppercase_fn
+
+// Test math functions
+store random_fn as random
+display "Random function: " with random_fn
+
+store abs_fn as abs
+display "Abs function: " with abs_fn
+
+// Test time functions
+store today_fn as today
+display "Today function: " with today_fn
+
+store now_fn as now
+display "Now function: " with now_fn
+
+// Test core functions
+store print_fn as print
+display "Print function: " with print_fn
+
+store typeof_fn as typeof
+display "Typeof function: " with typeof_fn
+
+// Verify functions still work when called
+display "Testing function calls:"
+display "Length of 'hello': " with length("hello")
+display "Random number: " with random
+display "Today's date: " with today

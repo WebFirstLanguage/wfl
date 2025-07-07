@@ -1,0 +1,6 @@
+// Time Module Direct Test
+
+// Test current date and time functions directly
+display "Today: " with today
+display "Now: " with now
+display "Datetime now: " with datetime_now

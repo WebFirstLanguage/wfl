@@ -1,0 +1,12 @@
+// Time Module Call Test
+
+// Test current date and time functions with parentheses
+display "Today function: " with today()
+display "Now function: " with now()
+display "Datetime_now function: " with datetime_now()
+
+// Test date creation with parentheses
+display "Create date: " with create_date(2025, 6, 3)
+
+// Test time creation with parentheses
+display "Create time: " with create_time(14, 30)

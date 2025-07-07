@@ -110,7 +110,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
-  # ------------------------------------------------------------
+# ------------------------------------------------------------
   # BUILD JOB (Windows only)
   # ------------------------------------------------------------
   build:
@@ -173,6 +173,15 @@ jobs:
         run: |
           cargo build --release --locked --target ${{ env.TARGET }} --bin wfl
           cargo build --release --locked --target ${{ env.TARGET }} -p wfl-lsp --bin wfl-lsp
+
+      # ✨ FIXED: Added step to ensure a clean test environment
+      - name: Clean workspace before tests
+        shell: pwsh
+        run: |
+          if (Test-Path -Path ".wflcfg") {
+            Write-Host "Removing .wflcfg before running tests to ensure a clean environment."
+            Remove-Item -Path ".wflcfg" -Force
+          }
 
       - name: Run tests
         run: cargo test --release --locked --target ${{ env.TARGET }}
@@ -293,7 +302,6 @@ jobs:
           name: ${{ env.ARTIFACT_NAME }}
           path: target/${{ env.TARGET }}/release/${{ env.ARTIFACT_PATH }}
           if-no-files-found: error
-
   # ------------------------------------------------------------
   # RELEASE JOB
   # ------------------------------------------------------------
