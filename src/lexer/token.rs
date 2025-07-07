@@ -163,8 +163,6 @@ pub enum Token {
     KeywordStart,
     #[token("text")]
     KeywordText,
-    #[token("on")]
-    KeywordOn,
     #[token("push")]
     KeywordPush,
     #[token("above")]
