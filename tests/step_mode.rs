@@ -27,8 +27,7 @@ display x
     let output_str = String::from_utf8_lossy(&output_no_step.stdout);
     assert!(
         !output_str.contains("continue (y/n)?"),
-        "Output shouldn't contain step mode prompts: {}",
-        output_str
+        "Output shouldn't contain step mode prompts: {output_str}"
     );
 }
 
@@ -65,15 +64,13 @@ store y as 100
     let output_str = String::from_utf8_lossy(&output.stdout);
     assert!(
         output_str.contains("continue (y/n)?"),
-        "Output should contain step mode prompts: {}",
-        output_str
+        "Output should contain step mode prompts: {output_str}"
     );
 
     let prompt_count = output_str.matches("continue (y/n)?").count();
     assert!(
         prompt_count >= 1,
-        "Expected at least 1 prompt, got {}",
-        prompt_count
+        "Expected at least 1 prompt, got {prompt_count}"
     );
 }
 
@@ -122,18 +119,15 @@ main
     let output_str = String::from_utf8_lossy(&output.stdout);
     assert!(
         output_str.contains("Boot phase: Configuration loaded"),
-        "Output should show boot phase: {}",
-        output_str
+        "Output should show boot phase: {output_str}"
     );
     assert!(
         output_str.contains("continue (y/n)?"),
-        "Output should contain prompts: {}",
-        output_str
+        "Output should contain prompts: {output_str}"
     );
     assert!(
         output_str.contains("Program has 4 statements"),
-        "Output should show program statement count: {}",
-        output_str
+        "Output should show program statement count: {output_str}"
     );
 }
 
@@ -171,13 +165,11 @@ end count
     let output_str = String::from_utf8_lossy(&output.stdout);
     assert!(
         output_str.contains("loopcounter"),
-        "Output should show loopcounter variable: {}",
-        output_str
+        "Output should show loopcounter variable: {output_str}"
     );
     assert!(
         output_str.contains("Count: 1"),
-        "Output should show Count: 1: {}",
-        output_str
+        "Output should show Count: 1: {output_str}"
     );
 }
 
@@ -214,7 +206,6 @@ display x
     let prompt_count = output_str.matches("continue (y/n)?").count();
     assert!(
         prompt_count >= 1,
-        "Expected at least one prompt, got {}",
-        prompt_count
+        "Expected at least one prompt, got {prompt_count}"
     );
 }

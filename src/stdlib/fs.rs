@@ -76,7 +76,7 @@ pub fn native_glob(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let dir = expect_text(&args[0])?;
     let pattern = expect_text(&args[1])?;
 
-    let search_pattern = format!("{}/{}", dir, pattern);
+    let search_pattern = format!("{dir}/{pattern}");
     let options = MatchOptions {
         case_sensitive: true,
         require_literal_separator: false,
@@ -98,7 +98,7 @@ pub fn native_glob(args: Vec<Value>) -> Result<Value, RuntimeError> {
             Ok(Value::List(Rc::new(RefCell::new(results))))
         }
         Err(e) => Err(RuntimeError::new(
-            format!("Glob pattern error: {}", e),
+            format!("Glob pattern error: {e}"),
             0,
             0,
         )),
@@ -117,7 +117,7 @@ pub fn native_rglob(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let dir = expect_text(&args[0])?;
     let pattern = expect_text(&args[1])?;
 
-    let search_pattern = format!("{}/**/{}", dir, pattern);
+    let search_pattern = format!("{dir}/**/{pattern}");
     let options = MatchOptions {
         case_sensitive: true,
         require_literal_separator: false,
@@ -142,7 +142,7 @@ pub fn native_rglob(args: Vec<Value>) -> Result<Value, RuntimeError> {
             Ok(Value::List(Rc::new(RefCell::new(results))))
         }
         Err(e) => Err(RuntimeError::new(
-            format!("Recursive glob pattern error: {}", e),
+            format!("Recursive glob pattern error: {e}"),
             0,
             0,
         )),
@@ -169,7 +169,7 @@ pub fn native_read_text(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     if !file_path.exists() {
         return Err(RuntimeError::new(
-            format!("File does not exist: {}", path),
+            format!("File does not exist: {path}"),
             0,
             0,
         ));
@@ -179,7 +179,7 @@ pub fn native_read_text(args: Vec<Value>) -> Result<Value, RuntimeError> {
         "utf-8" => match std::fs::read_to_string(file_path) {
             Ok(content) => Ok(Value::Text(Rc::from(content))),
             Err(e) => Err(RuntimeError::new(
-                format!("Failed to read file as UTF-8: {}", e),
+                format!("Failed to read file as UTF-8: {e}"),
                 0,
                 0,
             )),
@@ -190,7 +190,7 @@ pub fn native_read_text(args: Vec<Value>) -> Result<Value, RuntimeError> {
                 Ok(Value::Text(Rc::from(content)))
             }
             Err(e) => Err(RuntimeError::new(
-                format!("Failed to read file as Latin-1: {}", e),
+                format!("Failed to read file as Latin-1: {e}"),
                 0,
                 0,
             )),
@@ -203,14 +203,14 @@ pub fn native_read_text(args: Vec<Value>) -> Result<Value, RuntimeError> {
                     Ok(Value::Text(Rc::from(content)))
                 }
                 Err(e) => Err(RuntimeError::new(
-                    format!("Failed to read file with auto encoding: {}", e),
+                    format!("Failed to read file with auto encoding: {e}"),
                     0,
                     0,
                 )),
             },
         },
         _ => Err(RuntimeError::new(
-            format!("Unsupported encoding: {}", encoding),
+            format!("Unsupported encoding: {encoding}"),
             0,
             0,
         )),
@@ -232,7 +232,7 @@ pub fn native_write_stream_open(args: Vec<Value>) -> Result<Value, RuntimeError>
     if let Some(parent) = validated_path.parent() {
         if !parent.exists() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                RuntimeError::new(format!("Failed to create directory: {}", e), 0, 0)
+                RuntimeError::new(format!("Failed to create directory: {e}"), 0, 0)
             })?;
         }
     }
@@ -242,7 +242,7 @@ pub fn native_write_stream_open(args: Vec<Value>) -> Result<Value, RuntimeError>
         .create(true)
         .truncate(true)
         .open(&validated_path)
-        .map_err(|e| RuntimeError::new(format!("Failed to open file for writing: {}", e), 0, 0))?;
+        .map_err(|e| RuntimeError::new(format!("Failed to open file for writing: {e}"), 0, 0))?;
 
     let writer = BufWriter::new(file);
 
@@ -281,14 +281,14 @@ pub fn native_write_stream_write(args: Vec<Value>) -> Result<Value, RuntimeError
     if let Some(writer) = handles.get_mut(&*handle_id) {
         writer
             .write_all(content.as_bytes())
-            .map_err(|e| RuntimeError::new(format!("Failed to write to stream: {}", e), 0, 0))?;
+            .map_err(|e| RuntimeError::new(format!("Failed to write to stream: {e}"), 0, 0))?;
         writer
             .flush()
-            .map_err(|e| RuntimeError::new(format!("Failed to flush stream: {}", e), 0, 0))?;
+            .map_err(|e| RuntimeError::new(format!("Failed to flush stream: {e}"), 0, 0))?;
         Ok(Value::Null)
     } else {
         Err(RuntimeError::new(
-            format!("Invalid stream handle: {}", handle_id),
+            format!("Invalid stream handle: {handle_id}"),
             0,
             0,
         ))
@@ -311,7 +311,7 @@ pub fn native_write_stream_close(args: Vec<Value>) -> Result<Value, RuntimeError
     if let Some(mut writer) = handles.remove(&*handle_id) {
         writer.flush().map_err(|e| {
             RuntimeError::new(
-                format!("Failed to flush stream before closing: {}", e),
+                format!("Failed to flush stream before closing: {e}"),
                 0,
                 0,
             )
@@ -319,7 +319,7 @@ pub fn native_write_stream_close(args: Vec<Value>) -> Result<Value, RuntimeError
         Ok(Value::Null)
     } else {
         Err(RuntimeError::new(
-            format!("Invalid stream handle: {}", handle_id),
+            format!("Invalid stream handle: {handle_id}"),
             0,
             0,
         ))
@@ -353,7 +353,7 @@ pub fn native_create_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let dir_path = Path::new(&*path);
 
     std::fs::create_dir_all(dir_path)
-        .map_err(|e| RuntimeError::new(format!("Failed to create directory: {}", e), 0, 0))?;
+        .map_err(|e| RuntimeError::new(format!("Failed to create directory: {e}"), 0, 0))?;
 
     Ok(Value::Null)
 }
@@ -372,7 +372,7 @@ pub fn native_file_mtime(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     if !file_path.exists() {
         return Err(RuntimeError::new(
-            format!("File does not exist: {}", path),
+            format!("File does not exist: {path}"),
             0,
             0,
         ));
@@ -388,13 +388,13 @@ pub fn native_file_mtime(args: Vec<Value>) -> Result<Value, RuntimeError> {
                 Ok(Value::Number(timestamp))
             }
             Err(e) => Err(RuntimeError::new(
-                format!("Failed to get modification time: {}", e),
+                format!("Failed to get modification time: {e}"),
                 0,
                 0,
             )),
         },
         Err(e) => Err(RuntimeError::new(
-            format!("Failed to get file metadata: {}", e),
+            format!("Failed to get file metadata: {e}"),
             0,
             0,
         )),

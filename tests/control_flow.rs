@@ -8,13 +8,13 @@ async fn execute_wfl(code: &str) -> Result<Value, String> {
     let mut parser = Parser::new(&tokens);
     let program = parser
         .parse()
-        .map_err(|e| format!("Parse error: {:?}", e))?;
+        .map_err(|e| format!("Parse error: {e:?}"))?;
 
     let mut interpreter = Interpreter::default();
     interpreter
         .interpret(&program)
         .await
-        .map_err(|e| format!("Runtime error: {:?}", e))
+        .map_err(|e| format!("Runtime error: {e:?}"))
 }
 
 #[tokio::test]

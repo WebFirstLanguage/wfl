@@ -44,16 +44,16 @@ use std::time::{Duration, Instant};
 #[cfg(debug_assertions)]
 fn stmt_type(stmt: &Statement) -> String {
     match stmt {
-        Statement::VariableDeclaration { name, .. } => format!("VariableDeclaration '{}'", name),
-        Statement::Assignment { name, .. } => format!("Assignment to '{}'", name),
+        Statement::VariableDeclaration { name, .. } => format!("VariableDeclaration '{name}'"),
+        Statement::Assignment { name, .. } => format!("Assignment to '{name}'"),
         Statement::IfStatement { .. } => "IfStatement".to_string(),
         Statement::SingleLineIf { .. } => "SingleLineIf".to_string(),
         Statement::DisplayStatement { .. } => "DisplayStatement".to_string(),
-        Statement::ActionDefinition { name, .. } => format!("ActionDefinition '{}'", name),
+        Statement::ActionDefinition { name, .. } => format!("ActionDefinition '{name}'"),
         Statement::ReturnStatement { .. } => "ReturnStatement".to_string(),
         Statement::ExpressionStatement { .. } => "ExpressionStatement".to_string(),
         Statement::CountLoop { .. } => "CountLoop".to_string(),
-        Statement::ForEachLoop { item_name, .. } => format!("ForEachLoop '{}'", item_name),
+        Statement::ForEachLoop { item_name, .. } => format!("ForEachLoop '{item_name}'"),
         Statement::WhileLoop { .. } => "WhileLoop".to_string(),
         Statement::RepeatUntilLoop { .. } => "RepeatUntilLoop".to_string(),
         Statement::RepeatWhileLoop { .. } => "RepeatWhileLoop".to_string(),
@@ -62,20 +62,20 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::ContinueStatement { .. } => "ContinueStatement".to_string(),
         Statement::ExitStatement { .. } => "ExitStatement".to_string(),
         Statement::OpenFileStatement { variable_name, .. } => {
-            format!("OpenFileStatement '{}'", variable_name)
+            format!("OpenFileStatement '{variable_name}'")
         }
         Statement::ReadFileStatement { variable_name, .. } => {
-            format!("ReadFileStatement '{}'", variable_name)
+            format!("ReadFileStatement '{variable_name}'")
         }
         Statement::WriteFileStatement { .. } => "WriteFileStatement".to_string(),
         Statement::CloseFileStatement { .. } => "CloseFileStatement".to_string(),
         Statement::WaitForStatement { .. } => "WaitForStatement".to_string(),
-        Statement::TryStatement { error_name, .. } => format!("TryStatement '{}'", error_name),
+        Statement::TryStatement { error_name, .. } => format!("TryStatement '{error_name}'"),
         Statement::HttpGetStatement { variable_name, .. } => {
-            format!("HttpGetStatement '{}'", variable_name)
+            format!("HttpGetStatement '{variable_name}'")
         }
         Statement::HttpPostStatement { variable_name, .. } => {
-            format!("HttpPostStatement '{}'", variable_name)
+            format!("HttpPostStatement '{variable_name}'")
         }
         Statement::PushStatement { .. } => "PushStatement to list".to_string(),
     }
@@ -85,23 +85,23 @@ fn stmt_type(stmt: &Statement) -> String {
 fn expr_type(expr: &Expression) -> String {
     match expr {
         Expression::Literal(lit, ..) => match lit {
-            Literal::String(s) => format!("StringLiteral \"{}\"", s),
-            Literal::Integer(i) => format!("IntegerLiteral {}", i),
-            Literal::Float(f) => format!("FloatLiteral {}", f),
-            Literal::Boolean(b) => format!("BooleanLiteral {}", b),
+            Literal::String(s) => format!("StringLiteral \"{s}\""),
+            Literal::Integer(i) => format!("IntegerLiteral {i}"),
+            Literal::Float(f) => format!("FloatLiteral {f}"),
+            Literal::Boolean(b) => format!("BooleanLiteral {b}"),
             Literal::Nothing => "NullLiteral".to_string(),
-            Literal::Pattern(p) => format!("PatternLiteral \"{}\"", p),
+            Literal::Pattern(p) => format!("PatternLiteral \"{p}\""),
             Literal::List(_) => "ListLiteral".to_string(),
         },
-        Expression::Variable(name, ..) => format!("Variable '{}'", name),
-        Expression::BinaryOperation { operator, .. } => format!("BinaryOperation '{:?}'", operator),
-        Expression::UnaryOperation { operator, .. } => format!("UnaryOperation '{:?}'", operator),
+        Expression::Variable(name, ..) => format!("Variable '{name}'"),
+        Expression::BinaryOperation { operator, .. } => format!("BinaryOperation '{operator:?}'"),
+        Expression::UnaryOperation { operator, .. } => format!("UnaryOperation '{operator:?}'"),
         Expression::FunctionCall { function, .. } => match function.as_ref() {
-            Expression::Variable(name, ..) => format!("FunctionCall '{}'", name),
+            Expression::Variable(name, ..) => format!("FunctionCall '{name}'"),
             _ => "FunctionCall".to_string(),
         },
-        Expression::ActionCall { name, .. } => format!("ActionCall '{}'", name),
-        Expression::MemberAccess { property, .. } => format!("MemberAccess '{}'", property),
+        Expression::ActionCall { name, .. } => format!("ActionCall '{name}'"),
+        Expression::MemberAccess { property, .. } => format!("MemberAccess '{property}'"),
         Expression::IndexAccess { .. } => "IndexAccess".to_string(),
         Expression::Concatenation { .. } => "Concatenation".to_string(),
         Expression::PatternMatch { .. } => "PatternMatch".to_string(),
@@ -152,9 +152,9 @@ impl IoClient {
         match self.http_client.get(url).send().await {
             Ok(response) => match response.text().await {
                 Ok(text) => Ok(text),
-                Err(e) => Err(format!("Failed to read response body: {}", e)),
+                Err(e) => Err(format!("Failed to read response body: {e}")),
             },
-            Err(e) => Err(format!("Failed to send HTTP GET request: {}", e)),
+            Err(e) => Err(format!("Failed to send HTTP GET request: {e}")),
         }
     }
 
@@ -169,9 +169,9 @@ impl IoClient {
         {
             Ok(response) => match response.text().await {
                 Ok(text) => Ok(text),
-                Err(e) => Err(format!("Failed to read response body: {}", e)),
+                Err(e) => Err(format!("Failed to read response body: {e}")),
             },
-            Err(e) => Err(format!("Failed to send HTTP POST request: {}", e)),
+            Err(e) => Err(format!("Failed to send HTTP POST request: {e}")),
         }
     }
 
@@ -201,7 +201,7 @@ impl IoClient {
                 file_handles.insert(handle_id.clone(), (path_buf, file));
                 Ok(handle_id)
             }
-            Err(e) => Err(format!("Failed to open file {}: {}", path, e)),
+            Err(e) => Err(format!("Failed to open file {path}: {e}")),
         }
     }
 
@@ -220,13 +220,13 @@ impl IoClient {
                     let _ = self.close_file(&new_handle).await;
                     return result;
                 }
-                Err(e) => return Err(format!("Invalid file handle or path: {}: {}", handle_id, e)),
+                Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
             }
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
             Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {}", e)),
+            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
         };
 
         drop(file_handles);
@@ -234,7 +234,7 @@ impl IoClient {
         let mut contents = String::new();
         match AsyncReadExt::read_to_string(&mut file_clone, &mut contents).await {
             Ok(_) => Ok(contents),
-            Err(e) => Err(format!("Failed to read file: {}", e)),
+            Err(e) => Err(format!("Failed to read file: {e}")),
         }
     }
 
@@ -253,13 +253,13 @@ impl IoClient {
                     let _ = self.close_file(&new_handle).await;
                     return result;
                 }
-                Err(e) => return Err(format!("Invalid file handle or path: {}: {}", handle_id, e)),
+                Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
             }
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
             Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {}", e)),
+            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
         };
 
         drop(file_handles);
@@ -269,12 +269,12 @@ impl IoClient {
                 Ok(_) => {
                     match AsyncWriteExt::write_all(&mut file_clone, content.as_bytes()).await {
                         Ok(_) => Ok(()),
-                        Err(e) => Err(format!("Failed to write to file: {}", e)),
+                        Err(e) => Err(format!("Failed to write to file: {e}")),
                     }
                 }
-                Err(e) => Err(format!("Failed to truncate file: {}", e)),
+                Err(e) => Err(format!("Failed to truncate file: {e}")),
             },
-            Err(e) => Err(format!("Failed to seek in file: {}", e)),
+            Err(e) => Err(format!("Failed to seek in file: {e}")),
         }
     }
 
@@ -298,15 +298,15 @@ impl IoClient {
 
         let (_, file) = match file_handles.get_mut(handle_id) {
             Some(entry) => entry,
-            None => return Err(format!("Invalid file handle: {}", handle_id)),
+            None => return Err(format!("Invalid file handle: {handle_id}")),
         };
 
         match AsyncSeekExt::seek(file, std::io::SeekFrom::End(0)).await {
             Ok(_) => match AsyncWriteExt::write_all(file, content.as_bytes()).await {
                 Ok(_) => Ok(()),
-                Err(e) => Err(format!("Failed to append to file: {}", e)),
+                Err(e) => Err(format!("Failed to append to file: {e}")),
             },
-            Err(e) => Err(format!("Failed to seek to end of file: {}", e)),
+            Err(e) => Err(format!("Failed to seek to end of file: {e}")),
         }
     }
 }
@@ -369,17 +369,17 @@ impl Interpreter {
         for (name, value) in current_env.values.iter() {
             if let Some(old_value) = env_before.get(name) {
                 if !value.eq(old_value) {
-                    changes.push(format!("{} = {} -> {}", name, old_value, value));
+                    changes.push(format!("{name} = {old_value} -> {value}"));
                 }
             } else {
-                changes.push(format!("{} = {}", name, value));
+                changes.push(format!("{name} = {value}"));
             }
         }
 
         if !changes.is_empty() {
             println!("Variables changed:");
             for change in changes {
-                println!("  {}", change);
+                println!("  {change}");
             }
         }
 
@@ -393,14 +393,14 @@ impl Interpreter {
     }
 
     fn get_statement_text(stmt: &Statement) -> String {
-        format!("{:?}", stmt)
+        format!("{stmt:?}")
     }
 
     pub fn prompt_continue(&self) -> bool {
         loop {
             print!("continue (y/n)? ");
             if let Err(e) = io::stdout().flush() {
-                eprintln!("Error flushing stdout: {}", e);
+                eprintln!("Error flushing stdout: {e}");
             }
 
             let mut input = String::new();
@@ -417,7 +417,7 @@ impl Interpreter {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error reading input: {}", e);
+                    eprintln!("Error reading input: {e}");
                     return false;
                 }
             }
@@ -474,7 +474,7 @@ impl Interpreter {
             if i > 0 {
                 print!(" ");
             }
-            print!("{}", arg);
+            print!("{arg}");
         }
         println!();
         Ok(Value::Null)
@@ -737,7 +737,7 @@ impl Interpreter {
                 column: _column,
             } => {
                 let value = self.evaluate_expression(value, Rc::clone(&env)).await?;
-                println!("{}", value);
+                println!("{value}");
                 Ok((Value::Null, ControlFlow::None))
             }
 
@@ -930,8 +930,7 @@ impl Interpreter {
                 if iterations >= max_iterations {
                     return Err(RuntimeError::new(
                         format!(
-                            "Count loop exceeded maximum iterations ({})",
-                            max_iterations
+                            "Count loop exceeded maximum iterations ({max_iterations})"
                         ),
                         *line,
                         *column,
@@ -1213,7 +1212,7 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected string for file path, got {:?}", path_value),
+                            format!("Expected string for file path, got {path_value:?}"),
                             *line,
                             *column,
                         ));
@@ -1241,8 +1240,7 @@ impl Interpreter {
                     _ => {
                         return Err(RuntimeError::new(
                             format!(
-                                "Expected string for file path or handle, got {:?}",
-                                path_value
+                                "Expected string for file path or handle, got {path_value:?}"
                             ),
                             *line,
                             *column,
@@ -1293,7 +1291,7 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {:?}", file_value),
+                            format!("Expected string for file handle, got {file_value:?}"),
                             *line,
                             *column,
                         ));
@@ -1304,7 +1302,7 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected string for file content, got {:?}", content_value),
+                            format!("Expected string for file content, got {content_value:?}"),
                             *line,
                             *column,
                         ));
@@ -1333,7 +1331,7 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {:?}", file_value),
+                            format!("Expected string for file handle, got {file_value:?}"),
                             *line,
                             *column,
                         ));
@@ -1370,7 +1368,7 @@ impl Interpreter {
                         }
 
                         Err(RuntimeError::new(
-                            format!("Timeout waiting for variable '{}'", var_name),
+                            format!("Timeout waiting for variable '{var_name}'"),
                             0,
                             0,
                         ))
@@ -1391,8 +1389,7 @@ impl Interpreter {
                             _ => {
                                 return Err(RuntimeError::new(
                                     format!(
-                                        "Expected string for file handle, got {:?}",
-                                        file_value
+                                        "Expected string for file handle, got {file_value:?}"
                                     ),
                                     *line,
                                     *column,
@@ -1405,8 +1402,7 @@ impl Interpreter {
                             _ => {
                                 return Err(RuntimeError::new(
                                     format!(
-                                        "Expected string for file content, got {:?}",
-                                        content_value
+                                        "Expected string for file content, got {content_value:?}"
                                     ),
                                     *line,
                                     *column,
@@ -1455,8 +1451,7 @@ impl Interpreter {
                             _ => {
                                 return Err(RuntimeError::new(
                                     format!(
-                                        "Expected string for file path or handle, got {:?}",
-                                        path_value
+                                        "Expected string for file path or handle, got {path_value:?}"
                                     ),
                                     *line,
                                     *column,
@@ -1536,7 +1531,7 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected string for URL, got {:?}", url_val),
+                            format!("Expected string for URL, got {url_val:?}"),
                             *line,
                             *column,
                         ));
@@ -1566,7 +1561,7 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected string for URL, got {:?}", url_val),
+                            format!("Expected string for URL, got {url_val:?}"),
                             *line,
                             *column,
                         ));
@@ -1577,7 +1572,7 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected string for data, got {:?}", data_val),
+                            format!("Expected string for data, got {data_val:?}"),
                             *line,
                             *column,
                         ));
@@ -1635,7 +1630,7 @@ impl Interpreter {
                         Ok((Value::Null, ControlFlow::None))
                     }
                     _ => Err(RuntimeError::new(
-                        format!("Cannot push to non-list value: {:?}", list_val),
+                        format!("Cannot push to non-list value: {list_val:?}"),
                         *line,
                         *column,
                     )),
@@ -1734,7 +1729,7 @@ impl Interpreter {
                 Literal::Pattern(ir_string) => match pattern::parse_ir(ir_string) {
                     Ok(compiled_pattern) => Ok(Value::Pattern(Rc::new(compiled_pattern))),
                     Err(err) => Err(RuntimeError::new(
-                        format!("Pattern compilation error: {}", err),
+                        format!("Pattern compilation error: {err}"),
                         *_line,
                         *_column,
                     )),
@@ -1757,8 +1752,7 @@ impl Interpreter {
                         return Ok(Value::Number(count_value));
                     } else {
                         println!(
-                            "Warning: Using 'count' outside of a count loop context at line {}, column {}",
-                            line, column
+                            "Warning: Using 'count' outside of a count loop context at line {line}, column {column}"
                         );
                         return Ok(Value::Number(0.0));
                     }
@@ -1768,7 +1762,7 @@ impl Interpreter {
                     Ok(value)
                 } else {
                     Err(RuntimeError::new(
-                        format!("Undefined variable '{}'", name),
+                        format!("Undefined variable '{name}'"),
                         *line,
                         *column,
                     ))
@@ -1875,7 +1869,7 @@ impl Interpreter {
                     Value::Function(f) => {
                         f.name.clone().unwrap_or_else(|| "<anonymous>".to_string())
                     }
-                    _ => format!("{:?}", function_val),
+                    _ => format!("{function_val:?}"),
                 };
 
                 #[cfg(debug_assertions)]
@@ -1888,7 +1882,7 @@ impl Interpreter {
                     Value::NativeFunction(_, native_fn) => {
                         native_fn(arg_values.clone()).map_err(|e| {
                             RuntimeError::new(
-                                format!("Error in native function: {}", e),
+                                format!("Error in native function: {e}"),
                                 *line,
                                 *column,
                             )
@@ -1916,7 +1910,7 @@ impl Interpreter {
                 column,
             } => {
                 let function_val = env.borrow().get(name).ok_or_else(|| {
-                    RuntimeError::new(format!("Undefined action '{}'", name), *line, *column)
+                    RuntimeError::new(format!("Undefined action '{name}'"), *line, *column)
                 })?;
 
                 match function_val {
@@ -1948,7 +1942,7 @@ impl Interpreter {
                         result
                     }
                     _ => Err(RuntimeError::new(
-                        format!("'{}' is not callable", name),
+                        format!("'{name}' is not callable"),
                         *line,
                         *column,
                     )),
@@ -1970,7 +1964,7 @@ impl Interpreter {
                             Ok(value.clone())
                         } else {
                             Err(RuntimeError::new(
-                                format!("Object has no property '{}'", property),
+                                format!("Object has no property '{property}'"),
                                 *line,
                                 *column,
                             ))
@@ -2022,7 +2016,7 @@ impl Interpreter {
                             Ok(value.clone())
                         } else {
                             Err(RuntimeError::new(
-                                format!("Object has no key '{}'", key_str),
+                                format!("Object has no key '{key_str}'"),
                                 *line,
                                 *column,
                             ))
@@ -2067,7 +2061,7 @@ impl Interpreter {
                     }
                 };
 
-                let result = format!("{}{}", left_val, right_val);
+                let result = format!("{left_val}{right_val}");
                 Ok(Value::Text(Rc::from(result.as_str())))
             }
 
@@ -2266,15 +2260,15 @@ impl Interpreter {
         match (left, right) {
             (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a + b)),
             (Value::Text(a), Value::Text(b)) => {
-                let result = format!("{}{}", a, b);
+                let result = format!("{a}{b}");
                 Ok(Value::Text(Rc::from(result.as_str())))
             }
             (Value::Text(a), b) => {
-                let result = format!("{}{}", a, b);
+                let result = format!("{a}{b}");
                 Ok(Value::Text(Rc::from(result.as_str())))
             }
             (a, Value::Text(b)) => {
-                let result = format!("{}{}", a, b);
+                let result = format!("{a}{b}");
                 Ok(Value::Text(Rc::from(result.as_str())))
             }
             (a, b) => Err(RuntimeError::new(
@@ -2344,7 +2338,7 @@ impl Interpreter {
                     // Check if the result is valid (not NaN or infinite)
                     if !result.is_finite() {
                         return Err(RuntimeError::new(
-                            format!("Division resulted in invalid number: {}", result),
+                            format!("Division resulted in invalid number: {result}"),
                             line,
                             column,
                         ));

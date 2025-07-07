@@ -32,8 +32,7 @@ display myVariable
     // Run the binary with --lint file_path --fix --diff
     let file_path_str = file_path.to_str().unwrap();
     println!(
-        "Running: {:?} --lint {} --fix {} --diff",
-        binary_path, file_path_str, file_path_str
+        "Running: {binary_path:?} --lint {file_path_str} --fix {file_path_str} --diff"
     );
 
     let output = Command::new(binary_path)
@@ -42,7 +41,7 @@ display myVariable
         .expect("Failed to execute command");
 
     // Check that the command succeeded
-    assert!(output.status.success(), "Command failed: {:?}", output);
+    assert!(output.status.success(), "Command failed: {output:?}");
 
     // Convert output to string
     let output_str = String::from_utf8_lossy(&output.stdout);
@@ -50,12 +49,10 @@ display myVariable
     // Check that the diff contains the expected replacement
     assert!(
         output_str.contains("-store myVariable as 42"),
-        "Diff doesn't contain the original line: {}",
-        output_str
+        "Diff doesn't contain the original line: {output_str}"
     );
     assert!(
         output_str.contains("+store my_variable as 42"),
-        "Diff doesn't contain the fixed line: {}",
-        output_str
+        "Diff doesn't contain the fixed line: {output_str}"
     );
 }

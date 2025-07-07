@@ -104,7 +104,7 @@ pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let item = &args[1];
 
     for value in list.borrow().iter() {
-        if format!("{:?}", value) == format!("{:?}", item) {
+        if format!("{value:?}") == format!("{item:?}") {
             return Ok(Value::Bool(true));
         }
     }
@@ -125,7 +125,7 @@ pub fn native_indexof(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let item = &args[1];
 
     for (i, value) in list.borrow().iter().enumerate() {
-        if format!("{:?}", value) == format!("{:?}", item) {
+        if format!("{value:?}") == format!("{item:?}") {
             return Ok(Value::Number(i as f64));
         }
     }
@@ -152,11 +152,11 @@ pub fn native_sort_by(args: Vec<Value>) -> Result<Value, RuntimeError> {
             items.sort_by(|a, b| {
                 let a_str = match a {
                     Value::Text(s) => s.to_string(),
-                    _ => format!("{:?}", a),
+                    _ => format!("{a:?}"),
                 };
                 let b_str = match b {
                     Value::Text(s) => s.to_string(),
-                    _ => format!("{:?}", b),
+                    _ => format!("{b:?}"),
                 };
                 a_str.cmp(&b_str)
             });
@@ -195,11 +195,11 @@ pub fn native_sort_by(args: Vec<Value>) -> Result<Value, RuntimeError> {
                 items.sort_by(|a, b| {
                     let a_str = match a {
                         Value::Text(s) => s.to_string(),
-                        _ => format!("{:?}", a),
+                        _ => format!("{a:?}"),
                     };
                     let b_str = match b {
                         Value::Text(s) => s.to_string(),
-                        _ => format!("{:?}", b),
+                        _ => format!("{b:?}"),
                     };
 
                     let a_order = order_map.get(&a_str).copied().unwrap_or(usize::MAX);
@@ -214,7 +214,7 @@ pub fn native_sort_by(args: Vec<Value>) -> Result<Value, RuntimeError> {
                 });
             } else {
                 return Err(RuntimeError::new(
-                    format!("Unknown sort type: {}", sort_type),
+                    format!("Unknown sort type: {sort_type}"),
                     0,
                     0,
                 ));

@@ -82,9 +82,9 @@ impl Value {
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Value::Number(n) => write!(f, "{}", n),
-            Value::Text(s) => write!(f, "\"{}\"", s),
-            Value::Bool(b) => write!(f, "{}", b),
+            Value::Number(n) => write!(f, "{n}"),
+            Value::Text(s) => write!(f, "\"{s}\""),
+            Value::Bool(b) => write!(f, "{b}"),
             Value::List(l) => {
                 let values = l.borrow();
                 write!(f, "[")?;
@@ -92,7 +92,7 @@ impl fmt::Debug for Value {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{:?}", v)?;
+                    write!(f, "{v:?}")?;
                 }
                 write!(f, "]")
             }
@@ -103,7 +103,7 @@ impl fmt::Debug for Value {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {:?}", k, v)?;
+                    write!(f, "{k}: {v:?}")?;
                 }
                 write!(f, "}}")
             }
@@ -114,11 +114,11 @@ impl fmt::Debug for Value {
                     func.name.as_ref().unwrap_or(&"anonymous".to_string())
                 )
             }
-            Value::NativeFunction(name, _) => write!(f, "NativeFunction({})", name),
+            Value::NativeFunction(name, _) => write!(f, "NativeFunction({name})"),
             Value::Future(_) => write!(f, "[Future]"),
-            Value::Date(d) => write!(f, "Date({})", d),
-            Value::Time(t) => write!(f, "Time({})", t),
-            Value::DateTime(dt) => write!(f, "DateTime({})", dt),
+            Value::Date(d) => write!(f, "Date({d})"),
+            Value::Time(t) => write!(f, "Time({t})"),
+            Value::DateTime(dt) => write!(f, "DateTime({dt})"),
             Value::Pattern(_) => write!(f, "[Pattern]"),
             Value::Null => write!(f, "null"),
         }
@@ -128,15 +128,15 @@ impl fmt::Debug for Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Value::Number(n) => write!(f, "{}", n),
-            Value::Text(s) => write!(f, "{}", s),
+            Value::Number(n) => write!(f, "{n}"),
+            Value::Text(s) => write!(f, "{s}"),
             Value::Bool(b) => write!(f, "{}", if *b { "yes" } else { "no" }),
             Value::List(_) => write!(f, "[List]"),
             Value::Object(o) => {
                 let map = o.borrow();
                 if map.len() == 1 {
                     if let Some((_, value)) = map.iter().next() {
-                        write!(f, "{}", value)
+                        write!(f, "{value}")
                     } else {
                         write!(f, "[Object]")
                     }
@@ -148,7 +148,7 @@ impl fmt::Display for Value {
                         if i > 0 {
                             write!(f, ", ")?;
                         }
-                        write!(f, "{}: {}", k, v)?;
+                        write!(f, "{k}: {v}")?;
                     }
                     write!(f, "}}")
                 }
@@ -160,7 +160,7 @@ impl fmt::Display for Value {
                     func.name.as_ref().unwrap_or(&"anonymous".to_string())
                 )
             }
-            Value::NativeFunction(name, _) => write!(f, "native {}", name),
+            Value::NativeFunction(name, _) => write!(f, "native {name}"),
             Value::Future(_) => write!(f, "[Future]"),
             Value::Date(d) => write!(f, "{}", d.format("%Y-%m-%d")),
             Value::Time(t) => write!(f, "{}", t.format("%H:%M:%S")),

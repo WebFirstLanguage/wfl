@@ -59,23 +59,23 @@ pub fn native_parse_flags(args: Vec<Value>) -> Result<Value, RuntimeError> {
                 continue;
             }
 
-            if spec.contains(&format!("{}: boolean", flag_name)) {
+            if spec.contains(&format!("{flag_name}: boolean")) {
                 flags.insert(flag_name.to_string(), Value::Bool(true));
                 i += 1;
-            } else if spec.contains(&format!("{}: string", flag_name))
-                || spec.contains(&format!("{}: choice", flag_name))
-                || spec.contains(&format!("{}: number", flag_name))
+            } else if spec.contains(&format!("{flag_name}: string"))
+                || spec.contains(&format!("{flag_name}: choice"))
+                || spec.contains(&format!("{flag_name}: number"))
             {
                 if i + 1 < cmd_args.len() {
                     let value = &cmd_args[i + 1];
-                    if spec.contains(&format!("{}: number", flag_name)) {
+                    if spec.contains(&format!("{flag_name}: number")) {
                         match value.parse::<f64>() {
                             Ok(num) => {
                                 flags.insert(flag_name.to_string(), Value::Number(num));
                             }
                             Err(_) => {
                                 return Err(RuntimeError::new(
-                                    format!("Invalid number for flag --{}: {}", flag_name, value),
+                                    format!("Invalid number for flag --{flag_name}: {value}"),
                                     0,
                                     0,
                                 ));
@@ -87,7 +87,7 @@ pub fn native_parse_flags(args: Vec<Value>) -> Result<Value, RuntimeError> {
                     i += 2;
                 } else {
                     return Err(RuntimeError::new(
-                        format!("Flag --{} requires a value", flag_name),
+                        format!("Flag --{flag_name} requires a value"),
                         0,
                         0,
                     ));
@@ -156,13 +156,13 @@ pub fn native_usage(args: Vec<Value>) -> Result<Value, RuntimeError> {
                 let flag_type = &line[colon_pos + 1..].trim();
 
                 if flag_type.contains("boolean") {
-                    usage_lines.push(format!("  --{:<20} (boolean flag)", flag_name));
+                    usage_lines.push(format!("  --{flag_name:<20} (boolean flag)"));
                 } else if flag_type.contains("string") {
-                    usage_lines.push(format!("  --{:<20} <string>", flag_name));
+                    usage_lines.push(format!("  --{flag_name:<20} <string>"));
                 } else if flag_type.contains("number") {
-                    usage_lines.push(format!("  --{:<20} <number>", flag_name));
+                    usage_lines.push(format!("  --{flag_name:<20} <number>"));
                 } else if flag_type.contains("choice") {
-                    usage_lines.push(format!("  --{:<20} <choice>", flag_name));
+                    usage_lines.push(format!("  --{flag_name:<20} <choice>"));
                 }
             }
         }

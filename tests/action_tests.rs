@@ -55,7 +55,7 @@ fn test_action_call_parses() {
                     _ => panic!("Expected string literal, got {:?}", arguments[0].value),
                 }
             }
-            _ => panic!("Expected ActionCall, got {:?}", expression),
+            _ => panic!("Expected ActionCall, got {expression:?}"),
         },
         _ => panic!(
             "Expected ExpressionStatement, got {:?}",
@@ -97,13 +97,13 @@ async fn test_action_call_executes() {
 
     let mut interpreter = Interpreter::new();
     let result = interpreter.interpret(&program).await;
-    assert!(result.is_ok(), "Failed to execute program: {:?}", result);
+    assert!(result.is_ok(), "Failed to execute program: {result:?}");
 
     let env = interpreter.global_env();
     let result_value = env.borrow().get("result").expect("Result not found");
 
     match result_value {
         Value::Number(n) => assert_eq!(n, 42.0),
-        _ => panic!("Expected number, got {:?}", result_value),
+        _ => panic!("Expected number, got {result_value:?}"),
     }
 }

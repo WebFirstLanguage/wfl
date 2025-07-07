@@ -127,7 +127,7 @@ pub fn native_regex_find(args: Vec<Value>) -> Result<Value, RuntimeError> {
             None => Ok(Value::Null),
         },
         Err(e) => Err(RuntimeError::new(
-            format!("Invalid regex pattern: {}", e),
+            format!("Invalid regex pattern: {e}"),
             0,
             0,
         )),
@@ -155,7 +155,7 @@ pub fn native_regex_match_all(args: Vec<Value>) -> Result<Value, RuntimeError> {
             Ok(Value::List(Rc::new(RefCell::new(matches))))
         }
         Err(e) => Err(RuntimeError::new(
-            format!("Invalid regex pattern: {}", e),
+            format!("Invalid regex pattern: {e}"),
             0,
             0,
         )),
@@ -181,7 +181,7 @@ pub fn native_regex_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
             Ok(Value::Text(Rc::from(result.as_ref())))
         }
         Err(e) => Err(RuntimeError::new(
-            format!("Invalid regex pattern: {}", e),
+            format!("Invalid regex pattern: {e}"),
             0,
             0,
         )),

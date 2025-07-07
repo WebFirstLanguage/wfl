@@ -252,7 +252,7 @@ impl StaticAnalyzer for Analyzer {
             if !usage.used {
                 diagnostics.push(WflDiagnostic::new(
                     Severity::Warning,
-                    format!("Unused variable '{}'", name),
+                    format!("Unused variable '{name}'"),
                     Some("Consider removing this variable if it's not needed".to_string()),
                     "ANALYZE-UNUSED".to_string(),
                     file_id,
@@ -347,7 +347,7 @@ impl StaticAnalyzer for Analyzer {
                         if has_return && !all_paths_return {
                             diagnostics.push(WflDiagnostic::new(
                                 Severity::Warning,
-                                format!("Action '{}' has inconsistent return paths", name),
+                                format!("Action '{name}' has inconsistent return paths"),
                                 Some("Ensure all code paths return a value".to_string()),
                                 "ANALYZE-RETURN".to_string(),
                                 file_id,
@@ -1033,12 +1033,10 @@ impl Analyzer {
                             diagnostics.push(WflDiagnostic::new(
                                 Severity::Warning,
                                 format!(
-                                    "Variable '{}' shadows another variable with the same name",
-                                    name
+                                    "Variable '{name}' shadows another variable with the same name"
                                 ),
                                 Some(format!(
-                                    "Previously defined at line {}, column {}",
-                                    def_line, def_col
+                                    "Previously defined at line {def_line}, column {def_col}"
                                 )),
                                 "ANALYZE-SHADOW".to_string(),
                                 file_id,
@@ -1054,12 +1052,10 @@ impl Analyzer {
                         diagnostics.push(WflDiagnostic::new(
                             Severity::Warning,
                             format!(
-                                "Variable '{}' shadows another variable with the same name",
-                                name
+                                "Variable '{name}' shadows another variable with the same name"
                             ),
                             Some(format!(
-                                "Previously defined at line {}, column {}",
-                                def_line, def_col
+                                "Previously defined at line {def_line}, column {def_col}"
                             )),
                             "ANALYZE-SHADOW".to_string(),
                             file_id,
