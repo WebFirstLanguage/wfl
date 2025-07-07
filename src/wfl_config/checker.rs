@@ -640,7 +640,7 @@ max_line_length = 80
         fs::write(&config_path, config_content).unwrap();
 
         let issues = checker.check_config_file(&config_path).unwrap();
-        assert!(issues.is_empty(), "Expected no issues, got: {:?}", issues);
+        assert!(issues.is_empty(), "Expected no issues, got: {issues:?}");
     }
 
     #[test]
@@ -706,8 +706,7 @@ unknown_setting = value
 
         assert!(
             issues.is_empty(),
-            "Expected no issues after fix, got: {:?}",
-            issues
+            "Expected no issues after fix, got: {issues:?}"
         );
     }
 
@@ -732,15 +731,13 @@ timeout_seconds = potato
 
         assert!(
             issues_after.is_empty(),
-            "Expected no issues after fix, got: {:?}",
-            issues_after
+            "Expected no issues after fix, got: {issues_after:?}"
         );
 
         let content = fs::read_to_string(&config_path).unwrap();
         assert!(
             content.contains("timeout_seconds = 60"),
-            "File content after fix: {}",
-            content
+            "File content after fix: {content}"
         );
     }
 }
