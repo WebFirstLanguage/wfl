@@ -45,18 +45,13 @@ pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let entries = fs::read_dir(path).map_err(|e| {
-        RuntimeError::new(
-            format!("Failed to read directory {path_str}: {e}"),
-            0,
-            0,
-        )
+        RuntimeError::new(format!("Failed to read directory {path_str}: {e}"), 0, 0)
     })?;
 
     let mut files = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|e| {
-            RuntimeError::new(format!("Failed to read directory entry: {e}"), 0, 0)
-        })?;
+        let entry = entry
+            .map_err(|e| RuntimeError::new(format!("Failed to read directory entry: {e}"), 0, 0))?;
 
         let file_name = entry.file_name();
         let file_name_str = file_name.to_string_lossy();
@@ -85,11 +80,7 @@ pub fn native_glob(args: Vec<Value>) -> Result<Value, RuntimeError> {
     };
 
     let paths = glob::glob(&full_pattern).map_err(|e| {
-        RuntimeError::new(
-            format!("Invalid glob pattern '{full_pattern}': {e}"),
-            0,
-            0,
-        )
+        RuntimeError::new(format!("Invalid glob pattern '{full_pattern}': {e}"), 0, 0)
     })?;
 
     let mut files = Vec::new();
