@@ -30,7 +30,7 @@ pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     if !path.exists() {
         return Err(RuntimeError::new(
-            format!("Directory does not exist: {}", path_str),
+            format!("Directory does not exist: {path_str}"),
             0,
             0,
         ));
@@ -38,7 +38,7 @@ pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     if !path.is_dir() {
         return Err(RuntimeError::new(
-            format!("Path is not a directory: {}", path_str),
+            format!("Path is not a directory: {path_str}"),
             0,
             0,
         ));
@@ -46,7 +46,7 @@ pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let entries = fs::read_dir(path).map_err(|e| {
         RuntimeError::new(
-            format!("Failed to read directory {}: {}", path_str, e),
+            format!("Failed to read directory {path_str}: {e}"),
             0,
             0,
         )
@@ -55,7 +55,7 @@ pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let mut files = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|e| {
-            RuntimeError::new(format!("Failed to read directory entry: {}", e), 0, 0)
+            RuntimeError::new(format!("Failed to read directory entry: {e}"), 0, 0)
         })?;
 
         let file_name = entry.file_name();
@@ -81,12 +81,12 @@ pub fn native_glob(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let full_pattern = if base_path.is_empty() {
         pattern.to_string()
     } else {
-        format!("{}/{}", base_path, pattern)
+        format!("{base_path}/{pattern}")
     };
 
     let paths = glob::glob(&full_pattern).map_err(|e| {
         RuntimeError::new(
-            format!("Invalid glob pattern '{}': {}", full_pattern, e),
+            format!("Invalid glob pattern '{full_pattern}': {e}"),
             0,
             0,
         )
@@ -95,7 +95,7 @@ pub fn native_glob(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let mut files = Vec::new();
     for path_result in paths {
         let path = path_result
-            .map_err(|e| RuntimeError::new(format!("Error reading glob result: {}", e), 0, 0))?;
+            .map_err(|e| RuntimeError::new(format!("Error reading glob result: {e}"), 0, 0))?;
 
         let path_str = path.to_string_lossy();
         files.push(Value::Text(Rc::from(path_str.as_ref())));
@@ -117,17 +117,14 @@ pub fn native_rglob(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let base_path = expect_text(&args[1])?;
 
     let recursive_pattern = if base_path.is_empty() {
-        format!("**/{}", pattern)
+        format!("**/{pattern}")
     } else {
-        format!("{}/**/{}", base_path, pattern)
+        format!("{base_path}/**/{pattern}")
     };
 
     let paths = glob::glob(&recursive_pattern).map_err(|e| {
         RuntimeError::new(
-            format!(
-                "Invalid recursive glob pattern '{}': {}",
-                recursive_pattern, e
-            ),
+            format!("Invalid recursive glob pattern '{recursive_pattern}': {e}"),
             0,
             0,
         )
@@ -136,7 +133,7 @@ pub fn native_rglob(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let mut files = Vec::new();
     for path_result in paths {
         let path = path_result.map_err(|e| {
-            RuntimeError::new(format!("Error reading recursive glob result: {}", e), 0, 0)
+            RuntimeError::new(format!("Error reading recursive glob result: {e}"), 0, 0)
         })?;
 
         let path_str = path.to_string_lossy();
@@ -219,7 +216,7 @@ pub fn native_makedirs(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     fs::create_dir_all(path).map_err(|e| {
         RuntimeError::new(
-            format!("Failed to create directories '{}': {}", path_str, e),
+            format!("Failed to create directories '{path_str}': {e}"),
             0,
             0,
         )
@@ -242,7 +239,7 @@ pub fn native_file_mtime(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     if !path.exists() {
         return Err(RuntimeError::new(
-            format!("File does not exist: {}", path_str),
+            format!("File does not exist: {path_str}"),
             0,
             0,
         ));
@@ -250,7 +247,7 @@ pub fn native_file_mtime(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let metadata = fs::metadata(path).map_err(|e| {
         RuntimeError::new(
-            format!("Failed to get metadata for '{}': {}", path_str, e),
+            format!("Failed to get metadata for '{path_str}': {e}"),
             0,
             0,
         )
@@ -258,7 +255,7 @@ pub fn native_file_mtime(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let modified = metadata.modified().map_err(|e| {
         RuntimeError::new(
-            format!("Failed to get modification time for '{}': {}", path_str, e),
+            format!("Failed to get modification time for '{path_str}': {e}"),
             0,
             0,
         )
@@ -268,7 +265,7 @@ pub fn native_file_mtime(args: Vec<Value>) -> Result<Value, RuntimeError> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| {
             RuntimeError::new(
-                format!("Failed to convert modification time to timestamp: {}", e),
+                format!("Failed to convert modification time to timestamp: {e}"),
                 0,
                 0,
             )
