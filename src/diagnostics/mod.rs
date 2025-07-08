@@ -242,6 +242,42 @@ impl DiagnosticReporter {
             diag = diag.with_note(
                 "Reserved keywords cannot be used as variable names. Choose a different name that is not a reserved word.",
             );
+        } else if message.contains("Expected ':' after container name") {
+            diag = diag.with_note(
+                "Container definitions require a colon after the name. For example: `create container Person:`",
+            );
+        } else if message.contains("Expected 'container' after 'create'") {
+            diag = diag.with_note(
+                "Use 'create container' to define a new container. For example: `create container Person:`",
+            );
+        } else if message.contains("Expected identifier for container name") {
+            diag = diag.with_note(
+                "Container names must be valid identifiers. For example: `create container Person:`",
+            );
+        } else if message.contains("Expected 'as' after container type") {
+            diag = diag.with_note(
+                "Container instantiation requires 'as' before the instance name. For example: `create new Person as alice:`",
+            );
+        } else if message.contains("Expected 'new' after 'create'") {
+            diag = diag.with_note(
+                "Use 'create new' to instantiate a container. For example: `create new Person as alice:`",
+            );
+        } else if message.contains("Expected identifier for container type") {
+            diag = diag.with_note(
+                "Specify a valid container type name. For example: `create new Person as alice:`",
+            );
+        } else if message.contains("Expected property name after 'property'") {
+            diag = diag.with_note(
+                "Property definitions require a name. For example: `property name: Text`",
+            );
+        } else if message.contains("Expected 'interface' after 'create'") {
+            diag = diag.with_note(
+                "Use 'create interface' to define a new interface. For example: `create interface Drawable:`",
+            );
+        } else if message.contains("Expected identifier for interface name") {
+            diag = diag.with_note(
+                "Interface names must be valid identifiers. For example: `create interface Drawable:`",
+            );
         }
 
         diag
@@ -255,10 +291,7 @@ impl DiagnosticReporter {
         let mut message_text = error.message.clone();
 
         if let (Some(expected), Some(found)) = (&error.expected, &error.found) {
-            message_text = format!(
-                "{} - Expected {} but found {}",
-                message_text, expected, found
-            );
+            message_text = format!("{message_text} - Expected {expected} but found {found}");
         }
 
         let start_offset = self
@@ -511,7 +544,7 @@ impl DiagnosticReporter {
         let mut message = error_message.to_string();
 
         if let Some(name) = pattern_name {
-            message = format!("Pattern '{}': {}", name, message);
+            message = format!("Pattern '{name}': {message}");
         }
 
         if let Some(input) = input_preview {
@@ -520,7 +553,7 @@ impl DiagnosticReporter {
             } else {
                 input.to_string()
             };
-            message = format!("{} (input: \"{}\")", message, preview);
+            message = format!("{message} (input: \"{preview}\")");
         }
 
         if error_message.contains("invalid range") || error_message.contains("Invalid range") {

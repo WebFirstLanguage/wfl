@@ -1,0 +1,71 @@
+// Container interface test
+
+// Define an interface
+create interface Drawable:
+    requires action draw
+    requires action resize with width and height
+end interface
+
+// Implement the interface in a container
+create container Circle implements Drawable:
+    property radius as number
+    property color as text
+    
+    define action initialize with circle_radius and circle_color:
+        set radius to circle_radius
+        set color to circle_color
+        display "Created a " with color with " circle with radius " with radius
+    end action
+    
+    define action draw:
+        display "Drawing a " with color with " circle with radius " with radius
+    end action
+    
+    define action resize with width and height:
+        set radius to minimum of width and height divided by 2
+        display "Circle resized to radius " with radius
+    end action
+end container
+
+// Another container implementing the same interface
+create container Rectangle implements Drawable:
+    property width as number
+    property height as number
+    property color as text
+    
+    define action initialize with rect_width and rect_height and rect_color:
+        set width to rect_width
+        set height to rect_height
+        set color to rect_color
+        display "Created a " with color with " rectangle " with width with "x" with height
+    end action
+    
+    define action draw:
+        display "Drawing a " with color with " rectangle " with width with "x" with height
+    end action
+    
+    define action resize with new_width and new_height:
+        set width to new_width
+        set height to new_height
+        display "Rectangle resized to " with width with "x" with height
+    end action
+end container
+
+// Create instances
+create new Circle with 5 and "red" as circle
+create new Rectangle with 10 and 20 and "blue" as rectangle
+
+// Call methods
+circle draw
+rectangle draw
+
+// Resize both shapes
+circle resize with 30 and 40
+rectangle resize with 50 and 60
+
+// Draw again to see the changes
+circle draw
+rectangle draw
+
+// Test complete
+display "Container interface test complete"

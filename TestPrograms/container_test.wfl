@@ -1,0 +1,26 @@
+// Basic container definition
+create container Person:
+    // Properties
+    property name as text
+    property age as number
+    
+    // Methods
+    define action greet:
+        display "Hello, my name is " with name
+    end action
+    
+    define action has birthday:
+        add 1 to age
+        display name with " is now " with age with " years old"
+    end action
+end container
+
+// Container instantiation
+create new Person as alice:
+    set name to "Alice Smith"
+    set age to 28
+end create
+
+// Using container methods
+alice greet
+alice has birthday

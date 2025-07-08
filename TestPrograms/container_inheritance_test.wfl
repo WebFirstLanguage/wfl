@@ -1,0 +1,47 @@
+// Interface definition
+create interface Drawable:
+    requires action draw
+    requires action resize with width and height
+end interface
+
+// Base container
+create container Shape:
+    property color as text
+    
+    define action describe:
+        display "This is a " with color with " shape"
+    end action
+end container
+
+// Container with inheritance and interface implementation
+create container Circle extends Shape implements Drawable:
+    property radius as number
+    
+    // Override parent method
+    define action describe:
+        parent describe
+        display "It's a circle with radius " with radius
+    end action
+    
+    // Implement interface methods
+    define action draw:
+        display "Drawing a " with color with " circle with radius " with radius
+    end action
+    
+    define action resize with width and height:
+        set radius to minimum of width and height divided by 2
+        display "Circle resized to radius " with radius
+    end action
+end container
+
+// Container instantiation
+create new Circle as my_circle:
+    set color to "red"
+    set radius to 5
+end create
+
+// Using container methods
+my_circle describe
+my_circle draw
+my_circle resize with 10 and 8
+my_circle draw

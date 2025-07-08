@@ -19,8 +19,8 @@ pub enum PatternError {
 impl std::fmt::Display for PatternError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PatternError::ParseError(msg) => write!(f, "Pattern parse error: {}", msg),
-            PatternError::RuntimeError(msg) => write!(f, "Pattern runtime error: {}", msg),
+            PatternError::ParseError(msg) => write!(f, "Pattern parse error: {msg}"),
+            PatternError::RuntimeError(msg) => write!(f, "Pattern runtime error: {msg}"),
             PatternError::StepLimitExceeded => write!(f, "Pattern execution step limit exceeded"),
             PatternError::RecursionLimitExceeded => write!(f, "Pattern recursion limit exceeded"),
         }
@@ -126,8 +126,7 @@ fn parse_ir_node(ir: &str) -> Result<PatternNode, PatternError> {
             Ok(PatternNode::Literal(literal))
         } else {
             Err(PatternError::ParseError(format!(
-                "Invalid literal format: {}",
-                ir
+                "Invalid literal format: {ir}"
             )))
         }
     } else if ir.starts_with("class(") && ir.ends_with(')') {
@@ -138,8 +137,7 @@ fn parse_ir_node(ir: &str) -> Result<PatternNode, PatternError> {
             "whitespace" => Ok(PatternNode::CharClass(CharClass::Whitespace)),
             "any" => Ok(PatternNode::CharClass(CharClass::Any)),
             _ => Err(PatternError::ParseError(format!(
-                "Unknown character class: {}",
-                class_name
+                "Unknown character class: {class_name}"
             ))),
         }
     } else if ir.starts_with("seq(") && ir.ends_with(')') {
@@ -186,8 +184,7 @@ fn parse_ir_node(ir: &str) -> Result<PatternNode, PatternError> {
 
         if min > max && max != u32::MAX {
             return Err(PatternError::ParseError(format!(
-                "Invalid range: min {} > max {}",
-                min, max
+                "Invalid range: min {min} > max {max}"
             )));
         }
 
@@ -227,8 +224,7 @@ fn parse_ir_node(ir: &str) -> Result<PatternNode, PatternError> {
             "start" => Ok(PatternNode::Anchor(AnchorType::Start)),
             "end" => Ok(PatternNode::Anchor(AnchorType::End)),
             _ => Err(PatternError::ParseError(format!(
-                "Unknown anchor type: {}",
-                anchor_type
+                "Unknown anchor type: {anchor_type}"
             ))),
         }
     } else {
@@ -458,7 +454,7 @@ fn match_at_position(
             match_count >= *min
         }
         PatternNode::Capture { name, child } => {
-            recursion_stack.push(format!("capture:{}", name));
+            recursion_stack.push(format!("capture:{name}"));
             let start_pos = pos;
             let result = match_at_position(child, text, pos, captures, steps, recursion_stack);
 
@@ -588,7 +584,7 @@ pub fn native_pattern_matches(
         Ok(Some(_)) => Ok(Value::Bool(true)),
         Ok(None) => Ok(Value::Bool(false)),
         Err(e) => Err(RuntimeError::new(
-            format!("Pattern execution error: {}", e),
+            format!("Pattern execution error: {e}"),
             line,
             column,
         )),
@@ -641,7 +637,7 @@ pub fn native_pattern_find(
         }
         Ok(None) => Ok(Value::Null),
         Err(e) => Err(RuntimeError::new(
-            format!("Pattern execution error: {}", e),
+            format!("Pattern execution error: {e}"),
             line,
             column,
         )),
@@ -702,7 +698,7 @@ pub fn native_pattern_replace(
         }
         Ok(None) => Ok(Value::Text(Rc::from(text))),
         Err(e) => Err(RuntimeError::new(
-            format!("Pattern execution error: {}", e),
+            format!("Pattern execution error: {e}"),
             line,
             column,
         )),
@@ -771,7 +767,7 @@ pub fn native_pattern_split(
             Ok(None) => break,
             Err(e) => {
                 return Err(RuntimeError::new(
-                    format!("Pattern execution error: {}", e),
+                    format!("Pattern execution error: {e}"),
                     line,
                     column,
                 ));

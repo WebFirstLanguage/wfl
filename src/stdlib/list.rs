@@ -92,7 +92,7 @@ pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let item = &args[1];
 
     for value in list.borrow().iter() {
-        if format!("{:?}", value) == format!("{:?}", item) {
+        if format!("{value:?}") == format!("{item:?}") {
             return Ok(Value::Bool(true));
         }
     }
@@ -113,7 +113,7 @@ pub fn native_indexof(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let item = &args[1];
 
     for (i, value) in list.borrow().iter().enumerate() {
-        if format!("{:?}", value) == format!("{:?}", item) {
+        if format!("{value:?}") == format!("{item:?}") {
             return Ok(Value::Number(i as f64));
         }
     }

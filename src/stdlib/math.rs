@@ -100,10 +100,7 @@ pub fn native_clamp(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     if min > max {
         return Err(RuntimeError::new(
-            format!(
-                "clamp min ({}) must be less than or equal to max ({})",
-                min, max
-            ),
+            format!("clamp min ({min}) must be less than or equal to max ({max})"),
             0,
             0,
         ));

@@ -113,8 +113,8 @@ impl LintRule for NamingConventionRule {
                         let snake_case_name = to_snake_case(name);
                         let diagnostic = WflDiagnostic::new(
                             Severity::Warning,
-                            format!("Variable name '{}' should be snake_case", name),
-                            Some(format!("Rename to '{}'", snake_case_name)),
+                            format!("Variable name '{name}' should be snake_case"),
+                            Some(format!("Rename to '{snake_case_name}'")),
                             "LINT-NAME".to_string(),
                             file_id,
                             *line,
@@ -131,8 +131,8 @@ impl LintRule for NamingConventionRule {
                         let snake_case_name = to_snake_case(name);
                         let diagnostic = WflDiagnostic::new(
                             Severity::Warning,
-                            format!("Action name '{}' should be snake_case", name),
-                            Some(format!("Rename to '{}'", snake_case_name)),
+                            format!("Action name '{name}' should be snake_case"),
+                            Some(format!("Rename to '{snake_case_name}'")),
                             "LINT-NAME".to_string(),
                             file_id,
                             *line,
@@ -207,10 +207,9 @@ impl LintRule for IndentationRule {
                     diagnostics.push(WflDiagnostic::new(
                         Severity::Warning,
                         format!(
-                            "Line should be indented with {} spaces, found {}",
-                            expected_indent, indent_spaces
+                            "Line should be indented with {expected_indent} spaces, found {indent_spaces}"
                         ),
-                        Some(format!("Adjust indentation to {} spaces", expected_indent)),
+                        Some(format!("Adjust indentation to {expected_indent} spaces")),
                         "LINT-INDENT".to_string(),
                         file_id,
                         line_num,
@@ -298,8 +297,8 @@ impl LintRule for KeywordCasingRule {
                     let line_col = line_col_from_pos(source, pos);
                     diagnostics.push(WflDiagnostic::new(
                         Severity::Warning,
-                        format!("Keyword '{}' should be lowercase", uppercase_keyword),
-                        Some(format!("Change to '{}'", keyword)),
+                        format!("Keyword '{uppercase_keyword}' should be lowercase"),
+                        Some(format!("Change to '{keyword}'")),
                         "LINT-KEYWORD".to_string(),
                         file_id,
                         line_col.0,
@@ -312,8 +311,8 @@ impl LintRule for KeywordCasingRule {
                     let line_col = line_col_from_pos(source, pos);
                     diagnostics.push(WflDiagnostic::new(
                         Severity::Warning,
-                        format!("Keyword '{}' should be lowercase", mixed_case_keyword),
-                        Some(format!("Change to '{}'", keyword)),
+                        format!("Keyword '{mixed_case_keyword}' should be lowercase"),
+                        Some(format!("Change to '{keyword}'")),
                         "LINT-KEYWORD".to_string(),
                         file_id,
                         line_col.0,
@@ -405,8 +404,8 @@ impl LintRule for LineLengthRule {
                 if line.len() > max_length {
                     diagnostics.push(WflDiagnostic::new(
                         Severity::Warning,
-                        format!("Line exceeds maximum length of {} characters", max_length),
-                        Some(format!("Shorten line to {} characters or less", max_length)),
+                        format!("Line exceeds maximum length of {max_length} characters"),
+                        Some(format!("Shorten line to {max_length} characters or less")),
                         "LINT-LENGTH".to_string(),
                         file_id,
                         line_num,
@@ -466,7 +465,7 @@ fn check_nesting_depth(
             | Statement::CountLoop { line, column, .. } => {
                 diagnostics.push(WflDiagnostic::new(
                     Severity::Warning,
-                    format!("Nesting depth exceeds maximum of {}", max_depth),
+                    format!("Nesting depth exceeds maximum of {max_depth}"),
                     Some("Refactor to reduce nesting".to_string()),
                     "LINT-COMPLEX".to_string(),
                     file_id,

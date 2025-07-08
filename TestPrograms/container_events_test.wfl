@@ -1,0 +1,80 @@
+// Container with events and static members
+create container Button:
+    // Static properties
+    static property button_count as 0
+    
+    // Instance properties
+    property label as text
+    property is_enabled as yes
+    
+    // Events
+    event clicked
+    event hover_start
+    event hover_end
+    
+    // Constructor
+    define action initialize with button_label:
+        set label to button_label
+        add 1 to Button button_count
+        display "Button created: " with label
+        display "Total buttons: " with Button button_count
+    end action
+    
+    // Methods
+    define action click:
+        if is_enabled:
+            trigger clicked
+            display "Button '" with label with "' was clicked"
+        else:
+            display "Button '" with label with "' is disabled"
+        end if
+    end action
+    
+    define action on_hover:
+        trigger hover_start
+        display "Hovering over button: " with label
+    end action
+    
+    define action end_hover:
+        trigger hover_end
+        display "No longer hovering over button: " with label
+    end action
+    
+    define action disable:
+        set is_enabled to no
+        display "Button '" with label with "' disabled"
+    end action
+    
+    define action enable:
+        set is_enabled to yes
+        display "Button '" with label with "' enabled"
+    end action
+end container
+
+// Create button instances
+create new Button with "Submit" as submit_button
+create new Button with "Cancel" as cancel_button
+
+// Set up event handlers
+on submit_button clicked:
+    display "Form submitted!"
+end on
+
+on cancel_button clicked:
+    display "Form cancelled!"
+end on
+
+// Interact with buttons
+submit_button on_hover
+submit_button click
+submit_button end_hover
+
+cancel_button on_hover
+cancel_button disable
+cancel_button click  // This won't trigger the event because the button is disabled
+cancel_button enable
+cancel_button click  // Now it will trigger the event
+cancel_button end_hover
+
+// Access static property
+display "Total number of buttons created: " with Button button_count

@@ -75,7 +75,7 @@ impl fmt::Debug for SafeDebug<'_> {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: ", k)?;
+                    write!(f, "{k}: ")?;
                     SafeDebug {
                         value: v,
                         depth: self.depth - 1,
@@ -151,7 +151,7 @@ fn generate_report_content(
     let mut report = String::new();
 
     writeln!(&mut report, "=== WFL Debug Report ===").unwrap();
-    writeln!(&mut report, "Script: {}", script_path).unwrap();
+    writeln!(&mut report, "Script: {script_path}").unwrap();
     writeln!(
         &mut report,
         "Time: {}",
@@ -245,8 +245,8 @@ fn extract_function_body(report: &mut String, source: &str, func_name: &str) {
     let mut end_line = None;
 
     for (i, line) in lines.iter().enumerate() {
-        if line.contains(&format!("define action called {}", func_name))
-            || line.contains(&format!("action called {}", func_name))
+        if line.contains(&format!("define action called {func_name}"))
+            || line.contains(&format!("action called {func_name}"))
         {
             start_line = Some(i);
         } else if start_line.is_some() && line.contains("end action") {
@@ -340,7 +340,7 @@ mod tests {
         list.borrow_mut().push(list_value.clone());
 
         let safe_debug = SafeDebug::new(&list_value, 4);
-        let debug_output = format!("{:?}", safe_debug);
+        let debug_output = format!("{safe_debug:?}");
 
         assert!(debug_output.contains("<cycle>"));
 

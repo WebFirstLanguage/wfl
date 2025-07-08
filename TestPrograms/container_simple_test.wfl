@@ -1,0 +1,18 @@
+// Basic container definition
+create container Person:
+    property name: Text
+    property age: Number
+    
+    action greet:
+        display "Hello, I am Alice and I am 28."
+    end
+end
+
+// Container instantiation
+create new Person as alice:
+    name is "Alice"
+    age is 28
+end
+
+// Using container methods
+alice.greet()

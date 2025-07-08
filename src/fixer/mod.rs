@@ -76,7 +76,7 @@ impl CodeFixer {
             Err(err) => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("Failed to parse file: {:?}", err),
+                    format!("Failed to parse file: {err:?}"),
                 ));
             }
         };
@@ -243,7 +243,7 @@ impl CodeFixer {
 
                         if let Some(param_type) = &param.param_type {
                             output.push_str(" as ");
-                            output.push_str(&format!("{:?}", param_type));
+                            output.push_str(&format!("{param_type:?}"));
                         }
 
                         if let Some(default_value) = &param.default_value {
@@ -260,7 +260,7 @@ impl CodeFixer {
 
                 if let Some(ret_type) = return_type {
                     output.push_str(" returning ");
-                    output.push_str(&format!("{:?}", ret_type));
+                    output.push_str(&format!("{ret_type:?}"));
                 }
 
                 output.push_str(":\n");
@@ -420,9 +420,56 @@ impl CodeFixer {
                 output.push('\n');
                 summary.lines_reformatted += 1;
             }
+            Statement::ContainerDefinition { name, .. } => {
+                output.push_str(&indent);
+                output.push_str("create container ");
+                output.push_str(name);
+                output.push_str(":\n");
+                output.push_str(&indent);
+                output
+                    .push_str("    // TODO: Implement container property and method formatting\n");
+                output.push_str(&indent);
+                output.push_str("end\n");
+                summary.lines_reformatted += 1;
+            }
+            Statement::ContainerInstantiation {
+                container_type,
+                instance_name,
+                ..
+            } => {
+                output.push_str(&indent);
+                output.push_str("create new ");
+                output.push_str(container_type);
+                output.push_str(" as ");
+                output.push_str(instance_name);
+                output.push_str(":\n");
+                output.push_str(&indent);
+                output.push_str("    // TODO: Implement property initializer formatting\n");
+                summary.lines_reformatted += 1;
+            }
+            Statement::InterfaceDefinition { name, .. } => {
+                output.push_str(&indent);
+                output.push_str("create interface ");
+                output.push_str(name);
+                output.push_str(":\n");
+                output.push_str(&indent);
+                output.push_str("    // TODO: Implement interface method formatting\n");
+                output.push_str(&indent);
+                output.push_str("end\n");
+                summary.lines_reformatted += 1;
+            }
+            Statement::EventDefinition { name, .. } => {
+                output.push_str(&indent);
+                output.push_str("event ");
+                output.push_str(name);
+                output.push_str(":\n");
+                output.push_str(&indent);
+                output.push_str("    // TODO: Implement event parameter formatting\n");
+                summary.lines_reformatted += 1;
+            }
             _ => {
                 output.push_str(&indent);
-                output.push_str(&format!("{:?}\n", statement));
+                output.push_str(&format!("{statement:?}\n"));
                 summary.lines_reformatted += 1;
             }
         }
@@ -597,7 +644,7 @@ impl CodeFixer {
             }
             #[allow(unreachable_patterns)]
             _ => {
-                output.push_str(&format!("{:?}", expression));
+                output.push_str(&format!("{expression:?}"));
             }
         }
     }
