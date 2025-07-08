@@ -2198,37 +2198,29 @@ impl<'a> Parser<'a> {
             if let Ok(mut expr) = result {
                 while let Some(token) = self.tokens.peek().cloned() {
                     match &token.token {
-                        Token::Identifier(id) if id == "of" => {
+                        Token::KeywordOf => {
                             self.tokens.next(); // Consume "of"
 
-                            if let Some(prop_token) = self.tokens.peek().cloned() {
-                                if let Token::Identifier(prop) = &prop_token.token {
-                                    self.tokens.next(); // Consume property name or first argument
+                            // Parse the first argument after "of"
+                            let first_arg = self.parse_expression()?;
 
-                                    // In member access: "property of object", the left side is usually a property name
+                            let is_function_call = matches!(
+                                expr,
+                                Expression::Variable(_, _, _)
+                                    | Expression::FunctionCall { .. }
+                            );
 
-                                    let is_function_call = matches!(
-                                        expr,
-                                        Expression::Variable(_, _, _)
-                                            | Expression::FunctionCall { .. }
-                                    );
+                            if is_function_call {
+                                let mut arguments = Vec::with_capacity(4);
 
-                                    if is_function_call {
-                                        let mut arguments = Vec::with_capacity(4);
-
-                                        arguments.push(Argument {
-                                            name: None,
-                                            value: Expression::Variable(
-                                                prop.to_string(),
-                                                prop_token.line,
-                                                prop_token.column,
-                                            ),
-                                        });
+                                arguments.push(Argument {
+                                    name: None,
+                                    value: first_arg,
+                                });
 
                                         while let Some(and_token) = self.tokens.peek().cloned() {
-                                            if let Token::Identifier(id) = &and_token.token {
-                                                if id.to_lowercase() == "and" {
-                                                    self.tokens.next(); // Consume "and"
+                                            if let Token::KeywordAnd = &and_token.token {
+                                                self.tokens.next(); // Consume "and"
 
                                                     let arg_value = self.parse_expression()?;
 
@@ -2236,9 +2228,6 @@ impl<'a> Parser<'a> {
                                                         name: None,
                                                         value: arg_value,
                                                     });
-                                                } else {
-                                                    break;
-                                                }
                                             } else {
                                                 break;
                                             }
@@ -2251,30 +2240,12 @@ impl<'a> Parser<'a> {
                                             column: token.column,
                                         };
                                     } else {
-                                        expr = Expression::MemberAccess {
-                                            object: Box::new(expr),
-                                            property: prop.to_string(),
-                                            line: prop_token.line,
-                                            column: prop_token.column,
-                                        };
+                                        return Err(ParseError::new(
+                                            "Member access not supported with expression arguments".to_string(),
+                                            token.line,
+                                            token.column,
+                                        ));
                                     }
-                                } else {
-                                    return Err(ParseError::new(
-                                        format!(
-                                            "Expected identifier after 'of', found {:?}",
-                                            prop_token.token
-                                        ),
-                                        prop_token.line,
-                                        prop_token.column,
-                                    ));
-                                }
-                            } else {
-                                return Err(ParseError::new(
-                                    "Unexpected end of input after 'of'".to_string(),
-                                    token.line,
-                                    token.column,
-                                ));
-                            }
                         }
                         Token::KeywordAt => {
                             self.tokens.next(); // Consume "at"
