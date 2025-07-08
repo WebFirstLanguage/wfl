@@ -76,7 +76,7 @@ impl CodeFixer {
             Err(err) => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("Failed to parse file: {:?}", err),
+                    format!("Failed to parse file: {err:?}"),
                 ));
             }
         };
@@ -243,7 +243,7 @@ impl CodeFixer {
 
                         if let Some(param_type) = &param.param_type {
                             output.push_str(" as ");
-                            output.push_str(&format!("{:?}", param_type));
+                            output.push_str(&format!("{param_type:?}"));
                         }
 
                         if let Some(default_value) = &param.default_value {
@@ -260,7 +260,7 @@ impl CodeFixer {
 
                 if let Some(ret_type) = return_type {
                     output.push_str(" returning ");
-                    output.push_str(&format!("{:?}", ret_type));
+                    output.push_str(&format!("{ret_type:?}"));
                 }
 
                 output.push_str(":\n");
@@ -469,7 +469,7 @@ impl CodeFixer {
             }
             _ => {
                 output.push_str(&indent);
-                output.push_str(&format!("{:?}\n", statement));
+                output.push_str(&format!("{statement:?}\n"));
                 summary.lines_reformatted += 1;
             }
         }
@@ -644,7 +644,7 @@ impl CodeFixer {
             }
             #[allow(unreachable_patterns)]
             _ => {
-                output.push_str(&format!("{:?}", expression));
+                output.push_str(&format!("{expression:?}"));
             }
         }
     }

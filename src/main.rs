@@ -64,7 +64,7 @@ async fn main() -> io::Result<()> {
 
     if args.len() == 1 {
         if let Err(e) = repl::run_repl().await {
-            eprintln!("REPL error: {}", e);
+            eprintln!("REPL error: {e}");
         }
         return Ok(());
     }
@@ -285,7 +285,7 @@ async fn main() -> io::Result<()> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error checking configuration: {}", e);
+                    eprintln!("Error checking configuration: {e}");
                     process::exit(2);
                 }
             }
@@ -301,7 +301,7 @@ async fn main() -> io::Result<()> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error fixing configuration: {}", e);
+                    eprintln!("Error fixing configuration: {e}");
                     process::exit(2);
                 }
             }
@@ -320,12 +320,12 @@ async fn main() -> io::Result<()> {
         // Ensure the file exists
         if !path.exists() {
             // Create an empty file if it doesn't exist
-            println!("File doesn't exist. Creating empty file: {}", file_path);
+            println!("File doesn't exist. Creating empty file: {file_path}");
             fs::write(&file_path, "")?;
         }
 
         // Use the system's default program to open the file
-        println!("Opening file in default editor: {}", file_path);
+        println!("Opening file in default editor: {file_path}");
 
         #[cfg(target_os = "windows")]
         {
@@ -368,11 +368,11 @@ async fn main() -> io::Result<()> {
 
         // Handle lexer dump
         if lex_dump {
-            let lex_output_path = format!("{}.lex.txt", file_path);
+            let lex_output_path = format!("{file_path}.lex.txt");
 
             // Format lexer output
             let mut lex_output = String::new();
-            lex_output.push_str(&format!("Lexer output for: {}\n", file_path));
+            lex_output.push_str(&format!("Lexer output for: {file_path}\n"));
             lex_output.push_str("==============================================\n\n");
 
             for (i, token) in tokens_with_pos.iter().enumerate() {
@@ -384,23 +384,23 @@ async fn main() -> io::Result<()> {
 
             // Write to file
             if let Err(e) = write_to_file(&lex_output_path, &lex_output) {
-                eprintln!("Error writing lexer output to {}: {}", lex_output_path, e);
+                eprintln!("Error writing lexer output to {lex_output_path}: {e}");
                 process::exit(1);
             }
 
-            println!("Lexer output written to: {}", lex_output_path);
+            println!("Lexer output written to: {lex_output_path}");
         }
 
         // Handle AST dump
         if ast_dump {
-            let ast_output_path = format!("{}.ast.txt", file_path);
+            let ast_output_path = format!("{file_path}.ast.txt");
 
             // Parse tokens into AST
             match Parser::new(&tokens_with_pos).parse() {
                 Ok(program) => {
                     // Format AST output
                     let mut ast_output = String::new();
-                    ast_output.push_str(&format!("AST output for: {}\n", file_path));
+                    ast_output.push_str(&format!("AST output for: {file_path}\n"));
                     ast_output.push_str("==============================================\n\n");
                     ast_output.push_str(&format!(
                         "Program with {} statements:\n\n",
@@ -414,11 +414,11 @@ async fn main() -> io::Result<()> {
 
                     // Write to file
                     if let Err(e) = write_to_file(&ast_output_path, &ast_output) {
-                        eprintln!("Error writing AST output to {}: {}", ast_output_path, e);
+                        eprintln!("Error writing AST output to {ast_output_path}: {e}");
                         process::exit(1);
                     }
 
-                    println!("AST output written to: {}", ast_output_path);
+                    println!("AST output written to: {ast_output_path}");
                 }
                 Err(errors) => {
                     eprintln!("Cannot generate AST dump due to parse errors:");
@@ -429,8 +429,8 @@ async fn main() -> io::Result<()> {
                     for error in errors {
                         let diagnostic = reporter.convert_parse_error(file_id, &error);
                         if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                            eprintln!("Error displaying diagnostic: {}", e);
-                            eprintln!("Error: {}", error);
+                            eprintln!("Error displaying diagnostic: {e}");
+                            eprintln!("Error: {error}");
                         }
                     }
 
@@ -448,7 +448,7 @@ async fn main() -> io::Result<()> {
 
         print!("continue (y/n)? ");
         if let Err(e) = io::stdout().flush() {
-            eprintln!("Error flushing stdout: {}", e);
+            eprintln!("Error flushing stdout: {e}");
         }
 
         let mut input_line = String::new();
@@ -460,7 +460,7 @@ async fn main() -> io::Result<()> {
                 }
             }
             Err(e) => {
-                eprintln!("Error reading input: {}", e);
+                eprintln!("Error reading input: {e}");
                 process::exit(1);
             }
         }
@@ -488,7 +488,7 @@ async fn main() -> io::Result<()> {
                     } else if fix_diff {
                         println!("{}", fixer.diff(&input, &fixed_code));
                     } else {
-                        println!("Fixed code:\n{}", fixed_code);
+                        println!("Fixed code:\n{fixed_code}");
                     }
                     process::exit(0);
                 } else if !diagnostics.is_empty() {
@@ -499,7 +499,7 @@ async fn main() -> io::Result<()> {
 
                     for diagnostic in diagnostics {
                         if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                            eprintln!("Error displaying diagnostic: {}", e);
+                            eprintln!("Error displaying diagnostic: {e}");
                             eprintln!("{}", diagnostic.message);
                         }
                     }
@@ -519,8 +519,8 @@ async fn main() -> io::Result<()> {
                 for error in errors {
                     let diagnostic = reporter.convert_parse_error(file_id, &error);
                     if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                        eprintln!("Error displaying diagnostic: {}", e);
-                        eprintln!("Error: {}", error);
+                        eprintln!("Error displaying diagnostic: {e}");
+                        eprintln!("Error: {error}");
                     }
                 }
 
@@ -545,7 +545,7 @@ async fn main() -> io::Result<()> {
 
                     for diagnostic in diagnostics {
                         if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                            eprintln!("Error displaying diagnostic: {}", e);
+                            eprintln!("Error displaying diagnostic: {e}");
                             eprintln!("{}", diagnostic.message);
                         }
                     }
@@ -565,8 +565,8 @@ async fn main() -> io::Result<()> {
                 for error in errors {
                     let diagnostic = reporter.convert_parse_error(file_id, &error);
                     if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                        eprintln!("Error displaying diagnostic: {}", e);
-                        eprintln!("Error: {}", error);
+                        eprintln!("Error displaying diagnostic: {e}");
+                        eprintln!("Error: {error}");
                     }
                 }
 
@@ -598,7 +598,7 @@ async fn main() -> io::Result<()> {
                         process::exit(0);
                     }
                     Err(e) => {
-                        eprintln!("Error fixing code: {}", e);
+                        eprintln!("Error fixing code: {e}");
                         process::exit(1);
                     }
                 }
@@ -612,8 +612,8 @@ async fn main() -> io::Result<()> {
                 for error in errors {
                     let diagnostic = reporter.convert_parse_error(file_id, &error);
                     if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                        eprintln!("Error displaying diagnostic: {}", e);
-                        eprintln!("Error: {}", error);
+                        eprintln!("Error displaying diagnostic: {e}");
+                        eprintln!("Error: {error}");
                     }
                 }
 
@@ -749,7 +749,7 @@ async fn main() -> io::Result<()> {
                                 Ok(report_path) => {
                                     let report_msg =
                                         format!("Debug report created: {}", report_path.display());
-                                    eprintln!("{}", report_msg);
+                                    eprintln!("{report_msg}");
 
                                     if config.logging_enabled {
                                         info!("{}", report_msg);
@@ -768,8 +768,8 @@ async fn main() -> io::Result<()> {
                         for error in errors {
                             let diagnostic = reporter.convert_runtime_error(file_id, &error);
                             if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                                eprintln!("Error displaying diagnostic: {}", e);
-                                eprintln!("{}", error); // Fallback to simple error display
+                                eprintln!("Error displaying diagnostic: {e}");
+                                eprintln!("{error}"); // Fallback to simple error display
                             }
                         }
                     }
@@ -784,8 +784,8 @@ async fn main() -> io::Result<()> {
                 for error in errors {
                     let diagnostic = reporter.convert_parse_error(file_id, &error);
                     if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                        eprintln!("Error displaying diagnostic: {}", e);
-                        eprintln!("Error: {}", error); // Fallback to simple error display
+                        eprintln!("Error displaying diagnostic: {e}");
+                        eprintln!("Error: {error}"); // Fallback to simple error display
                     }
                 }
             }

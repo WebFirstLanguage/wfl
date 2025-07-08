@@ -131,8 +131,7 @@ mod tests {
         let final_count = Rc::strong_count(&global_env);
         assert_eq!(
             initial_count, final_count,
-            "Reference count before ({}) and after ({}) should be the same",
-            initial_count, final_count
+            "Reference count before ({initial_count}) and after ({final_count}) should be the same"
         );
     }
 }

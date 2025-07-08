@@ -38,11 +38,11 @@ impl fmt::Display for TypeError {
 
         if let Some(expected) = &self.expected {
             if let Some(found) = &self.found {
-                message.push_str(&format!(" - Expected {} but found {}", expected, found));
+                message.push_str(&format!(" - Expected {expected} but found {found}"));
             }
         }
 
-        write!(f, "{}", message)
+        write!(f, "{message}")
     }
 }
 
@@ -56,9 +56,9 @@ impl fmt::Display for Type {
             Type::Boolean => write!(f, "Boolean"),
             Type::Nothing => write!(f, "Nothing"),
             Type::Pattern => write!(f, "Pattern"),
-            Type::Custom(name) => write!(f, "{}", name),
-            Type::List(item_type) => write!(f, "List of {}", item_type),
-            Type::Map(key_type, value_type) => write!(f, "Map from {} to {}", key_type, value_type),
+            Type::Custom(name) => write!(f, "{name}"),
+            Type::List(item_type) => write!(f, "List of {item_type}"),
+            Type::Map(key_type, value_type) => write!(f, "Map from {key_type} to {value_type}"),
             Type::Function {
                 parameters,
                 return_type,
@@ -68,17 +68,17 @@ impl fmt::Display for Type {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", param)?;
+                    write!(f, "{param}")?;
                 }
-                write!(f, ") -> {}", return_type)
+                write!(f, ") -> {return_type}")
             }
             Type::Unknown => write!(f, "Unknown"),
             Type::Error => write!(f, "Error"),
-            Type::Async(t) => write!(f, "Async<{}>", t),
+            Type::Async(t) => write!(f, "Async<{t}>"),
             Type::Any => write!(f, "Any"),
-            Type::Container(name) => write!(f, "Container<{}>", name),
-            Type::ContainerInstance(name) => write!(f, "Instance<{}>", name),
-            Type::Interface(name) => write!(f, "Interface<{}>", name),
+            Type::Container(name) => write!(f, "Container<{name}>"),
+            Type::ContainerInstance(name) => write!(f, "Instance<{name}>"),
+            Type::Interface(name) => write!(f, "Interface<{name}>"),
         }
     }
 }
@@ -158,7 +158,7 @@ impl TypeChecker {
                     Type::List(_) | Type::Unknown => {}
                     _ => {
                         self.errors.push(TypeError::new(
-                            format!("Expected list type for push operation, got {:?}", list_type),
+                            format!("Expected list type for push operation, got {list_type:?}"),
                             Some(Type::List(Box::new(Type::Any))),
                             Some(list_type.clone()),
                             *_line,
@@ -178,8 +178,7 @@ impl TypeChecker {
                 if condition_type != Type::Boolean && condition_type != Type::Unknown {
                     self.errors.push(TypeError::new(
                         format!(
-                            "Expected boolean condition in repeat-while loop, got {:?}",
-                            condition_type
+                            "Expected boolean condition in repeat-while loop, got {condition_type:?}"
                         ),
                         Some(Type::Boolean),
                         Some(condition_type.clone()),
@@ -291,7 +290,7 @@ impl TypeChecker {
 
                 if inferred_type == Type::Unknown {
                     self.type_error(
-                        format!("Could not infer type for variable '{}'", name),
+                        format!("Could not infer type for variable '{name}'"),
                         None,
                         None,
                         *_line,
@@ -313,10 +312,7 @@ impl TypeChecker {
 
                 if need_type_error {
                     self.type_error(
-                        format!(
-                            "Cannot initialize variable '{}' with incompatible type",
-                            name
-                        ),
+                        format!("Cannot initialize variable '{name}' with incompatible type"),
                         symbol_type_option.clone(),
                         Some(inferred_type.clone()),
                         *_line,
@@ -345,8 +341,7 @@ impl TypeChecker {
                         if !self.are_types_compatible(variable_type, &inferred_type) {
                             self.type_error(
                                 format!(
-                                    "Cannot assign value of incompatible type to variable '{}'",
-                                    name
+                                    "Cannot assign value of incompatible type to variable '{name}'"
                                 ),
                                 Some(variable_type.clone()),
                                 Some(inferred_type),
@@ -726,7 +721,7 @@ impl TypeChecker {
                     if let Some(parent_symbol) = self.analyzer.get_symbol(parent_name) {
                         if parent_symbol.symbol_type != Some(Type::Container(parent_name.clone())) {
                             self.type_error(
-                                format!("'{}' is not a container type", parent_name),
+                                format!("'{parent_name}' is not a container type"),
                                 Some(Type::Container(parent_name.clone())),
                                 parent_symbol.symbol_type.clone(),
                                 *line,
@@ -735,7 +730,7 @@ impl TypeChecker {
                         }
                     } else {
                         self.type_error(
-                            format!("Parent container '{}' not found", parent_name),
+                            format!("Parent container '{parent_name}' not found"),
                             Some(Type::Container(parent_name.clone())),
                             None,
                             *line,
@@ -750,7 +745,7 @@ impl TypeChecker {
                             != Some(Type::Interface(interface_name.clone()))
                         {
                             self.type_error(
-                                format!("'{}' is not an interface type", interface_name),
+                                format!("'{interface_name}' is not an interface type"),
                                 Some(Type::Interface(interface_name.clone())),
                                 interface_symbol.symbol_type.clone(),
                                 *line,
@@ -759,7 +754,7 @@ impl TypeChecker {
                         }
                     } else {
                         self.type_error(
-                            format!("Interface '{}' not found", interface_name),
+                            format!("Interface '{interface_name}' not found"),
                             Some(Type::Interface(interface_name.clone())),
                             None,
                             *line,
@@ -775,8 +770,7 @@ impl TypeChecker {
                             if !self.are_types_compatible(&default_type, declared_type) {
                                 self.type_error(
                                     format!(
-                                        "Default value type {:?} incompatible with declared type {:?}",
-                                        default_type, declared_type
+                                        "Default value type {default_type:?} incompatible with declared type {declared_type:?}"
                                     ),
                                     Some(declared_type.clone()),
                                     Some(default_type),
@@ -810,7 +804,7 @@ impl TypeChecker {
                     if container_symbol.symbol_type != Some(Type::Container(container_type.clone()))
                     {
                         self.type_error(
-                            format!("'{}' is not a container type", container_type),
+                            format!("'{container_type}' is not a container type"),
                             Some(Type::Container(container_type.clone())),
                             container_symbol.symbol_type.clone(),
                             *line,
@@ -819,7 +813,7 @@ impl TypeChecker {
                     }
                 } else {
                     self.type_error(
-                        format!("Container type '{}' not found", container_type),
+                        format!("Container type '{container_type}' not found"),
                         Some(Type::Container(container_type.clone())),
                         None,
                         *line,
@@ -889,7 +883,7 @@ impl TypeChecker {
                         var_type.clone()
                     } else {
                         self.type_error(
-                            format!("Cannot determine type of variable '{}'", name),
+                            format!("Cannot determine type of variable '{name}'"),
                             None,
                             None,
                             *_line,
@@ -912,7 +906,7 @@ impl TypeChecker {
                     } else {
                         // Add an error for undefined variable
                         self.type_error(
-                            format!("Variable '{}' is not defined", name),
+                            format!("Variable '{name}' is not defined"),
                             None,
                             None,
                             *_line,
@@ -952,8 +946,7 @@ impl TypeChecker {
                         } else {
                             self.type_error(
                                 format!(
-                                    "Cannot perform {:?} operation on {} and {}",
-                                    operator, left_type, right_type
+                                    "Cannot perform {operator:?} operation on {left_type} and {right_type}"
                                 ),
                                 Some(Type::Number),
                                 Some(if left_type != Type::Number {
@@ -972,10 +965,7 @@ impl TypeChecker {
                             && !self.are_types_compatible(&right_type, &left_type)
                         {
                             self.type_error(
-                                format!(
-                                    "Cannot compare {} and {} for equality",
-                                    left_type, right_type
-                                ),
+                                format!("Cannot compare {left_type} and {right_type} for equality"),
                                 Some(left_type.clone()),
                                 Some(right_type),
                                 *line,
@@ -997,8 +987,7 @@ impl TypeChecker {
                         } else {
                             self.type_error(
                                 format!(
-                                    "Cannot compare {} and {} with {:?}",
-                                    left_type, right_type, operator
+                                    "Cannot compare {left_type} and {right_type} with {operator:?}"
                                 ),
                                 Some(if left_type == Type::Number || left_type == Type::Text {
                                     left_type.clone()
@@ -1018,8 +1007,7 @@ impl TypeChecker {
                         } else {
                             self.type_error(
                                 format!(
-                                    "Cannot perform logical {:?} on {} and {}",
-                                    operator, left_type, right_type
+                                    "Cannot perform logical {operator:?} on {left_type} and {right_type}"
                                 ),
                                 Some(Type::Boolean),
                                 Some(if left_type != Type::Boolean {
@@ -1038,8 +1026,7 @@ impl TypeChecker {
                             if !self.are_types_compatible(item_type, &right_type) {
                                 self.type_error(
                                     format!(
-                                        "Cannot check if {} contains {}, list items are {}",
-                                        left_type, right_type, item_type
+                                        "Cannot check if {left_type} contains {right_type}, list items are {item_type}"
                                     ),
                                     Some(*item_type.clone()),
                                     Some(right_type),
@@ -1055,8 +1042,7 @@ impl TypeChecker {
                             if !self.are_types_compatible(key_type, &right_type) {
                                 self.type_error(
                                     format!(
-                                        "Cannot check if {} contains {}, map keys are {}",
-                                        left_type, right_type, key_type
+                                        "Cannot check if {left_type} contains {right_type}, map keys are {key_type}"
                                     ),
                                     Some(*key_type.clone()),
                                     Some(right_type),
@@ -1071,10 +1057,7 @@ impl TypeChecker {
                         Type::Text => {
                             if right_type != Type::Text {
                                 self.type_error(
-                                    format!(
-                                        "Cannot check if {} contains {}",
-                                        left_type, right_type
-                                    ),
+                                    format!("Cannot check if {left_type} contains {right_type}"),
                                     Some(Type::Text),
                                     Some(right_type),
                                     *line,
@@ -1087,7 +1070,7 @@ impl TypeChecker {
                         }
                         _ => {
                             self.type_error(
-                                format!("Cannot check if {} contains {}", left_type, right_type),
+                                format!("Cannot check if {left_type} contains {right_type}"),
                                 Some(Type::List(Box::new(Type::Unknown))),
                                 Some(left_type),
                                 *line,
@@ -1116,7 +1099,7 @@ impl TypeChecker {
                             Type::Boolean
                         } else {
                             self.type_error(
-                                format!("Cannot apply 'not' to {}", expr_type),
+                                format!("Cannot apply 'not' to {expr_type}"),
                                 Some(Type::Boolean),
                                 Some(expr_type),
                                 *line,
@@ -1130,7 +1113,7 @@ impl TypeChecker {
                             Type::Number
                         } else {
                             self.type_error(
-                                format!("Cannot negate {}", expr_type),
+                                format!("Cannot negate {expr_type}"),
                                 Some(Type::Number),
                                 Some(expr_type),
                                 *line,
@@ -1200,7 +1183,7 @@ impl TypeChecker {
                     Type::Unknown | Type::Error => Type::Unknown,
                     _ => {
                         self.type_error(
-                            format!("Cannot call {}, not a function", function_type),
+                            format!("Cannot call {function_type}, not a function"),
                             Some(Type::Function {
                                 parameters: vec![],
                                 return_type: Box::new(Type::Unknown),
@@ -1230,7 +1213,7 @@ impl TypeChecker {
                     Type::Unknown => Type::Unknown,
                     _ => {
                         self.type_error(
-                            format!("Cannot access property '{}' on {}", property, object_type),
+                            format!("Cannot access property '{property}' on {object_type}"),
                             Some(Type::Custom("Object".to_string())),
                             Some(object_type),
                             *_line,
@@ -1257,7 +1240,7 @@ impl TypeChecker {
                     Type::List(item_type) => {
                         if index_type != Type::Number {
                             self.type_error(
-                                format!("List index must be a number, got {}", index_type),
+                                format!("List index must be a number, got {index_type}"),
                                 Some(Type::Number),
                                 Some(index_type),
                                 *line,
@@ -1271,7 +1254,7 @@ impl TypeChecker {
                     Type::Map(key_type, value_type) => {
                         if !self.are_types_compatible(&key_type, &index_type) {
                             self.type_error(
-                                format!("Map key must be {}, got {}", key_type, index_type),
+                                format!("Map key must be {key_type}, got {index_type}"),
                                 Some(*key_type.clone()),
                                 Some(index_type),
                                 *line,
@@ -1285,7 +1268,7 @@ impl TypeChecker {
                     Type::Text => {
                         if index_type != Type::Number {
                             self.type_error(
-                                format!("Text index must be a number, got {}", index_type),
+                                format!("Text index must be a number, got {index_type}"),
                                 Some(Type::Number),
                                 Some(index_type),
                                 *line,
@@ -1299,7 +1282,7 @@ impl TypeChecker {
                     Type::Unknown => Type::Unknown,
                     _ => {
                         self.type_error(
-                            format!("Cannot index into {}", collection_type),
+                            format!("Cannot index into {collection_type}"),
                             Some(Type::List(Box::new(Type::Unknown))),
                             Some(collection_type),
                             *line,
@@ -1328,7 +1311,7 @@ impl TypeChecker {
                     Type::Text
                 } else {
                     self.type_error(
-                        format!("Cannot concatenate {} and {}", left_type, right_type),
+                        format!("Cannot concatenate {left_type} and {right_type}"),
                         Some(Type::Text),
                         Some(if left_type != Type::Text && left_type != Type::Number {
                             left_type
@@ -1347,7 +1330,7 @@ impl TypeChecker {
 
                 if text_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern matching, got {}", text_type),
+                        format!("Expected Text for pattern matching, got {text_type}"),
                         Some(Type::Text),
                         Some(text_type),
                         0,
@@ -1357,10 +1340,7 @@ impl TypeChecker {
 
                 if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!(
-                            "Expected Pattern for pattern matching, got {}",
-                            pattern_type
-                        ),
+                        format!("Expected Pattern for pattern matching, got {pattern_type}"),
                         Some(Type::Pattern),
                         Some(pattern_type),
                         0,
@@ -1376,7 +1356,7 @@ impl TypeChecker {
 
                 if text_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern finding, got {}", text_type),
+                        format!("Expected Text for pattern finding, got {text_type}"),
                         Some(Type::Text),
                         Some(text_type),
                         0,
@@ -1386,7 +1366,7 @@ impl TypeChecker {
 
                 if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!("Expected Pattern for pattern finding, got {}", pattern_type),
+                        format!("Expected Pattern for pattern finding, got {pattern_type}"),
                         Some(Type::Pattern),
                         Some(pattern_type),
                         0,
@@ -1408,7 +1388,7 @@ impl TypeChecker {
 
                 if text_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern replacement, got {}", text_type),
+                        format!("Expected Text for pattern replacement, got {text_type}"),
                         Some(Type::Text),
                         Some(text_type),
                         0,
@@ -1418,10 +1398,7 @@ impl TypeChecker {
 
                 if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!(
-                            "Expected Pattern for pattern replacement, got {}",
-                            pattern_type
-                        ),
+                        format!("Expected Pattern for pattern replacement, got {pattern_type}"),
                         Some(Type::Pattern),
                         Some(pattern_type),
                         0,
@@ -1431,7 +1408,7 @@ impl TypeChecker {
 
                 if replacement_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for replacement, got {}", replacement_type),
+                        format!("Expected Text for replacement, got {replacement_type}"),
                         Some(Type::Text),
                         Some(replacement_type),
                         0,
@@ -1447,7 +1424,7 @@ impl TypeChecker {
 
                 if text_type != Type::Text {
                     self.type_error(
-                        format!("Expected Text for pattern splitting, got {}", text_type),
+                        format!("Expected Text for pattern splitting, got {text_type}"),
                         Some(Type::Text),
                         Some(text_type),
                         0,
@@ -1457,10 +1434,7 @@ impl TypeChecker {
 
                 if pattern_type != Type::Pattern && pattern_type != Type::Text {
                     self.type_error(
-                        format!(
-                            "Expected Pattern for pattern splitting, got {}",
-                            pattern_type
-                        ),
+                        format!("Expected Pattern for pattern splitting, got {pattern_type}"),
                         Some(Type::Pattern),
                         Some(pattern_type),
                         0,
@@ -1481,7 +1455,7 @@ impl TypeChecker {
                     Type::Async(inner_type) => *inner_type,
                     _ => {
                         self.type_error(
-                            format!("Cannot await non-async value of type {}", expr_type),
+                            format!("Cannot await non-async value of type {expr_type}"),
                             Some(Type::Async(Box::new(Type::Unknown))),
                             Some(expr_type),
                             *line,
@@ -1509,7 +1483,7 @@ impl TypeChecker {
                         return Type::Unknown;
                     } else {
                         self.type_error(
-                            format!("Undefined action '{}'", name),
+                            format!("Undefined action '{name}'"),
                             None,
                             None,
                             *_line,
@@ -1523,7 +1497,7 @@ impl TypeChecker {
 
                 if symbol.symbol_type.is_none() {
                     self.type_error(
-                        format!("Cannot determine type of action '{}'", name),
+                        format!("Cannot determine type of action '{name}'"),
                         None,
                         None,
                         *_line,
@@ -1585,7 +1559,7 @@ impl TypeChecker {
                     }
                     _ => {
                         self.type_error(
-                            format!("'{}' is not an action", name),
+                            format!("'{name}' is not an action"),
                             Some(Type::Function {
                                 parameters: vec![],
                                 return_type: Box::new(Type::Unknown),
@@ -1653,8 +1627,7 @@ impl TypeChecker {
                     _ => {
                         self.type_error(
                             format!(
-                                "Cannot call method '{}' on non-container type {}",
-                                _method, object_type
+                                "Cannot call method '{_method}' on non-container type {object_type}"
                             ),
                             Some(Type::ContainerInstance(String::from("Unknown"))),
                             Some(object_type),
@@ -1676,10 +1649,7 @@ impl TypeChecker {
                     }
                     _ => {
                         self.type_error(
-                            format!(
-                                "Cannot access property '{}' on non-container type",
-                                property
-                            ),
+                            format!("Cannot access property '{property}' on non-container type"),
                             Some(Type::ContainerInstance("Unknown".to_string())),
                             Some(object_type),
                             0,

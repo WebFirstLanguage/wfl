@@ -68,7 +68,7 @@ impl Pattern {
 
                 capture_names.push(placeholder_name.to_string());
 
-                regex_str.push_str(&format!("(?P<{}>.*?)", placeholder_name));
+                regex_str.push_str(&format!("(?P<{placeholder_name}>.*?)"));
 
                 parts.push(PatternPart::Placeholder(placeholder_name.to_string()));
                 current_pos += end_pos + 1;
@@ -169,7 +169,7 @@ impl Pattern {
                 current_pos = new_pos;
 
                 parts.push(PatternPart::Optional(Box::new(part)));
-                regex_str.push_str(&format!("(?:{})?", part_regex));
+                regex_str.push_str(&format!("(?:{part_regex})?"));
                 continue;
             }
 
@@ -186,7 +186,7 @@ impl Pattern {
                 current_pos = new_pos;
 
                 parts.push(PatternPart::OneOrMore(Box::new(part)));
-                regex_str.push_str(&format!("(?:{})+", part_regex));
+                regex_str.push_str(&format!("(?:{part_regex})+"));
                 continue;
             }
 
@@ -225,7 +225,7 @@ impl Pattern {
                     count,
                     part: Box::new(part),
                 });
-                regex_str.push_str(&format!("(?:{}){{{}}}", part_regex, count));
+                regex_str.push_str(&format!("(?:{part_regex}){{{count}}}"));
                 continue;
             }
 
@@ -289,7 +289,7 @@ impl Pattern {
                     max,
                     part: Box::new(part),
                 });
-                regex_str.push_str(&format!("(?:{}){{{},{}}}", part_regex, min, max));
+                regex_str.push_str(&format!("(?:{part_regex}){{{min},{max}}}"));
                 continue;
             }
 
@@ -306,7 +306,7 @@ impl Pattern {
                 current_pos = new_pos;
 
                 parts.push(PatternPart::BeginsWith(Box::new(part)));
-                regex_str = format!("^{}{}", part_regex, regex_str);
+                regex_str = format!("^{part_regex}{regex_str}");
                 continue;
             }
 
@@ -323,7 +323,7 @@ impl Pattern {
                 current_pos = new_pos;
 
                 parts.push(PatternPart::EndsWith(Box::new(part)));
-                regex_str.push_str(&format!("{}$", part_regex));
+                regex_str.push_str(&format!("{part_regex}$"));
                 continue;
             }
 
@@ -342,10 +342,10 @@ impl Pattern {
                 if let Some(PatternPart::Alternation(alts)) = parts.last_mut() {
                     alts.push(part);
 
-                    regex_str.push_str(&format!("|{}", part_regex));
+                    regex_str.push_str(&format!("|{part_regex}"));
                 } else if let Some(prev_part) = parts.pop() {
                     let prev_regex = regex_str.clone();
-                    regex_str = format!("(?:{}|{})", prev_regex, part_regex);
+                    regex_str = format!("(?:{prev_regex}|{part_regex})");
 
                     parts.push(PatternPart::Alternation(vec![prev_part, part]));
                 } else {
@@ -368,7 +368,7 @@ impl Pattern {
             current_pos += 1;
         }
 
-        let regex = Regex::new(&regex_str).map_err(|e| format!("Invalid regex: {}", e))?;
+        let regex = Regex::new(&regex_str).map_err(|e| format!("Invalid regex: {e}"))?;
 
         Ok(Pattern {
             parts,
@@ -620,7 +620,7 @@ pub fn native_pattern_matches(args: Vec<Value>) -> Result<Value, RuntimeError> {
             Ok(Value::Bool(result))
         }
         Err(err) => Err(RuntimeError::new(
-            format!("Error parsing pattern: {}", err),
+            format!("Error parsing pattern: {err}"),
             line,
             column,
         )),
@@ -673,7 +673,7 @@ pub fn native_pattern_find(args: Vec<Value>) -> Result<Value, RuntimeError> {
             }
         }
         Err(err) => Err(RuntimeError::new(
-            format!("Error parsing pattern: {}", err),
+            format!("Error parsing pattern: {err}"),
             line,
             column,
         )),
@@ -730,7 +730,7 @@ pub fn native_pattern_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
             Ok(Value::Text(Rc::from(result.as_str())))
         }
         Err(err) => Err(RuntimeError::new(
-            format!("Error parsing pattern: {}", err),
+            format!("Error parsing pattern: {err}"),
             line,
             column,
         )),
@@ -781,7 +781,7 @@ pub fn native_pattern_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
             Ok(Value::List(Rc::new(RefCell::new(values))))
         }
         Err(err) => Err(RuntimeError::new(
-            format!("Error parsing pattern: {}", err),
+            format!("Error parsing pattern: {err}"),
             line,
             column,
         )),

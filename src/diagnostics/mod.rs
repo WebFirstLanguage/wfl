@@ -291,10 +291,7 @@ impl DiagnosticReporter {
         let mut message_text = error.message.clone();
 
         if let (Some(expected), Some(found)) = (&error.expected, &error.found) {
-            message_text = format!(
-                "{} - Expected {} but found {}",
-                message_text, expected, found
-            );
+            message_text = format!("{message_text} - Expected {expected} but found {found}");
         }
 
         let start_offset = self
@@ -547,7 +544,7 @@ impl DiagnosticReporter {
         let mut message = error_message.to_string();
 
         if let Some(name) = pattern_name {
-            message = format!("Pattern '{}': {}", name, message);
+            message = format!("Pattern '{name}': {message}");
         }
 
         if let Some(input) = input_preview {
@@ -556,7 +553,7 @@ impl DiagnosticReporter {
             } else {
                 input.to_string()
             };
-            message = format!("{} (input: \"{}\")", message, preview);
+            message = format!("{message} (input: \"{preview}\")");
         }
 
         if error_message.contains("invalid range") || error_message.contains("Invalid range") {

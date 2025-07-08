@@ -121,7 +121,7 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
         if let Some((key, rest)) = line.split_once('=') {
             let key = key.trim();
             let value = rest.trim();
-            log::debug!("Found config key: {}, value: {}", key, value);
+            log::debug!("Found config key: {key}, value: {value}");
 
             match key {
                 "timeout_seconds" => {

@@ -1196,10 +1196,7 @@ impl<'a> Parser<'a> {
             }
         } else {
             return Err(ParseError::new(
-                format!(
-                    "Expected 'as' after variable name '{}', but found end of input",
-                    name
-                ),
+                format!("Expected 'as' after variable name '{name}', but found end of input"),
                 token_pos.line,
                 token_pos.column,
             ));
@@ -1318,7 +1315,7 @@ impl<'a> Parser<'a> {
             }
         } else {
             Err(ParseError::new(
-                format!("{}: unexpected end of input", error_message),
+                format!("{error_message}: unexpected end of input"),
                 0,
                 0,
             ))
@@ -4206,7 +4203,7 @@ impl<'a> Parser<'a> {
                     if *i < tokens.len() && tokens[*i].token == Token::KeywordMore {
                         *i += 1;
                         let inner = Self::parse_quantified_content(tokens, i)?;
-                        Ok(format!("rep(1,inf,{})", inner))
+                        Ok(format!("rep(1,inf,{inner})"))
                     } else {
                         Err(ParseError::new(
                             "Expected 'more' after 'one or'".to_string(),
@@ -4226,7 +4223,7 @@ impl<'a> Parser<'a> {
             Token::KeywordOptional => {
                 *i += 1;
                 let inner = Self::parse_quantified_content(tokens, i)?;
-                Ok(format!("rep(0,1,{})", inner))
+                Ok(format!("rep(0,1,{inner})"))
             }
 
             Token::KeywordBetween => {
@@ -4241,7 +4238,7 @@ impl<'a> Parser<'a> {
                                 let max_val = *max;
                                 *i += 1;
                                 let inner = Self::parse_quantified_content(tokens, i)?;
-                                Ok(format!("rep({},{},{})", min_val, max_val, inner))
+                                Ok(format!("rep({min_val},{max_val},{inner})"))
                             } else {
                                 Err(ParseError::new(
                                     "Expected number after 'and'".to_string(),
@@ -4298,7 +4295,7 @@ impl<'a> Parser<'a> {
                             let capture_name = name.clone();
                             *i += 1;
                             let inner_ir = Self::compile_pattern_to_ir(&capture_tokens)?;
-                            Ok(format!("cap(\"{}\",{})", capture_name, inner_ir))
+                            Ok(format!("cap(\"{capture_name}\",{inner_ir})"))
                         } else {
                             Err(ParseError::new(
                                 "Expected identifier after 'as'".to_string(),
