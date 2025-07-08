@@ -2206,8 +2206,7 @@ impl<'a> Parser<'a> {
 
                             let is_function_call = matches!(
                                 expr,
-                                Expression::Variable(_, _, _)
-                                    | Expression::FunctionCall { .. }
+                                Expression::Variable(_, _, _) | Expression::FunctionCall { .. }
                             );
 
                             if is_function_call {
@@ -2218,34 +2217,35 @@ impl<'a> Parser<'a> {
                                     value: first_arg,
                                 });
 
-                                        while let Some(and_token) = self.tokens.peek().cloned() {
-                                            if let Token::KeywordAnd = &and_token.token {
-                                                self.tokens.next(); // Consume "and"
+                                while let Some(and_token) = self.tokens.peek().cloned() {
+                                    if let Token::KeywordAnd = &and_token.token {
+                                        self.tokens.next(); // Consume "and"
 
-                                                    let arg_value = self.parse_expression()?;
+                                        let arg_value = self.parse_expression()?;
 
-                                                    arguments.push(Argument {
-                                                        name: None,
-                                                        value: arg_value,
-                                                    });
-                                            } else {
-                                                break;
-                                            }
-                                        }
-
-                                        expr = Expression::FunctionCall {
-                                            function: Box::new(expr),
-                                            arguments,
-                                            line: token.line,
-                                            column: token.column,
-                                        };
+                                        arguments.push(Argument {
+                                            name: None,
+                                            value: arg_value,
+                                        });
                                     } else {
-                                        return Err(ParseError::new(
-                                            "Member access not supported with expression arguments".to_string(),
-                                            token.line,
-                                            token.column,
-                                        ));
+                                        break;
                                     }
+                                }
+
+                                expr = Expression::FunctionCall {
+                                    function: Box::new(expr),
+                                    arguments,
+                                    line: token.line,
+                                    column: token.column,
+                                };
+                            } else {
+                                return Err(ParseError::new(
+                                    "Member access not supported with expression arguments"
+                                        .to_string(),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
                         }
                         Token::KeywordAt => {
                             self.tokens.next(); // Consume "at"
