@@ -33,7 +33,7 @@ mod tests {
         // Short timeout to ensure test completes quickly
         let mut interpreter = Interpreter::with_timeout(2);
         let result = interpreter.interpret(&program).await;
-        assert!(result.is_ok(), "Error executing script: {:?}", result);
+        assert!(result.is_ok(), "Error executing script: {result:?}");
 
         // Get memory stats after execution
         let stats = dhat::HeapStats::get();
@@ -62,8 +62,7 @@ mod tests {
         let rc_count = Rc::strong_count(global_env);
         assert_eq!(
             rc_count, 1,
-            "Global environment should have exactly one reference, but had {}",
-            rc_count
+            "Global environment should have exactly one reference, but had {rc_count}"
         );
 
         drop(interpreter); // Explicitly drop to ensure cleanup
