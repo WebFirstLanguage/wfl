@@ -120,8 +120,6 @@ jobs:
     runs-on: windows-latest
     env:
       TARGET: x86_64-pc-windows-msvc
-      ARTIFACT_NAME: wfl-${{ needs.check-for-changes.outputs.version }}.msi
-      ARTIFACT_PATH: wfl-*.msi
     steps:
       - uses: actions/checkout@v4
 
@@ -227,7 +225,7 @@ jobs:
           }
           
           # Output the current version for debugging
-          python -c "import json; print(f'Using version: {json.load(open(\".build_meta.json\"))[\"year\"]}.{json.load(open(\".build_meta.json\"))[\"build\"]}')"
+          python -c "import json; data = json.load(open('.build_meta.json')); print(f\"Using version: {data['year']}.{data['build']}\")"
 
       - name: Package WFL
         run: |
@@ -279,7 +277,7 @@ jobs:
       - name: Smoke test installer
         run: |
           try {
-            Start-Process msiexec.exe -Wait -ArgumentList "/i target\${{ env.TARGET }}\release\wfl-${{ needs.check-for-changes.outputs.version }}.msi /qn"
+            Start-Process msiexec.exe -Wait -ArgumentList "/i target/${{ env.TARGET }}/release/wfl-${{ needs.check-for-changes.outputs.version }}.msi /qn"
             
             if ($LASTEXITCODE -ne 0) {
               Write-Host "::error::MSI installation failed with exit code $LASTEXITCODE"
@@ -299,8 +297,8 @@ jobs:
       # ---------- Upload artifacts ----------
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: target/${{ env.TARGET }}/release/${{ env.ARTIFACT_PATH }}
+          name: wfl-${{ needs.check-for-changes.outputs.version }}.msi
+          path: target/${{ env.TARGET }}/release/wfl-${{ needs.check-for-changes.outputs.version }}.msi
           if-no-files-found: error
   # ------------------------------------------------------------
   # RELEASE JOB

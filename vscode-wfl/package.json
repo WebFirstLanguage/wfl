@@ -2,7 +2,7 @@
   "name": "vscode-wfl",
   "displayName": "WebFirst Language",
   "description": "WebFirst Language (WFL) support for VS Code",
-  "version": "0.1.0",
+  "version": "2025.50.0",
   "publisher": "wfl",
   "license": "MIT",
   "engines": {
@@ -17,17 +17,26 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
-    "languages": [{
-      "id": "wfl",
-      "aliases": ["WFL", "wfl"],
-      "extensions": [".wfl"],
-      "configuration": "./language-configuration.json"
-    }],
-    "grammars": [{
-      "language": "wfl",
-      "scopeName": "source.wfl",
-      "path": "./syntaxes/wfl.tmLanguage.json"
-    }],
+    "languages": [
+      {
+        "id": "wfl",
+        "aliases": [
+          "WFL",
+          "wfl"
+        ],
+        "extensions": [
+          ".wfl"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "wfl",
+        "scopeName": "source.wfl",
+        "path": "./syntaxes/wfl.tmLanguage.json"
+      }
+    ],
     "configuration": {
       "type": "object",
       "title": "WebFirst Language",
@@ -47,7 +56,11 @@
         },
         "wfl-lsp.versionMode": {
           "type": "string",
-          "enum": ["warn", "block", "ignore"],
+          "enum": [
+            "warn",
+            "block",
+            "ignore"
+          ],
           "default": "warn",
           "description": "Version compatibility handling: warn (show warning), block (prevent server start), or ignore"
         }
@@ -61,7 +74,7 @@
       },
       {
         "command": "wfl.selectLspExecutable",
-        "title": "WFL: Select LSP Executable…",
+        "title": "WFL: Select LSP Executable\u00e2\u20ac\u00a6",
         "category": "WFL"
       }
     ]
