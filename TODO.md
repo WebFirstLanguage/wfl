@@ -24,15 +24,15 @@
 - [x] Implement proper method type lookup (`src/typechecker/mod.rs:1702`)
 
 ### Code Formatter (Fixer)
-- [ ] Implement container property and method formatting (`src/fixer/mod.rs:430`)
-- [ ] Implement property initializer formatting (`src/fixer/mod.rs:447`)
-- [ ] Implement interface method formatting (`src/fixer/mod.rs:456`)
-- [ ] Implement event parameter formatting (`src/fixer/mod.rs:467`)
+- [x] Implement container property and method formatting (`src/fixer/mod.rs:430`)
+- [x] Implement property initializer formatting (`src/fixer/mod.rs:447`)
+- [x] Implement interface method formatting (`src/fixer/mod.rs:456`)
+- [x] Implement event parameter formatting (`src/fixer/mod.rs:467`)
 
 ### Interpreter
-- [ ] Handle different file open modes (Read, Write, Append) (`src/interpreter/mod.rs:1425`)
-- [ ] Handle inheritance for containers (`src/interpreter/mod.rs:2081`)
-- [ ] Call constructor method with arguments (`src/interpreter/mod.rs:2093`)
+- [x] Handle different file open modes (Read, Write, Append) (`src/interpreter/mod.rs:1425`)
+- [x] Handle inheritance for containers (`src/interpreter/mod.rs:2081`)
+- [x] Call constructor method with arguments (`src/interpreter/mod.rs:2093`)
 
 ## 📚 Documentation Tasks
 
