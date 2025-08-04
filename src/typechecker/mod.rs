@@ -713,7 +713,8 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error {
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
+                {
                     self.type_error(
                         "Expected string for directory path".to_string(),
                         Some(Type::Text),
@@ -730,7 +731,8 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error {
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
+                {
                     self.type_error(
                         "Expected string for file path".to_string(),
                         Some(Type::Text),
@@ -747,7 +749,8 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error {
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
+                {
                     self.type_error(
                         "Expected string for file path".to_string(),
                         Some(Type::Text),
@@ -763,7 +766,8 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let path_type = self.infer_expression_type(path);
-                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error {
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
+                {
                     self.type_error(
                         "Expected string for directory path".to_string(),
                         Some(Type::Text),
@@ -1664,87 +1668,305 @@ impl TypeChecker {
                 }
             }
             Expression::StaticMemberAccess {
-                container: _container,
-                member: _member,
-                line: _line,
-                column: _column,
+                container,
+                member,
+                line,
+                column,
             } => {
-                // Check if the container exists
-                let _container_type = Type::Container(_container.clone());
+                // Look up the container in the analyzer's registry
+                if let Some(container_info) = self.analyzer.get_container(container) {
+                    // First check static properties
+                    if let Some(prop_info) = container_info.static_properties.get(member) {
+                        return prop_info.property_type.clone();
+                    }
 
-                // Look up the static member in the container
-                // For now, return Unknown type since we need to implement container symbol table
-                // TODO: Implement proper static member type lookup
+                    // Then check static methods
+                    if let Some(method_info) = container_info.static_methods.get(member) {
+                        return Type::Function {
+                            parameters: method_info
+                                .parameters
+                                .iter()
+                                .map(|p| p.param_type.as_ref().cloned().unwrap_or(Type::Unknown))
+                                .collect(),
+                            return_type: Box::new(method_info.return_type.clone()),
+                        };
+                    }
 
-                // This is a placeholder implementation
-                // In a full implementation, we would:
-                // 1. Check if the container exists in the symbol table
-                // 2. Check if the member exists as a static member in the container
-                // 3. Return the appropriate type based on the member's definition
-
-                Type::Unknown
+                    // Member not found
+                    self.errors.push(TypeError::new(
+                        format!(
+                            "Static member '{}' not found in container '{}'",
+                            member, container
+                        ),
+                        None,
+                        None,
+                        *line,
+                        *column,
+                    ));
+                    Type::Error
+                } else {
+                    // Container not found
+                    self.errors.push(TypeError::new(
+                        format!("Container '{}' not found", container),
+                        None,
+                        None,
+                        *line,
+                        *column,
+                    ));
+                    Type::Error
+                }
             }
             Expression::MethodCall {
                 object,
-                method: _method,
+                method,
                 arguments,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
                 // First, determine the type of the object
                 let object_type = self.infer_expression_type(object);
 
                 // Check if the object is a container instance
                 match object_type {
-                    Type::ContainerInstance(_container_name) => {
-                        // Look up the method in the container
-                        // For now, return Unknown type since we need to implement container method lookup
-                        // TODO: Implement proper method type lookup
+                    Type::ContainerInstance(container_name) => {
+                        // Look up the container in the analyzer's registry
+                        if let Some(container_info) = self.analyzer.get_container(&container_name) {
+                            // Look up the method in the container
+                            if let Some(method_info) = container_info.methods.get(method) {
+                                // Check argument count
+                                let param_count = method_info.parameters.len();
+                                let return_type = method_info.return_type.clone();
+                                let method_params = method_info.parameters.clone();
 
-                        // This is a placeholder implementation
-                        // In a full implementation, we would:
-                        // 1. Check if the container exists in the symbol table
-                        // 2. Check if the method exists in the container
-                        // 3. Check if the arguments match the method's parameters
-                        // 4. Return the method's return type
+                                if arguments.len() != param_count {
+                                    self.errors.push(TypeError::new(
+                                        format!(
+                                            "Method '{}' expects {} arguments but {} were provided",
+                                            method,
+                                            param_count,
+                                            arguments.len()
+                                        ),
+                                        None,
+                                        None,
+                                        *line,
+                                        *column,
+                                    ));
+                                }
 
-                        // Check argument types
-                        for arg in arguments {
-                            self.infer_expression_type(&arg.value);
+                                // Check argument types
+                                for (i, (arg, param)) in
+                                    arguments.iter().zip(&method_params).enumerate()
+                                {
+                                    let arg_type = self.infer_expression_type(&arg.value);
+                                    let expected_type =
+                                        param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
+
+                                    if arg_type != Type::Unknown
+                                        && expected_type != Type::Unknown
+                                        && arg_type != expected_type
+                                    {
+                                        self.errors.push(TypeError::new(
+                                            format!(
+                                                "Argument {} of method '{}' has type {} but expected {}",
+                                                i + 1,
+                                                method,
+                                                arg_type,
+                                                expected_type
+                                            ),
+                                            Some(expected_type),
+                                            Some(arg_type),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+                                }
+
+                                // Return the method's return type
+                                return_type
+                            } else {
+                                // Check parent containers if the method is not found
+                                let mut current_container = container_info.extends.as_ref();
+                                let mut found_method = None;
+
+                                while let Some(parent_name) = current_container {
+                                    if let Some(parent_info) =
+                                        self.analyzer.get_container(parent_name)
+                                    {
+                                        if let Some(method_info) = parent_info.methods.get(method) {
+                                            found_method = Some((
+                                                method_info.parameters.clone(),
+                                                method_info.return_type.clone(),
+                                            ));
+                                            break;
+                                        }
+                                        current_container = parent_info.extends.as_ref();
+                                    } else {
+                                        break;
+                                    }
+                                }
+
+                                if let Some((method_params, return_type)) = found_method {
+                                    // Found in parent - do the same checks
+                                    if arguments.len() != method_params.len() {
+                                        self.errors.push(TypeError::new(
+                                            format!(
+                                                "Method '{}' expects {} arguments but {} were provided",
+                                                method,
+                                                method_params.len(),
+                                                arguments.len()
+                                            ),
+                                            None,
+                                            None,
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+
+                                    for (i, (arg, param)) in
+                                        arguments.iter().zip(&method_params).enumerate()
+                                    {
+                                        let arg_type = self.infer_expression_type(&arg.value);
+                                        let expected_type = param
+                                            .param_type
+                                            .as_ref()
+                                            .cloned()
+                                            .unwrap_or(Type::Unknown);
+
+                                        if arg_type != Type::Unknown
+                                            && expected_type != Type::Unknown
+                                            && arg_type != expected_type
+                                        {
+                                            self.errors.push(TypeError::new(
+                                                format!(
+                                                    "Argument {} of method '{}' has type {} but expected {}",
+                                                    i + 1,
+                                                    method,
+                                                    arg_type,
+                                                    expected_type
+                                                ),
+                                                Some(expected_type),
+                                                Some(arg_type),
+                                                *line,
+                                                *column,
+                                            ));
+                                        }
+                                    }
+
+                                    return_type
+                                } else {
+                                    self.errors.push(TypeError::new(
+                                        format!(
+                                            "Method '{}' not found in container '{}'",
+                                            method, container_name
+                                        ),
+                                        None,
+                                        None,
+                                        *line,
+                                        *column,
+                                    ));
+                                    Type::Error
+                                }
+                            }
+                        } else {
+                            self.errors.push(TypeError::new(
+                                format!("Container '{}' not found", container_name),
+                                None,
+                                None,
+                                *line,
+                                *column,
+                            ));
+                            Type::Error
                         }
-
-                        Type::Unknown
                     }
                     _ => {
                         self.type_error(
                             format!(
-                                "Cannot call method '{_method}' on non-container type {object_type}"
+                                "Cannot call method '{}' on non-container type {}",
+                                method, object_type
                             ),
                             Some(Type::ContainerInstance(String::from("Unknown"))),
                             Some(object_type),
-                            *_line,
-                            *_column,
+                            *line,
+                            *column,
                         );
                         Type::Error
                     }
                 }
             }
             Expression::PropertyAccess {
-                object, property, ..
+                object,
+                property,
+                line,
+                column,
             } => {
                 let object_type = self.infer_expression_type(object);
                 match object_type {
-                    Type::ContainerInstance(_container_name) => {
-                        // For now, return Unknown type for property access
-                        Type::Unknown
+                    Type::ContainerInstance(container_name) => {
+                        // Look up the container in the analyzer's registry
+                        if let Some(container_info) = self.analyzer.get_container(&container_name) {
+                            // Look up the property in the container
+                            if let Some(prop_info) = container_info.properties.get(property) {
+                                prop_info.property_type.clone()
+                            } else {
+                                // Check parent containers if property not found
+                                let mut current_container = container_info.extends.as_ref();
+                                let mut found = false;
+                                let mut prop_type = Type::Unknown;
+
+                                while let Some(parent_name) = current_container {
+                                    if let Some(parent_info) =
+                                        self.analyzer.get_container(parent_name)
+                                    {
+                                        if let Some(prop_info) =
+                                            parent_info.properties.get(property)
+                                        {
+                                            found = true;
+                                            prop_type = prop_info.property_type.clone();
+                                            break;
+                                        }
+                                        current_container = parent_info.extends.as_ref();
+                                    } else {
+                                        break;
+                                    }
+                                }
+
+                                if !found {
+                                    self.errors.push(TypeError::new(
+                                        format!(
+                                            "Property '{}' not found in container '{}'",
+                                            property, container_name
+                                        ),
+                                        None,
+                                        None,
+                                        *line,
+                                        *column,
+                                    ));
+                                    Type::Error
+                                } else {
+                                    prop_type
+                                }
+                            }
+                        } else {
+                            self.errors.push(TypeError::new(
+                                format!("Container '{}' not found", container_name),
+                                None,
+                                None,
+                                *line,
+                                *column,
+                            ));
+                            Type::Error
+                        }
                     }
                     _ => {
                         self.type_error(
-                            format!("Cannot access property '{property}' on non-container type"),
+                            format!(
+                                "Cannot access property '{}' on non-container type {}",
+                                property, object_type
+                            ),
                             Some(Type::ContainerInstance("Unknown".to_string())),
                             Some(object_type),
-                            0,
-                            0,
+                            *line,
+                            *column,
                         );
                         Type::Error
                     }

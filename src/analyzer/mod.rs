@@ -13,6 +13,38 @@ pub enum SymbolKind {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct ContainerInfo {
+    pub name: String,
+    pub extends: Option<String>,
+    pub implements: Vec<String>,
+    pub properties: HashMap<String, PropertyInfo>,
+    pub methods: HashMap<String, MethodInfo>,
+    pub static_properties: HashMap<String, PropertyInfo>,
+    pub static_methods: HashMap<String, MethodInfo>,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct PropertyInfo {
+    pub name: String,
+    pub property_type: Type,
+    pub is_public: bool,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct MethodInfo {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub return_type: Type,
+    pub is_public: bool,
+    pub line: usize,
+    pub column: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Symbol {
     pub name: String,
@@ -106,6 +138,7 @@ pub struct Analyzer {
     current_scope: Scope,
     errors: Vec<SemanticError>,
     action_parameters: std::collections::HashSet<String>,
+    containers: HashMap<String, ContainerInfo>,
 }
 
 impl Default for Analyzer {
@@ -206,6 +239,7 @@ impl Analyzer {
             current_scope: global_scope,
             errors: Vec::new(),
             action_parameters: std::collections::HashSet::new(),
+            containers: HashMap::new(),
         }
     }
 
@@ -785,6 +819,209 @@ impl Analyzer {
                 self.analyze_expression(file);
             }
 
+            Statement::ContainerDefinition {
+                name,
+                extends,
+                implements,
+                properties,
+                methods,
+                static_properties,
+                static_methods,
+                line,
+                column,
+                ..
+            } => {
+                // Create container info
+                let mut container_info = ContainerInfo {
+                    name: name.clone(),
+                    extends: extends.clone(),
+                    implements: implements.clone(),
+                    properties: HashMap::new(),
+                    methods: HashMap::new(),
+                    static_properties: HashMap::new(),
+                    static_methods: HashMap::new(),
+                    line: *line,
+                    column: *column,
+                };
+
+                // Process instance properties
+                for prop in properties {
+                    let prop_type = prop
+                        .property_type
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(Type::Unknown);
+
+                    let prop_info = PropertyInfo {
+                        name: prop.name.clone(),
+                        property_type: prop_type,
+                        is_public: matches!(
+                            prop.visibility,
+                            crate::parser::ast::Visibility::Public
+                        ),
+                        line: prop.line,
+                        column: prop.column,
+                    };
+
+                    container_info
+                        .properties
+                        .insert(prop.name.clone(), prop_info);
+                }
+
+                // Process static properties
+                for prop in static_properties {
+                    let prop_type = prop
+                        .property_type
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(Type::Unknown);
+
+                    let prop_info = PropertyInfo {
+                        name: prop.name.clone(),
+                        property_type: prop_type,
+                        is_public: matches!(
+                            prop.visibility,
+                            crate::parser::ast::Visibility::Public
+                        ),
+                        line: prop.line,
+                        column: prop.column,
+                    };
+
+                    container_info
+                        .static_properties
+                        .insert(prop.name.clone(), prop_info);
+                }
+
+                // Process instance methods
+                for method in methods {
+                    if let Statement::ActionDefinition {
+                        name: method_name,
+                        parameters,
+                        return_type,
+                        body,
+                        line: method_line,
+                        column: method_column,
+                        ..
+                    } = method
+                    {
+                        let method_info = MethodInfo {
+                            name: method_name.clone(),
+                            parameters: parameters.clone(),
+                            return_type: return_type.as_ref().cloned().unwrap_or(Type::Nothing),
+                            is_public: true, // Default to public for now
+                            line: *method_line,
+                            column: *method_column,
+                        };
+
+                        container_info
+                            .methods
+                            .insert(method_name.clone(), method_info);
+
+                        // Analyze method body
+                        self.push_scope();
+                        for param in parameters {
+                            let param_type =
+                                param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
+                            let symbol = Symbol {
+                                name: param.name.clone(),
+                                kind: SymbolKind::Variable { mutable: false },
+                                symbol_type: Some(param_type),
+                                line: param.line,
+                                column: param.column,
+                            };
+                            let _ = self.current_scope.define(symbol);
+                        }
+
+                        for stmt in body {
+                            self.analyze_statement(stmt);
+                        }
+                        self.pop_scope();
+                    }
+                }
+
+                // Process static methods
+                for method in static_methods {
+                    if let Statement::ActionDefinition {
+                        name: method_name,
+                        parameters,
+                        return_type,
+                        body,
+                        line: method_line,
+                        column: method_column,
+                        ..
+                    } = method
+                    {
+                        let method_info = MethodInfo {
+                            name: method_name.clone(),
+                            parameters: parameters.clone(),
+                            return_type: return_type.as_ref().cloned().unwrap_or(Type::Nothing),
+                            is_public: true, // Default to public for now
+                            line: *method_line,
+                            column: *method_column,
+                        };
+
+                        container_info
+                            .static_methods
+                            .insert(method_name.clone(), method_info);
+
+                        // Analyze method body
+                        self.push_scope();
+                        for param in parameters {
+                            let param_type =
+                                param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
+                            let symbol = Symbol {
+                                name: param.name.clone(),
+                                kind: SymbolKind::Variable { mutable: false },
+                                symbol_type: Some(param_type),
+                                line: param.line,
+                                column: param.column,
+                            };
+                            let _ = self.current_scope.define(symbol);
+                        }
+
+                        for stmt in body {
+                            self.analyze_statement(stmt);
+                        }
+                        self.pop_scope();
+                    }
+                }
+
+                // Register the container
+                self.register_container(container_info);
+
+                // Also register as a type symbol
+                let container_symbol = Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: Some(Type::Container(name.clone())),
+                    line: *line,
+                    column: *column,
+                };
+                let _ = self.current_scope.define(container_symbol);
+            }
+
+            Statement::ContainerInstantiation {
+                container_type,
+                instance_name,
+                arguments: _,
+                property_initializers: _,
+                line,
+                column,
+            } => {
+                // Register the instance as a variable with ContainerInstance type
+                let instance_symbol = Symbol {
+                    name: instance_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::ContainerInstance(container_type.clone())),
+                    line: *line,
+                    column: *column,
+                };
+
+                if let Err(e) = self.current_scope.define(instance_symbol) {
+                    self.errors.push(e);
+                }
+            }
+
             _ => {}
         }
     }
@@ -830,6 +1067,29 @@ impl Analyzer {
         };
 
         let _ = self.current_scope.define(symbol);
+    }
+
+    pub fn register_container(&mut self, container: ContainerInfo) {
+        self.containers.insert(container.name.clone(), container);
+    }
+
+    pub fn get_container(&self, name: &str) -> Option<&ContainerInfo> {
+        self.containers.get(name)
+    }
+
+    pub fn get_containers(&self) -> &HashMap<String, ContainerInfo> {
+        &self.containers
+    }
+
+    pub fn push_scope(&mut self) {
+        let new_scope = Scope::with_parent(self.current_scope.clone());
+        self.current_scope = new_scope;
+    }
+
+    pub fn pop_scope(&mut self) {
+        if let Some(parent) = self.current_scope.parent.take() {
+            self.current_scope = *parent;
+        }
     }
 
     fn analyze_expression(&mut self, expression: &Expression) {
@@ -1037,7 +1297,9 @@ impl Analyzer {
             Expression::ReadContent { file_handle, .. } => {
                 self.analyze_expression(file_handle);
             }
-            Expression::ListFilesRecursive { path, extensions, .. } => {
+            Expression::ListFilesRecursive {
+                path, extensions, ..
+            } => {
                 self.analyze_expression(path);
                 if let Some(exts) = extensions {
                     for ext in exts {
@@ -1045,7 +1307,9 @@ impl Analyzer {
                     }
                 }
             }
-            Expression::ListFilesFiltered { path, extensions, .. } => {
+            Expression::ListFilesFiltered {
+                path, extensions, ..
+            } => {
                 self.analyze_expression(path);
                 for ext in extensions {
                     self.analyze_expression(ext);

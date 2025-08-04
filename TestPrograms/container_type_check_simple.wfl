@@ -1,0 +1,22 @@
+// Simple test for container type checking
+// Uses the correct syntax for WFL containers
+
+create container Button:
+    static property clickCount: Number
+    property label: Text
+    
+    action click:
+        display "Button clicked: " with label
+    end
+end
+
+// Create an instance
+create new Button as myButton:
+    label is "Submit"
+end
+
+// Test method call
+myButton.click()
+
+// Note: Static member access syntax needs investigation
+// The parser may expect Container.member syntax

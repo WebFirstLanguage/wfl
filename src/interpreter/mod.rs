@@ -34,7 +34,9 @@ use crate::exec_var_assign;
 use crate::exec_var_declare;
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
-use crate::parser::ast::{Expression, Literal, Operator, Program, Statement, UnaryOperator, FileOpenMode};
+use crate::parser::ast::{
+    Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
+};
 use crate::stdlib;
 use crate::stdlib::pattern;
 use std::cell::RefCell;
@@ -241,7 +243,11 @@ impl IoClient {
     }
 
     #[allow(dead_code)]
-    async fn open_file_with_mode(&self, path: &str, mode: FileOpenMode) -> Result<String, RuntimeError> {
+    async fn open_file_with_mode(
+        &self,
+        path: &str,
+        mode: FileOpenMode,
+    ) -> Result<String, RuntimeError> {
         let handle_id = {
             let mut next_id = self.next_file_id.lock().await;
             let id = format!("file{}", *next_id);
@@ -1430,7 +1436,7 @@ impl Interpreter {
                         if matches!(mode, FileOpenMode::Append) {
                             // File is already opened, append operations will seek to end
                         }
-                        
+
                         env.borrow_mut()
                             .define(variable_name, Value::Text(handle.into()));
                         Ok((Value::Null, ControlFlow::None))
@@ -1569,10 +1575,15 @@ impl Interpreter {
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
-            Statement::CreateFileStatement { path, content, line, column } => {
+            Statement::CreateFileStatement {
+                path,
+                content,
+                line,
+                column,
+            } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
                 let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
-                
+
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -1609,7 +1620,12 @@ impl Interpreter {
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
-            Statement::WriteToStatement { content, file, line, column } => {
+            Statement::WriteToStatement {
+                content,
+                file,
+                line,
+                column,
+            } => {
                 let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
                 let file_value = self.evaluate_expression(file, Rc::clone(&env)).await?;
 
@@ -1815,16 +1831,23 @@ impl Interpreter {
                         for when_clause in when_clauses {
                             let matches = match &when_clause.error_type {
                                 crate::parser::ast::ErrorType::General => true, // General catches all errors
-                                crate::parser::ast::ErrorType::FileNotFound => err.kind == ErrorKind::FileNotFound,
-                                crate::parser::ast::ErrorType::PermissionDenied => err.kind == ErrorKind::PermissionDenied,
+                                crate::parser::ast::ErrorType::FileNotFound => {
+                                    err.kind == ErrorKind::FileNotFound
+                                }
+                                crate::parser::ast::ErrorType::PermissionDenied => {
+                                    err.kind == ErrorKind::PermissionDenied
+                                }
                             };
 
                             if matches {
-                                child_env
-                                    .borrow_mut()
-                                    .define(&when_clause.error_name, Value::Text(err.message.into()));
+                                child_env.borrow_mut().define(
+                                    &when_clause.error_name,
+                                    Value::Text(err.message.into()),
+                                );
 
-                                result = self.execute_block(&when_clause.body, Rc::clone(&child_env)).await;
+                                result = self
+                                    .execute_block(&when_clause.body, Rc::clone(&child_env))
+                                    .await;
                                 executed = true;
                                 break;
                             }
@@ -1832,7 +1855,9 @@ impl Interpreter {
 
                         // If no when clause matched and there's an otherwise block
                         if !executed && otherwise_block.is_some() {
-                            result = self.execute_block(otherwise_block.as_ref().unwrap(), child_env).await;
+                            result = self
+                                .execute_block(otherwise_block.as_ref().unwrap(), child_env)
+                                .await;
                         }
 
                         result
@@ -3016,7 +3041,7 @@ impl Interpreter {
                         ));
                     }
                 };
-                
+
                 Ok(Value::Bool(tokio::fs::metadata(&*path_str).await.is_ok()))
             }
             Expression::DirectoryExists { path, line, column } => {
@@ -3031,7 +3056,7 @@ impl Interpreter {
                         ));
                     }
                 };
-                
+
                 match tokio::fs::metadata(&*path_str).await {
                     Ok(metadata) => Ok(Value::Bool(metadata.is_dir())),
                     Err(_) => Ok(Value::Bool(false)),
@@ -3049,7 +3074,7 @@ impl Interpreter {
                         ));
                     }
                 };
-                
+
                 match tokio::fs::read_dir(&*path_str).await {
                     Ok(mut entries) => {
                         let mut files = Vec::new();
@@ -3067,8 +3092,14 @@ impl Interpreter {
                     )),
                 }
             }
-            Expression::ReadContent { file_handle, line, column } => {
-                let handle_value = self.evaluate_expression(file_handle, Rc::clone(&env)).await?;
+            Expression::ReadContent {
+                file_handle,
+                line,
+                column,
+            } => {
+                let handle_value = self
+                    .evaluate_expression(file_handle, Rc::clone(&env))
+                    .await?;
                 let handle_str = match &handle_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -3079,13 +3110,18 @@ impl Interpreter {
                         ));
                     }
                 };
-                
+
                 match self.io_client.read_file(&handle_str).await {
                     Ok(content) => Ok(Value::Text(content.into())),
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
-            Expression::ListFilesRecursive { path, extensions, line, column } => {
+            Expression::ListFilesRecursive {
+                path,
+                extensions,
+                line,
+                column,
+            } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
@@ -3097,7 +3133,7 @@ impl Interpreter {
                         ));
                     }
                 };
-                
+
                 // Evaluate extensions if provided
                 let ext_filters = if let Some(ext_exprs) = extensions {
                     let mut filters = Vec::new();
@@ -3113,7 +3149,9 @@ impl Interpreter {
                                         Value::Text(s) => filters.push(s.to_string()),
                                         _ => {
                                             return Err(RuntimeError::new(
-                                                format!("Expected string in extension list, got {item:?}"),
+                                                format!(
+                                                    "Expected string in extension list, got {item:?}"
+                                                ),
                                                 *line,
                                                 *column,
                                             ));
@@ -3123,7 +3161,9 @@ impl Interpreter {
                             }
                             _ => {
                                 return Err(RuntimeError::new(
-                                    format!("Expected string or list for extension, got {ext_value:?}"),
+                                    format!(
+                                        "Expected string or list for extension, got {ext_value:?}"
+                                    ),
                                     *line,
                                     *column,
                                 ));
@@ -3134,7 +3174,7 @@ impl Interpreter {
                 } else {
                     None
                 };
-                
+
                 // Perform recursive directory listing
                 match self.list_files_recursive(&path_str, ext_filters).await {
                     Ok(files) => Ok(Value::List(Rc::new(RefCell::new(files)))),
@@ -3145,7 +3185,12 @@ impl Interpreter {
                     )),
                 }
             }
-            Expression::ListFilesFiltered { path, extensions, line, column } => {
+            Expression::ListFilesFiltered {
+                path,
+                extensions,
+                line,
+                column,
+            } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
@@ -3157,7 +3202,7 @@ impl Interpreter {
                         ));
                     }
                 };
-                
+
                 // Evaluate extensions
                 let mut ext_filters = Vec::new();
                 for ext_expr in extensions {
@@ -3172,7 +3217,9 @@ impl Interpreter {
                                     Value::Text(s) => ext_filters.push(s.to_string()),
                                     _ => {
                                         return Err(RuntimeError::new(
-                                            format!("Expected string in extension list, got {item:?}"),
+                                            format!(
+                                                "Expected string in extension list, got {item:?}"
+                                            ),
                                             *line,
                                             *column,
                                         ));
@@ -3189,7 +3236,7 @@ impl Interpreter {
                         }
                     }
                 }
-                
+
                 // List files with filtering
                 match self.list_files_filtered(&path_str, ext_filters).await {
                     Ok(files) => Ok(Value::List(Rc::new(RefCell::new(files)))),
@@ -3569,28 +3616,33 @@ impl Interpreter {
         }
     }
 
-    async fn list_files_recursive(&self, path: &str, extensions: Option<Vec<String>>) -> Result<Vec<Value>, std::io::Error> {
+    async fn list_files_recursive(
+        &self,
+        path: &str,
+        extensions: Option<Vec<String>>,
+    ) -> Result<Vec<Value>, std::io::Error> {
         use tokio::fs;
-        
+
         let mut files = Vec::new();
         let mut dirs_to_process = vec![path.to_string()];
-        
+
         while let Some(current_dir) = dirs_to_process.pop() {
             let mut entries = fs::read_dir(&current_dir).await?;
-            
+
             while let Some(entry) = entries.next_entry().await? {
                 let path = entry.path();
                 let path_str = path.to_string_lossy().to_string();
-                
+
                 if path.is_dir() {
                     dirs_to_process.push(path_str);
                 } else if path.is_file() {
                     // Check extension filter if provided
                     if let Some(ref exts) = extensions {
-                        let file_ext = path.extension()
+                        let file_ext = path
+                            .extension()
                             .and_then(|ext| ext.to_str())
                             .map(|ext| format!(".{}", ext));
-                        
+
                         if let Some(ext) = file_ext {
                             if exts.iter().any(|e| e == &ext) {
                                 files.push(Value::Text(path_str.into()));
@@ -3602,27 +3654,32 @@ impl Interpreter {
                 }
             }
         }
-        
+
         Ok(files)
     }
 
-    async fn list_files_filtered(&self, path: &str, extensions: Vec<String>) -> Result<Vec<Value>, std::io::Error> {
+    async fn list_files_filtered(
+        &self,
+        path: &str,
+        extensions: Vec<String>,
+    ) -> Result<Vec<Value>, std::io::Error> {
         use tokio::fs;
-        
+
         let mut files = Vec::new();
         let mut entries = fs::read_dir(path).await?;
-        
+
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            
+
             if path.is_file() {
                 let path_str = path.to_string_lossy().to_string();
-                
+
                 // Check extension filter
-                let file_ext = path.extension()
+                let file_ext = path
+                    .extension()
                     .and_then(|ext| ext.to_str())
                     .map(|ext| format!(".{}", ext));
-                
+
                 if let Some(ext) = file_ext {
                     if extensions.iter().any(|e| e == &ext) {
                         files.push(Value::Text(path_str.into()));
@@ -3630,7 +3687,7 @@ impl Interpreter {
                 }
             }
         }
-        
+
         Ok(files)
     }
 }
