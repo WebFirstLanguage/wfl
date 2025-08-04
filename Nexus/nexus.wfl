@@ -147,7 +147,7 @@ otherwise:
 end check
 
 // 4.2 For-Each Loop test
-create list as numbers
+store numbers as []
 push with numbers and 1
 push with numbers and 2
 push with numbers and 3
@@ -198,10 +198,9 @@ end check
 // 4.5 Repeat-Until Loop test (do-while equivalent)
 store count3 as 1
 store sum_repeat as 0
-repeat:
+repeat until count3 is greater than 5:
     change sum_repeat to sum_repeat plus count3
     change count3 to count3 plus 1
-until count3 is greater than 5
 end repeat
 // Loop executes until count3 > 5, so it runs for count3=1..5, sum_repeat = 15
 check if sum_repeat is equal to 15:

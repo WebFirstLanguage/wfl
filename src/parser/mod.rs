@@ -3411,7 +3411,7 @@ impl<'a> Parser<'a> {
                         if token.token == Token::KeywordAt {
                             self.tokens.next(); // Consume "at"
 
-                            let url_expr = self.parse_expression()?;
+                            let url_expr = self.parse_primary_expression()?;
 
                             // Check for "and read content as" pattern
                             if let Some(next_token) = self.tokens.peek().cloned() {
@@ -3539,7 +3539,7 @@ impl<'a> Parser<'a> {
             if token.token == Token::KeywordAt {
                 self.tokens.next(); // Consume "at"
 
-                let path_expr = self.parse_expression()?;
+                let path_expr = self.parse_primary_expression()?;
 
                 // Check for "for append", "and read content as" pattern AND direct "as" pattern
                 if let Some(next_token) = self.tokens.peek().cloned() {

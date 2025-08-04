@@ -1089,6 +1089,10 @@ impl Interpreter {
 
                     *self.current_count.borrow_mut() = Some(count);
 
+                    // Also make count available as a regular variable in the loop environment
+                    // This ensures consistency and allows for nested count loops to work properly
+                    loop_env.borrow_mut().define("count", Value::Number(count));
+
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await;
 
                     match result {
@@ -1429,7 +1433,11 @@ impl Interpreter {
                 };
 
                 // Use the appropriate file open mode
-                match self.io_client.open_file_with_mode(&path_str, mode.clone()).await {
+                match self
+                    .io_client
+                    .open_file_with_mode(&path_str, mode.clone())
+                    .await
+                {
                     Ok(handle) => {
                         env.borrow_mut()
                             .define(variable_name, Value::Text(handle.into()));
@@ -2084,7 +2092,9 @@ impl Interpreter {
                     let init_value = self
                         ._evaluate_expression(&initializer.value, env.clone())
                         .await?;
-                    instance.properties.insert(initializer.name.clone(), init_value);
+                    instance
+                        .properties
+                        .insert(initializer.name.clone(), init_value);
                 }
 
                 let instance_value = Value::ContainerInstance(Rc::new(RefCell::new(instance)));
@@ -2128,9 +2138,7 @@ impl Interpreter {
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
                         for arg in arguments {
-                            let arg_val = self
-                                .evaluate_expression(&arg.value, env.clone())
-                                .await?;
+                            let arg_val = self.evaluate_expression(&arg.value, env.clone()).await?;
                             arg_values.push(arg_val);
                         }
 
@@ -2139,7 +2147,10 @@ impl Interpreter {
                             .await?;
                     } else if !arguments.is_empty() {
                         return Err(RuntimeError::new(
-                            format!("Container '{}' does not have an initialize method but arguments were provided", container_type),
+                            format!(
+                                "Container '{}' does not have an initialize method but arguments were provided",
+                                container_type
+                            ),
                             *line,
                             *column,
                         ));
@@ -2657,19 +2668,29 @@ impl Interpreter {
             },
 
             Expression::Variable(name, line, column) => {
-                if name == "count" {
+                // Handle special count variable inside count loops
+                if name == "count" && *self.in_count_loop.borrow() {
                     if let Some(count_value) = *self.current_count.borrow() {
                         return Ok(Value::Number(count_value));
-                    } else {
-                        println!(
-                            "Warning: Using 'count' outside of a count loop context at line {line}, column {column}"
-                        );
-                        return Ok(Value::Number(0.0));
                     }
+                    // If we're in a count loop but don't have a current count, this is an error
+                    return Err(RuntimeError::new(
+                        "Internal error: count variable accessed in count loop but no current count set".to_string(),
+                        *line,
+                        *column,
+                    ));
                 }
 
+                // Try normal variable lookup first (allows user-defined 'count' variables outside loops)
                 if let Some(value) = env.borrow().get(name) {
                     Ok(value)
+                } else if name == "count" {
+                    // If 'count' is not found and we're not in a count loop, provide helpful error
+                    Err(RuntimeError::new(
+                        "Variable 'count' can only be used inside count loops. Use 'count from X to Y:' to create a count loop.".to_string(),
+                        *line,
+                        *column,
+                    ))
                 } else {
                     Err(RuntimeError::new(
                         format!("Undefined variable '{name}'"),
@@ -2686,33 +2707,11 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let left_val = match left.as_ref() {
-                    Expression::Variable(name, _, _) if name == "count" => {
-                        if let Some(count_value) = *self.current_count.borrow() {
-                            Value::Number(count_value)
-                        } else {
-                            // Use Box::pin to handle recursion in async fn
-                            let future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
-                            future.await?
-                        }
-                    }
-                    _ => {
-                        // Use Box::pin to handle recursion in async fn
-                        let future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
-                        future.await?
-                    }
-                };
+                // Use Box::pin to handle recursion in async fn
+                let left_future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
+                let left_val = left_future.await?;
 
-                let right_val = match right.as_ref() {
-                    Expression::Variable(name, _, _) if name == "count" => {
-                        if let Some(count_value) = *self.current_count.borrow() {
-                            Value::Number(count_value)
-                        } else {
-                            self.evaluate_expression(right, Rc::clone(&env)).await?
-                        }
-                    }
-                    _ => self.evaluate_expression(right, Rc::clone(&env)).await?,
-                };
+                let right_val = self.evaluate_expression(right, Rc::clone(&env)).await?;
 
                 match operator {
                     Operator::Plus => self.add(left_val, right_val, *line, *column),
@@ -2954,22 +2953,9 @@ impl Interpreter {
                 let left_future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
                 let left_val = left_future.await?;
 
-                let right_val = match right.as_ref() {
-                    Expression::Variable(name, _, _) if name == "count" => {
-                        if let Some(count_value) = *self.current_count.borrow() {
-                            Value::Number(count_value)
-                        } else {
-                            // Use Box::pin to handle recursion in async fn
-                            let future = Box::pin(self.evaluate_expression(right, Rc::clone(&env)));
-                            future.await?
-                        }
-                    }
-                    _ => {
-                        // Use Box::pin to handle recursion in async fn
-                        let future = Box::pin(self.evaluate_expression(right, Rc::clone(&env)));
-                        future.await?
-                    }
-                };
+                // Use Box::pin to handle recursion in async fn
+                let right_future = Box::pin(self.evaluate_expression(right, Rc::clone(&env)));
+                let right_val = right_future.await?;
 
                 let result = format!("{left_val}{right_val}");
                 Ok(Value::Text(Rc::from(result.as_str())))
@@ -3543,12 +3529,8 @@ impl Interpreter {
         // Create parent instance if container extends another
         let parent_instance = if let Some(parent_type) = &container_def.extends {
             // Recursively create parent instance
-            let parent = self.create_container_instance_with_inheritance(
-                parent_type,
-                env,
-                line,
-                column,
-            )?;
+            let parent =
+                self.create_container_instance_with_inheritance(parent_type, env, line, column)?;
             Some(Rc::new(RefCell::new(parent)))
         } else {
             None
@@ -3556,7 +3538,7 @@ impl Interpreter {
 
         // Create instance with inherited properties
         let mut instance_properties = HashMap::new();
-        
+
         // Copy properties from parent if exists
         if let Some(ref parent) = parent_instance {
             for (key, value) in &parent.borrow().properties {

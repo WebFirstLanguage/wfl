@@ -17,7 +17,9 @@
       "Bash(mv:*)",
       "Bash(cargo fmt:*)",
       "Bash(cargo run:*)",
-      "Bash(cargo clippy:*)"
+      "Bash(cargo clippy:*)",
+      "Bash(cargo test)",
+      "Bash(cargo test:*)"
     ],
     "deny": []
   }

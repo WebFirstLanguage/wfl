@@ -1,0 +1,5 @@
+// Test program to verify count error handling outside loops
+define action called main:
+    display "Testing count outside loop:"
+    display "Count outside: " with count
+end action
