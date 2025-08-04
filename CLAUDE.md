@@ -57,6 +57,10 @@ cargo test -- --nocapture
 # Test a specific module
 cargo test --package wfl --lib module_name
 
+# Windows-specific: Run WFL programs directly
+./target/debug/wfl.exe TestPrograms/simple_test.wfl
+./target/release/wfl.exe TestPrograms/simple_test.wfl
+
 # Run benchmarks
 cargo bench
 
@@ -79,7 +83,11 @@ cargo run -- --debug path/to/program.wfl > debug.txt 2>&1
 cargo run -- --interactive
 
 # Run all test programs (common validation)
+# Linux/macOS:
 for file in TestPrograms/*.wfl; do ./target/release/wfl "$file"; done
+
+# Windows PowerShell:
+Get-ChildItem TestPrograms\*.wfl | ForEach-Object { .\target\release\wfl.exe $_.FullName }
 ```
 
 ### Code Quality Tools
