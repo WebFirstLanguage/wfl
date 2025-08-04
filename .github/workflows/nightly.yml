@@ -225,7 +225,7 @@ jobs:
           }
           
           # Output the current version for debugging
-          python -c "import json; data = json.load(open('.build_meta.json')); print(f\"Using version: {data['year']}.{data['build']}\")"
+          python -c "import json; data = json.load(open('.build_meta.json')); print('Using version: {}.{}'.format(data['year'], data['build']))"
 
       - name: Package WFL
         run: |
