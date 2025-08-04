@@ -213,7 +213,7 @@ pub fn native_parse_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
     match NaiveDate::parse_from_str(&date_str, &format_string) {
         Ok(date) => Ok(Value::Date(Rc::new(date))),
         Err(e) => Err(RuntimeError::new(
-            format!("Failed to parse date: {}", e),
+            format!("Failed to parse date: {e}"),
             0,
             0,
         )),
@@ -261,7 +261,7 @@ pub fn native_parse_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
     match NaiveTime::parse_from_str(&time_str, &format_string) {
         Ok(time) => Ok(Value::Time(Rc::new(time))),
         Err(e) => Err(RuntimeError::new(
-            format!("Failed to parse time: {}", e),
+            format!("Failed to parse time: {e}"),
             0,
             0,
         )),
@@ -326,7 +326,7 @@ pub fn native_create_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     if hours >= 24 {
         return Err(RuntimeError::new(
-            format!("Hours must be between 0 and 23, got {}", hours),
+            format!("Hours must be between 0 and 23, got {hours}"),
             0,
             0,
         ));
@@ -334,7 +334,7 @@ pub fn native_create_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     if minutes >= 60 {
         return Err(RuntimeError::new(
-            format!("Minutes must be between 0 and 59, got {}", minutes),
+            format!("Minutes must be between 0 and 59, got {minutes}"),
             0,
             0,
         ));
@@ -342,7 +342,7 @@ pub fn native_create_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     if seconds >= 60 {
         return Err(RuntimeError::new(
-            format!("Seconds must be between 0 and 59, got {}", seconds),
+            format!("Seconds must be between 0 and 59, got {seconds}"),
             0,
             0,
         ));
@@ -352,8 +352,7 @@ pub fn native_create_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
         Some(time) => Ok(Value::Time(Rc::new(time))),
         None => Err(RuntimeError::new(
             format!(
-                "Failed to create time with hours: {}, minutes: {}, seconds: {}",
-                hours, minutes, seconds
+                "Failed to create time with hours: {hours}, minutes: {minutes}, seconds: {seconds}"
             ),
             0,
             0,
@@ -415,7 +414,7 @@ pub fn native_create_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     if !(1..=12).contains(&month) {
         return Err(RuntimeError::new(
-            format!("Month must be between 1 and 12, got {}", month),
+            format!("Month must be between 1 and 12, got {month}"),
             0,
             0,
         ));
@@ -423,7 +422,7 @@ pub fn native_create_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     if !(1..=31).contains(&day) {
         return Err(RuntimeError::new(
-            format!("Day must be between 1 and 31, got {}", day),
+            format!("Day must be between 1 and 31, got {day}"),
             0,
             0,
         ));
@@ -432,10 +431,7 @@ pub fn native_create_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
     match NaiveDate::from_ymd_opt(year, month, day) {
         Some(date) => Ok(Value::Date(Rc::new(date))),
         None => Err(RuntimeError::new(
-            format!(
-                "Failed to create date with year: {}, month: {}, day: {}",
-                year, month, day
-            ),
+            format!("Failed to create date with year: {year}, month: {month}, day: {day}"),
             0,
             0,
         )),
@@ -482,7 +478,7 @@ pub fn native_add_days(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let new_date = date
         .checked_add_signed(chrono::Duration::days(days))
-        .ok_or_else(|| RuntimeError::new(format!("Failed to add {} days to date", days), 0, 0))?;
+        .ok_or_else(|| RuntimeError::new(format!("Failed to add {days} days to date"), 0, 0))?;
 
     Ok(Value::Date(Rc::new(new_date)))
 }

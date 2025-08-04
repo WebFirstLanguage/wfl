@@ -2,7 +2,7 @@
   "name": "vscode-wfl",
   "displayName": "WebFirst Language (WFL)",
   "description": "Language support for the WebFirst Language (WFL)",
-  "version": "0.1.0",
+  "version": "2025.50.0",
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -15,17 +15,26 @@
   ],
   "main": "./extension.js",
   "contributes": {
-    "languages": [{
-      "id": "wfl",
-      "aliases": ["WFL", "wfl"],
-      "extensions": [".wfl"],
-      "configuration": "./language-configuration.json"
-    }],
-    "grammars": [{
-      "language": "wfl",
-      "scopeName": "source.wfl",
-      "path": "./syntaxes/wfl.tmLanguage.json"
-    }],
+    "languages": [
+      {
+        "id": "wfl",
+        "aliases": [
+          "WFL",
+          "wfl"
+        ],
+        "extensions": [
+          ".wfl"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "wfl",
+        "scopeName": "source.wfl",
+        "path": "./syntaxes/wfl.tmLanguage.json"
+      }
+    ],
     "configuration": {
       "type": "object",
       "title": "WFL",

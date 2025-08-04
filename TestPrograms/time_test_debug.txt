@@ -1,6 +1,6 @@
 === WFL Debug Report ===
-Script: Test Programs/time_test.wfl
-Time: 2025-06-03 05:01:41
+Script: time_test.wfl
+Time: 2025-06-03 07:42:11
 
 === Error Summary ===
 Runtime error at line 15, column 25: Undefined variable 'format_date of current_date'

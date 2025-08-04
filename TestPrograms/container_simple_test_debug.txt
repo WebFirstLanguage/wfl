@@ -1,0 +1,17 @@
+=== WFL Debug Report ===
+Script: Test Programs/container_simple_test.wfl
+Time: 2025-06-03 06:55:33
+
+=== Error Summary ===
+Runtime error at line 18, column 1: Undefined variable 'alice greet'
+
+=== Stack Trace ===
+In main script at line 18, column 1
+
+=== Source Code ===
+   16: 
+   17: // Using container methods
+>> 18: alice greet
+
+=== Local Variables ===
+(No local variables in global scope)

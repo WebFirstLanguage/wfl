@@ -1,0 +1,14 @@
+Lexer output for: TestPrograms/testurl.wfl
+==============================================
+
+   0: KeywordWait at line 1, column 1 (length: 4)
+   1: KeywordFor at line 1, column 6 (length: 3)
+   2: KeywordOpen at line 1, column 10 (length: 4)
+   3: KeywordUrl at line 1, column 15 (length: 3)
+   4: KeywordAt at line 1, column 19 (length: 2)
+   5: StringLiteral("https://httpbin.org/status/200") at line 1, column 22 (length: 32)
+   6: KeywordAnd at line 1, column 55 (length: 3)
+   7: KeywordRead at line 1, column 59 (length: 4)
+   8: KeywordContent at line 1, column 64 (length: 7)
+   9: KeywordAs at line 1, column 72 (length: 2)
+  10: Identifier("response") at line 1, column 75 (length: 8)

@@ -171,11 +171,15 @@ impl Analyzer {
                         name: "list".to_string(),
                         param_type: Some(Type::List(Box::new(Type::Unknown))),
                         default_value: None,
+                        line: 0,
+                        column: 0,
                     },
                     Parameter {
                         name: "value".to_string(),
                         param_type: Some(Type::Unknown),
                         default_value: None,
+                        line: 0,
+                        column: 0,
                     },
                 ],
                 return_type: Some(Type::Nothing),
@@ -284,7 +288,7 @@ impl Analyzer {
                         SymbolKind::Variable { mutable } => {
                             if !mutable {
                                 self.errors.push(SemanticError::new(
-                                    format!("Cannot assign to immutable variable '{}'", name),
+                                    format!("Cannot assign to immutable variable '{name}'"),
                                     0, // Need location info
                                     0,
                                 ));
@@ -292,7 +296,7 @@ impl Analyzer {
                         }
                         _ => {
                             self.errors.push(SemanticError::new(
-                                format!("'{}' is not a variable", name),
+                                format!("'{name}' is not a variable"),
                                 0, // Need location info
                                 0,
                             ));
@@ -300,7 +304,7 @@ impl Analyzer {
                     }
                 } else {
                     self.errors.push(SemanticError::new(
-                        format!("Variable '{}' is not defined", name),
+                        format!("Variable '{name}' is not defined"),
                         0, // Need location info
                         0,
                     ));
@@ -770,9 +774,11 @@ impl Analyzer {
             .iter()
             .enumerate()
             .map(|(i, t)| Parameter {
-                name: format!("param{}", i),
+                name: format!("param{i}"),
                 param_type: Some(t.clone()),
                 default_value: None,
+                line: 0,
+                column: 0,
             })
             .collect();
 
@@ -827,7 +833,7 @@ impl Analyzer {
 
                 if self.current_scope.resolve(name).is_none() {
                     self.errors.push(SemanticError::new(
-                        format!("Variable '{}' is not defined", name),
+                        format!("Variable '{name}' is not defined"),
                         *line,
                         *column,
                     ));
@@ -860,7 +866,7 @@ impl Analyzer {
                             }
                             _ => {
                                 self.errors.push(SemanticError::new(
-                                    format!("'{}' is not a function", name),
+                                    format!("'{name}' is not a function"),
                                     *line,
                                     *column,
                                 ));
@@ -960,6 +966,32 @@ impl Analyzer {
                 }
             }
             Expression::Literal(_, _, _) => {}
+            // Container-related expressions
+            Expression::StaticMemberAccess {
+                container: _container,
+                member: _member,
+                ..
+            } => {
+                // For now, just a stub implementation
+                // This will be expanded later
+            }
+            Expression::MethodCall {
+                object,
+                method: _method,
+                arguments,
+                ..
+            } => {
+                // Analyze the object expression
+                self.analyze_expression(object);
+
+                // Analyze the arguments
+                for arg in arguments {
+                    self.analyze_expression(&arg.value);
+                }
+            }
+            Expression::PropertyAccess { object, .. } => {
+                self.analyze_expression(object);
+            }
         }
     }
 }
@@ -1027,6 +1059,8 @@ mod tests {
                         name: "name".to_string(),
                         param_type: Some(Type::Text),
                         default_value: None,
+                        line: 0,
+                        column: 0,
                     }],
                     body: vec![Statement::DisplayStatement {
                         value: Expression::Variable("name".to_string(), 2, 5),
@@ -1068,6 +1102,8 @@ mod tests {
                         name: "name".to_string(),
                         param_type: Some(Type::Text),
                         default_value: None,
+                        line: 0,
+                        column: 0,
                     }],
                     body: vec![],
                     return_type: None,

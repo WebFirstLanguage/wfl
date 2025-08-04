@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: TestPrograms/args_example.wfl
+Time: 2025-06-27 10:59:49
+
+=== Error Summary ===
+Runtime error at line 14, column 4: Undefined variable 'flag_count'
+
+=== Stack Trace ===
+In main script at line 14, column 4
+
+=== Source Code ===
+   12: end if
+   13: 
+>> 14: if flag_count then
+   15:     // For now, just use a fixed value since we don't have number conversion
+   16:     store repeat_count as 3
+
+=== Local Variables ===
+(No local variables in global scope)

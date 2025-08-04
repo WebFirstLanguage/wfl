@@ -11,6 +11,77 @@ impl Program {
     }
 }
 
+/// Represents the visibility of a container member (property or method)
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum Visibility {
+    #[default]
+    Public,
+    Private,
+}
+
+/// Types of validation rules that can be applied to properties
+#[derive(Debug, Clone, PartialEq)]
+pub enum ValidationRuleType {
+    NotEmpty,
+    MinLength,
+    MaxLength,
+    ExactLength,
+    MinValue,
+    MaxValue,
+    Pattern,
+    Custom,
+}
+
+/// Represents a validation rule for a property
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValidationRule {
+    pub rule_type: ValidationRuleType,
+    pub parameters: Vec<Expression>,
+    pub line: usize,
+    pub column: usize,
+}
+
+/// Represents a property definition in a container
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertyDefinition {
+    pub name: String,
+    pub property_type: Option<Type>,
+    pub default_value: Option<Expression>,
+    pub validation_rules: Vec<ValidationRule>,
+    pub visibility: Visibility,
+    pub is_static: bool,
+    pub line: usize,
+    pub column: usize,
+}
+
+/// Represents a property initializer in a container instantiation
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertyInitializer {
+    pub name: String,
+    pub value: Expression,
+    pub line: usize,
+    pub column: usize,
+}
+
+/// Represents an action signature in an interface
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActionSignature {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub return_type: Option<Type>,
+    pub line: usize,
+    pub column: usize,
+}
+
+/// Represents an event definition in a container
+#[derive(Debug, Clone, PartialEq)]
+pub struct EventDefinition {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub line: usize,
+    pub column: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     VariableDeclaration {
@@ -170,6 +241,59 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    // Container-related statements
+    ContainerDefinition {
+        name: String,
+        extends: Option<String>,
+        implements: Vec<String>,
+        properties: Vec<PropertyDefinition>,
+        methods: Vec<Statement>,
+        events: Vec<EventDefinition>,
+        static_properties: Vec<PropertyDefinition>,
+        static_methods: Vec<Statement>,
+        line: usize,
+        column: usize,
+    },
+    ContainerInstantiation {
+        container_type: String,
+        instance_name: String,
+        arguments: Vec<Argument>,
+        property_initializers: Vec<PropertyInitializer>,
+        line: usize,
+        column: usize,
+    },
+    InterfaceDefinition {
+        name: String,
+        extends: Vec<String>,
+        required_actions: Vec<ActionSignature>,
+        line: usize,
+        column: usize,
+    },
+    EventDefinition {
+        name: String,
+        parameters: Vec<Parameter>,
+        line: usize,
+        column: usize,
+    },
+    EventTrigger {
+        name: String,
+        arguments: Vec<Argument>,
+        line: usize,
+        column: usize,
+    },
+    EventHandler {
+        event_source: Expression,
+        event_name: String,
+        handler_body: Vec<Statement>,
+        line: usize,
+        column: usize,
+    },
+    ParentMethodCall {
+        method_name: String,
+        arguments: Vec<Argument>,
+        line: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -249,6 +373,26 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    // Container-related expressions
+    StaticMemberAccess {
+        container: String,
+        member: String,
+        line: usize,
+        column: usize,
+    },
+    MethodCall {
+        object: Box<Expression>,
+        method: String,
+        arguments: Vec<Argument>,
+        line: usize,
+        column: usize,
+    },
+    PropertyAccess {
+        object: Box<Expression>,
+        property: String,
+        line: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -290,6 +434,8 @@ pub struct Parameter {
     pub name: String,
     pub param_type: Option<Type>,
     pub default_value: Option<Expression>,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -304,6 +450,7 @@ pub enum Type {
     Number,
     Boolean,
     Nothing,
+    Pattern,
     Custom(String),
     List(Box<Type>),
     Map(Box<Type>, Box<Type>),
@@ -315,6 +462,10 @@ pub enum Type {
     Error,            // Used to mark expressions that have already failed type checking
     Async(Box<Type>), // For asynchronous operations returning a value of Type
     Any,              // Used for generic types like lists of any type
+    // Container-related types
+    Container(String),
+    ContainerInstance(String),
+    Interface(String),
 }
 
 #[derive(Debug, Clone)]

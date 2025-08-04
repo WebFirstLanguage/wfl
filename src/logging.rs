@@ -126,7 +126,7 @@ pub fn init_execution_logger(
     let exec_file_name = if let Some(pos) = file_name.rfind('.') {
         format!("{}_exec{}", &file_name[..pos], &file_name[pos..])
     } else {
-        format!("{}_exec.log", file_name)
+        format!("{file_name}_exec.log")
     };
 
     let exec_log_path = base_log_path.with_file_name(exec_file_name);

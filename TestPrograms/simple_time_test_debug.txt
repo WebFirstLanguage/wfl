@@ -1,6 +1,6 @@
 === WFL Debug Report ===
-Script: Test Programs/simple_time_test.wfl
-Time: 2025-06-03 05:02:12
+Script: simple_time_test.wfl
+Time: 2025-06-03 07:41:31
 
 === Error Summary ===
 Runtime error at line 9, column 20: Undefined variable 'create_date of'

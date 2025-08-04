@@ -1,0 +1,54 @@
+// Container inheritance test
+
+// Base container
+create container Vehicle:
+    property make as text
+    property model as text
+    property year as number
+    
+    define action initialize with vehicle_make and vehicle_model and vehicle_year:
+        set make to vehicle_make
+        set model to vehicle_model
+        set year to vehicle_year
+        display "Created vehicle: " with year with " " with make with " " with model
+    end action
+    
+    define action describe:
+        display year with " " with make with " " with model
+    end action
+end container
+
+// Child container
+create container Car extends Vehicle:
+    property number_of_doors as number defaults to 4
+    property fuel_type as text defaults to "gasoline"
+    
+    // Override the parent's describe action
+    define action describe:
+        // Call the parent's version first
+        parent describe
+        display "This car has " with number_of_doors with " doors and runs on " with fuel_type
+    end action
+    
+    define action honk:
+        display "Beep beep!"
+    end action
+end container
+
+// Create instances
+create new Vehicle with "Toyota" and "Corolla" and 2023 as generic_vehicle
+create new Car with "Honda" and "Civic" and 2024 as my_car
+
+// Set properties on the car
+set my_car's fuel_type to "hybrid"
+
+// Call methods
+display "Vehicle description:"
+generic_vehicle describe
+
+display "Car description:"
+my_car describe
+my_car honk
+
+// Test complete
+display "Container inheritance test complete"

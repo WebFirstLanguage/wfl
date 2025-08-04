@@ -56,7 +56,7 @@ impl Environment {
                 Err("Parent environment no longer exists".to_string())
             }
         } else {
-            Err(format!("Undefined variable '{}'", name))
+            Err(format!("Undefined variable '{name}'"))
         }
     }
 

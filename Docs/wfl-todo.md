@@ -441,5 +441,31 @@ This project plan lays out a **milestone-driven roadmap** for a solo developer t
 
 With these milestones completed, the WebFirst Language would have been designed, implemented, and equipped with a runtime, standard library, robust tooling (REPL, LSP), and even a path to web deployment. Throughout the project, leveraging AI tools like ChatGPT and Copilot accelerates brainstorming, coding, and problem-solving at each step – from shaping the natural-language syntax to debugging tricky runtime issues. The milestones are structured to build complexity gradually, with early focus on design and core compiler, and later focus on runtime, UX, and integration. This ensures a solo developer can make consistent progress and have a working language early (by Milestone 7 or 8, an MVP of WFL is running), then polish and extend it in subsequent milestones. 
 
-Every milestone’s outputs (specs, code, tests) serve as a foundation for the next, reflecting a logical dependency chain. By following this plan, the development of WFL in Rust can be managed in attainable stages, all while using modern tools and libraries to lighten the load where possible (e.g., using Pest for parsing ([Building a Rust parser using Pest and PEG - LogRocket Blog](https://blog.logrocket.com/building-rust-parser-pest-peg/#:~:text=Currently%2C%20there%20are%20several%20parser,are%20LalrPop%2C%20Nom%2C%20and%20Pest)), Tokio for async runtime ([Roll your own JavaScript runtime](https://deno.com/blog/roll-your-own-javascript-runtime#:~:text=,s)), rustyline for REPL ([Read-Eval-Print Loop (REPL) - Create Your Own Programming Language with Rust](https://createlang.rs/01_calculator/repl.html#:~:text=REPL%20,we%20can%20optionally%20choose%20to)), and codespan for error reporting). The result will be a new programming language aligned with the vision of being *web-first* and *human-friendly*, built efficiently by a solo developer with AI-assisted productivity.
+Every milestone's outputs (specs, code, tests) serve as a foundation for the next, reflecting a logical dependency chain. By following this plan, the development of WFL in Rust can be managed in attainable stages, all while using modern tools and libraries to lighten the load where possible (e.g., using Pest for parsing ([Building a Rust parser using Pest and PEG - LogRocket Blog](https://blog.logrocket.com/building-rust-parser-pest-peg/#:~:text=Currently%2C%20there%20are%20several%20parser,are%20LalrPop%2C%20Nom%2C%20and%20Pest)), Tokio for async runtime ([Roll your own JavaScript runtime](https://deno.com/blog/roll-your-own-javascript-runtime#:~:text=,s)), rustyline for REPL ([Read-Eval-Print Loop (REPL) - Create Your Own Programming Language with Rust](https://createlang.rs/01_calculator/repl.html#:~:text=REPL%20,we%20can%20optionally%20choose%20to)), and codespan for error reporting). The result will be a new programming language aligned with the vision of being *web-first* and *human-friendly*, built efficiently by a solo developer with AI-assisted productivity.
+
+---
+
+## Known Issues and Outstanding Tasks
+
+### High Priority Issues
+
+#### Parser and Runtime Issues
+- [ ] **Runtime Type Conversion Error with "of" Syntax** - **Added 2025-01-08**
+  - **Description**: When using natural language function calls with "of" syntax (e.g., `path_join of "home" and "user"`), a runtime type conversion error occurs: "Expected text, got Boolean"
+  - **Status**: Parser correctly handles the syntax after recent fixes, but there's an issue in argument processing/type conversion during runtime
+  - **Impact**: Prevents full functionality of natural language function calls despite parser working correctly
+  - **Investigation needed**: Check how function call arguments are processed and converted in the interpreter
+  - **Workaround**: Use intermediate variables to store function results before using them in expressions
+  - **Related**: Parser "of" syntax issue was resolved in commit ba93c9c, but runtime processing still has issues
+
+### Recently Completed
+- [x] **Parser "of" Syntax Issue** - **COMPLETED 2025-01-08**
+  - Fixed KeywordOf and KeywordAnd token handling in parser
+  - Added comprehensive filesystem standard library module
+  - All unit tests passing (161 tests)
+  - Branch: `devin/1751974012-filesystem-stdlib`
+
+---
+
+*Last updated: 2025-01-08*y.
 

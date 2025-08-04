@@ -1,7 +1,7 @@
 use logos::Logos;
 
 #[derive(Logos, Debug, PartialEq, Clone)]
-#[logos(skip r"[ \t\f\r]+|//.*")] // Skip whitespace (excluding newline) and line comments
+#[logos(skip r"[ \t\f\r]+|//.*|#.*")] // Skip whitespace (excluding newline) and line comments (// and #)
 pub enum Token {
     #[token("\n")]
     Newline,
@@ -135,6 +135,34 @@ pub enum Token {
     KeywordReplace,
     #[token("split")]
     KeywordSplit,
+    #[token("of")]
+    KeywordOf,
+    #[token("more")]
+    KeywordMore,
+    #[token("exactly")]
+    KeywordExactly,
+    #[token("capture")]
+    KeywordCapture,
+    #[token("digit")]
+    KeywordDigit,
+    #[token("letter")]
+    KeywordLetter,
+    #[token("whitespace")]
+    KeywordWhitespace,
+    #[token("greedy")]
+    KeywordGreedy,
+    #[token("lazy")]
+    KeywordLazy,
+    #[token("one")]
+    KeywordOne,
+    #[token("optional")]
+    KeywordOptional,
+    #[token("between")]
+    KeywordBetween,
+    #[token("start")]
+    KeywordStart,
+    #[token("text")]
+    KeywordText,
     #[token("push")]
     KeywordPush,
     #[token("above")]
@@ -154,14 +182,66 @@ pub enum Token {
     #[token("than")]
     KeywordThan,
 
+    // Container-related keywords
+    #[token("container")]
+    KeywordContainer,
+    #[token("property")]
+    KeywordProperty,
+    #[token("extends")]
+    KeywordExtends,
+    #[token("implements")]
+    KeywordImplements,
+    #[token("interface")]
+    KeywordInterface,
+    #[token("requires")]
+    KeywordRequires,
+    #[token("event")]
+    KeywordEvent,
+    #[token("trigger")]
+    KeywordTrigger,
+    #[token("on")]
+    KeywordOn,
+    #[token("static")]
+    KeywordStatic,
+    #[token("public")]
+    KeywordPublic,
+    #[token("private")]
+    KeywordPrivate,
+    #[token("parent")]
+    KeywordParent,
+    #[token("new")]
+    KeywordNew,
+    #[token("must")]
+    KeywordMust,
+    #[token("defaults")]
+    KeywordDefaults,
+
     #[token(":")]
     Colon,
+
+    #[token(",")]
+    Comma,
+
+    #[token("+")]
+    Plus,
+
+    #[token(".")]
+    Dot,
+
+    #[token("=")]
+    Equals,
 
     #[token("[")]
     LeftBracket,
 
     #[token("]")]
     RightBracket,
+
+    #[token("{")]
+    LeftBrace,
+
+    #[token("}")]
+    RightBrace,
 
     #[regex("(?:yes|no|true|false)", |lex| {
         let text = lex.slice().to_ascii_lowercase();
@@ -266,6 +346,22 @@ impl Token {
                 | Token::KeywordSkip
                 | Token::KeywordThan
                 | Token::KeywordPush
+                | Token::KeywordContainer
+                | Token::KeywordProperty
+                | Token::KeywordExtends
+                | Token::KeywordImplements
+                | Token::KeywordInterface
+                | Token::KeywordRequires
+                | Token::KeywordEvent
+                | Token::KeywordTrigger
+                | Token::KeywordOn
+                | Token::KeywordStatic
+                | Token::KeywordPublic
+                | Token::KeywordPrivate
+                | Token::KeywordParent
+                | Token::KeywordNew
+                | Token::KeywordMust
+                | Token::KeywordDefaults
         )
     }
 }

@@ -1,0 +1,3751 @@
+error: variables can be used directly in the `format!` string
+   --> src/analyzer/mod.rs:291:37
+    |
+291 | ...                   format!("Cannot assign to immutable variable '{}'", name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+    = note: `-D clippy::uninlined-format-args` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::uninlined_format_args)]`
+help: change this to
+    |
+291 -                                     format!("Cannot assign to immutable variable '{}'", name),
+291 +                                     format!("Cannot assign to immutable variable '{name}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/analyzer/mod.rs:299:33
+    |
+299 | ...                   format!("'{}' is not a variable", name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+299 -                                 format!("'{}' is not a variable", name),
+299 +                                 format!("'{name}' is not a variable"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/analyzer/mod.rs:307:25
+    |
+307 |                         format!("Variable '{}' is not defined", name),
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+307 -                         format!("Variable '{}' is not defined", name),
+307 +                         format!("Variable '{name}' is not defined"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/analyzer/mod.rs:777:23
+    |
+777 |                 name: format!("param{}", i),
+    |                       ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+777 -                 name: format!("param{}", i),
+777 +                 name: format!("param{i}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/analyzer/mod.rs:836:25
+    |
+836 |                         format!("Variable '{}' is not defined", name),
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+836 -                         format!("Variable '{}' is not defined", name),
+836 +                         format!("Variable '{name}' is not defined"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/analyzer/mod.rs:869:37
+    |
+869 | ...                   format!("'{}' is not a function", name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+869 -                                     format!("'{}' is not a function", name),
+869 +                                     format!("'{name}' is not a function"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/analyzer/static_analyzer.rs:255:21
+    |
+255 |                     format!("Unused variable '{}'", name),
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+255 -                     format!("Unused variable '{}'", name),
+255 +                     format!("Unused variable '{name}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/analyzer/static_analyzer.rs:350:33
+    |
+350 | ...                   format!("Action '{}' has inconsistent return paths", name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+350 -                                 format!("Action '{}' has inconsistent return paths", name),
+350 +                                 format!("Action '{name}' has inconsistent return paths"),
+    |
+
+error: variables can be used directly in the `format!` string
+    --> src/analyzer/static_analyzer.rs:1083:33
+     |
+1083 | / ...                   format!(
+1084 | | ...                       "Variable '{}' shadows another variable with the same name",
+1085 | | ...                       name
+1086 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/analyzer/static_analyzer.rs:1087:38
+     |
+1087 |   ...                   Some(format!(
+     |  ____________________________^
+1088 | | ...                       "Previously defined at line {}, column {}",
+1089 | | ...                       def_line, def_col
+1090 | | ...                   )),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/analyzer/static_analyzer.rs:1104:29
+     |
+1104 | / ...                   format!(
+1105 | | ...                       "Variable '{}' shadows another variable with the same name",
+1106 | | ...                       name
+1107 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/analyzer/static_analyzer.rs:1108:34
+     |
+1108 |   ...                   Some(format!(
+     |  ____________________________^
+1109 | | ...                       "Previously defined at line {}, column {}",
+1110 | | ...                       def_line, def_col
+1111 | | ...                   )),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/config.rs:124:13
+    |
+124 |             log::debug!("Found config key: {}, value: {}", key, value);
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+124 -             log::debug!("Found config key: {}, value: {}", key, value);
+124 +             log::debug!("Found config key: {key}, value: {value}");
+    |
+
+error: variables can be used directly in the `format!` string
+  --> src/debug_report.rs:78:21
+   |
+78 |                     write!(f, "{}: ", k)?;
+   |                     ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+78 -                     write!(f, "{}: ", k)?;
+78 +                     write!(f, "{k}: ")?;
+   |
+
+error: variables can be used directly in the `format!` string
+   --> src/debug_report.rs:154:5
+    |
+154 |     writeln!(&mut report, "Script: {}", script_path).unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+154 -     writeln!(&mut report, "Script: {}", script_path).unwrap();
+154 +     writeln!(&mut report, "Script: {script_path}").unwrap();
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/debug_report.rs:248:27
+    |
+248 |         if line.contains(&format!("define action called {}", func_name))
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+248 -         if line.contains(&format!("define action called {}", func_name))
+248 +         if line.contains(&format!("define action called {func_name}"))
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/debug_report.rs:249:31
+    |
+249 |             || line.contains(&format!("action called {}", func_name))
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+249 -             || line.contains(&format!("action called {}", func_name))
+249 +             || line.contains(&format!("action called {func_name}"))
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/diagnostics/mod.rs:294:28
+    |
+294 |               message_text = format!(
+    |  ____________________________^
+295 | |                 "{} - Expected {} but found {}",
+296 | |                 message_text, expected, found
+297 | |             );
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/diagnostics/mod.rs:550:23
+    |
+550 |             message = format!("Pattern '{}': {}", name, message);
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+550 -             message = format!("Pattern '{}': {}", name, message);
+550 +             message = format!("Pattern '{name}': {message}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/diagnostics/mod.rs:559:23
+    |
+559 |             message = format!("{} (input: \"{}\")", message, preview);
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+559 -             message = format!("{} (input: \"{}\")", message, preview);
+559 +             message = format!("{message} (input: \"{preview}\")");
+    |
+
+error: variables can be used directly in the `format!` string
+  --> src/fixer/mod.rs:79:21
+   |
+79 |                     format!("Failed to parse file: {:?}", err),
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+79 -                     format!("Failed to parse file: {:?}", err),
+79 +                     format!("Failed to parse file: {err:?}"),
+   |
+
+error: variables can be used directly in the `format!` string
+   --> src/fixer/mod.rs:246:46
+    |
+246 | ...                   output.push_str(&format!("{:?}", param_type));
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+246 -                             output.push_str(&format!("{:?}", param_type));
+246 +                             output.push_str(&format!("{param_type:?}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/fixer/mod.rs:263:38
+    |
+263 |                     output.push_str(&format!("{:?}", ret_type));
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+263 -                     output.push_str(&format!("{:?}", ret_type));
+263 +                     output.push_str(&format!("{ret_type:?}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/fixer/mod.rs:472:34
+    |
+472 |                 output.push_str(&format!("{:?}\n", statement));
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+472 -                 output.push_str(&format!("{:?}\n", statement));
+472 +                 output.push_str(&format!("{statement:?}\n"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/fixer/mod.rs:647:34
+    |
+647 |                 output.push_str(&format!("{:?}", expression));
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+647 -                 output.push_str(&format!("{:?}", expression));
+647 +                 output.push_str(&format!("{expression:?}"));
+    |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/environment.rs:59:17
+   |
+59 |             Err(format!("Undefined variable '{}'", name))
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+59 -             Err(format!("Undefined variable '{}'", name))
+59 +             Err(format!("Undefined variable '{name}'"))
+   |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:207:33
+    |
+207 |             Value::Number(n) => write!(f, "{}", n),
+    |                                 ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+207 -             Value::Number(n) => write!(f, "{}", n),
+207 +             Value::Number(n) => write!(f, "{n}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:208:31
+    |
+208 |             Value::Text(s) => write!(f, "\"{}\"", s),
+    |                               ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+208 -             Value::Text(s) => write!(f, "\"{}\"", s),
+208 +             Value::Text(s) => write!(f, "\"{s}\""),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:209:31
+    |
+209 |             Value::Bool(b) => write!(f, "{}", b),
+    |                               ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+209 -             Value::Bool(b) => write!(f, "{}", b),
+209 +             Value::Bool(b) => write!(f, "{b}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:218:21
+    |
+218 |                     write!(f, "{:?}", v)?;
+    |                     ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+218 -                     write!(f, "{:?}", v)?;
+218 +                     write!(f, "{v:?}")?;
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:229:21
+    |
+229 |                     write!(f, "{}: {:?}", k, v)?;
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+229 -                     write!(f, "{}: {:?}", k, v)?;
+229 +                     write!(f, "{k}: {v:?}")?;
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:240:47
+    |
+240 |             Value::NativeFunction(name, _) => write!(f, "NativeFunction({})", name),
+    |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+240 -             Value::NativeFunction(name, _) => write!(f, "NativeFunction({})", name),
+240 +             Value::NativeFunction(name, _) => write!(f, "NativeFunction({name})"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:242:31
+    |
+242 |             Value::Date(d) => write!(f, "Date({})", d),
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+242 -             Value::Date(d) => write!(f, "Date({})", d),
+242 +             Value::Date(d) => write!(f, "Date({d})"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:243:31
+    |
+243 |             Value::Time(t) => write!(f, "Time({})", t),
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+243 -             Value::Time(t) => write!(f, "Time({})", t),
+243 +             Value::Time(t) => write!(f, "Time({t})"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:244:36
+    |
+244 |             Value::DateTime(dt) => write!(f, "DateTime({})", dt),
+    |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+244 -             Value::DateTime(dt) => write!(f, "DateTime({})", dt),
+244 +             Value::DateTime(dt) => write!(f, "DateTime({dt})"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:262:33
+    |
+262 |             Value::Number(n) => write!(f, "{}", n),
+    |                                 ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+262 -             Value::Number(n) => write!(f, "{}", n),
+262 +             Value::Number(n) => write!(f, "{n}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:263:31
+    |
+263 |             Value::Text(s) => write!(f, "{}", s),
+    |                               ^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+263 -             Value::Text(s) => write!(f, "{}", s),
+263 +             Value::Text(s) => write!(f, "{s}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:271:25
+    |
+271 |                         write!(f, "{}", value)
+    |                         ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+271 -                         write!(f, "{}", value)
+271 +                         write!(f, "{value}")
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:283:25
+    |
+283 |                         write!(f, "{}: {}", k, v)?;
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+283 -                         write!(f, "{}: {}", k, v)?;
+283 +                         write!(f, "{k}: {v}")?;
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/value.rs:295:47
+    |
+295 |             Value::NativeFunction(name, _) => write!(f, "native {}", name),
+    |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+295 -             Value::NativeFunction(name, _) => write!(f, "native {}", name),
+295 +             Value::NativeFunction(name, _) => write!(f, "native {name}"),
+    |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:50:56
+   |
+50 |         Statement::VariableDeclaration { name, .. } => format!("VariableDeclaration '{}'", name),
+   |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+50 -         Statement::VariableDeclaration { name, .. } => format!("VariableDeclaration '{}'", name),
+50 +         Statement::VariableDeclaration { name, .. } => format!("VariableDeclaration '{name}'"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:51:47
+   |
+51 |         Statement::Assignment { name, .. } => format!("Assignment to '{}'", name),
+   |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+51 -         Statement::Assignment { name, .. } => format!("Assignment to '{}'", name),
+51 +         Statement::Assignment { name, .. } => format!("Assignment to '{name}'"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:55:53
+   |
+55 |         Statement::ActionDefinition { name, .. } => format!("ActionDefinition '{}'", name),
+   |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+55 -         Statement::ActionDefinition { name, .. } => format!("ActionDefinition '{}'", name),
+55 +         Statement::ActionDefinition { name, .. } => format!("ActionDefinition '{name}'"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:59:53
+   |
+59 |         Statement::ForEachLoop { item_name, .. } => format!("ForEachLoop '{}'", item_name),
+   |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+59 -         Statement::ForEachLoop { item_name, .. } => format!("ForEachLoop '{}'", item_name),
+59 +         Statement::ForEachLoop { item_name, .. } => format!("ForEachLoop '{item_name}'"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:68:13
+   |
+68 |             format!("OpenFileStatement '{}'", variable_name)
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+68 -             format!("OpenFileStatement '{}'", variable_name)
+68 +             format!("OpenFileStatement '{variable_name}'")
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:71:13
+   |
+71 |             format!("ReadFileStatement '{}'", variable_name)
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+71 -             format!("ReadFileStatement '{}'", variable_name)
+71 +             format!("ReadFileStatement '{variable_name}'")
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:76:55
+   |
+76 |         Statement::TryStatement { error_name, .. } => format!("TryStatement '{}'", error_name),
+   |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+76 -         Statement::TryStatement { error_name, .. } => format!("TryStatement '{}'", error_name),
+76 +         Statement::TryStatement { error_name, .. } => format!("TryStatement '{error_name}'"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:78:13
+   |
+78 |             format!("HttpGetStatement '{}'", variable_name)
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+78 -             format!("HttpGetStatement '{}'", variable_name)
+78 +             format!("HttpGetStatement '{variable_name}'")
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:81:13
+   |
+81 |             format!("HttpPostStatement '{}'", variable_name)
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+81 -             format!("HttpPostStatement '{}'", variable_name)
+81 +             format!("HttpPostStatement '{variable_name}'")
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:85:56
+   |
+85 |         Statement::ContainerDefinition { name, .. } => format!("ContainerDefinition '{}'", name),
+   |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+85 -         Statement::ContainerDefinition { name, .. } => format!("ContainerDefinition '{}'", name),
+85 +         Statement::ContainerDefinition { name, .. } => format!("ContainerDefinition '{name}'"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:90:14
+   |
+90 |           } => format!(
+   |  ______________^
+91 | |             "ContainerInstantiation '{}' as '{}'",
+92 | |             container_type, instance_name
+93 | |         ),
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:94:56
+   |
+94 |         Statement::InterfaceDefinition { name, .. } => format!("InterfaceDefinition '{}'", name),
+   |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+94 -         Statement::InterfaceDefinition { name, .. } => format!("InterfaceDefinition '{}'", name),
+94 +         Statement::InterfaceDefinition { name, .. } => format!("InterfaceDefinition '{name}'"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:95:52
+   |
+95 |         Statement::EventDefinition { name, .. } => format!("EventDefinition '{}'", name),
+   |                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+95 -         Statement::EventDefinition { name, .. } => format!("EventDefinition '{}'", name),
+95 +         Statement::EventDefinition { name, .. } => format!("EventDefinition '{name}'"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:96:49
+   |
+96 |         Statement::EventTrigger { name, .. } => format!("EventTrigger '{}'", name),
+   |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+96 -         Statement::EventTrigger { name, .. } => format!("EventTrigger '{}'", name),
+96 +         Statement::EventTrigger { name, .. } => format!("EventTrigger '{name}'"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:97:55
+   |
+97 |         Statement::EventHandler { event_name, .. } => format!("EventHandler '{}'", event_name),
+   |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+97 -         Statement::EventHandler { event_name, .. } => format!("EventHandler '{}'", event_name),
+97 +         Statement::EventHandler { event_name, .. } => format!("EventHandler '{event_name}'"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/mod.rs:99:13
+   |
+99 |             format!("ParentMethodCall '{}'", method_name)
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+99 -             format!("ParentMethodCall '{}'", method_name)
+99 +             format!("ParentMethodCall '{method_name}'")
+   |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:108:35
+    |
+108 |             Literal::String(s) => format!("StringLiteral \"{}\"", s),
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+108 -             Literal::String(s) => format!("StringLiteral \"{}\"", s),
+108 +             Literal::String(s) => format!("StringLiteral \"{s}\""),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:109:36
+    |
+109 |             Literal::Integer(i) => format!("IntegerLiteral {}", i),
+    |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+109 -             Literal::Integer(i) => format!("IntegerLiteral {}", i),
+109 +             Literal::Integer(i) => format!("IntegerLiteral {i}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:110:34
+    |
+110 |             Literal::Float(f) => format!("FloatLiteral {}", f),
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+110 -             Literal::Float(f) => format!("FloatLiteral {}", f),
+110 +             Literal::Float(f) => format!("FloatLiteral {f}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:111:36
+    |
+111 |             Literal::Boolean(b) => format!("BooleanLiteral {}", b),
+    |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+111 -             Literal::Boolean(b) => format!("BooleanLiteral {}", b),
+111 +             Literal::Boolean(b) => format!("BooleanLiteral {b}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:113:36
+    |
+113 |             Literal::Pattern(p) => format!("PatternLiteral \"{}\"", p),
+    |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+113 -             Literal::Pattern(p) => format!("PatternLiteral \"{}\"", p),
+113 +             Literal::Pattern(p) => format!("PatternLiteral \"{p}\""),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:116:43
+    |
+116 |         Expression::Variable(name, ..) => format!("Variable '{}'", name),
+    |                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+116 -         Expression::Variable(name, ..) => format!("Variable '{}'", name),
+116 +         Expression::Variable(name, ..) => format!("Variable '{name}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:117:57
+    |
+117 |         Expression::BinaryOperation { operator, .. } => format!("BinaryOperation '{:?}'", operator),
+    |                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+117 -         Expression::BinaryOperation { operator, .. } => format!("BinaryOperation '{:?}'", operator),
+117 +         Expression::BinaryOperation { operator, .. } => format!("BinaryOperation '{operator:?}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:118:56
+    |
+118 |         Expression::UnaryOperation { operator, .. } => format!("UnaryOperation '{:?}'", operator),
+    |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+118 -         Expression::UnaryOperation { operator, .. } => format!("UnaryOperation '{:?}'", operator),
+118 +         Expression::UnaryOperation { operator, .. } => format!("UnaryOperation '{operator:?}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:120:47
+    |
+120 |             Expression::Variable(name, ..) => format!("FunctionCall '{}'", name),
+    |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+120 -             Expression::Variable(name, ..) => format!("FunctionCall '{}'", name),
+120 +             Expression::Variable(name, ..) => format!("FunctionCall '{name}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:123:48
+    |
+123 |         Expression::ActionCall { name, .. } => format!("ActionCall '{}'", name),
+    |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+123 -         Expression::ActionCall { name, .. } => format!("ActionCall '{}'", name),
+123 +         Expression::ActionCall { name, .. } => format!("ActionCall '{name}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:124:54
+    |
+124 |         Expression::MemberAccess { property, .. } => format!("MemberAccess '{}'", property),
+    |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+124 -         Expression::MemberAccess { property, .. } => format!("MemberAccess '{}'", property),
+124 +         Expression::MemberAccess { property, .. } => format!("MemberAccess '{property}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:135:14
+    |
+135 |         } => format!("StaticMemberAccess '{}' member '{}'", container, member),
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+135 -         } => format!("StaticMemberAccess '{}' member '{}'", container, member),
+135 +         } => format!("StaticMemberAccess '{container}' member '{member}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:136:50
+    |
+136 |         Expression::MethodCall { method, .. } => format!("MethodCall '{}'", method),
+    |                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+136 -         Expression::MethodCall { method, .. } => format!("MethodCall '{}'", method),
+136 +         Expression::MethodCall { method, .. } => format!("MethodCall '{method}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:137:56
+    |
+137 |         Expression::PropertyAccess { property, .. } => format!("PropertyAccess '{}'", property),
+    |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+137 -         Expression::PropertyAccess { property, .. } => format!("PropertyAccess '{}'", property),
+137 +         Expression::PropertyAccess { property, .. } => format!("PropertyAccess '{property}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:182:31
+    |
+182 |                 Err(e) => Err(format!("Failed to read response body: {}", e)),
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+182 -                 Err(e) => Err(format!("Failed to read response body: {}", e)),
+182 +                 Err(e) => Err(format!("Failed to read response body: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:184:27
+    |
+184 |             Err(e) => Err(format!("Failed to send HTTP GET request: {}", e)),
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+184 -             Err(e) => Err(format!("Failed to send HTTP GET request: {}", e)),
+184 +             Err(e) => Err(format!("Failed to send HTTP GET request: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:199:31
+    |
+199 |                 Err(e) => Err(format!("Failed to read response body: {}", e)),
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+199 -                 Err(e) => Err(format!("Failed to read response body: {}", e)),
+199 +                 Err(e) => Err(format!("Failed to read response body: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:201:27
+    |
+201 |             Err(e) => Err(format!("Failed to send HTTP POST request: {}", e)),
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+201 -             Err(e) => Err(format!("Failed to send HTTP POST request: {}", e)),
+201 +             Err(e) => Err(format!("Failed to send HTTP POST request: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:231:27
+    |
+231 |             Err(e) => Err(format!("Failed to open file {}: {}", path, e)),
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+231 -             Err(e) => Err(format!("Failed to open file {}: {}", path, e)),
+231 +             Err(e) => Err(format!("Failed to open file {path}: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:250:38
+    |
+250 |                 Err(e) => return Err(format!("Invalid file handle or path: {}: {}", handle_id, e)),
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+250 -                 Err(e) => return Err(format!("Invalid file handle or path: {}: {}", handle_id, e)),
+250 +                 Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:256:34
+    |
+256 |             Err(e) => return Err(format!("Failed to clone file handle: {}", e)),
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+256 -             Err(e) => return Err(format!("Failed to clone file handle: {}", e)),
+256 +             Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:264:27
+    |
+264 |             Err(e) => Err(format!("Failed to read file: {}", e)),
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+264 -             Err(e) => Err(format!("Failed to read file: {}", e)),
+264 +             Err(e) => Err(format!("Failed to read file: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:283:38
+    |
+283 |                 Err(e) => return Err(format!("Invalid file handle or path: {}: {}", handle_id, e)),
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+283 -                 Err(e) => return Err(format!("Invalid file handle or path: {}: {}", handle_id, e)),
+283 +                 Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:289:34
+    |
+289 |             Err(e) => return Err(format!("Failed to clone file handle: {}", e)),
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+289 -             Err(e) => return Err(format!("Failed to clone file handle: {}", e)),
+289 +             Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:299:39
+    |
+299 |                         Err(e) => Err(format!("Failed to write to file: {}", e)),
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+299 -                         Err(e) => Err(format!("Failed to write to file: {}", e)),
+299 +                         Err(e) => Err(format!("Failed to write to file: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:302:31
+    |
+302 |                 Err(e) => Err(format!("Failed to truncate file: {}", e)),
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+302 -                 Err(e) => Err(format!("Failed to truncate file: {}", e)),
+302 +                 Err(e) => Err(format!("Failed to truncate file: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:304:27
+    |
+304 |             Err(e) => Err(format!("Failed to seek in file: {}", e)),
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+304 -             Err(e) => Err(format!("Failed to seek in file: {}", e)),
+304 +             Err(e) => Err(format!("Failed to seek in file: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:328:32
+    |
+328 |             None => return Err(format!("Invalid file handle: {}", handle_id)),
+    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+328 -             None => return Err(format!("Invalid file handle: {}", handle_id)),
+328 +             None => return Err(format!("Invalid file handle: {handle_id}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:334:31
+    |
+334 |                 Err(e) => Err(format!("Failed to append to file: {}", e)),
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+334 -                 Err(e) => Err(format!("Failed to append to file: {}", e)),
+334 +                 Err(e) => Err(format!("Failed to append to file: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:336:27
+    |
+336 |             Err(e) => Err(format!("Failed to seek to end of file: {}", e)),
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+336 -             Err(e) => Err(format!("Failed to seek to end of file: {}", e)),
+336 +             Err(e) => Err(format!("Failed to seek to end of file: {e}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:404:34
+    |
+404 |                     changes.push(format!("{} = {} -> {}", name, old_value, value));
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+404 -                     changes.push(format!("{} = {} -> {}", name, old_value, value));
+404 +                     changes.push(format!("{name} = {old_value} -> {value}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:407:30
+    |
+407 |                 changes.push(format!("{} = {}", name, value));
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+407 -                 changes.push(format!("{} = {}", name, value));
+407 +                 changes.push(format!("{name} = {value}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:414:17
+    |
+414 |                 println!("  {}", change);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+414 -                 println!("  {}", change);
+414 +                 println!("  {change}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:428:9
+    |
+428 |         format!("{:?}", stmt)
+    |         ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+428 -         format!("{:?}", stmt)
+428 +         format!("{stmt:?}")
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:435:17
+    |
+435 |                 eprintln!("Error flushing stdout: {}", e);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+435 -                 eprintln!("Error flushing stdout: {}", e);
+435 +                 eprintln!("Error flushing stdout: {e}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:452:21
+    |
+452 |                     eprintln!("Error reading input: {}", e);
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+452 -                     eprintln!("Error reading input: {}", e);
+452 +                     eprintln!("Error reading input: {e}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:509:13
+    |
+509 |             print!("{}", arg);
+    |             ^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+509 -             print!("{}", arg);
+509 +             print!("{arg}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:588:29
+    |
+588 |                 env.define(&format!("flag_{}", key), value);
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+588 -                 env.define(&format!("flag_{}", key), value);
+588 +                 env.define(&format!("flag_{key}"), value);
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/mod.rs:853:17
+    |
+853 |                 println!("{}", value);
+    |                 ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+853 -                 println!("{}", value);
+853 +                 println!("{value}");
+    |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1045:25
+     |
+1045 | /                         format!(
+1046 | |                             "Count loop exceeded maximum iterations ({})",
+1047 | |                             max_iterations
+1048 | |                         ),
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1329:29
+     |
+1329 | ...                   format!("Expected string for file path, got {:?}", path_value),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1329 -                             format!("Expected string for file path, got {:?}", path_value),
+1329 +                             format!("Expected string for file path, got {path_value:?}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1356:29
+     |
+1356 | / ...                   format!(
+1357 | | ...                       "Expected string for file path or handle, got {:?}",
+1358 | | ...                       path_value
+1359 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1409:29
+     |
+1409 | ...                   format!("Expected string for file handle, got {:?}", file_value),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1409 -                             format!("Expected string for file handle, got {:?}", file_value),
+1409 +                             format!("Expected string for file handle, got {file_value:?}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1420:29
+     |
+1420 | ...                   format!("Expected string for file content, got {:?}", content_value),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1420 -                             format!("Expected string for file content, got {:?}", content_value),
+1420 +                             format!("Expected string for file content, got {content_value:?}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1449:29
+     |
+1449 | ...                   format!("Expected string for file handle, got {:?}", file_value),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1449 -                             format!("Expected string for file handle, got {:?}", file_value),
+1449 +                             format!("Expected string for file handle, got {file_value:?}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1486:29
+     |
+1486 | ...                   format!("Timeout waiting for variable '{}'", var_name),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1486 -                             format!("Timeout waiting for variable '{}'", var_name),
+1486 +                             format!("Timeout waiting for variable '{var_name}'"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1506:37
+     |
+1506 | / ...                   format!(
+1507 | | ...                       "Expected string for file handle, got {:?}",
+1508 | | ...                       file_value
+1509 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1520:37
+     |
+1520 | / ...                   format!(
+1521 | | ...                       "Expected string for file content, got {:?}",
+1522 | | ...                       content_value
+1523 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1570:37
+     |
+1570 | / ...                   format!(
+1571 | | ...                       "Expected string for file path or handle, got {:?}",
+1572 | | ...                       path_value
+1573 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1652:29
+     |
+1652 | ...                   format!("Expected string for URL, got {:?}", url_val),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1652 -                             format!("Expected string for URL, got {:?}", url_val),
+1652 +                             format!("Expected string for URL, got {url_val:?}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1682:29
+     |
+1682 | ...                   format!("Expected string for URL, got {:?}", url_val),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1682 -                             format!("Expected string for URL, got {:?}", url_val),
+1682 +                             format!("Expected string for URL, got {url_val:?}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1693:29
+     |
+1693 | ...                   format!("Expected string for data, got {:?}", data_val),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1693 -                             format!("Expected string for data, got {:?}", data_val),
+1693 +                             format!("Expected string for data, got {data_val:?}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1751:25
+     |
+1751 |                         format!("Cannot push to non-list value: {:?}", list_val),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1751 -                         format!("Cannot push to non-list value: {:?}", list_val),
+1751 +                         format!("Cannot push to non-list value: {list_val:?}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1778:41
+     |
+1778 |                         .map(|ast_type| format!("{:?}", ast_type));
+     |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1778 -                         .map(|ast_type| format!("{:?}", ast_type));
+1778 +                         .map(|ast_type| format!("{ast_type:?}"));
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1859:29
+     |
+1859 | ...                   format!("Container '{}' not found", container_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1859 -                             format!("Container '{}' not found", container_type),
+1859 +                             format!("Container '{container_type}' not found"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:1965:29
+     |
+1965 | ...                   format!("Event '{}' not found", name),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1965 -                             format!("Event '{}' not found", name),
+1965 +                             format!("Event '{name}' not found"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2025:33
+     |
+2025 | ...                   format!("Container '{}' not found", container_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2025 -                                 format!("Container '{}' not found", container_type),
+2025 +                                 format!("Container '{container_type}' not found"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2062:29
+     |
+2062 | / ...                   format!(
+2063 | | ...                       "Event '{}' not found in container '{}'",
+2064 | | ...                       event_name, container_type
+2065 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2111:37
+     |
+2111 | ...                   format!("Parent container '{}' not found", parent_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2111 -                                     format!("Parent container '{}' not found", parent_type),
+2111 +                                     format!("Parent container '{parent_type}' not found"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2153:33
+     |
+2153 | / ...                   format!(
+2154 | | ...                       "Method '{}' not found in parent container '{}'",
+2155 | | ...                       method_name, parent_type
+2156 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2262:29
+     |
+2262 | ...                   format!("Container '{}' not found", container),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2262 -                             format!("Container '{}' not found", container),
+2262 +                             format!("Container '{container}' not found"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2286:25
+     |
+2286 | /                         format!(
+2287 | |                             "Static member '{}' not found in container '{}'",
+2288 | |                             member, container
+2289 | |                         ),
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2319:33
+     |
+2319 | ...                   format!("Container '{}' not found", container_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2319 -                                 format!("Container '{}' not found", container_type),
+2319 +                                 format!("Container '{container_type}' not found"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2361:29
+     |
+2361 | / ...                   format!(
+2362 | | ...                       "Method '{}' not found in container '{}'",
+2363 | | ...                       method, container_type
+2364 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2371:25
+     |
+2371 |                         format!("Cannot call method '{}' on non-container value", method),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2371 -                         format!("Cannot call method '{}' on non-container value", method),
+2371 +                         format!("Cannot call method '{method}' on non-container value"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2396:25
+     |
+2396 |                         format!("Pattern compilation error: {}", err),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2396 -                         format!("Pattern compilation error: {}", err),
+2396 +                         format!("Pattern compilation error: {err}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2418:25
+     |
+2418 | /                         println!(
+2419 | |                             "Warning: Using 'count' outside of a count loop context at line {}, column {}",
+2420 | |                             line, column
+2421 | |                         );
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2430:25
+     |
+2430 |                         format!("Undefined variable '{}'", name),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2430 -                         format!("Undefined variable '{}'", name),
+2430 +                         format!("Undefined variable '{name}'"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2537:26
+     |
+2537 |                     _ => format!("{:?}", function_val),
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2537 -                     _ => format!("{:?}", function_val),
+2537 +                     _ => format!("{function_val:?}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2550:33
+     |
+2550 | ...                   format!("Error in native function: {}", e),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2550 -                                 format!("Error in native function: {}", e),
+2550 +                                 format!("Error in native function: {e}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2578:39
+     |
+2578 |                     RuntimeError::new(format!("Undefined action '{}'", name), *line, *column)
+     |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2578 -                     RuntimeError::new(format!("Undefined action '{}'", name), *line, *column)
+2578 +                     RuntimeError::new(format!("Undefined action '{name}'"), *line, *column)
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2610:25
+     |
+2610 |                         format!("'{}' is not callable", name),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2610 -                         format!("'{}' is not callable", name),
+2610 +                         format!("'{name}' is not callable"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2632:33
+     |
+2632 | ...                   format!("Object has no property '{}'", property),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2632 -                                 format!("Object has no property '{}'", property),
+2632 +                                 format!("Object has no property '{property}'"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2684:33
+     |
+2684 | ...                   format!("Object has no key '{}'", key_str),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2684 -                                 format!("Object has no key '{}'", key_str),
+2684 +                                 format!("Object has no key '{key_str}'"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2729:30
+     |
+2729 |                 let result = format!("{}{}", left_val, right_val);
+     |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2729 -                 let result = format!("{}{}", left_val, right_val);
+2729 +                 let result = format!("{left_val}{right_val}");
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2802:33
+     |
+2802 | ...                   format!("Property '{}' not found", property),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2802 -                                 format!("Property '{}' not found", property),
+2802 +                                 format!("Property '{property}' not found"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2809:25
+     |
+2809 | /                         format!(
+2810 | |                             "Cannot access property '{}' on non-container value",
+2811 | |                             property
+2812 | |                         ),
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2957:30
+     |
+2957 |                 let result = format!("{}{}", a, b);
+     |                              ^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2957 -                 let result = format!("{}{}", a, b);
+2957 +                 let result = format!("{a}{b}");
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2961:30
+     |
+2961 |                 let result = format!("{}{}", a, b);
+     |                              ^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2961 -                 let result = format!("{}{}", a, b);
+2961 +                 let result = format!("{a}{b}");
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:2965:30
+     |
+2965 |                 let result = format!("{}{}", a, b);
+     |                              ^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+2965 -                 let result = format!("{}{}", a, b);
+2965 +                 let result = format!("{a}{b}");
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/interpreter/mod.rs:3035:29
+     |
+3035 | ...                   format!("Division resulted in invalid number: {}", result),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+3035 -                             format!("Division resulted in invalid number: {}", result),
+3035 +                             format!("Division resulted in invalid number: {result}"),
+     |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:116:29
+    |
+116 | ...                   format!("Variable name '{}' should be snake_case", name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+116 -                             format!("Variable name '{}' should be snake_case", name),
+116 +                             format!("Variable name '{name}' should be snake_case"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:117:34
+    |
+117 | ...                   Some(format!("Rename to '{}'", snake_case_name)),
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+117 -                             Some(format!("Rename to '{}'", snake_case_name)),
+117 +                             Some(format!("Rename to '{snake_case_name}'")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:134:29
+    |
+134 | ...                   format!("Action name '{}' should be snake_case", name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+134 -                             format!("Action name '{}' should be snake_case", name),
+134 +                             format!("Action name '{name}' should be snake_case"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:135:34
+    |
+135 | ...                   Some(format!("Rename to '{}'", snake_case_name)),
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+135 -                             Some(format!("Rename to '{}'", snake_case_name)),
+135 +                             Some(format!("Rename to '{snake_case_name}'")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:209:25
+    |
+209 | /                         format!(
+210 | |                             "Line should be indented with {} spaces, found {}",
+211 | |                             expected_indent, indent_spaces
+212 | |                         ),
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:213:30
+    |
+213 |                         Some(format!("Adjust indentation to {} spaces", expected_indent)),
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+213 -                         Some(format!("Adjust indentation to {} spaces", expected_indent)),
+213 +                         Some(format!("Adjust indentation to {expected_indent} spaces")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:301:25
+    |
+301 |                         format!("Keyword '{}' should be lowercase", uppercase_keyword),
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+301 -                         format!("Keyword '{}' should be lowercase", uppercase_keyword),
+301 +                         format!("Keyword '{uppercase_keyword}' should be lowercase"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:302:30
+    |
+302 |                         Some(format!("Change to '{}'", keyword)),
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+302 -                         Some(format!("Change to '{}'", keyword)),
+302 +                         Some(format!("Change to '{keyword}'")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:315:25
+    |
+315 |                         format!("Keyword '{}' should be lowercase", mixed_case_keyword),
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+315 -                         format!("Keyword '{}' should be lowercase", mixed_case_keyword),
+315 +                         format!("Keyword '{mixed_case_keyword}' should be lowercase"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:316:30
+    |
+316 |                         Some(format!("Change to '{}'", keyword)),
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+316 -                         Some(format!("Change to '{}'", keyword)),
+316 +                         Some(format!("Change to '{keyword}'")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:408:25
+    |
+408 |                         format!("Line exceeds maximum length of {} characters", max_length),
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+408 -                         format!("Line exceeds maximum length of {} characters", max_length),
+408 +                         format!("Line exceeds maximum length of {max_length} characters"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:409:30
+    |
+409 |                         Some(format!("Shorten line to {} characters or less", max_length)),
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+409 -                         Some(format!("Shorten line to {} characters or less", max_length)),
+409 +                         Some(format!("Shorten line to {max_length} characters or less")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/linter/mod.rs:469:21
+    |
+469 |                     format!("Nesting depth exceeds maximum of {}", max_depth),
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+469 -                     format!("Nesting depth exceeds maximum of {}", max_depth),
+469 +                     format!("Nesting depth exceeds maximum of {max_depth}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/logging.rs:129:9
+    |
+129 |         format!("{}_exec.log", file_name)
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+129 -         format!("{}_exec.log", file_name)
+129 +         format!("{file_name}_exec.log")
+    |
+
+error: variables can be used directly in the `format!` string
+    --> src/parser/mod.rs:1199:17
+     |
+1199 | /                 format!(
+1200 | |                     "Expected 'as' after variable name '{}', but found end of input",
+1201 | |                     name
+1202 | |                 ),
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/parser/mod.rs:1321:17
+     |
+1321 |                 format!("{}: unexpected end of input", error_message),
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1321 -                 format!("{}: unexpected end of input", error_message),
+1321 +                 format!("{error_message}: unexpected end of input"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/parser/mod.rs:4209:28
+     |
+4209 |                         Ok(format!("rep(1,inf,{})", inner))
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+4209 -                         Ok(format!("rep(1,inf,{})", inner))
+4209 +                         Ok(format!("rep(1,inf,{inner})"))
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/parser/mod.rs:4229:20
+     |
+4229 |                 Ok(format!("rep(0,1,{})", inner))
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+4229 -                 Ok(format!("rep(0,1,{})", inner))
+4229 +                 Ok(format!("rep(0,1,{inner})"))
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/parser/mod.rs:4244:36
+     |
+4244 | ...                   Ok(format!("rep({},{},{})", min_val, max_val, inner))
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+4244 -                                 Ok(format!("rep({},{},{})", min_val, max_val, inner))
+4244 +                                 Ok(format!("rep({min_val},{max_val},{inner})"))
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/parser/mod.rs:4301:32
+     |
+4301 | ...                   Ok(format!("cap(\"{}\",{})", capture_name, inner_ir))
+     |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+4301 -                             Ok(format!("cap(\"{}\",{})", capture_name, inner_ir))
+4301 +                             Ok(format!("cap(\"{capture_name}\",{inner_ir})"))
+     |
+
+error: variables can be used directly in the `format!` string
+   --> src/repl.rs:109:21
+    |
+109 |                     eprintln!("Flush failed: {}", e);
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+109 -                     eprintln!("Flush failed: {}", e);
+109 +                     eprintln!("Flush failed: {e}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/repl.rs:113:44
+    |
+113 |               _ => Ok(CommandResult::Unknown(format!(
+    |  ____________________________________________^
+114 | |                 "Unknown command: {}",
+115 | |                 command
+116 | |             ))),
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/repl.rs:217:41
+    |
+217 |                     error_messages.push(format!("Type error: {}", error));
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+217 -                     error_messages.push(format!("Type error: {}", error));
+217 +                     error_messages.push(format!("Type error: {error}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/repl.rs:239:50
+    |
+239 | ...                   result_output = Some(format!("{:?}", value));
+    |                                            ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+239 -                             result_output = Some(format!("{:?}", value));
+239 +                             result_output = Some(format!("{value:?}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/repl.rs:257:57
+    |
+257 | ...                   error_messages.push(format!("Runtime error: {}", error));
+    |                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+257 -                                     error_messages.push(format!("Runtime error: {}", error));
+257 +                                     error_messages.push(format!("Runtime error: {error}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/repl.rs:287:53
+    |
+287 | ...                   error_messages.push(format!("Runtime error: {}", error));
+    |                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+287 -                                 error_messages.push(format!("Runtime error: {}", error));
+287 +                                 error_messages.push(format!("Runtime error: {error}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/repl.rs:318:49
+    |
+318 | ...                   error_messages.push(format!("Runtime error: {}", error));
+    |                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+318 -                             error_messages.push(format!("Runtime error: {}", error));
+318 +                             error_messages.push(format!("Runtime error: {error}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/repl.rs:358:41
+    |
+358 |                     Ok(Some(output)) => println!("{}", output),
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+358 -                     Ok(Some(output)) => println!("{}", output),
+358 +                     Ok(Some(output)) => println!("{output}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/repl.rs:360:35
+    |
+360 |                     Err(error) => println!("Error: {}", error),
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+360 -                     Err(error) => println!("Error: {}", error),
+360 +                     Err(error) => println!("Error: {error}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/repl.rs:372:17
+    |
+372 |                 println!("Error: {:?}", err);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+372 -                 println!("Error: {:?}", err);
+372 +                 println!("Error: {err:?}");
+    |
+
+error: variables can be used directly in the `format!` string
+  --> src/stdlib/core.rs:11:9
+   |
+11 |         print!("{}", arg);
+   |         ^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+11 -         print!("{}", arg);
+11 +         print!("{arg}");
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/stdlib/legacy_pattern.rs:71:37
+   |
+71 |                 regex_str.push_str(&format!("(?P<{}>.*?)", placeholder_name));
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+71 -                 regex_str.push_str(&format!("(?P<{}>.*?)", placeholder_name));
+71 +                 regex_str.push_str(&format!("(?P<{placeholder_name}>.*?)"));
+   |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:172:37
+    |
+172 |                 regex_str.push_str(&format!("(?:{})?", part_regex));
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+172 -                 regex_str.push_str(&format!("(?:{})?", part_regex));
+172 +                 regex_str.push_str(&format!("(?:{part_regex})?"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:189:37
+    |
+189 |                 regex_str.push_str(&format!("(?:{})+", part_regex));
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+189 -                 regex_str.push_str(&format!("(?:{})+", part_regex));
+189 +                 regex_str.push_str(&format!("(?:{part_regex})+"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:228:37
+    |
+228 |                 regex_str.push_str(&format!("(?:{}){{{}}}", part_regex, count));
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+228 -                 regex_str.push_str(&format!("(?:{}){{{}}}", part_regex, count));
+228 +                 regex_str.push_str(&format!("(?:{part_regex}){{{count}}}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:292:37
+    |
+292 |                 regex_str.push_str(&format!("(?:{}){{{},{}}}", part_regex, min, max));
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+292 -                 regex_str.push_str(&format!("(?:{}){{{},{}}}", part_regex, min, max));
+292 +                 regex_str.push_str(&format!("(?:{part_regex}){{{min},{max}}}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:309:29
+    |
+309 |                 regex_str = format!("^{}{}", part_regex, regex_str);
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+309 -                 regex_str = format!("^{}{}", part_regex, regex_str);
+309 +                 regex_str = format!("^{part_regex}{regex_str}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:326:37
+    |
+326 |                 regex_str.push_str(&format!("{}$", part_regex));
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+326 -                 regex_str.push_str(&format!("{}$", part_regex));
+326 +                 regex_str.push_str(&format!("{part_regex}$"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:345:41
+    |
+345 |                     regex_str.push_str(&format!("|{}", part_regex));
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+345 -                     regex_str.push_str(&format!("|{}", part_regex));
+345 +                     regex_str.push_str(&format!("|{part_regex}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:348:33
+    |
+348 |                     regex_str = format!("(?:{}|{})", prev_regex, part_regex);
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+348 -                     regex_str = format!("(?:{}|{})", prev_regex, part_regex);
+348 +                     regex_str = format!("(?:{prev_regex}|{part_regex})");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:371:56
+    |
+371 |         let regex = Regex::new(&regex_str).map_err(|e| format!("Invalid regex: {}", e))?;
+    |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+371 -         let regex = Regex::new(&regex_str).map_err(|e| format!("Invalid regex: {}", e))?;
+371 +         let regex = Regex::new(&regex_str).map_err(|e| format!("Invalid regex: {e}"))?;
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:623:13
+    |
+623 |             format!("Error parsing pattern: {}", err),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+623 -             format!("Error parsing pattern: {}", err),
+623 +             format!("Error parsing pattern: {err}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:676:13
+    |
+676 |             format!("Error parsing pattern: {}", err),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+676 -             format!("Error parsing pattern: {}", err),
+676 +             format!("Error parsing pattern: {err}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:733:13
+    |
+733 |             format!("Error parsing pattern: {}", err),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+733 -             format!("Error parsing pattern: {}", err),
+733 +             format!("Error parsing pattern: {err}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/legacy_pattern.rs:784:13
+    |
+784 |             format!("Error parsing pattern: {}", err),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+784 -             format!("Error parsing pattern: {}", err),
+784 +             format!("Error parsing pattern: {err}"),
+    |
+
+error: variables can be used directly in the `format!` string
+  --> src/stdlib/list.rs:95:12
+   |
+95 |         if format!("{:?}", value) == format!("{:?}", item) {
+   |            ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+95 -         if format!("{:?}", value) == format!("{:?}", item) {
+95 +         if format!("{value:?}") == format!("{:?}", item) {
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/stdlib/list.rs:95:38
+   |
+95 |         if format!("{:?}", value) == format!("{:?}", item) {
+   |                                      ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+95 -         if format!("{:?}", value) == format!("{:?}", item) {
+95 +         if format!("{:?}", value) == format!("{item:?}") {
+   |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/list.rs:116:12
+    |
+116 |         if format!("{:?}", value) == format!("{:?}", item) {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+116 -         if format!("{:?}", value) == format!("{:?}", item) {
+116 +         if format!("{value:?}") == format!("{:?}", item) {
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/list.rs:116:38
+    |
+116 |         if format!("{:?}", value) == format!("{:?}", item) {
+    |                                      ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+116 -         if format!("{:?}", value) == format!("{:?}", item) {
+116 +         if format!("{:?}", value) == format!("{item:?}") {
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/math.rs:103:13
+    |
+103 | /             format!(
+104 | |                 "clamp min ({}) must be less than or equal to max ({})",
+105 | |                 min, max
+106 | |             ),
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+  --> src/stdlib/pattern.rs:22:46
+   |
+22 |             PatternError::ParseError(msg) => write!(f, "Pattern parse error: {}", msg),
+   |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+22 -             PatternError::ParseError(msg) => write!(f, "Pattern parse error: {}", msg),
+22 +             PatternError::ParseError(msg) => write!(f, "Pattern parse error: {msg}"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/stdlib/pattern.rs:23:48
+   |
+23 |             PatternError::RuntimeError(msg) => write!(f, "Pattern runtime error: {}", msg),
+   |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+23 -             PatternError::RuntimeError(msg) => write!(f, "Pattern runtime error: {}", msg),
+23 +             PatternError::RuntimeError(msg) => write!(f, "Pattern runtime error: {msg}"),
+   |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/pattern.rs:128:42
+    |
+128 |               Err(PatternError::ParseError(format!(
+    |  __________________________________________^
+129 | |                 "Invalid literal format: {}",
+130 | |                 ir
+131 | |             )))
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/pattern.rs:140:47
+    |
+140 |               _ => Err(PatternError::ParseError(format!(
+    |  _______________________________________________^
+141 | |                 "Unknown character class: {}",
+142 | |                 class_name
+143 | |             ))),
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/pattern.rs:188:49
+    |
+188 |               return Err(PatternError::ParseError(format!(
+    |  _________________________________________________^
+189 | |                 "Invalid range: min {} > max {}",
+190 | |                 min, max
+191 | |             )));
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/pattern.rs:229:47
+    |
+229 |               _ => Err(PatternError::ParseError(format!(
+    |  _______________________________________________^
+230 | |                 "Unknown anchor type: {}",
+231 | |                 anchor_type
+232 | |             ))),
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/pattern.rs:461:34
+    |
+461 |             recursion_stack.push(format!("capture:{}", name));
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+461 -             recursion_stack.push(format!("capture:{}", name));
+461 +             recursion_stack.push(format!("capture:{name}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/pattern.rs:591:13
+    |
+591 |             format!("Pattern execution error: {}", e),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+591 -             format!("Pattern execution error: {}", e),
+591 +             format!("Pattern execution error: {e}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/pattern.rs:644:13
+    |
+644 |             format!("Pattern execution error: {}", e),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+644 -             format!("Pattern execution error: {}", e),
+644 +             format!("Pattern execution error: {e}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/pattern.rs:705:13
+    |
+705 |             format!("Pattern execution error: {}", e),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+705 -             format!("Pattern execution error: {}", e),
+705 +             format!("Pattern execution error: {e}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/pattern.rs:774:21
+    |
+774 |                     format!("Pattern execution error: {}", e),
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+774 -                     format!("Pattern execution error: {}", e),
+774 +                     format!("Pattern execution error: {e}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/time.rs:216:13
+    |
+216 |             format!("Failed to parse date: {}", e),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+216 -             format!("Failed to parse date: {}", e),
+216 +             format!("Failed to parse date: {e}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/time.rs:264:13
+    |
+264 |             format!("Failed to parse time: {}", e),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+264 -             format!("Failed to parse time: {}", e),
+264 +             format!("Failed to parse time: {e}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/time.rs:329:13
+    |
+329 |             format!("Hours must be between 0 and 23, got {}", hours),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+329 -             format!("Hours must be between 0 and 23, got {}", hours),
+329 +             format!("Hours must be between 0 and 23, got {hours}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/time.rs:337:13
+    |
+337 |             format!("Minutes must be between 0 and 59, got {}", minutes),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+337 -             format!("Minutes must be between 0 and 59, got {}", minutes),
+337 +             format!("Minutes must be between 0 and 59, got {minutes}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/time.rs:345:13
+    |
+345 |             format!("Seconds must be between 0 and 59, got {}", seconds),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+345 -             format!("Seconds must be between 0 and 59, got {}", seconds),
+345 +             format!("Seconds must be between 0 and 59, got {seconds}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/time.rs:354:13
+    |
+354 | /             format!(
+355 | |                 "Failed to create time with hours: {}, minutes: {}, seconds: {}",
+356 | |                 hours, minutes, seconds
+357 | |             ),
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/time.rs:418:13
+    |
+418 |             format!("Month must be between 1 and 12, got {}", month),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+418 -             format!("Month must be between 1 and 12, got {}", month),
+418 +             format!("Month must be between 1 and 12, got {month}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/time.rs:426:13
+    |
+426 |             format!("Day must be between 1 and 31, got {}", day),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+426 -             format!("Day must be between 1 and 31, got {}", day),
+426 +             format!("Day must be between 1 and 31, got {day}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/time.rs:435:13
+    |
+435 | /             format!(
+436 | |                 "Failed to create date with year: {}, month: {}, day: {}",
+437 | |                 year, month, day
+438 | |             ),
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/stdlib/time.rs:485:42
+    |
+485 |         .ok_or_else(|| RuntimeError::new(format!("Failed to add {} days to date", days), 0, 0))?;
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+485 -         .ok_or_else(|| RuntimeError::new(format!("Failed to add {} days to date", days), 0, 0))?;
+485 +         .ok_or_else(|| RuntimeError::new(format!("Failed to add {days} days to date"), 0, 0))?;
+    |
+
+error: variables can be used directly in the `format!` string
+  --> src/typechecker/mod.rs:41:35
+   |
+41 |                 message.push_str(&format!(" - Expected {} but found {}", expected, found));
+   |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+41 -                 message.push_str(&format!(" - Expected {} but found {}", expected, found));
+41 +                 message.push_str(&format!(" - Expected {expected} but found {found}"));
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/typechecker/mod.rs:45:9
+   |
+45 |         write!(f, "{}", message)
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+45 -         write!(f, "{}", message)
+45 +         write!(f, "{message}")
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/typechecker/mod.rs:59:35
+   |
+59 |             Type::Custom(name) => write!(f, "{}", name),
+   |                                   ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+59 -             Type::Custom(name) => write!(f, "{}", name),
+59 +             Type::Custom(name) => write!(f, "{name}"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/typechecker/mod.rs:60:38
+   |
+60 |             Type::List(item_type) => write!(f, "List of {}", item_type),
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+60 -             Type::List(item_type) => write!(f, "List of {}", item_type),
+60 +             Type::List(item_type) => write!(f, "List of {item_type}"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/typechecker/mod.rs:61:48
+   |
+61 |             Type::Map(key_type, value_type) => write!(f, "Map from {} to {}", key_type, value_type),
+   |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+61 -             Type::Map(key_type, value_type) => write!(f, "Map from {} to {}", key_type, value_type),
+61 +             Type::Map(key_type, value_type) => write!(f, "Map from {key_type} to {value_type}"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/typechecker/mod.rs:71:21
+   |
+71 |                     write!(f, "{}", param)?;
+   |                     ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+71 -                     write!(f, "{}", param)?;
+71 +                     write!(f, "{param}")?;
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/typechecker/mod.rs:73:17
+   |
+73 |                 write!(f, ") -> {}", return_type)
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+73 -                 write!(f, ") -> {}", return_type)
+73 +                 write!(f, ") -> {return_type}")
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/typechecker/mod.rs:77:31
+   |
+77 |             Type::Async(t) => write!(f, "Async<{}>", t),
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+77 -             Type::Async(t) => write!(f, "Async<{}>", t),
+77 +             Type::Async(t) => write!(f, "Async<{t}>"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/typechecker/mod.rs:79:38
+   |
+79 |             Type::Container(name) => write!(f, "Container<{}>", name),
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+79 -             Type::Container(name) => write!(f, "Container<{}>", name),
+79 +             Type::Container(name) => write!(f, "Container<{name}>"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/typechecker/mod.rs:80:46
+   |
+80 |             Type::ContainerInstance(name) => write!(f, "Instance<{}>", name),
+   |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+80 -             Type::ContainerInstance(name) => write!(f, "Instance<{}>", name),
+80 +             Type::ContainerInstance(name) => write!(f, "Instance<{name}>"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/typechecker/mod.rs:81:38
+   |
+81 |             Type::Interface(name) => write!(f, "Interface<{}>", name),
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+81 -             Type::Interface(name) => write!(f, "Interface<{}>", name),
+81 +             Type::Interface(name) => write!(f, "Interface<{name}>"),
+   |
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:161:29
+    |
+161 | ...                   format!("Expected list type for push operation, got {:?}", list_type),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+161 -                             format!("Expected list type for push operation, got {:?}", list_type),
+161 +                             format!("Expected list type for push operation, got {list_type:?}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:180:25
+    |
+180 | /                         format!(
+181 | |                             "Expected boolean condition in repeat-while loop, got {:?}",
+182 | |                             condition_type
+183 | |                         ),
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:294:25
+    |
+294 |                         format!("Could not infer type for variable '{}'", name),
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+294 -                         format!("Could not infer type for variable '{}'", name),
+294 +                         format!("Could not infer type for variable '{name}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:316:25
+    |
+316 | /                         format!(
+317 | |                             "Cannot initialize variable '{}' with incompatible type",
+318 | |                             name
+319 | |                         ),
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:347:33
+    |
+347 | / ...                   format!(
+348 | | ...                       "Cannot assign value of incompatible type to variable '{}'",
+349 | | ...                       name
+350 | | ...                   ),
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:729:33
+    |
+729 | ...                   format!("'{}' is not a container type", parent_name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+729 -                                 format!("'{}' is not a container type", parent_name),
+729 +                                 format!("'{parent_name}' is not a container type"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:738:29
+    |
+738 | ...                   format!("Parent container '{}' not found", parent_name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+738 -                             format!("Parent container '{}' not found", parent_name),
+738 +                             format!("Parent container '{parent_name}' not found"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:753:33
+    |
+753 | ...                   format!("'{}' is not an interface type", interface_name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+753 -                                 format!("'{}' is not an interface type", interface_name),
+753 +                                 format!("'{interface_name}' is not an interface type"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:762:29
+    |
+762 | ...                   format!("Interface '{}' not found", interface_name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+762 -                             format!("Interface '{}' not found", interface_name),
+762 +                             format!("Interface '{interface_name}' not found"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:777:37
+    |
+777 | / ...                   format!(
+778 | | ...                       "Default value type {:?} incompatible with declared type {:?}",
+779 | | ...                       default_type, declared_type
+780 | | ...                   ),
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:813:29
+    |
+813 | ...                   format!("'{}' is not a container type", container_type),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+813 -                             format!("'{}' is not a container type", container_type),
+813 +                             format!("'{container_type}' is not a container type"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:822:25
+    |
+822 |                         format!("Container type '{}' not found", container_type),
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+822 -                         format!("Container type '{}' not found", container_type),
+822 +                         format!("Container type '{container_type}' not found"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:892:29
+    |
+892 | ...                   format!("Cannot determine type of variable '{}'", name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+892 -                             format!("Cannot determine type of variable '{}'", name),
+892 +                             format!("Cannot determine type of variable '{name}'"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:915:29
+    |
+915 | ...                   format!("Variable '{}' is not defined", name),
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+915 -                             format!("Variable '{}' is not defined", name),
+915 +                             format!("Variable '{name}' is not defined"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:954:33
+    |
+954 | / ...                   format!(
+955 | | ...                       "Cannot perform {:?} operation on {} and {}",
+956 | | ...                       operator, left_type, right_type
+957 | | ...                   ),
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/typechecker/mod.rs:975:33
+    |
+975 | / ...                   format!(
+976 | | ...                       "Cannot compare {} and {} for equality",
+977 | | ...                       left_type, right_type
+978 | | ...                   ),
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:999:33
+     |
+999  | / ...                   format!(
+1000 | | ...                       "Cannot compare {} and {} with {:?}",
+1001 | | ...                       left_type, right_type, operator
+1002 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1020:33
+     |
+1020 | / ...                   format!(
+1021 | | ...                       "Cannot perform logical {:?} on {} and {}",
+1022 | | ...                       operator, left_type, right_type
+1023 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1040:37
+     |
+1040 | / ...                   format!(
+1041 | | ...                       "Cannot check if {} contains {}, list items are {}",
+1042 | | ...                       left_type, right_type, item_type
+1043 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1057:37
+     |
+1057 | / ...                   format!(
+1058 | | ...                       "Cannot check if {} contains {}, map keys are {}",
+1059 | | ...                       left_type, right_type, key_type
+1060 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1074:37
+     |
+1074 | / ...                   format!(
+1075 | | ...                       "Cannot check if {} contains {}",
+1076 | | ...                       left_type, right_type
+1077 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1090:33
+     |
+1090 | ...                   format!("Cannot check if {} contains {}", left_type, right_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1090 -                                 format!("Cannot check if {} contains {}", left_type, right_type),
+1090 +                                 format!("Cannot check if {left_type} contains {right_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1119:33
+     |
+1119 | ...                   format!("Cannot apply 'not' to {}", expr_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1119 -                                 format!("Cannot apply 'not' to {}", expr_type),
+1119 +                                 format!("Cannot apply 'not' to {expr_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1133:33
+     |
+1133 | ...                   format!("Cannot negate {}", expr_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1133 -                                 format!("Cannot negate {}", expr_type),
+1133 +                                 format!("Cannot negate {expr_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1203:29
+     |
+1203 | ...                   format!("Cannot call {}, not a function", function_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1203 -                             format!("Cannot call {}, not a function", function_type),
+1203 +                             format!("Cannot call {function_type}, not a function"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1233:29
+     |
+1233 | ...                   format!("Cannot access property '{}' on {}", property, object_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1233 -                             format!("Cannot access property '{}' on {}", property, object_type),
+1233 +                             format!("Cannot access property '{property}' on {object_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1260:33
+     |
+1260 | ...                   format!("List index must be a number, got {}", index_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1260 -                                 format!("List index must be a number, got {}", index_type),
+1260 +                                 format!("List index must be a number, got {index_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1274:33
+     |
+1274 | ...                   format!("Map key must be {}, got {}", key_type, index_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1274 -                                 format!("Map key must be {}, got {}", key_type, index_type),
+1274 +                                 format!("Map key must be {key_type}, got {index_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1288:33
+     |
+1288 | ...                   format!("Text index must be a number, got {}", index_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1288 -                                 format!("Text index must be a number, got {}", index_type),
+1288 +                                 format!("Text index must be a number, got {index_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1302:29
+     |
+1302 | ...                   format!("Cannot index into {}", collection_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1302 -                             format!("Cannot index into {}", collection_type),
+1302 +                             format!("Cannot index into {collection_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1331:25
+     |
+1331 |                         format!("Cannot concatenate {} and {}", left_type, right_type),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1331 -                         format!("Cannot concatenate {} and {}", left_type, right_type),
+1331 +                         format!("Cannot concatenate {left_type} and {right_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1350:25
+     |
+1350 |                         format!("Expected Text for pattern matching, got {}", text_type),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1350 -                         format!("Expected Text for pattern matching, got {}", text_type),
+1350 +                         format!("Expected Text for pattern matching, got {text_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1360:25
+     |
+1360 | /                         format!(
+1361 | |                             "Expected Pattern for pattern matching, got {}",
+1362 | |                             pattern_type
+1363 | |                         ),
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1379:25
+     |
+1379 |                         format!("Expected Text for pattern finding, got {}", text_type),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1379 -                         format!("Expected Text for pattern finding, got {}", text_type),
+1379 +                         format!("Expected Text for pattern finding, got {text_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1389:25
+     |
+1389 |                         format!("Expected Pattern for pattern finding, got {}", pattern_type),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1389 -                         format!("Expected Pattern for pattern finding, got {}", pattern_type),
+1389 +                         format!("Expected Pattern for pattern finding, got {pattern_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1411:25
+     |
+1411 |                         format!("Expected Text for pattern replacement, got {}", text_type),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1411 -                         format!("Expected Text for pattern replacement, got {}", text_type),
+1411 +                         format!("Expected Text for pattern replacement, got {text_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1421:25
+     |
+1421 | /                         format!(
+1422 | |                             "Expected Pattern for pattern replacement, got {}",
+1423 | |                             pattern_type
+1424 | |                         ),
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1434:25
+     |
+1434 |                         format!("Expected Text for replacement, got {}", replacement_type),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1434 -                         format!("Expected Text for replacement, got {}", replacement_type),
+1434 +                         format!("Expected Text for replacement, got {replacement_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1450:25
+     |
+1450 |                         format!("Expected Text for pattern splitting, got {}", text_type),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1450 -                         format!("Expected Text for pattern splitting, got {}", text_type),
+1450 +                         format!("Expected Text for pattern splitting, got {text_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1460:25
+     |
+1460 | /                         format!(
+1461 | |                             "Expected Pattern for pattern splitting, got {}",
+1462 | |                             pattern_type
+1463 | |                         ),
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1484:29
+     |
+1484 | ...                   format!("Cannot await non-async value of type {}", expr_type),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1484 -                             format!("Cannot await non-async value of type {}", expr_type),
+1484 +                             format!("Cannot await non-async value of type {expr_type}"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1512:29
+     |
+1512 | ...                   format!("Undefined action '{}'", name),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1512 -                             format!("Undefined action '{}'", name),
+1512 +                             format!("Undefined action '{name}'"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1526:25
+     |
+1526 |                         format!("Cannot determine type of action '{}'", name),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1526 -                         format!("Cannot determine type of action '{}'", name),
+1526 +                         format!("Cannot determine type of action '{name}'"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1588:29
+     |
+1588 | ...                   format!("'{}' is not an action", name),
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+     |
+1588 -                             format!("'{}' is not an action", name),
+1588 +                             format!("'{name}' is not an action"),
+     |
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1655:29
+     |
+1655 | / ...                   format!(
+1656 | | ...                       "Cannot call method '{}' on non-container type {}",
+1657 | | ...                       _method, object_type
+1658 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+    --> src/typechecker/mod.rs:1679:29
+     |
+1679 | / ...                   format!(
+1680 | | ...                       "Cannot access property '{}' on non-container type",
+1681 | | ...                       property
+1682 | | ...                   ),
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:301:34
+    |
+301 |                         message: format!("Unknown configuration key: {}", key),
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+301 -                         message: format!("Unknown configuration key: {}", key),
+301 +                         message: format!("Unknown configuration key: {key}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:318:42
+    |
+318 |   ...                   message: format!(
+    |  ________________________________^
+319 | | ...                       "Invalid type for {}: expected integer, got '{}'",
+320 | | ...                       key, value
+321 | | ...                   ),
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:327:52
+    |
+327 | ...                   .map(|default| format!("Set to default value: {}", default)),
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+327 -                                     .map(|default| format!("Set to default value: {}", default)),
+327 +                                     .map(|default| format!("Set to default value: {default}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:337:42
+    |
+337 |   ...                   message: format!(
+    |  ________________________________^
+338 | | ...                       "Invalid type for {}: expected boolean (true/false), got '{}'",
+339 | | ...                       key, value
+340 | | ...                   ),
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:346:52
+    |
+346 | ...                   .map(|default| format!("Set to default value: {}", default)),
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+346 -                                     .map(|default| format!("Set to default value: {}", default)),
+346 +                                     .map(|default| format!("Set to default value: {default}")),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:357:46
+    |
+357 |   ...                   message: format!(
+    |  ________________________________^
+358 | | ...                       "Invalid value for {}: expected one of {:?}, got '{}'",
+359 | | ...                       key, valid_values, value
+360 | | ...                   ),
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:364:41
+    |
+364 | ...                   format!("Set to default value: {}", default)
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+364 -                                         format!("Set to default value: {}", default)
+364 +                                         format!("Set to default value: {default}")
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:377:46
+    |
+377 |   ...                   message: format!(
+    |  ________________________________^
+378 | | ...                       "Invalid value for {}: expected one of {:?}, got '{}'",
+379 | | ...                       key, valid_values, value
+380 | | ...                   ),
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:384:41
+    |
+384 | ...                   format!("Set to default value: {}", default)
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+384 -                                         format!("Set to default value: {}", default)
+384 +                                         format!("Set to default value: {default}")
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:423:34
+    |
+423 |                         message: format!("Missing required setting: {}", key),
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+423 -                         message: format!("Missing required setting: {}", key),
+423 +                         message: format!("Missing required setting: {key}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:427:29
+    |
+427 | ...                   format!("Add '{}' with default value: {}", key, default)
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+427 -                             format!("Add '{}' with default value: {}", key, default)
+427 +                             format!("Add '{key}' with default value: {default}")
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:481:29
+    |
+481 | ...                   println!("✅ Commented out unknown key at line {}", line_number);
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+481 -                             println!("✅ Commented out unknown key at line {}", line_number);
+481 +                             println!("✅ Commented out unknown key at line {line_number}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:493:41
+    |
+493 | ...                   format!("{} = {}", setting_name, default_value);
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+493 -                                         format!("{} = {}", setting_name, default_value);
+493 +                                         format!("{setting_name} = {default_value}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:494:37
+    |
+494 | / ...                   println!(
+495 | | ...                       "✅ Fixed value for '{}' at line {}",
+496 | | ...                       setting_name, line_number
+497 | | ...                   );
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:510:48
+    |
+510 | ...                   lines.push(format!("{} = {}", setting_name, default_value));
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+510 -                                     lines.push(format!("{} = {}", setting_name, default_value));
+510 +                                     lines.push(format!("{setting_name} = {default_value}"));
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:512:37
+    |
+512 | ...                   println!("✅ Added missing setting: {}", setting_name);
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+512 -                                     println!("✅ Added missing setting: {}", setting_name);
+512 +                                     println!("✅ Added missing setting: {setting_name}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:561:21
+    |
+561 |                     println!("   Fix: {}", fix_message);
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+561 -                     println!("   Fix: {}", fix_message);
+561 +                     println!("   Fix: {fix_message}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:563:21
+    |
+563 |                     println!("   Suggested fix: {}", fix_message);
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+563 -                     println!("   Suggested fix: {}", fix_message);
+563 +                     println!("   Suggested fix: {fix_message}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/wfl_config/checker.rs:570:9
+    |
+570 | /         println!(
+571 | |             "{} errors, {} warnings found in configuration files",
+572 | |             error_count, warning_count
+573 | |         );
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+  --> src/lib.rs:40:13
+   |
+40 |             eprintln!("Failed to initialize logger: {}", e);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+40 -             eprintln!("Failed to initialize logger: {}", e);
+40 +             eprintln!("Failed to initialize logger: {e}");
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/lib.rs:47:13
+   |
+47 |             eprintln!("Failed to initialize execution logger: {}", e);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+47 -             eprintln!("Failed to initialize execution logger: {}", e);
+47 +             eprintln!("Failed to initialize execution logger: {e}");
+   |
+
+error: could not compile `wfl` (lib) due to 286 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: variables can be used directly in the `format!` string
+   --> src/debug_report.rs:343:28
+    |
+343 |         let debug_output = format!("{:?}", safe_debug);
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+343 -         let debug_output = format!("{:?}", safe_debug);
+343 +         let debug_output = format!("{safe_debug:?}");
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/memory_tests.rs:132:9
+    |
+132 | /         assert_eq!(
+133 | |             initial_count, final_count,
+134 | |             "Reference count before ({}) and after ({}) should be the same",
+135 | |             initial_count, final_count
+136 | |         );
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/tests.rs:25:22
+   |
+25 |                 _ => panic!("Expected number, got {:?}", result),
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+25 -                 _ => panic!("Expected number, got {:?}", result),
+25 +                 _ => panic!("Expected number, got {result:?}"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/tests.rs:48:14
+   |
+48 |         _ => panic!("Expected number, got {:?}", result),
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+48 -         _ => panic!("Expected number, got {:?}", result),
+48 +         _ => panic!("Expected number, got {result:?}"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/tests.rs:63:14
+   |
+63 |         _ => panic!("Expected number, got {:?}", result),
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+63 -         _ => panic!("Expected number, got {:?}", result),
+63 +         _ => panic!("Expected number, got {result:?}"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/tests.rs:73:14
+   |
+73 |         _ => panic!("Expected boolean, got {:?}", result),
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+73 -         _ => panic!("Expected boolean, got {:?}", result),
+73 +         _ => panic!("Expected boolean, got {result:?}"),
+   |
+
+error: variables can be used directly in the `format!` string
+  --> src/interpreter/tests.rs:89:14
+   |
+89 |         _ => panic!("Expected null, got {:?}", result),
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+   |
+89 -         _ => panic!("Expected null, got {:?}", result),
+89 +         _ => panic!("Expected null, got {result:?}"),
+   |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/tests.rs:128:14
+    |
+128 |         _ => panic!("Expected null, got {:?}", result),
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+128 -         _ => panic!("Expected null, got {:?}", result),
+128 +         _ => panic!("Expected null, got {result:?}"),
+    |
+
+error: variables can be used directly in the `format!` string
+   --> src/interpreter/tests.rs:169:5
+    |
+169 | /     assert!(
+170 | |         elapsed.as_millis() <= 1100,
+171 | |         "Timeout took too long: {:?}",
+172 | |         elapsed
+173 | |     );
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args

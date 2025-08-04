@@ -354,6 +354,109 @@ In this snippet, `req1` and `req2` act like promises or tasks for the data fetch
 
 To summarize, WFL’s async support allows you to write asynchronous code that looks very similar to synchronous logic. The explicit `async` in definitions and `await` in usage make the timing clear without introducing complex syntax. This aligns with WFL’s goal of making advanced features approachable.
 
+### Containers and Object-Oriented Programming
+WFL supports object-oriented programming through **containers**, which are similar to classes in other languages. Containers allow you to define reusable templates for objects that encapsulate data (properties) and behavior (methods). The syntax follows WFL's natural language philosophy, making object-oriented concepts accessible through English-like constructs.
+
+**Container Definition:** The syntax to define a container is:
+
+```ebnf
+ContainerDefinition ::= "create" "container" Identifier [ "extends" Identifier ] 
+                       [ "implements" IdentifierList ] ":" 
+                       PropertyDefinition* MethodDefinition* EventDefinition*
+                       "end"
+PropertyDefinition ::= "property" Identifier ":" Type [ "default" Expression ]
+MethodDefinition ::= "action" Identifier [ "needs" ParameterList ] [ ":" Type ] ":" 
+                    StatementList "end"
+EventDefinition ::= "event" Identifier [ "needs" ParameterList ]
+```
+
+For example:
+```wfl
+create container Person:
+    property name: Text
+    property age: Number default 0
+    
+    action greet:
+        display "Hello, I am " + this.name + " and I am " + this.age + "."
+    end
+    
+    action set age needs new age: Number:
+        change this.age to new age
+    end
+end
+```
+
+This defines a `Person` container with two properties (`name` and `age`) and two methods (`greet` and `set age`). The `default` keyword allows specifying initial values for properties. Inside methods, `this` refers to the current instance of the container.
+
+**Container Inheritance:** Containers can extend other containers to inherit their properties and methods:
+
+```wfl
+create container Student extends Person:
+    property school: Text
+    
+    action greet:
+        display "Hello, I am " + this.name + ", a student at " + this.school + "."
+    end
+end
+```
+
+The `Student` container inherits `name` and `age` from `Person` but overrides the `greet` method with its own implementation.
+
+**Interface Implementation:** Containers can implement interfaces to ensure they provide specific methods:
+
+```wfl
+create interface Drawable:
+    action draw:
+end
+
+create container Circle implements Drawable:
+    property radius: Number
+    
+    action draw:
+        display "Drawing a circle with radius " + this.radius
+    end
+end
+```
+
+**Container Instantiation:** To create instances of containers, use the `create new` syntax:
+
+```ebnf
+ContainerInstantiation ::= "create" "new" Identifier "as" Identifier ":" 
+                          PropertyInitializer* "end"
+PropertyInitializer ::= Identifier "=" Expression
+```
+
+For example:
+```wfl
+create new Person as alice:
+    name = "Alice"
+    age = 28
+end
+
+alice.greet()
+display alice.name
+```
+
+This creates a new `Person` instance named `alice`, initializes its properties, then calls its `greet` method and accesses its `name` property.
+
+**Static Members:** Containers can have static properties and methods that belong to the container itself rather than instances:
+
+```wfl
+create container Math:
+    static property PI: Number = 3.14159
+    
+    static action square needs value: Number: Number
+        return value * value
+    end
+end
+
+display Math.PI
+store result as Math.square(5)
+```
+
+Static members are accessed using the container name directly, without creating an instance.
+
+
 ### Input/Output (File, Network, Database)  
 WFL treats input/output operations (file reading/writing, HTTP requests, database queries, etc.) as high-level actions described in English. All I/O shares a unified style: you **open** a resource, perform reads/writes, and **close** it, with similar syntax for files, web URLs, and databases ([wfl-IO.md](file://file-XU2WRnQ9nsyxEU1hEuxVJX#:~:text=WebFirst%20Language%20,like%20way.%20Key%20goals%20include)) ([wfl-IO.md](file://file-XU2WRnQ9nsyxEU1hEuxVJX#:~:text=,across%20files%2C%20network%2C%20and%20databases)). This consistency means once you learn how to do one kind of I/O, the others feel familiar.
 
@@ -732,5 +835,5 @@ The WebFirst Language brings together the above syntax and semantic rules to cre
 
 The semantics ensure that programs behave reliably: the strong type system catches mistakes early (with helpful messages), scoping rules prevent unintended interactions, and automatic memory management lets developers build complex web applications without worrying about low-level errors. WFL’s design is informed by the needs of modern web development (with first-class support for async operations and integration with web APIs) while keeping the syntax accessible to someone who might be writing their first lines of code.
 
-By following this specification, implementers of WFL can create compilers or interpreters that uphold these syntax rules and semantics, and developers can write WFL code with confidence that it will do what it intuitively says. The end result is a language specification that reads almost like a tutorial – just as WFL code reads like plain English – fulfilling the language’s mission of making web programming more intuitive, inclusive, and robust. 
+By following this specification, implementers of WFL can create compilers or interpreters that uphold these syntax rules and semantics, and developers can write WFL code with confidence that it will do what it intuitively says. The end result is a language specification that reads almost like a tutorial – just as WFL code reads like plain English – fulfilling the language’s mission of making web programming more intuitive, inclusive, and robust.  
 

@@ -106,13 +106,12 @@ impl ReplState {
             ".clear" => {
                 print!("\x1B[2J\x1B[1;1H");
                 if let Err(e) = io::stdout().flush() {
-                    eprintln!("Flush failed: {}", e);
+                    eprintln!("Flush failed: {e}");
                 }
                 Ok(CommandResult::ClearedScreen)
             }
             _ => Ok(CommandResult::Unknown(format!(
-                "Unknown command: {}",
-                command
+                "Unknown command: {command}"
             ))),
         }
     }
@@ -214,7 +213,7 @@ impl ReplState {
                     &reporter.files,
                     &diagnostic.to_codespan_diagnostic(file_id),
                 ) {
-                    error_messages.push(format!("Type error: {}", error));
+                    error_messages.push(format!("Type error: {error}"));
                     continue;
                 }
 
@@ -236,7 +235,7 @@ impl ReplState {
 
                     match self.interpreter.interpret(&expr_program).await {
                         Ok(value) => {
-                            result_output = Some(format!("{:?}", value));
+                            result_output = Some(format!("{value:?}"));
                         }
                         Err(errors) => {
                             let mut error_messages = Vec::new();
@@ -254,7 +253,7 @@ impl ReplState {
                                     &reporter.files,
                                     &diagnostic.to_codespan_diagnostic(file_id),
                                 ) {
-                                    error_messages.push(format!("Runtime error: {}", error));
+                                    error_messages.push(format!("Runtime error: {error}"));
                                     continue;
                                 }
 
@@ -284,7 +283,7 @@ impl ReplState {
                                 &reporter.files,
                                 &diagnostic.to_codespan_diagnostic(file_id),
                             ) {
-                                error_messages.push(format!("Runtime error: {}", error));
+                                error_messages.push(format!("Runtime error: {error}"));
                                 continue;
                             }
 
@@ -315,7 +314,7 @@ impl ReplState {
                             &reporter.files,
                             &diagnostic.to_codespan_diagnostic(file_id),
                         ) {
-                            error_messages.push(format!("Runtime error: {}", error));
+                            error_messages.push(format!("Runtime error: {error}"));
                             continue;
                         }
 
@@ -355,9 +354,9 @@ pub async fn run_repl() -> RustylineResult<()> {
                 rl.add_history_entry(&line)?;
 
                 match repl_state.process_line(&line).await {
-                    Ok(Some(output)) => println!("{}", output),
+                    Ok(Some(output)) => println!("{output}"),
                     Ok(None) => {} // No output needed
-                    Err(error) => println!("Error: {}", error),
+                    Err(error) => println!("Error: {error}"),
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -369,7 +368,7 @@ pub async fn run_repl() -> RustylineResult<()> {
                 break;
             }
             Err(err) => {
-                println!("Error: {:?}", err);
+                println!("Error: {err:?}");
                 break;
             }
         }

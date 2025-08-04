@@ -8,7 +8,7 @@ pub fn native_print(args: Vec<Value>) -> Result<Value, RuntimeError> {
         if i > 0 {
             print!(" ");
         }
-        print!("{}", arg);
+        print!("{arg}");
     }
     println!();
     Ok(Value::Null)
