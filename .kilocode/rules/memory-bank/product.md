@@ -13,7 +13,7 @@ WFL (WebFirst Language) is designed to bridge the gap between natural language a
 WFL features a syntax that resembles English sentences and uses an indentation-based structure to make the code more readable and intuitive. It combines natural language constructs with modern programming concepts like containers (classes), actions (functions), and collections.
 
 ## Current State & Maturity
-Currently alpha quality (v0.1.0) and not ready for production use. Most core components are complete and stable, including:
+Currently in active development (v2025.50.0) with a focus on stability and backward compatibility. Most core components are complete and stable, including:
 - ✅ Lexer (complete)
 - ✅ Parser (complete, with recent stability enhancements)
 - ✅ Semantic Analyzer (complete)
@@ -24,6 +24,7 @@ Currently alpha quality (v0.1.0) and not ready for production use. Most core com
 - ✅ Error Reporting System (complete)
 - ✅ Linter and Code Fixer (complete)
 - ✅ Enhanced Logging System (complete)
+- ✅ File I/O System (complete)
 - 🔄 Bytecode Compiler (planned)
 - 🔄 Virtual Machine (planned)
 
@@ -31,11 +32,12 @@ Currently alpha quality (v0.1.0) and not ready for production use. Most core com
 - **Asynchronous Programming**: Full async/await support with Tokio runtime
 - **Network Operations**: HTTP requests with Reqwest integration
 - **Database Access**: SQLite, MySQL, and PostgreSQL support via SQLx
-- **File I/O**: Comprehensive file operations with async support
+- **File I/O**: Comprehensive file operations with async support, including dedicated `create file` syntax
 - **Natural Language Syntax**: English-like constructs for improved readability
 - **Type Safety**: Static type checking with intelligent type inference
 - **Error Handling**: Try/when/otherwise constructs for graceful error management
 - **Real-time Development**: LSP server provides instant feedback in editors
+- **AI Integration**: Claude and Gemini AI assistance for development and research
 
 ## Target Users
 - **Beginners**: New programmers looking for an approachable first language

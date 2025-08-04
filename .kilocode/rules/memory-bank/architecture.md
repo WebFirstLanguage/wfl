@@ -90,6 +90,17 @@ A fundamental architectural principle of WFL is **backward compatibility by desi
   - Unified error formatting
   - Helpful diagnostics that don't demand code changes
 
+### 8. AI Integration System
+- **Purpose**: Enhance development and research capabilities
+- **Components**:
+  - Claude Code integration for code review and assistance
+  - Gemini API for deep technical research
+  - Memory Bank system for context preservation
+- **Key Features**:
+  - GitHub Actions integration for CI/CD
+  - Structured knowledge base in `.kilocode/rules/memory-bank/`
+  - Context-aware assistance for development tasks
+
 ## Development Tools
 
 ### 1. Linter & Code Fixer (`src/linter/`, `src/fixer/`)
@@ -142,6 +153,9 @@ wfl/
 ├── Test Programs/      # Example programs and tests
 ├── wfl-lsp/            # Language Server Protocol implementation
 ├── vscode-wfl/         # VSCode extension
+├── .kilocode/          # AI assistant rules and memory bank
+│   └── rules/          # Rules for AI assistants
+│       └── memory-bank/# Structured knowledge base
 └── Tools/              # Utility scripts
 ```
 
@@ -182,6 +196,11 @@ wfl/
    - Variable usage detection in various contexts (I/O, action calls)
    - Flexible type checking with adaptable rules
 
+6. **AI Integration**:
+   - GitHub Actions workflow for Claude Code
+   - Memory Bank system for context preservation
+   - Structured knowledge organization for AI assistants
+
 ## Future Architecture Plans
 
 1. **Bytecode Compiler**:
@@ -193,3 +212,8 @@ wfl/
    - Register-based VM
    - JIT compilation support
    - Performance optimizations
+
+3. **Enhanced AI Integration**:
+   - Deeper integration with development workflow
+   - Automated code review and suggestions
+   - Context-aware assistance for complex tasks

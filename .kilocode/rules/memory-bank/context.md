@@ -4,34 +4,47 @@
 
 The WFL team is currently focused on:
 
-1. **VSCode Extension Consolidation** (May 2025):
+1. **Critical Runtime Issues** (August 2025):
+   - Fixing runtime type conversion error with "of" syntax (e.g., `path_join of "home" and "user"`) causing "Expected text, got Boolean" errors
+   - Resolving standard library function call issues where parser treats expressions like `typeof of number value` as variable names rather than function calls
+   - Addressing parser panic at `src/parser/mod.rs:554:44` related to standard library function calls
+
+2. **Parser Enhancements** (August 2025):
+   - Supporting method chaining syntax
+   - Implementing string interpolation
+   - Adding pattern matching syntax
+   - Supporting lambda/anonymous functions
+   - Implementing destructuring assignments
+
+3. **VSCode Extension Consolidation** (May-August 2025):
    - Merging two existing VSCode extension implementations (JavaScript and TypeScript)
    - Creating a robust TextMate grammar for WFL syntax highlighting
    - Implementing a dual-mode formatter that works both with and without WFL installed
    - Enhancing IDE integration through LSP client support
    - Building a seamless developer experience that adapts to available tools
+   - Preparing for publication to VS Code Marketplace
 
-2. **Static Analyzer Improvements**:
+4. **Static Analyzer Improvements**:
    - Fixing issues with variable usage detection, particularly:
      - Variables used in action calls as arguments
      - Variables used in I/O operations
      - Parameters in action definitions used in wait/append statements
    - Improving unreachable code detection
 
-3. **Memory Optimization**:
+5. **Memory Optimization**:
    - Addressing memory leaks in closures using weak references for parent environments
    - Optimizing parser memory allocations to reduce heap churn
    - Improving file I/O with append-mode operations instead of read-modify-write
 
-4. **Nexus Test Suite Enhancement**:
+6. **Nexus Test Suite Enhancement**:
    - Expanding the Nexus integration test suite to cover more language features
    - Ensuring comprehensive testing of asynchronous operations
 
-5. **Configuration Management**:
+7. **Configuration Management**:
    - Implementation of configuration validation and auto-fix flags (`--configCheck` and `--configFix`)
    - Added in May 2025
 
-6. **Backward Compatibility**:
+8. **Backward Compatibility**:
    - Adapting the interpreter and static analyzer to work with existing WFL files
    - Ensuring language evolution doesn't break existing code
    - Improving error recovery mechanisms in the parser
@@ -54,6 +67,21 @@ This principle has led to several recent improvements:
 - Improved error filtering to ignore duplicate symbol definitions across imported files
 
 ## Recent Changes
+
+### File I/O Enhancements (August 2025)
+- Implemented comprehensive file I/O operations with proper error handling
+- Added dedicated `create file` syntax for explicit file creation
+- Implemented proper file open modes (Read, Write, Append)
+- Added directory operations (create, delete, list files)
+- Enhanced error handling for file operations with specific error types
+- Improved file path handling with proper concatenation
+- Added file existence checking functionality
+
+### AI Integration (August 2025)
+- Added Claude AI integration for code assistance and development
+- Implemented Gemini AI research capabilities for deep technical research
+- Created GitHub workflow for Claude Code integration in CI/CD pipeline
+- Added memory bank system for AI context preservation
 
 ### Static Analyzer Variable Detection Improvements (June 3, 2025)
 - Implemented comprehensive fixes for variable usage detection in the static analyzer
@@ -136,6 +164,7 @@ This principle has led to several recent improvements:
 - Support for cross-platform compilation
 - Automated installers for Windows (MSI), Linux (deb/tar.gz), and macOS (pkg)
 - Skip-if-unchanged logic to avoid unnecessary builds
+- Nightly build pipeline with automated testing and release creation
 
 ### Development Workflow Clarification (June 2025)
 - Updated documentation to clarify that developers should use `cargo run -- [flags]` instead of `wfl [flags]` during development
@@ -144,36 +173,64 @@ This principle has led to several recent improvements:
 
 ## Current Challenges
 
-1. **Async Operations**:
+1. **Runtime Type Conversion**:
+   - Issues with "of" syntax causing runtime errors
+   - Parser treating standard library function calls as variable names
+
+2. **Async Operations**:
    - The `wait for ... and ...` construct currently executes sequentially
    - True concurrency is planned for a future release
 
-2. **File I/O Edge Cases**:
-   - The `open file` command creates files if they don't exist
-   - A dedicated `create file` syntax is planned
+3. **File I/O Edge Cases**:
+   - Proper error handling for all file operations
+   - Consistent behavior across platforms
 
 ## Next Steps
 
-1. **VSCode Extension Release**:
+1. **Fix Critical Runtime Issues**:
+   - Resolve type conversion error with "of" syntax
+   - Fix standard library function call parsing
+   - Implement missing TODO items in existing code
+
+2. **Complete Parser Enhancements**:
+   - Support method chaining syntax
+   - Implement string interpolation
+   - Add pattern matching syntax
+   - Support lambda/anonymous functions
+   - Implement destructuring assignments
+
+3. **VSCode Extension Release**:
    - Complete consolidation of the two extension implementations
    - Finalize TextMate grammar and formatter implementations
    - Publish to VS Code Marketplace
    - Create documentation and examples for users
 
-2. **Bytecode Compiler Implementation**:
+4. **Expand Standard Library**:
+   - Implement Time module functions
+   - Add JSON parsing/generation module
+   - Implement HTTP client module
+   - Add Database connectivity module
+   - Create Crypto module for hashing/encryption
+
+5. **Improve Developer Tools**:
+   - Enhance LSP with refactoring support
+   - Implement debugger with breakpoint support
+   - Add REPL enhancements
+
+6. **Bytecode Compiler Implementation**:
    - Design and implement bytecode instructions
    - Add optimization passes
    - Implement constant folding and dead code elimination
 
-3. **Virtual Machine Development**:
+7. **Virtual Machine Development**:
    - Design register-based VM
    - Implement JIT compilation support
    - Add performance optimizations
 
-4. **Full Concurrency Support**:
+8. **Full Concurrency Support**:
    - Implement true parallel execution for `wait for ... and ...`
    - Add resource management for concurrent operations
 
-5. **Enhanced File I/O API**:
-   - Add dedicated `create file` syntax
+9. **Enhanced File I/O API**:
    - Implement more granular file permissions and modes
+   - Add advanced file operations

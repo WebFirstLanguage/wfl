@@ -15,6 +15,11 @@
 - **codespan-reporting**: Professional error message formatting with source context
 - **Rustyline**: Interactive REPL with history and editing capabilities
 
+### AI Integration
+- **Claude**: AI assistant for code development and review via GitHub Actions
+- **Gemini**: AI research capabilities for deep technical research
+- **Memory Bank**: System for AI context preservation in `.kilocode/rules/memory-bank/`
+
 ## Development Environment
 
 ### Requirements
@@ -47,6 +52,7 @@
 - Skip-if-unchanged logic to avoid unnecessary builds
 - Nightly build pipeline for continuous integration
 - Version management through `scripts/bump_version.py`
+- GitHub Actions workflows for CI/CD
 
 ## Testing Framework
 
@@ -55,6 +61,7 @@
 - **Integration Tests**: Located in `tests/` directory
 - **Memory Tests**: Specialized tests for memory leak detection
 - **Snapshot Tests**: Tests for diagnostics and error reporting
+- **File I/O Tests**: Comprehensive tests for file operations
 
 ### Test Tools
 - **Rust's built-in testing framework**: `cargo test`
@@ -74,6 +81,12 @@
 3. Build platform-specific installers
 4. Generate documentation updates
 5. Create release packages
+
+### CI/CD Pipeline
+- **Nightly Builds**: Automated builds triggered daily at 05:00 UTC
+- **Skip-if-unchanged**: Avoids rebuilding when no code changes are detected
+- **Smoke Tests**: Verifies installer functionality
+- **Release Creation**: Automatically creates GitHub releases for nightly builds
 
 ## Technical Constraints
 
@@ -149,3 +162,8 @@
 - **wfl_config_checker.py**: External configuration validation tool
 - **wfl_md_combiner.py**: Documentation processor for combining markdown files
 - **test_bump_version.py**: Test suite for the version management system
+
+### AI Development Tools
+- **Claude Code Action**: GitHub Action for code review and assistance
+- **Gemini Deep Research**: AI-powered research capabilities
+- **Memory Bank System**: Structured knowledge base for AI context preservation
