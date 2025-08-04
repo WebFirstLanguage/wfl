@@ -11,7 +11,8 @@
       "Bash(./target/debug/wfl.exe TestPrograms/fileIO.wfl)",
       "Bash(./target/debug/wfl.exe TestPrograms/fileIO_fixed.wfl)",
       "Bash(./target/debug/wfl.exe:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git fsck:*)"
     ],
     "deny": []
   }
