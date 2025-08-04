@@ -1,0 +1,153 @@
+// WFL File and Directory I/O Comprehensive Test Script
+// This script demonstrates CRUD operations, directory traversal,
+// multi-file reading and writing, and error handling.
+
+// --- Setup: Define base directory for tests ---
+store test root as "./wfl_io_test_area"
+perform create directory at test root
+
+// --- 1. Basic File CRUD (Create, Read, Update, Delete) ---
+display "--- Running Basic File CRUD Test ---"
+store crud file path as test root with "/crud_test.txt"
+
+try:
+    // CREATE
+    display "Creating file: " with crud file path
+    create file at crud file path with "Initial content for CRUD test.\n"
+
+    // READ
+    display "Reading file content..."
+    open file at crud file path as file_handle
+    store content as read content from file_handle
+    close file_handle
+    display "  - Content: " with content
+
+    // UPDATE (Append)
+    display "Updating file (appending content)..."
+    open file at crud file path for append as file_handle
+    write "This is appended content.\n" to file_handle
+    close file_handle
+
+    // READ AGAIN to verify update
+    display "Reading file again to verify update..."
+    open file at crud file path as file_handle
+    store updated content as read content from file_handle
+    close file_handle
+    display "  - Updated Content: " with updated content
+
+    // DELETE
+    display "Deleting file..."
+    delete file at crud file path
+    display "  - File deleted."
+
+    // Verify Deletion
+    check if file exists at crud file path:
+        display "  - Verification FAILED: File still exists."
+    otherwise:
+        display "  - Verification PASSED: File does not exist."
+    end check
+
+when permission denied:
+    display "Error: Permission denied during CRUD operations in " with test root
+otherwise:
+    display "An unexpected error occurred during CRUD test: " with error message
+end try
+display "" // Add a blank line for readability
+
+// --- 2. Directory Traversal and Lookup ---
+display "--- Running Directory Traversal Test ---"
+store subdir path as test root with "/subdir"
+try:
+    // Create a directory and some files within it
+    create directory at subdir path
+    create file at subdir path with "/file1.txt" with "one"
+    create file at subdir path with "/file2.txt" with "two"
+    create file at subdir path with "/another.log" with "log entry"
+
+    // Directory Lookup
+    display "Checking for directory existence..."
+    check if directory exists at subdir path:
+        display "  - PASSED: Directory '" with subdir path with "' exists."
+    otherwise:
+        display "  - FAILED: Directory does not exist."
+    end check
+
+    // Directory Traversal and Listing
+    display "Listing files in '" with subdir path with "':"
+    store file list as list files in subdir path
+    for each file_name in file list:
+        display "  - Found file: " with file_name
+    end for
+
+when file not found:
+    display "Error: A file or directory was not found during traversal test."
+otherwise:
+    display "An unexpected error occurred during directory test: " with error message
+end try
+display ""
+
+// --- 3. Multi-File Read/Write ---
+display "--- Running Multi-File Read/Write Test ---"
+store source dir as test root with "/source_files"
+store dest file as test root with "/aggregated_output.txt"
+try:
+    // Setup source files
+    create directory at source dir
+    create file at source dir with "/source1.txt" with "First part of the story.\n"
+    create file at source dir with "/source2.txt" with "Second part of the story.\n"
+    create file at source dir with "/source3.txt" with "The final part of the story.\n"
+
+    display "Reading from multiple files and writing to a single destination..."
+    // Open destination file for writing
+    open file at dest file for writing as dest_handle
+
+    store source files as list files in source dir
+    for each source_file_name in source files:
+        store source_file_path as source dir with "/" with source_file_name
+        display "  - Reading from " with source_file_path
+        
+        open file at source_file_path as source_handle
+        store source_content as read content from source_handle
+        close source_handle
+        
+        write source_content to dest_handle
+    end for
+    close dest_handle
+    display "  - Aggregation complete. Output written to " with dest file
+
+    // Verify aggregated content
+    open file at dest file as final_handle
+    store final_content as read content from final_handle
+    close final_handle
+    display "  - Verifying aggregated content: " with final_content
+
+when permission denied:
+    display "Error: Permission denied during multi-file operation."
+otherwise:
+    display "An unexpected error occurred during multi-file test: " with error message
+end try
+display ""
+
+// --- 4. Error Handling Test ---
+display "--- Running Error Handling Test ---"
+store non_existent_file as test root with "/no_such_file.txt"
+try:
+    display "Attempting to read a non-existent file..."
+    open file at non_existent_file as file_handle
+    store data as read content from file_handle
+    close file_handle
+when file not found:
+    display "  - PASSED: Correctly caught 'file not found' error."
+otherwise:
+    display "  - FAILED: An unexpected error or no error occurred."
+end try
+display ""
+
+// --- Cleanup ---
+display "--- Cleaning up test area ---"
+try:
+    delete directory at test root
+    display "Test directory '" with test root with "' and all its contents have been removed."
+otherwise:
+    display "Cleanup failed. Please manually remove the directory: " with test root
+end try
