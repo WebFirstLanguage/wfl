@@ -1,9 +1,3 @@
-08:11:55.7169241 [INFO] WFL execution logging initialized at 2025-06-02 03:11:55 - wfl_exec.log
-08:11:55.7175458 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:1934] EXEC: Function call: test_mixed("This is a single argument")
-08:11:55.7176086 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:2185] EXEC: Declaration: 'label' = "This is a single argument"
-08:11:55.7176563 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:2185] EXEC: Declaration: 'expected' = "This is a single argument"
-08:11:55.717701 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:2185] EXEC: Declaration: 'actual' = "This is a single argument"
-08:11:55.7177501 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:2201] EXEC: ┌─ Block entry: function test_mixed
-08:11:55.7180194 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:2211] EXEC:   └─ Block exit: function test_mixed
-08:11:55.7180763 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:1945] EXEC: Function return: test_mixed = null
-08:11:55.7181591 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:1934] EXEC: Function call: test_with_and(true)
+13:27:28.7196183 [INFO] WFL execution logging initialized at 2025-08-04 08:27:28 - wfl_exec.log
+13:27:28.7204306 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:3325] EXEC: ┌─ Block entry: function greet
+13:27:28.7205425 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:3335] EXEC:   └─ Block exit: function greet

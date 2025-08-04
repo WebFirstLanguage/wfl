@@ -15,7 +15,9 @@
       "Bash(git fsck:*)",
       "Bash(dir:*)",
       "Bash(mv:*)",
-      "Bash(cargo fmt:*)"
+      "Bash(cargo fmt:*)",
+      "Bash(cargo run:*)",
+      "Bash(cargo clippy:*)"
     ],
     "deny": []
   }

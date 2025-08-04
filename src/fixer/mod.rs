@@ -1,7 +1,10 @@
 use crate::analyzer::Analyzer;
 use crate::lexer::lex_wfl_with_positions;
 use crate::parser::Parser;
-use crate::parser::ast::{Expression, Literal, Operator, Program, Statement, UnaryOperator};
+use crate::parser::ast::{
+    Expression, Literal, Operator, Program, Statement, Type, UnaryOperator, ValidationRuleType,
+    Visibility,
+};
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
@@ -420,51 +423,338 @@ impl CodeFixer {
                 output.push('\n');
                 summary.lines_reformatted += 1;
             }
-            Statement::ContainerDefinition { name, .. } => {
+            Statement::ContainerDefinition {
+                name,
+                extends,
+                implements,
+                properties,
+                methods,
+                events,
+                static_properties,
+                static_methods,
+                ..
+            } => {
                 output.push_str(&indent);
                 output.push_str("create container ");
                 output.push_str(name);
+
+                // Handle inheritance
+                if let Some(parent) = extends {
+                    output.push_str(" extends ");
+                    output.push_str(parent);
+                }
+
+                // Handle interfaces
+                if !implements.is_empty() {
+                    output.push_str(" implements ");
+                    output.push_str(&implements.join(", "));
+                }
+
                 output.push_str(":\n");
+
+                // Format static properties
+                for prop in static_properties {
+                    output.push_str(&format!("{indent}    "));
+                    output.push_str("static property ");
+                    output.push_str(&prop.name);
+
+                    if let Some(prop_type) = &prop.property_type {
+                        output.push_str(" as ");
+                        output.push_str(&self.format_type(prop_type));
+                    }
+
+                    if let Some(default) = &prop.default_value {
+                        output.push_str(" = ");
+                        self.pretty_print_expression(default, output, indent_level + 1, summary);
+                    }
+
+                    output.push('\n');
+                }
+
+                // Format instance properties
+                for prop in properties {
+                    output.push_str(&format!("{indent}    "));
+                    if prop.visibility == Visibility::Private {
+                        output.push_str("private ");
+                    }
+                    output.push_str("property ");
+                    output.push_str(&prop.name);
+
+                    if let Some(prop_type) = &prop.property_type {
+                        output.push_str(": ");
+                        output.push_str(&self.format_type(prop_type));
+                    }
+
+                    if let Some(default) = &prop.default_value {
+                        output.push_str(" = ");
+                        self.pretty_print_expression(default, output, indent_level + 1, summary);
+                    }
+
+                    // Format validation rules
+                    for rule in &prop.validation_rules {
+                        output.push('\n');
+                        output.push_str(&format!("{indent}        "));
+                        match &rule.rule_type {
+                            ValidationRuleType::NotEmpty => output.push_str("must not be empty"),
+                            ValidationRuleType::MinLength => {
+                                output.push_str("minimum length ");
+                                if let Some(param) = rule.parameters.first() {
+                                    self.pretty_print_expression(
+                                        param,
+                                        output,
+                                        indent_level + 2,
+                                        summary,
+                                    );
+                                }
+                            }
+                            ValidationRuleType::MaxLength => {
+                                output.push_str("maximum length ");
+                                if let Some(param) = rule.parameters.first() {
+                                    self.pretty_print_expression(
+                                        param,
+                                        output,
+                                        indent_level + 2,
+                                        summary,
+                                    );
+                                }
+                            }
+                            ValidationRuleType::ExactLength => {
+                                output.push_str("exact length ");
+                                if let Some(param) = rule.parameters.first() {
+                                    self.pretty_print_expression(
+                                        param,
+                                        output,
+                                        indent_level + 2,
+                                        summary,
+                                    );
+                                }
+                            }
+                            ValidationRuleType::MinValue => {
+                                output.push_str("minimum value ");
+                                if let Some(param) = rule.parameters.first() {
+                                    self.pretty_print_expression(
+                                        param,
+                                        output,
+                                        indent_level + 2,
+                                        summary,
+                                    );
+                                }
+                            }
+                            ValidationRuleType::MaxValue => {
+                                output.push_str("maximum value ");
+                                if let Some(param) = rule.parameters.first() {
+                                    self.pretty_print_expression(
+                                        param,
+                                        output,
+                                        indent_level + 2,
+                                        summary,
+                                    );
+                                }
+                            }
+                            ValidationRuleType::Pattern => {
+                                output.push_str("must match pattern ");
+                                if let Some(param) = rule.parameters.first() {
+                                    self.pretty_print_expression(
+                                        param,
+                                        output,
+                                        indent_level + 2,
+                                        summary,
+                                    );
+                                }
+                            }
+                            ValidationRuleType::Custom => {
+                                output.push_str("custom validation");
+                                if !rule.parameters.is_empty() {
+                                    output.push_str(" with ");
+                                    for (i, param) in rule.parameters.iter().enumerate() {
+                                        if i > 0 {
+                                            output.push_str(", ");
+                                        }
+                                        self.pretty_print_expression(
+                                            param,
+                                            output,
+                                            indent_level + 2,
+                                            summary,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    output.push('\n');
+                }
+
+                // Format events
+                for event in events {
+                    output.push_str(&format!("{indent}    "));
+                    output.push_str("event ");
+                    output.push_str(&event.name);
+
+                    if !event.parameters.is_empty() {
+                        output.push_str(" with ");
+                        for (i, param) in event.parameters.iter().enumerate() {
+                            if i > 0 {
+                                output.push_str(" and ");
+                            }
+                            output.push_str(&param.name);
+                            if let Some(param_type) = &param.param_type {
+                                output.push_str(" as ");
+                                output.push_str(&self.format_type(param_type));
+                            }
+                        }
+                    }
+
+                    output.push('\n');
+                }
+
+                // Add spacing between sections
+                if (!static_properties.is_empty() || !properties.is_empty() || !events.is_empty())
+                    && (!methods.is_empty() || !static_methods.is_empty())
+                {
+                    output.push('\n');
+                }
+
+                // Format static methods
+                for method in static_methods {
+                    self.pretty_print_statement(method, output, indent_level + 1, summary);
+                }
+
+                // Format instance methods
+                for method in methods {
+                    self.pretty_print_statement(method, output, indent_level + 1, summary);
+                }
+
                 output.push_str(&indent);
-                output
-                    .push_str("    // TODO: Implement container property and method formatting\n");
-                output.push_str(&indent);
-                output.push_str("end\n");
+                output.push_str("end container\n");
                 summary.lines_reformatted += 1;
             }
             Statement::ContainerInstantiation {
                 container_type,
                 instance_name,
+                arguments,
+                property_initializers,
                 ..
             } => {
                 output.push_str(&indent);
                 output.push_str("create new ");
                 output.push_str(container_type);
+
+                // Handle constructor arguments
+                if !arguments.is_empty() {
+                    output.push_str(" with ");
+                    for (i, arg) in arguments.iter().enumerate() {
+                        if i > 0 {
+                            output.push_str(" and ");
+                        }
+                        self.pretty_print_expression(&arg.value, output, indent_level, summary);
+                    }
+                }
+
                 output.push_str(" as ");
                 output.push_str(instance_name);
-                output.push_str(":\n");
-                output.push_str(&indent);
-                output.push_str("    // TODO: Implement property initializer formatting\n");
+
+                // Only add the block if there are property initializers
+                if !property_initializers.is_empty() {
+                    output.push_str(":\n");
+
+                    // Format property initializers
+                    for initializer in property_initializers {
+                        output.push_str(&format!("{indent}    "));
+                        output.push_str(&initializer.name);
+                        output.push_str(" is ");
+                        self.pretty_print_expression(
+                            &initializer.value,
+                            output,
+                            indent_level + 1,
+                            summary,
+                        );
+                        output.push('\n');
+                    }
+
+                    output.push_str(&indent);
+                    output.push_str("end\n");
+                } else {
+                    output.push('\n');
+                }
+
                 summary.lines_reformatted += 1;
             }
-            Statement::InterfaceDefinition { name, .. } => {
+            Statement::InterfaceDefinition {
+                name,
+                extends,
+                required_actions,
+                ..
+            } => {
                 output.push_str(&indent);
                 output.push_str("create interface ");
                 output.push_str(name);
+
+                // Handle interface inheritance
+                if !extends.is_empty() {
+                    output.push_str(" extends ");
+                    output.push_str(&extends.join(", "));
+                }
+
                 output.push_str(":\n");
+
+                // Format required actions
+                for action in required_actions {
+                    output.push_str(&format!("{indent}    "));
+                    output.push_str("requires action ");
+                    output.push_str(&action.name);
+
+                    // Format parameters
+                    if !action.parameters.is_empty() {
+                        output.push_str(" with ");
+                        for (i, param) in action.parameters.iter().enumerate() {
+                            if i > 0 {
+                                output.push_str(" and ");
+                            }
+                            output.push_str(&param.name);
+                            if let Some(param_type) = &param.param_type {
+                                output.push_str(" as ");
+                                output.push_str(&self.format_type(param_type));
+                            }
+                        }
+                    }
+
+                    // Format return type
+                    if let Some(return_type) = &action.return_type {
+                        output.push_str(" returns ");
+                        output.push_str(&self.format_type(return_type));
+                    }
+
+                    output.push('\n');
+                }
+
                 output.push_str(&indent);
-                output.push_str("    // TODO: Implement interface method formatting\n");
-                output.push_str(&indent);
-                output.push_str("end\n");
+                output.push_str("end interface\n");
                 summary.lines_reformatted += 1;
             }
-            Statement::EventDefinition { name, .. } => {
+            Statement::EventDefinition {
+                name, parameters, ..
+            } => {
                 output.push_str(&indent);
                 output.push_str("event ");
                 output.push_str(name);
-                output.push_str(":\n");
-                output.push_str(&indent);
-                output.push_str("    // TODO: Implement event parameter formatting\n");
+
+                // Format parameters
+                if !parameters.is_empty() {
+                    output.push_str(" with ");
+                    for (i, param) in parameters.iter().enumerate() {
+                        if i > 0 {
+                            output.push_str(" and ");
+                        }
+                        output.push_str(&param.name);
+                        if let Some(param_type) = &param.param_type {
+                            output.push_str(" as ");
+                            output.push_str(&self.format_type(param_type));
+                        }
+                    }
+                }
+
+                output.push('\n');
                 summary.lines_reformatted += 1;
             }
             _ => {
@@ -642,6 +932,33 @@ impl CodeFixer {
                 output.push_str("await ");
                 self.pretty_print_expression(expr, output, indent_level, summary);
             }
+            Expression::MethodCall {
+                object,
+                method,
+                arguments,
+                ..
+            } => {
+                self.pretty_print_expression(object, output, indent_level, summary);
+                output.push('.');
+                output.push_str(method);
+                output.push('(');
+
+                for (i, arg) in arguments.iter().enumerate() {
+                    if i > 0 {
+                        output.push_str(", ");
+                    }
+
+                    if let Some(name) = &arg.name {
+                        let fixed_name = self.fix_identifier_name(name, summary);
+                        output.push_str(&fixed_name);
+                        output.push_str(": ");
+                    }
+
+                    self.pretty_print_expression(&arg.value, output, indent_level, summary);
+                }
+
+                output.push(')');
+            }
             #[allow(unreachable_patterns)]
             _ => {
                 output.push_str(&format!("{expression:?}"));
@@ -682,6 +999,42 @@ impl CodeFixer {
         }
 
         result
+    }
+
+    #[allow(clippy::only_used_in_recursion)]
+    fn format_type(&self, type_val: &Type) -> String {
+        match type_val {
+            Type::Text => "Text".to_string(),
+            Type::Number => "Number".to_string(),
+            Type::Boolean => "Boolean".to_string(),
+            Type::Nothing => "Nothing".to_string(),
+            Type::Pattern => "Pattern".to_string(),
+            Type::Custom(name) => name.clone(),
+            Type::List(inner) => format!("List of {}", self.format_type(inner)),
+            Type::Map(key, value) => format!(
+                "Map of {} to {}",
+                self.format_type(key),
+                self.format_type(value)
+            ),
+            Type::Function {
+                parameters,
+                return_type,
+            } => {
+                let params = parameters
+                    .iter()
+                    .map(|t| self.format_type(t))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("Function({}) -> {}", params, self.format_type(return_type))
+            }
+            Type::Container(name) => name.clone(),
+            Type::ContainerInstance(name) => name.clone(),
+            Type::Interface(name) => name.clone(),
+            Type::Async(inner) => format!("Async {}", self.format_type(inner)),
+            Type::Any => "Any".to_string(),
+            Type::Unknown => "Unknown".to_string(),
+            Type::Error => "Error".to_string(),
+        }
     }
 
     pub fn diff(&self, original: &str, fixed: &str) -> String {
