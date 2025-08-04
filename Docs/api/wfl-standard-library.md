@@ -134,25 +134,160 @@ Finds the index of an item in a list.
 - **Returns**: Number (index, or -1 if not found)
 - **Example**: `store position as indexof(mylist, "banana")`
 
-## Time Module (Future)
+## Time Module
 
 ### Date and Time Functions
 
-The following functions are planned for future implementation:
+#### `today()`
+Returns the current date.
+- **Parameters**: None
+- **Returns**: Date
+- **Example**: `store current_date as today`
 
-#### `time.now()`
-Returns the current timestamp.
-- **Returns**: Timestamp
+#### `now()`
+Returns the current time.
+- **Parameters**: None
+- **Returns**: Time
+- **Example**: `store current_time as now`
 
-#### `time.sleep(seconds)`
-Pauses execution for a specified duration.
-- **Parameters**: Number (seconds)
-- **Returns**: Nothing
+#### `datetime_now()`
+Returns the current date and time.
+- **Parameters**: None
+- **Returns**: DateTime
+- **Example**: `store current_datetime as datetime_now`
 
-#### `time.format(timestamp, format)`
-Formats a timestamp as text.
-- **Parameters**: Timestamp, Text (format string)
+#### `format_date(date, format)`
+Formats a date according to a format string.
+- **Parameters**: Date, Text (format string)
 - **Returns**: Text
+- **Format Options**: `%Y` (year), `%m` (month), `%d` (day), `%B` (month name)
+- **Example**: `store formatted as format_date of today and "%Y-%m-%d"`
+
+#### `format_time(time, format)`
+Formats a time according to a format string.
+- **Parameters**: Time, Text (format string)
+- **Returns**: Text
+- **Format Options**: `%H` (24-hour), `%I` (12-hour), `%M` (minutes), `%S` (seconds), `%p` (AM/PM)
+- **Example**: `store formatted as format_time of now and "%H:%M:%S"`
+
+#### `format_datetime(datetime, format)`
+Formats a datetime according to a format string.
+- **Parameters**: DateTime, Text (format string)
+- **Returns**: Text
+- **Example**: `store formatted as format_datetime of datetime_now and "%Y-%m-%d %H:%M:%S"`
+
+#### `parse_date(text, format)`
+Parses a date from a text string.
+- **Parameters**: Text (date string), Text (format string)
+- **Returns**: Date
+- **Example**: `store birthday as parse_date of "1990-12-25" and "%Y-%m-%d"`
+
+#### `parse_time(text, format)`
+Parses a time from a text string.
+- **Parameters**: Text (time string), Text (format string)
+- **Returns**: Time
+- **Example**: `store meeting_time as parse_time of "14:30" and "%H:%M"`
+
+#### `create_date(year, month, day)`
+Creates a date from year, month, and day values.
+- **Parameters**: Number (year), Number (month 1-12), Number (day 1-31)
+- **Returns**: Date
+- **Example**: `store birthday as create_date of 1990 and 12 and 25`
+
+#### `create_time(hour, minute, [second])`
+Creates a time from hour, minute, and optional second values.
+- **Parameters**: Number (hour 0-23), Number (minute 0-59), Number (second 0-59, optional)
+- **Returns**: Time
+- **Example**: `store lunch_time as create_time of 12 and 30`
+
+#### `add_days(date, days)`
+Adds a number of days to a date.
+- **Parameters**: Date, Number (days to add, can be negative)
+- **Returns**: Date
+- **Example**: `store tomorrow as add_days of today and 1`
+
+#### `days_between(date1, date2)`
+Calculates the number of days between two dates.
+- **Parameters**: Date, Date
+- **Returns**: Number (positive if date2 is later, negative if earlier)
+- **Example**: `store days_until as days_between of today and christmas`
+
+#### `current_date()`
+Returns the current date as a formatted string (YYYY-MM-DD).
+- **Parameters**: None
+- **Returns**: Text
+- **Example**: `store date_string as current_date`
+
+## Filesystem Module
+
+### File and Directory Operations
+
+#### `list_dir(path)`
+Lists all files and directories in the specified path.
+- **Parameters**: Text (directory path)
+- **Returns**: List of Text (file/directory names)
+- **Example**: `store files as list_dir of "."`
+
+#### `glob(pattern, base_path)`
+Finds files matching a glob pattern in the specified directory.
+- **Parameters**: Text (glob pattern), Text (base directory path)
+- **Returns**: List of Text (matching file paths)
+- **Pattern Examples**: `"*.txt"`, `"test_*.wfl"`, `"[abc]*.log"`
+- **Example**: `store wfl_files as glob of "*.wfl" and "TestPrograms"`
+
+#### `rglob(pattern, base_path)`
+Recursively finds files matching a glob pattern.
+- **Parameters**: Text (glob pattern), Text (base directory path)
+- **Returns**: List of Text (matching file paths)
+- **Example**: `store all_rs_files as rglob of "*.rs" and "src"`
+
+#### `path_join(component1, component2, ...)`
+Joins path components into a single path.
+- **Parameters**: Text (path components)
+- **Returns**: Text (joined path)
+- **Example**: `store full_path as path_join of "home" and "user" and "documents"`
+
+#### `path_basename(path)`
+Returns the filename portion of a path.
+- **Parameters**: Text (file path)
+- **Returns**: Text (filename)
+- **Example**: `store filename as path_basename of "/home/user/test.txt"  // Returns "test.txt"`
+
+#### `path_dirname(path)`
+Returns the directory portion of a path.
+- **Parameters**: Text (file path)
+- **Returns**: Text (directory path)
+- **Example**: `store directory as path_dirname of "/home/user/test.txt"  // Returns "/home/user"`
+
+#### `makedirs(path)`
+Creates a directory and all necessary parent directories.
+- **Parameters**: Text (directory path)
+- **Returns**: Nothing
+- **Example**: `makedirs of "data/output/results"`
+
+#### `path_exists(path)`
+Checks if a file or directory exists.
+- **Parameters**: Text (path)
+- **Returns**: Boolean
+- **Example**: `check if path_exists of "config.txt":`
+
+#### `is_file(path)`
+Checks if a path is a file.
+- **Parameters**: Text (path)
+- **Returns**: Boolean
+- **Example**: `check if is_file of "README.md":`
+
+#### `is_dir(path)`
+Checks if a path is a directory.
+- **Parameters**: Text (path)
+- **Returns**: Boolean
+- **Example**: `check if is_dir of "src":`
+
+#### `file_mtime(path)`
+Returns the modification time of a file as a timestamp.
+- **Parameters**: Text (file path)
+- **Returns**: Number (Unix timestamp)
+- **Example**: `store last_modified as file_mtime of "data.txt"`
 
 ## Pattern Module
 
@@ -218,12 +353,10 @@ Standard library functions handle errors gracefully:
 ## Future Expansions
 
 The standard library will be expanded with:
-- **I/O Module**: File and network operations
 - **Database Module**: Database connectivity
-- **Web Module**: HTTP requests and web APIs
+- **Web Module**: HTTP requests and web APIs (partially available via async)
 - **Crypto Module**: Encryption and hashing
 - **JSON Module**: JSON parsing and generation
-- **Date Module**: Advanced date/time operations
 
 ## Backward Compatibility
 
