@@ -21,6 +21,8 @@ This project uses a comprehensive memory bank system located in `.kilocode/rules
 3. **User Experience First**: Error messages must be helpful, clear, and actionable
 4. **Performance Matters**: Optimize for speed without sacrificing clarity or correctness
 5. **Document Your Journey**: Create detailed Dev Diary entries for all significant changes
+6. **All documentation is in the Docs folder** off the main project root - keep it updated
+7. **All components must be documented** (parser, lexer, bytecode, etc.)
 
 ## Critical Development Rules
 
@@ -30,13 +32,14 @@ This project uses a comprehensive memory bank system located in `.kilocode/rules
 2. Verify identical behavior for existing syntax
 3. Add new tests for new features
 4. Document any edge cases
+5. If implementing something in the parser, also update the bytecode
 
 ## Core Development Commands
 
 ### Building and Testing
 ```bash
 # Standard build and test cycle
-cargo fmt --all              # Format code
+cargo fmt --all              # Format code (uses .rustfmt.toml config)
 cargo build                  # Build debug version
 cargo test                   # Run all tests
 cargo clippy --all-targets -- -D warnings  # Lint code
@@ -50,6 +53,15 @@ cargo test test_name
 
 # Run tests with output
 cargo test -- --nocapture
+
+# Test a specific module
+cargo test --package wfl --lib module_name
+
+# Run benchmarks
+cargo bench
+
+# Memory profiling (optional)
+cargo build --features dhat-heap
 ```
 
 ### Running WFL Programs
@@ -57,11 +69,17 @@ cargo test -- --nocapture
 # Run a WFL program
 cargo run -- path/to/program.wfl
 
+# From release build
+./target/release/wfl path/to/program.wfl
+
 # With debug output
 cargo run -- --debug path/to/program.wfl > debug.txt 2>&1
 
 # Interactive mode (REPL)
 cargo run -- --interactive
+
+# Run all test programs (common validation)
+for file in TestPrograms/*.wfl; do ./target/release/wfl "$file"; done
 ```
 
 ### Code Quality Tools
@@ -75,6 +93,12 @@ cargo run -- --analyze script.wfl
 # Auto-fix code issues
 cargo run -- --fix script.wfl --in-place
 
+# Check fix without applying
+cargo run -- --fix script.wfl --check
+
+# View diff of proposed fixes
+cargo run -- --fix script.wfl --diff
+
 # Check configuration
 cargo run -- --configCheck
 cargo run -- --configFix
@@ -85,8 +109,11 @@ cargo run -- --configFix
 cd vscode-extension
 npm install
 npm run compile     # Build extension
-npm run watch      # Watch mode
+npm run watch      # Watch mode for development
 npm run test       # Run tests
+
+# Install extension locally (Windows PowerShell)
+../scripts/install_vscode_extension.ps1
 ```
 
 ## CLI Flag Reference
@@ -100,9 +127,11 @@ npm run test       # Run tests
 | `--fix` | Auto-format code | `cargo run -- --fix program.wfl` |
 | `--in-place` | Modify file directly | `cargo run -- --fix program.wfl --in-place` |
 | `--check` | Dry run for --fix | `cargo run -- --fix program.wfl --check` |
+| `--diff` | Show diff for --fix | `cargo run -- --fix program.wfl --diff` |
 | `--debug` | Enable debug output | `cargo run -- --debug program.wfl` |
 | `--config` | Specify config file | `cargo run -- --config custom.wflcfg program.wfl` |
 | `--time` | Show execution time | `cargo run -- --time program.wfl` |
+| `--interactive` | Start REPL mode | `cargo run -- --interactive` |
 | `-v, --version` | Show version info | `cargo run -- --version` |
 
 ## Architecture Overview
@@ -122,11 +151,14 @@ Input (.wfl) → Lexer → Parser → Analyzer → Type Checker → Interpreter 
 3. **Analyzer** (`src/analyzer/`) - Semantic analysis and validation
 4. **Type Checker** (`src/typechecker/`) - Static type analysis
 5. **Interpreter** (`src/interpreter/`) - Executes AST with Tokio async runtime
+6. **Linter** (`src/linter/`) - Code style checking
+7. **Fixer** (`src/fixer/`) - Automatic code formatting
+8. **LSP** (`wfl-lsp/`) - Language Server Protocol implementation
 
 ### Key Design Patterns
 
 - **Error Handling**: Comprehensive error types with codespan-reporting for user-friendly messages
-- **Async Operations**: Full Tokio integration for concurrent operations
+- **Async Operations**: Full Tokio integration for concurrent operations (v1.35.1)
 - **Standard Library**: Modular design in `src/stdlib/` with core, math, text, list, time, and pattern modules
 - **Configuration**: Hierarchical config system (global → local) in `src/config.rs` and `src/wfl_config/`
 - **Logging**: Dual logging system - standard logger and execution tracer using `exec_trace!` macro
@@ -154,6 +186,7 @@ When debugging ANY issue:
 3. Check debug output for execution trace
 4. Run static analyzer: `cargo run -- --analyze test.wfl`
 5. Fix issues and verify ALL existing tests still pass
+6. Run: `cargo fmt --all && cargo clippy --all-targets -- -D warnings`
 
 ## AI Development Rules
 
@@ -170,6 +203,8 @@ When working on this codebase:
 3. **Test all changes** - Run the full test suite before considering work complete
 4. **Update Dev diary** - Create entries in `Dev diary/` for significant changes
 5. **Maintain clean separation** - Debug output uses `exec_trace!`, never pollutes program output
+6. **Read todo.md and implementation_progress_{date}.md** in Docs folder to understand current state
+7. **Update README.md** with any new important information
 
 ## Testing Requirements
 
@@ -178,10 +213,12 @@ When working on this codebase:
 - Async/await tests
 - Error handling tests
 - Standard library tests
+- Container and inheritance tests
 - Performance benchmarks
 
 Run specific test: `cargo test test_name`
 Run module tests: `cargo test --package wfl --lib module_name`
+Run integration tests: `cargo test --test '*'`
 
 ## Documentation Requirements
 
@@ -190,11 +227,13 @@ Before making changes:
 2. Check module-specific docs in `Docs/`
 3. Review recent Dev Diary entries
 4. Consult memory bank files in `.kilocode/rules/memory-bank/`
+5. Read the README.md for project overview
 
 After making changes:
-1. Update relevant documentation
+1. Update relevant documentation in `Docs/`
 2. Create Dev Diary entry with implementation details
 3. Add/update tests in appropriate locations
+4. Update README.md if adding major features
 
 ## Critical Implementation Notes
 
@@ -202,6 +241,7 @@ After making changes:
 - The parser has comprehensive end token handling to prevent infinite loops
 - Always consume orphaned tokens during error recovery
 - Use `peek_token()` for lookahead, never `next_token()` unless consuming
+- Enhanced end token handling is a critical stability fix (May 2025)
 
 ### Memory Management
 - Optional dhat heap profiling with `--features dhat-heap`
@@ -216,17 +256,21 @@ After making changes:
 - Include source context with precise spans
 - Provide actionable suggestions when possible
 - Use `InterpreterError` for runtime errors
+- Errors should be helpful without demanding code changes (backward compatibility)
 
 ### Type System
 - Static typing with inference
 - Types: text, number, boolean, list, null, any
 - Function types for callbacks
 - Pattern matching with regex support
+- Flexible type handling for backward compatibility
 
 ### Async Operations
 - All I/O operations are async (web.get, file operations)
 - Use `await` keyword in WFL code
 - Tokio runtime handles execution
+- HTTP requests via Reqwest (v0.11.24)
+- Database support via SQLx (v0.8.1)
 
 ## Common Workflows
 
@@ -236,8 +280,9 @@ After making changes:
 3. Add semantic analysis rules
 4. Implement type checking rules
 5. Add interpreter execution logic
-6. Write comprehensive tests
-7. Update documentation
+6. Write comprehensive tests in TestPrograms/
+7. Update documentation in Docs/
+8. Update bytecode implementation if parser was changed
 
 ### Development Workflow
 1. **Understand the task**: Read all relevant documentation
@@ -246,7 +291,7 @@ After making changes:
 4. **Implement feature**: Follow existing code style
 5. **Run all tests**: `cargo test` and TestPrograms/
 6. **Check quality**: `cargo fmt` and `cargo clippy`
-7. **Update docs**: Modify relevant .md files
+7. **Update docs**: Modify relevant .md files in Docs/
 8. **Create Dev Diary**: Document your implementation
 
 ### Updating Standard Library
@@ -258,19 +303,46 @@ After making changes:
 
 ## Key Files to Understand
 
+- `src/main.rs` - CLI entry point and command handling
 - `src/parser/mod.rs` - Core parser logic and natural language handling
 - `src/interpreter/mod.rs` - Execution engine with async support
 - `src/stdlib/mod.rs` - Standard library registration
 - `src/diagnostics/mod.rs` - Error reporting system
-- `src/main.rs` - CLI entry point and command handling
+- `src/lexer/mod.rs` - Tokenization with Logos
+- `src/analyzer/mod.rs` - Semantic analysis
+- `src/typechecker/mod.rs` - Type checking
 - `.kilocode/rules/` - Additional AI assistant context and rules
+- `Cargo.toml` - Dependencies and project configuration
 
-## Current Focus Areas (June 2025)
+## Project Structure
+
+```
+wfl/
+├── src/                    # Main source code
+│   ├── lexer/             # Tokenization
+│   ├── parser/            # AST generation
+│   ├── analyzer/          # Semantic analysis
+│   ├── typechecker/       # Type checking
+│   ├── interpreter/       # Execution engine
+│   ├── stdlib/            # Standard library
+│   ├── linter/            # Code style checking
+│   └── fixer/             # Auto-formatting
+├── TestPrograms/          # Integration test programs
+├── tests/                 # Unit and integration tests
+├── Docs/                  # All documentation
+├── Dev diary/             # Development history
+├── vscode-extension/      # VSCode language support
+├── wfl-lsp/              # Language Server Protocol
+└── .kilocode/rules/      # Memory bank and AI context
+```
+
+## Current Focus Areas (August 2025)
 
 1. **Testing**: Expanding test coverage and TestPrograms
 2. **Performance**: Optimizing lexer and parser
 3. **Error Messages**: Improving clarity and helpfulness
 4. **Documentation**: Keeping all docs up-to-date
 5. **Stability**: Ensuring backward compatibility
+6. **Version**: Currently at v2025.50.0
 
 Remember: This is alpha software under active development. Always prioritize stability and backward compatibility while implementing new features. The goal is to make programming accessible while maintaining professional-grade tooling and performance.
