@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: TestPrograms/test_multiple_extensions.wfl
+Time: 2025-08-04 06:16:43
+
+=== Error Summary ===
+Runtime error at line 41, column 19: Expected string for extension, got [".txt", ".md"]
+
+=== Stack Trace ===
+In main script at line 41, column 19
+
+=== Source Code ===
+   39: display "Test 4: Using extension list variable"
+   40: store myExtensions as [".txt" and ".md"]
+>> 41: store filtered as list files in "." with extensions myExtensions
+   42: display "Found files with extensions from variable:"
+   43: for each f in filtered:
+
+=== Local Variables ===
+(No local variables in global scope)

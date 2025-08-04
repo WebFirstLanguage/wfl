@@ -1,0 +1,54 @@
+// Test multiple extensions with proper list syntax
+
+display "=== Testing Multiple Extensions ==="
+display ""
+
+// Test 1: List with multiple string items
+display "Test 1: Creating a list with multiple items"
+store extList as [".md" and ".toml" and ".json"]
+display "List created successfully"
+for each ext in extList:
+    display "  Extension: " with ext
+end for
+display ""
+
+// Test 2: Use list with multiple extensions
+display "Test 2: Using multiple extensions"
+create file at "./test1.md" with "# Markdown"
+create file at "./test2.toml" with "[config]"
+create file at "./test3.json" with "{}"
+create file at "./test4.txt" with "text"
+
+store docFiles as list files in "." with extensions [".md" and ".toml"]
+display "Found files with .md or .toml extensions:"
+for each f in docFiles:
+    display "  " with f
+end for
+display ""
+
+// Test 3: Three extensions
+display "Test 3: Three extensions"
+store threeExts as list files in "." with extensions [".md" and ".toml" and ".json"]
+display "Found files with .md, .toml, or .json extensions:"
+for each f in threeExts:
+    display "  " with f
+end for
+display ""
+
+// Test 4: Using a variable containing the extension list
+display "Test 4: Using extension list variable"
+store myExtensions as [".txt" and ".md"]
+store filtered as list files in "." with extensions myExtensions
+display "Found files with extensions from variable:"
+for each f in filtered:
+    display "  " with f
+end for
+
+// Cleanup
+delete file at "./test1.md"
+delete file at "./test2.toml"
+delete file at "./test3.json"
+delete file at "./test4.txt"
+
+display ""
+display "=== All tests completed successfully ==="

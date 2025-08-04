@@ -3105,9 +3105,25 @@ impl Interpreter {
                         let ext_value = self.evaluate_expression(ext_expr, Rc::clone(&env)).await?;
                         match &ext_value {
                             Value::Text(s) => filters.push(s.to_string()),
+                            Value::List(list) => {
+                                // If we get a list, extract all string values from it
+                                let list_ref = list.borrow();
+                                for item in list_ref.iter() {
+                                    match item {
+                                        Value::Text(s) => filters.push(s.to_string()),
+                                        _ => {
+                                            return Err(RuntimeError::new(
+                                                format!("Expected string in extension list, got {item:?}"),
+                                                *line,
+                                                *column,
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
                             _ => {
                                 return Err(RuntimeError::new(
-                                    format!("Expected string for extension, got {ext_value:?}"),
+                                    format!("Expected string or list for extension, got {ext_value:?}"),
                                     *line,
                                     *column,
                                 ));
@@ -3148,9 +3164,25 @@ impl Interpreter {
                     let ext_value = self.evaluate_expression(ext_expr, Rc::clone(&env)).await?;
                     match &ext_value {
                         Value::Text(s) => ext_filters.push(s.to_string()),
+                        Value::List(list) => {
+                            // If we get a list, extract all string values from it
+                            let list_ref = list.borrow();
+                            for item in list_ref.iter() {
+                                match item {
+                                    Value::Text(s) => ext_filters.push(s.to_string()),
+                                    _ => {
+                                        return Err(RuntimeError::new(
+                                            format!("Expected string in extension list, got {item:?}"),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
                         _ => {
                             return Err(RuntimeError::new(
-                                format!("Expected string for extension, got {ext_value:?}"),
+                                format!("Expected string or list for extension, got {ext_value:?}"),
                                 *line,
                                 *column,
                             ));

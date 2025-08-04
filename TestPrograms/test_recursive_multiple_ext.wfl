@@ -1,0 +1,57 @@
+// Test recursive listing with multiple extensions
+
+display "=== Testing Recursive Listing with Multiple Extensions ==="
+display ""
+
+// Test 1: Recursive with multiple extensions inline
+display "Test 1: Find all .rs and .toml files recursively in src"
+store codeFiles as list files in "./src" recursively with extensions [".rs" and ".toml"]
+store codeCount as 0
+for each f in codeFiles:
+    change codeCount to codeCount plus 1
+end for
+display "Found " with codeCount with " Rust and TOML files"
+display ""
+
+// Test 2: Using a variable with extension list
+display "Test 2: Using extension list variable"
+store docExtensions as [".md" and ".txt"]
+store docFiles as list files in "./Docs" recursively with extensions docExtensions
+store docCount as 0
+for each f in docFiles:
+    change docCount to docCount plus 1
+end for
+display "Found " with docCount with " documentation files"
+display ""
+
+// Test 3: Complex example - find all source and config files
+display "Test 3: Find all source and config files"
+store sourceExts as [".rs" and ".wfl" and ".toml" and ".json"]
+store allSourceFiles as list files in "." recursively with extensions sourceExts
+
+// Count by type
+store rsCount as 0
+store wflCount as 0
+store tomlCount as 0
+store jsonCount as 0
+
+for each f in allSourceFiles:
+    if f contains ".rs" then:
+        change rsCount to rsCount plus 1
+    otherwise if f contains ".wfl" then:
+        change wflCount to wflCount plus 1
+    otherwise if f contains ".toml" then:
+        change tomlCount to tomlCount plus 1
+    otherwise if f contains ".json" then:
+        change jsonCount to jsonCount plus 1
+    end if
+end for
+
+display "File counts by type:"
+display "  .rs files: " with rsCount
+display "  .wfl files: " with wflCount
+display "  .toml files: " with tomlCount  
+display "  .json files: " with jsonCount
+display ""
+
+display "=== All recursive tests completed ==="

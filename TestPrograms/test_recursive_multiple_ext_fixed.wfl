@@ -1,0 +1,48 @@
+// Test recursive listing with multiple extensions
+
+display "=== Testing Recursive Listing with Multiple Extensions ==="
+display ""
+
+// Test 1: Recursive with multiple extensions inline
+display "Test 1: Find all .rs and .toml files recursively in src"
+store codeFiles as list files in "./src" recursively with extensions [".rs" and ".toml"]
+store codeCount as 0
+for each f in codeFiles:
+    change codeCount to codeCount plus 1
+end for
+display "Found " with codeCount with " Rust and TOML files"
+display ""
+
+// Test 2: Using a variable with extension list
+display "Test 2: Using extension list variable"
+store docExtensions as [".md" and ".txt"]
+store docFiles as list files in "./Docs" recursively with extensions docExtensions
+store docCount as 0
+for each f in docFiles:
+    change docCount to docCount plus 1
+end for
+display "Found " with docCount with " documentation files"
+display ""
+
+// Test 3: Complex example - find all source and config files
+display "Test 3: Find all source and config files in current directory (non-recursive)"
+store sourceExts as [".rs" and ".wfl" and ".toml" and ".json"]
+store allSourceFiles as list files in "." with extensions sourceExts
+
+// Count total
+store totalCount as 0
+for each f in allSourceFiles:
+    change totalCount to totalCount plus 1
+    if totalCount is less than 11 then:
+        display "  " with f
+    end if
+end for
+
+if totalCount is greater than 10 then:
+    display "  ... and " with totalCount minus 10 with " more files"
+end if
+
+display "Total files found: " with totalCount
+display ""
+
+display "=== All recursive tests completed ==="

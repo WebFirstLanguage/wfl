@@ -1780,7 +1780,8 @@ impl<'a> Parser<'a> {
 
                     let mut elements = Vec::new();
 
-                    elements.push(self.parse_expression()?);
+                    // Parse first element - use a special method that doesn't parse operators
+                    elements.push(self.parse_list_element()?);
 
                     while let Some(next_token) = self.tokens.peek() {
                         if next_token.token == Token::RightBracket {
@@ -1794,7 +1795,7 @@ impl<'a> Parser<'a> {
                             || next_token.token == Token::Colon
                         {
                             self.tokens.next(); // Consume separator
-                            elements.push(self.parse_expression()?);
+                            elements.push(self.parse_list_element()?);
                         } else {
                             return Err(ParseError::new(
                                 format!(
@@ -4886,5 +4887,11 @@ impl<'a> Parser<'a> {
                 0,
             ))
         }
+    }
+
+    fn parse_list_element(&mut self) -> Result<Expression, ParseError> {
+        // Parse a single list element without parsing binary operators
+        // This prevents "and" from being interpreted as a boolean operator
+        self.parse_primary_expression()
     }
 }
