@@ -1,7 +1,7 @@
 # WFL (WebFirst Language)
 
 <div align="center">
-  <img src="https://img.shields.io/badge/version-2025.40-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2025.50-blue" alt="Version">
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="Status">
   <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License">
   <img src="https://img.shields.io/badge/rust-1.75+-brown" alt="Rust Version">
@@ -57,7 +57,7 @@ end count
 
 ```bash
 # Clone the repository
-git clone https://github.com/logbie/wfl.git
+git clone https://github.com/WebFirstLanguage/wfl.git
 cd wfl
 
 # Build the project
@@ -75,13 +75,16 @@ Create a file called `hello.wfl`:
 store name as "Developer"
 display "Welcome to WFL, " with name with "!"
 
-// Using async operations
-try:
-    wait for open url "https://api.github.com/zen" and read response
-    display "GitHub says: " with response
-when error:
-    display "Could not fetch wisdom from GitHub"
-end try
+// Lists and loops
+create list colors:
+    add "red"
+    add "green"
+    add "blue"
+end list
+
+for each color in colors:
+    display "I like " with color
+end for
 ```
 
 Run it:
@@ -89,57 +92,6 @@ Run it:
 ```bash
 wfl hello.wfl
 ```
-
-## 🛠️ Development Tools
-
-WFL comes with a comprehensive suite of development tools:
-
-### 🔍 Code Quality
-
-```bash
-# Check code style and conventions
-wfl --lint your_program.wfl
-
-# Perform static analysis
-wfl --analyze your_program.wfl
-
-# Auto-format and fix code
-wfl --fix your_program.wfl --in-place
-
-# View changes before applying
-wfl --fix your_program.wfl --diff
-```
-
-### 🐛 Debugging
-
-```bash
-# Run with debug output
-wfl --debug your_program.wfl > debug.txt 2>&1
-
-# Show execution timing
-wfl --time your_program.wfl
-
-# Output tokens or AST
-wfl --lex your_program.wfl
-wfl --parse your_program.wfl
-```
-
-### 📝 Editor Support
-
-WFL includes a Language Server Protocol (LSP) implementation for real-time error checking and auto-completion in your favorite editor.
-
-**VSCode Extension**:
-```bash
-# Install the VSCode extension
-scripts/install_vscode_extension.ps1
-```
-
-Features:
-- Syntax highlighting
-- Real-time error checking
-- Auto-completion
-- Go-to definition
-- Hover documentation
 
 ## 📚 Language Overview
 
@@ -150,13 +102,13 @@ Features:
 store age as 25
 store name as "Alice"
 store pi as 3.14159
-store is active as true
+store is active as yes
 store items as [1, 2, 3, 4, 5]
 
 // Type inference
-display typeof of age       // "number"
-display typeof of name      // "text"
-display typeof of items     // "list"
+display typeof(age)       // "Number"
+display typeof(name)      // "Text"
+display typeof(items)     // "List"
 ```
 
 ### Control Flow
@@ -198,22 +150,6 @@ call greet with "World"
 store room area as calculate area with 10 and 20
 ```
 
-### Async Operations
-
-```wfl
-// Concurrent web requests
-wait for:
-    open url "https://api.example.com/data1" and read response1
-    open url "https://api.example.com/data2" and read response2
-end wait
-
-display "Got both responses!"
-
-// File operations
-wait for open file "data.txt" and read contents
-display "File contents: " with contents
-```
-
 ### Error Handling
 
 ```wfl
@@ -225,6 +161,52 @@ when error:
 otherwise:
     display "Operation completed"
 end try
+```
+
+## 🛠️ Development Tools
+
+### 🔍 Code Quality
+
+```bash
+# Check code style and conventions
+wfl --lint your_program.wfl
+
+# Perform static analysis
+wfl --analyze your_program.wfl
+
+# Auto-format and fix code
+wfl --fix your_program.wfl --in-place
+
+# View changes before applying
+wfl --fix your_program.wfl --diff
+```
+
+### 🐛 Debugging
+
+```bash
+# Run with debug output
+wfl --debug your_program.wfl > debug.txt 2>&1
+
+# Show execution timing
+wfl --time your_program.wfl
+
+# Output tokens or AST
+wfl --lex your_program.wfl
+wfl --parse your_program.wfl
+```
+
+### 📝 Editor Support
+
+WFL includes VSCode extension with:
+- Syntax highlighting
+- Real-time error checking
+- Auto-completion
+- Go-to definition
+- Hover documentation
+
+Install the extension:
+```powershell
+scripts/install_vscode_extension.ps1
 ```
 
 ## 📦 Standard Library
@@ -257,11 +239,6 @@ WFL includes a comprehensive standard library:
 - `pop(list)` - Remove last item
 - `contains(list, item)` - Check if contains
 - `indexof(list, item)` - Find item position
-
-### Time Module
-- `time.now()` - Current timestamp
-- `time.sleep(seconds)` - Pause execution
-- `time.format(timestamp, format)` - Format time
 
 ## ⚙️ Configuration
 
@@ -310,27 +287,6 @@ Key components:
 - **Interpreter**: Async-capable direct AST execution
 - **LSP Server**: Real-time IDE integration
 
-## 🤝 Contributing
-
-We welcome contributions! Here's how to get started:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests (`cargo test`)
-5. Ensure all test programs pass (`cargo run -- TestPrograms/*.wfl`)
-6. Commit your changes
-7. Push to your branch
-8. Open a Pull Request
-
-### Development Guidelines
-
-- Maintain backward compatibility
-- Add tests for new features
-- Update documentation
-- Follow the existing code style
-- Create Dev Diary entries for significant changes
-
 ## 📊 Project Status
 
 | Component | Status | Description |
@@ -345,13 +301,59 @@ We welcome contributions! Here's how to get started:
 | Code Quality Tools | ✅ Complete | Linter, analyzer, formatter |
 | Bytecode VM | 🔄 Planned | Performance optimization |
 
+## 📖 Documentation
+
+- [Language Specification](Docs/wfl-spec.md) - Complete language reference
+- [Standard Library](Docs/wfl-standard-library.md) - Built-in functions reference
+- [Error Handling](Docs/wfl-errors.md) - Error types and debugging
+- [Variables Guide](Docs/wfl-variables.md) - Working with data
+- [Control Flow](Docs/wfl-control-flow.md) - Conditionals and loops
+- [Actions Guide](Docs/wfl-actions.md) - Functions and code organization
+- [Async Programming](Docs/wfl-async.md) - Asynchronous operations
+- [Container System](Docs/wfl-containers.md) - Object-oriented programming
+
+## 🤝 Contributing
+
+We welcome contributions! Here's how to get started:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes
+4. Run tests (`cargo test`)
+5. Ensure all test programs pass
+6. Commit your changes
+7. Push to your branch
+8. Open a Pull Request
+
+### Development Guidelines
+
+- **Maintain backward compatibility** - Never break existing WFL programs
+- **Add tests** for new features in `TestPrograms/`
+- **Update documentation** in the `Docs/` folder
+- **Follow code style** - Run `cargo fmt` and `cargo clippy`
+- **Create Dev Diary entries** for significant changes
+
+### Running Tests
+
+```bash
+# Run all tests
+cargo test
+
+# Run with output
+cargo test -- --nocapture
+
+# Test specific module
+cargo test --package wfl --lib module_name
+
+# Run all test programs
+for file in TestPrograms/*.wfl; do 
+    ./target/release/wfl "$file"
+done
+```
+
 ## 🛡️ Our Commitment
 
-**Backward Compatibility Promise**: We guarantee that WFL code you write today will continue to work with all future versions of the language. The interpreter adapts to your code, not the other way around.
-
-Let's be a little more reasonable: we will not actively kill features unless a security bug forces our hand.
-
-If we are forced to deprecate something, we will give you at least 1 year notice before we remove it.
+**Backward Compatibility Promise**: We guarantee that WFL code you write today will continue to work with all future versions of the language. We will not actively kill features unless a security bug forces our hand. If we must deprecate something, we will give you at least 1 year notice.
 
 ## 📄 License
 
@@ -361,14 +363,14 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 WFL is developed by Logbie LLC with assistance from:
 - Devin.ai - Primary AI development partner
-- ChatGPT (GPT-o3) - Code review and optimization
-- Claude (via Cline) - Documentation and architecture
+- ChatGPT - Code review and optimization
+- Claude - Documentation and architecture
 - The Rust community for excellent libraries and tools
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/logbie/wfl/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/logbie/wfl/discussions)
+- **Issues**: [GitHub Issues](https://github.com/WebFirstLanguage/wfl/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/WebFirstLanguage/wfl/discussions)
 - **Email**: info@logbie.com
 
 ---
