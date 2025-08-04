@@ -644,8 +644,7 @@ impl Analyzer {
             }
             Statement::TryStatement {
                 body,
-                error_name,
-                when_block,
+                when_clauses,
                 otherwise_block,
                 ..
             } => {
@@ -661,28 +660,31 @@ impl Analyzer {
                     self.current_scope = *parent;
                 }
 
-                let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
+                // Analyze each when clause
+                for when_clause in when_clauses {
+                    let outer_scope = std::mem::take(&mut self.current_scope);
+                    self.current_scope = Scope::with_parent(outer_scope);
 
-                let error_symbol = Symbol {
-                    name: error_name.clone(),
-                    kind: SymbolKind::Variable { mutable: false },
-                    symbol_type: None, // Type will be inferred
-                    line: 0,
-                    column: 0,
-                };
+                    let error_symbol = Symbol {
+                        name: when_clause.error_name.clone(),
+                        kind: SymbolKind::Variable { mutable: false },
+                        symbol_type: Some(Type::Text), // Error messages are text
+                        line: 0,
+                        column: 0,
+                    };
 
-                if let Err(error) = self.current_scope.define(error_symbol) {
-                    self.errors.push(error);
-                }
+                    if let Err(error) = self.current_scope.define(error_symbol) {
+                        self.errors.push(error);
+                    }
 
-                for stmt in when_block {
-                    self.analyze_statement(stmt);
-                }
+                    for stmt in &when_clause.body {
+                        self.analyze_statement(stmt);
+                    }
 
-                let when_scope = std::mem::take(&mut self.current_scope);
-                if let Some(parent) = when_scope.parent {
-                    self.current_scope = *parent;
+                    let when_scope = std::mem::take(&mut self.current_scope);
+                    if let Some(parent) = when_scope.parent {
+                        self.current_scope = *parent;
+                    }
                 }
 
                 if let Some(otherwise_stmts) = otherwise_block {
@@ -1034,6 +1036,20 @@ impl Analyzer {
             }
             Expression::ReadContent { file_handle, .. } => {
                 self.analyze_expression(file_handle);
+            }
+            Expression::ListFilesRecursive { path, extensions, .. } => {
+                self.analyze_expression(path);
+                if let Some(exts) = extensions {
+                    for ext in exts {
+                        self.analyze_expression(ext);
+                    }
+                }
+            }
+            Expression::ListFilesFiltered { path, extensions, .. } => {
+                self.analyze_expression(path);
+                for ext in extensions {
+                    self.analyze_expression(ext);
+                }
             }
         }
     }

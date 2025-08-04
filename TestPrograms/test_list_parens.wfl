@@ -1,0 +1,7 @@
+// Test list creation with parentheses to avoid precedence issues
+store myList as ["first" and "second" and "third"]
+display "List created"
+
+for each item in myList:
+    display "Item: " with item
+end for

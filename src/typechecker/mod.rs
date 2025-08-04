@@ -201,8 +201,7 @@ impl TypeChecker {
             }
             Statement::TryStatement {
                 body,
-                error_name,
-                when_block,
+                when_clauses,
                 otherwise_block,
                 line: _line,
                 column: _column,
@@ -211,12 +210,15 @@ impl TypeChecker {
                     self.check_statement_types(stmt);
                 }
 
-                if let Some(symbol) = self.analyzer.get_symbol_mut(error_name) {
-                    symbol.symbol_type = Some(Type::Text); // Errors are represented as text
-                }
+                // Type check each when clause
+                for when_clause in when_clauses {
+                    if let Some(symbol) = self.analyzer.get_symbol_mut(&when_clause.error_name) {
+                        symbol.symbol_type = Some(Type::Text); // Errors are represented as text
+                    }
 
-                for stmt in when_block {
-                    self.check_statement_types(stmt);
+                    for stmt in &when_clause.body {
+                        self.check_statement_types(stmt);
+                    }
                 }
 
                 if let Some(otherwise_stmts) = otherwise_block {
@@ -1752,6 +1754,8 @@ impl TypeChecker {
             Expression::DirectoryExists { .. } => Type::Boolean,
             Expression::ListFiles { .. } => Type::List(Box::new(Type::Text)),
             Expression::ReadContent { .. } => Type::Text,
+            Expression::ListFilesRecursive { .. } => Type::List(Box::new(Type::Text)),
+            Expression::ListFilesFiltered { .. } => Type::List(Box::new(Type::Text)),
         }
     }
 

@@ -10,7 +10,8 @@
       "Bash(.targetreleasewfl.exe TestProgramsfileIO.wfl)",
       "Bash(./target/debug/wfl.exe TestPrograms/fileIO.wfl)",
       "Bash(./target/debug/wfl.exe TestPrograms/fileIO_fixed.wfl)",
-      "Bash(./target/debug/wfl.exe:*)"
+      "Bash(./target/debug/wfl.exe:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

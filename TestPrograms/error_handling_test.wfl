@@ -1,0 +1,70 @@
+// Test file-specific error handling
+
+display "--- Testing File-Specific Error Handling ---"
+
+// Test 1: File not found error
+display ""
+display "Test 1: File not found error"
+try:
+    open file at "./non_existent_file.txt" as fileHandle
+    display "This should not execute - file does not exist"
+    close fileHandle
+when file not found:
+    display "  ✓ Caught file not found error: " with error
+when permission denied:
+    display "  Caught permission denied error (unexpected)"
+when error:
+    display "  Caught general error (less specific)"
+otherwise:
+    display "  Otherwise block (should not execute)"
+end try
+
+// Test 2: General error catch-all
+display ""
+display "Test 2: General error catch-all"
+try:
+    open file at "./another_non_existent.txt" as fileHandle
+    display "This should not execute"
+when permission denied:
+    display "  Caught permission denied (should not match)"
+when error:
+    display "  ✓ Caught general error (catch-all)"
+end try
+
+// Test 3: Multiple when clauses with otherwise
+display ""
+display "Test 3: Success case with otherwise"
+create file at "./test_file.txt" with "test content"
+try:
+    open file at "./test_file.txt" as fileHandle
+    display "  ✓ Successfully opened file"
+    close fileHandle
+when file not found:
+    display "  Caught file not found (should not execute)"
+when permission denied:
+    display "  Caught permission denied (should not execute)"
+otherwise:
+    display "  ✓ Otherwise block executed (no error occurred)"
+end try
+
+// Test 4: Nested try blocks with different error types
+display ""
+display "Test 4: Nested try blocks"
+try:
+    display "  Outer try block"
+    try:
+        open file at "./nested_non_existent.txt" as fileHandle
+    when file not found:
+        display "    ✓ Inner: Caught file not found"
+        // Simulate another error
+        store x as 1 / 0
+    end try
+when error:
+    display "  ✓ Outer: Caught error from inner block: " with error
+end try
+
+// Cleanup
+delete file at "./test_file.txt"
+
+display ""
+display "=== Error handling tests completed ==="

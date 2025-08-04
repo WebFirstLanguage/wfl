@@ -5,6 +5,8 @@ pub enum ErrorKind {
     General,
     EnvDropped,
     Timeout,
+    FileNotFound,
+    PermissionDenied,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +43,8 @@ impl fmt::Display for RuntimeError {
             ErrorKind::General => "",
             ErrorKind::EnvDropped => "[Environment dropped] ",
             ErrorKind::Timeout => "[Timeout] ",
+            ErrorKind::FileNotFound => "[File not found] ",
+            ErrorKind::PermissionDenied => "[Permission denied] ",
         };
         write!(
             f,

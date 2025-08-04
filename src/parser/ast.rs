@@ -244,8 +244,7 @@ pub enum Statement {
     },
     TryStatement {
         body: Vec<Statement>,
-        error_name: String,
-        when_block: Vec<Statement>,
+        when_clauses: Vec<WhenClause>,
         otherwise_block: Option<Vec<Statement>>,
         line: usize,
         column: usize,
@@ -441,6 +440,18 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    ListFilesRecursive {
+        path: Box<Expression>,
+        extensions: Option<Vec<Expression>>,
+        line: usize,
+        column: usize,
+    },
+    ListFilesFiltered {
+        path: Box<Expression>,
+        extensions: Vec<Expression>,
+        line: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -554,6 +565,20 @@ pub enum FileOpenMode {
     Read,
     Write,
     Append,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ErrorType {
+    General,
+    FileNotFound,
+    PermissionDenied,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhenClause {
+    pub error_type: ErrorType,
+    pub error_name: String,
+    pub body: Vec<Statement>,
 }
 
 impl std::error::Error for ParseError {}

@@ -93,6 +93,18 @@ pub enum Token {
     KeywordList,
     #[token("files")]
     KeywordFiles,
+    #[token("found")]
+    KeywordFound,
+    #[token("permission")]
+    KeywordPermission,
+    #[token("denied")]
+    KeywordDenied,
+    #[token("recursively")]
+    KeywordRecursively,
+    #[token("extension")]
+    KeywordExtension,
+    #[token("extensions")]
+    KeywordExtensions,
     #[token("url")]
     KeywordUrl,
     #[token("database")]

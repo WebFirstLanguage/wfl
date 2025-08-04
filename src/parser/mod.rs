@@ -2190,6 +2190,50 @@ impl<'a> Parser<'a> {
                             self.tokens.next(); // Consume "files"
                             self.expect_token(Token::KeywordIn, "Expected 'in' after 'list files'")?;
                             let path = self.parse_primary_expression()?;
+                            
+                            // Check for "recursively" or "with"
+                            if let Some(next) = self.tokens.peek() {
+                                match &next.token {
+                                    Token::KeywordRecursively => {
+                                        self.tokens.next(); // Consume "recursively"
+                                        
+                                        // Check for "with extension/extensions"
+                                        if let Some(with_token) = self.tokens.peek() {
+                                            if with_token.token == Token::KeywordWith {
+                                                self.tokens.next(); // Consume "with"
+                                                let extensions = self.parse_extension_filter()?;
+                                                return Ok(Expression::ListFilesRecursive {
+                                                    path: Box::new(path),
+                                                    extensions: Some(extensions),
+                                                    line: token_line,
+                                                    column: token_column,
+                                                });
+                                            }
+                                        }
+                                        
+                                        // Just recursively, no filter
+                                        return Ok(Expression::ListFilesRecursive {
+                                            path: Box::new(path),
+                                            extensions: None,
+                                            line: token_line,
+                                            column: token_column,
+                                        });
+                                    }
+                                    Token::KeywordWith => {
+                                        self.tokens.next(); // Consume "with"
+                                        let extensions = self.parse_extension_filter()?;
+                                        return Ok(Expression::ListFilesFiltered {
+                                            path: Box::new(path),
+                                            extensions,
+                                            line: token_line,
+                                            column: token_column,
+                                        });
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            
+                            // Basic list files
                             return Ok(Expression::ListFiles {
                                 path: Box::new(path),
                                 line: token_line,
@@ -2547,6 +2591,20 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Expression::ReadContent { line, column, .. } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
+                Expression::ListFilesRecursive { line, column, .. } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
+                Expression::ListFilesFiltered { line, column, .. } => {
                     Ok(Statement::DisplayStatement {
                         value: expr,
                         line,
@@ -4022,32 +4080,114 @@ impl<'a> Parser<'a> {
 
         let mut body = Vec::new();
         while let Some(token) = self.tokens.peek().cloned() {
-            if matches!(token.token, Token::KeywordWhen | Token::KeywordEnd) {
+            if matches!(token.token, Token::KeywordWhen | Token::KeywordOtherwise | Token::KeywordEnd) {
                 break;
             }
             body.push(self.parse_statement()?);
         }
 
-        self.expect_token(Token::KeywordWhen, "Expected 'when' after try block")?;
-        self.expect_token(Token::KeywordError, "Expected 'error' after 'when'")?;
-        self.expect_token(Token::Colon, "Expected ':' after 'when error'")?;
+        let mut when_clauses = Vec::new();
+        let mut otherwise_block = None;
 
-        let mut when_block = Vec::new();
+        // Parse when clauses
         while let Some(token) = self.tokens.peek().cloned() {
-            if matches!(token.token, Token::KeywordEnd) {
-                break;
+            match &token.token {
+                Token::KeywordWhen => {
+                    self.tokens.next(); // Consume "when"
+                    
+                    // Parse error type
+                    let (error_type, error_name) = if let Some(next_token) = self.tokens.peek() {
+                        match &next_token.token {
+                            Token::KeywordError => {
+                                self.tokens.next(); // Consume "error"
+                                (ast::ErrorType::General, "error".to_string())
+                            }
+                            Token::KeywordFile => {
+                                self.tokens.next(); // Consume "file"
+                                self.expect_token(Token::KeywordNot, "Expected 'not' after 'file'")?;
+                                self.expect_token(Token::KeywordFound, "Expected 'found' after 'not'")?;
+                                (ast::ErrorType::FileNotFound, "error".to_string())
+                            }
+                            Token::KeywordPermission => {
+                                self.tokens.next(); // Consume "permission"
+                                self.expect_token(Token::KeywordDenied, "Expected 'denied' after 'permission'")?;
+                                (ast::ErrorType::PermissionDenied, "error".to_string())
+                            }
+                            _ => {
+                                return Err(ParseError::new(
+                                    format!("Expected 'error', 'file', or 'permission' after 'when', found {:?}", next_token.token),
+                                    next_token.line,
+                                    next_token.column,
+                                ));
+                            }
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Unexpected end of input after 'when'".to_string(),
+                            token.line,
+                            token.column,
+                        ));
+                    };
+
+                    self.expect_token(Token::Colon, "Expected ':' after error type")?;
+
+                    let mut when_body = Vec::new();
+                    while let Some(token) = self.tokens.peek().cloned() {
+                        if matches!(token.token, Token::KeywordWhen | Token::KeywordOtherwise | Token::KeywordEnd) {
+                            break;
+                        }
+                        when_body.push(self.parse_statement()?);
+                    }
+
+                    when_clauses.push(ast::WhenClause {
+                        error_type,
+                        error_name,
+                        body: when_body,
+                    });
+                }
+                Token::KeywordOtherwise => {
+                    self.tokens.next(); // Consume "otherwise"
+                    self.expect_token(Token::Colon, "Expected ':' after 'otherwise'")?;
+
+                    let mut otherwise_body = Vec::new();
+                    while let Some(token) = self.tokens.peek().cloned() {
+                        if matches!(token.token, Token::KeywordEnd) {
+                            break;
+                        }
+                        otherwise_body.push(self.parse_statement()?);
+                    }
+                    otherwise_block = Some(otherwise_body);
+                    break;
+                }
+                Token::KeywordEnd => {
+                    break;
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        format!("Expected 'when', 'otherwise', or 'end', found {:?}", token.token),
+                        token.line,
+                        token.column,
+                    ));
+                }
             }
-            when_block.push(self.parse_statement()?);
         }
 
-        self.expect_token(Token::KeywordEnd, "Expected 'end' after when block")?;
+        // Ensure at least one when clause for backward compatibility
+        if when_clauses.is_empty() {
+            return Err(ParseError::new(
+                "Try statement must have at least one 'when' clause".to_string(),
+                try_token.line,
+                try_token.column,
+            ));
+        }
+
+        self.expect_token(Token::KeywordEnd, "Expected 'end' after try block")?;
         self.expect_token(Token::KeywordTry, "Expected 'try' after 'end'")?;
 
         Ok(Statement::TryStatement {
             body,
-            error_name: "error".to_string(), // Default error name
-            when_block,
-            otherwise_block: None,
+            when_clauses,
+            otherwise_block,
             line: try_token.line,
             column: try_token.column,
         })
@@ -4693,6 +4833,58 @@ impl<'a> Parser<'a> {
             Ok(alternatives[0].clone())
         } else {
             Ok(format!("alt({})", alternatives.join(",")))
+        }
+    }
+
+    fn parse_extension_filter(&mut self) -> Result<Vec<Expression>, ParseError> {
+        // Expect "extension" or "extensions"
+        if let Some(token) = self.tokens.peek() {
+            match &token.token {
+                Token::KeywordExtension => {
+                    self.tokens.next(); // Consume "extension"
+                    // Parse single extension
+                    let ext = self.parse_primary_expression()?;
+                    Ok(vec![ext])
+                }
+                Token::KeywordExtensions => {
+                    self.tokens.next(); // Consume "extensions"
+                    // Parse list of extensions
+                    let has_bracket = if let Some(token) = self.tokens.peek() {
+                        token.token == Token::LeftBracket
+                    } else {
+                        false
+                    };
+                    
+                    if has_bracket {
+                        // Parse list literal
+                        let list_expr = self.parse_primary_expression()?;
+                        if let Expression::Literal(Literal::List(items), _, _) = list_expr {
+                            Ok(items)
+                        } else {
+                            Err(ParseError::new(
+                                "Expected list of extensions after 'extensions'".to_string(),
+                                0,
+                                0,
+                            ))
+                        }
+                    } else {
+                        // Allow a variable containing the extensions list
+                        let expr = self.parse_primary_expression()?;
+                        Ok(vec![expr])
+                    }
+                }
+                _ => Err(ParseError::new(
+                    "Expected 'extension' or 'extensions' after 'with'".to_string(),
+                    token.line,
+                    token.column,
+                ))
+            }
+        } else {
+            Err(ParseError::new(
+                "Expected 'extension' or 'extensions' after 'with'".to_string(),
+                0,
+                0,
+            ))
         }
     }
 }

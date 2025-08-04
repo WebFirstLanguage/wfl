@@ -1,0 +1,75 @@
+// Directory Listing Feature Demo
+// This demonstrates the new recursive and filtered file listing capabilities
+
+display "=== WFL Directory Listing Features Demo ==="
+display ""
+
+// Feature 1: Basic file listing (existing functionality)
+display "1. Basic listing of current directory:"
+store fileList as list files in "."
+store fileCount as 0
+for each item in fileList:
+    change fileCount to fileCount plus 1
+end for
+display "   Found " with fileCount with " files"
+display ""
+
+// Feature 2: Filtered listing with single extension
+display "2. List only .wfl files in TestPrograms:"
+store wflList as list files in "./TestPrograms" with extension ".wfl"
+store wflCount as 0
+for each item in wflList:
+    change wflCount to wflCount plus 1
+end for
+display "   Found " with wflCount with " WFL files"
+display ""
+
+// Feature 3: Recursive directory listing
+display "3. List all files recursively in src directory:"
+store allList as list files in "./src" recursively
+store totalCount as 0
+for each item in allList:
+    change totalCount to totalCount plus 1
+end for
+display "   Found " with totalCount with " total files (recursive)"
+display ""
+
+// Feature 4: Recursive with extension filter
+display "4. List only .rs files recursively in src:"
+store rustList as list files in "./src" recursively with extension ".rs"
+store rustCount as 0
+for each item in rustList:
+    change rustCount to rustCount plus 1
+end for
+display "   Found " with rustCount with " Rust source files"
+display ""
+
+// Feature 5: Using variables for extensions
+display "5. Dynamic extension filtering:"
+store targetExt as ".toml"
+store configList as list files in "." with extension targetExt
+store configCount as 0
+for each item in configList:
+    change configCount to configCount plus 1
+    display "   Config file: " with item
+end for
+display "   Total: " with configCount with " TOML files"
+display ""
+
+// Feature 6: Error handling
+display "6. Error handling:"
+try:
+    store badList as list files in "./non_existent" recursively
+    display "   This should not execute"
+when error:
+    display "   ✓ Correctly caught error for non-existent directory"
+end try
+
+display ""
+display "=== Demo Complete ==="
+display ""
+display "Summary of new features:"
+display "  - list files in <path> recursively"
+display "  - list files in <path> with extension <ext>"
+display "  - list files in <path> recursively with extension <ext>"
+display "  - Extension can be a string literal or variable"

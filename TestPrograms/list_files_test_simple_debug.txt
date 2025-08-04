@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: TestPrograms/list_files_test_simple.wfl
+Time: 2025-08-04 06:06:13
+
+=== Error Summary ===
+Runtime error at line 32, column 19: Expected string for extension, got true
+
+=== Stack Trace ===
+In main script at line 32, column 19
+
+=== Source Code ===
+   30: // Test 5: List files with multiple extensions
+   31: display "Test 5: List .md and .toml files in current directory"
+>> 32: store docFiles as list files in "." with extensions [".md" and ".toml"]
+   33: display "Documentation and config files count: " with length of docFiles
+   34: display ""
+
+=== Local Variables ===
+(No local variables in global scope)

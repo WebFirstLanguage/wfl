@@ -1,0 +1,8 @@
+// Test simple list creation
+store myList as [".md" and ".toml"]
+display "List created"
+
+// Try to display the list items
+for each item in myList:
+    display "Item: " with item
+end for
