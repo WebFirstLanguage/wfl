@@ -20,8 +20,8 @@
 ## 🔧 Code Improvements
 
 ### Type Checker
-- [ ] Implement proper static member type lookup (`src/typechecker/mod.rs:1677`)
-- [ ] Implement proper method type lookup (`src/typechecker/mod.rs:1702`)
+- [x] Implement proper static member type lookup (`src/typechecker/mod.rs:1677`)
+- [x] Implement proper method type lookup (`src/typechecker/mod.rs:1702`)
 
 ### Code Formatter (Fixer)
 - [ ] Implement container property and method formatting (`src/fixer/mod.rs:430`)
