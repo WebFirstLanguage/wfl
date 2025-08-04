@@ -1315,6 +1315,14 @@ impl Analyzer {
                     self.analyze_expression(ext);
                 }
             }
+            Expression::StringInterpolation { parts, .. } => {
+                use crate::parser::ast::StringInterpolationPart;
+                for part in parts {
+                    if let StringInterpolationPart::Expression(expr) = part {
+                        self.analyze_expression(expr);
+                    }
+                }
+            }
         }
     }
 }

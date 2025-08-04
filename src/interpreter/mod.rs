@@ -35,7 +35,8 @@ use crate::exec_var_declare;
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
 use crate::parser::ast::{
-    Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
+    Expression, FileOpenMode, Literal, Operator, Program, Statement, StringInterpolationPart,
+    UnaryOperator,
 };
 use crate::stdlib;
 use crate::stdlib::pattern;
@@ -145,6 +146,7 @@ fn expr_type(expr: &Expression) -> String {
         Expression::ReadContent { .. } => "ReadContent".to_string(),
         Expression::ListFilesRecursive { .. } => "ListFilesRecursive".to_string(),
         Expression::ListFilesFiltered { .. } => "ListFilesFiltered".to_string(),
+        Expression::StringInterpolation { .. } => "StringInterpolation".to_string(),
     }
 }
 
@@ -1429,7 +1431,11 @@ impl Interpreter {
                 };
 
                 // Use the appropriate file open mode
-                match self.io_client.open_file_with_mode(&path_str, mode.clone()).await {
+                match self
+                    .io_client
+                    .open_file_with_mode(&path_str, mode.clone())
+                    .await
+                {
                     Ok(handle) => {
                         env.borrow_mut()
                             .define(variable_name, Value::Text(handle.into()));
@@ -2084,7 +2090,9 @@ impl Interpreter {
                     let init_value = self
                         ._evaluate_expression(&initializer.value, env.clone())
                         .await?;
-                    instance.properties.insert(initializer.name.clone(), init_value);
+                    instance
+                        .properties
+                        .insert(initializer.name.clone(), init_value);
                 }
 
                 let instance_value = Value::ContainerInstance(Rc::new(RefCell::new(instance)));
@@ -2128,9 +2136,7 @@ impl Interpreter {
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
                         for arg in arguments {
-                            let arg_val = self
-                                .evaluate_expression(&arg.value, env.clone())
-                                .await?;
+                            let arg_val = self.evaluate_expression(&arg.value, env.clone()).await?;
                             arg_values.push(arg_val);
                         }
 
@@ -2139,7 +2145,10 @@ impl Interpreter {
                             .await?;
                     } else if !arguments.is_empty() {
                         return Err(RuntimeError::new(
-                            format!("Container '{}' does not have an initialize method but arguments were provided", container_type),
+                            format!(
+                                "Container '{}' does not have an initialize method but arguments were provided",
+                                container_type
+                            ),
                             *line,
                             *column,
                         ));
@@ -3275,6 +3284,35 @@ impl Interpreter {
                     )),
                 }
             }
+            Expression::StringInterpolation {
+                parts,
+                line: _,
+                column: _,
+            } => {
+                let mut result_string = String::new();
+
+                for part in parts {
+                    match part {
+                        StringInterpolationPart::Text(text) => {
+                            result_string.push_str(text);
+                        }
+                        StringInterpolationPart::Expression(expr) => {
+                            let value =
+                                Box::pin(self._evaluate_expression(expr, env.clone())).await?;
+                            let value_str = match value {
+                                Value::Text(s) => s.to_string(),
+                                Value::Number(n) => n.to_string(),
+                                Value::Bool(b) => b.to_string(),
+                                Value::Nothing => "nothing".to_string(),
+                                other => format!("{other:?}"),
+                            };
+                            result_string.push_str(&value_str);
+                        }
+                    }
+                }
+
+                Ok(Value::Text(result_string.into()))
+            }
         };
         self.assert_invariants();
         result
@@ -3543,12 +3581,8 @@ impl Interpreter {
         // Create parent instance if container extends another
         let parent_instance = if let Some(parent_type) = &container_def.extends {
             // Recursively create parent instance
-            let parent = self.create_container_instance_with_inheritance(
-                parent_type,
-                env,
-                line,
-                column,
-            )?;
+            let parent =
+                self.create_container_instance_with_inheritance(parent_type, env, line, column)?;
             Some(Rc::new(RefCell::new(parent)))
         } else {
             None
@@ -3556,7 +3590,7 @@ impl Interpreter {
 
         // Create instance with inherited properties
         let mut instance_properties = HashMap::new();
-        
+
         // Copy properties from parent if exists
         if let Some(ref parent) = parent_instance {
             for (key, value) in &parent.borrow().properties {

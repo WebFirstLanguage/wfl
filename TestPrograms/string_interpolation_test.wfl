@@ -1,0 +1,8 @@
+// String interpolation test program
+store name as "World"
+store age as 25
+
+display "Hello {name}!"
+display "You are {age} years old"
+display "Age plus 5: {age plus 5}"
+display "Name length: {length of name}"

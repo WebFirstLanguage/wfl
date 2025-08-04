@@ -1,0 +1,17 @@
+=== WFL Debug Report ===
+Script: TestPrograms/string_interpolation_test.wfl
+Time: 2025-08-04 18:37:46
+
+=== Error Summary ===
+Runtime error at line 1, column 8: Error in native function: Runtime error at line 0, column 0: Expected a list, got Text
+
+=== Stack Trace ===
+In main script at line 1, column 8
+
+=== Source Code ===
+>> 1: // String interpolation test program
+   2: store name as "World"
+   3: store age as 25
+
+=== Local Variables ===
+(No local variables in global scope)

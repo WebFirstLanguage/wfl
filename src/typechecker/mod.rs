@@ -1978,6 +1978,7 @@ impl TypeChecker {
             Expression::ReadContent { .. } => Type::Text,
             Expression::ListFilesRecursive { .. } => Type::List(Box::new(Type::Text)),
             Expression::ListFilesFiltered { .. } => Type::List(Box::new(Type::Text)),
+            Expression::StringInterpolation { .. } => Type::Text,
         }
     }
 

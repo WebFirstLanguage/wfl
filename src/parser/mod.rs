@@ -1320,8 +1320,188 @@ impl<'a> Parser<'a> {
         self.parse_binary_expression(0) // Start with lowest precedence
     }
 
+    fn parse_string_interpolation_parts(
+        &mut self,
+        input: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<Vec<StringInterpolationPart>, ParseError> {
+        let mut parts = Vec::new();
+        let mut current_text = String::new();
+        let mut chars = input.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '{' {
+                // Save any accumulated text
+                if !current_text.is_empty() {
+                    parts.push(StringInterpolationPart::Text(current_text));
+                    current_text = String::new();
+                }
+
+                // Parse expression inside braces
+                let mut expr = String::new();
+                let mut brace_count = 1;
+
+                while let Some(expr_ch) = chars.next() {
+                    if expr_ch == '{' {
+                        brace_count += 1;
+                    } else if expr_ch == '}' {
+                        brace_count -= 1;
+                        if brace_count == 0 {
+                            break;
+                        }
+                    }
+                    expr.push(expr_ch);
+                }
+
+                if !expr.is_empty() {
+                    let expr_ast = self.parse_expression_from_string(&expr, line, column)?;
+                    parts.push(StringInterpolationPart::Expression(expr_ast));
+                }
+            } else {
+                current_text.push(ch);
+            }
+        }
+
+        // Add any remaining text
+        if !current_text.is_empty() {
+            parts.push(StringInterpolationPart::Text(current_text));
+        }
+
+        Ok(parts)
+    }
+
+    fn parse_expression_from_string(
+        &mut self,
+        expr_text: &str,
+        _line: usize,
+        _column: usize,
+    ) -> Result<Expression, ParseError> {
+        use crate::lexer::lex_wfl_with_positions;
+
+        // Tokenize the expression string
+        let tokens = lex_wfl_with_positions(expr_text);
+
+        // Create a new parser for this expression
+        let mut expr_parser = Parser::new(&tokens);
+        expr_parser.parse_expression()
+    }
+
+    fn parse_postfix_expression(&mut self) -> Result<Expression, ParseError> {
+        let mut expr = self.parse_primary_expression()?;
+
+        // Handle method chaining and member access
+        loop {
+            if let Some(token) = self.tokens.peek().cloned() {
+                match &token.token {
+                    Token::Dot => {
+                        self.tokens.next(); // Consume '.'
+
+                        if let Some(property_token) = self.tokens.peek().cloned() {
+                            if let Token::Identifier(property_name) = &property_token.token {
+                                self.tokens.next(); // Consume property name
+
+                                // Check for method call with parentheses
+                                if let Some(paren_token) = self.tokens.peek().cloned() {
+                                    if paren_token.token == Token::LeftParen {
+                                        self.tokens.next(); // Consume '('
+
+                                        let mut arguments = Vec::new();
+
+                                        if let Some(next_token) = self.tokens.peek() {
+                                            if next_token.token != Token::RightParen {
+                                                let arg_expr = self.parse_expression()?;
+                                                arguments.push(Argument {
+                                                    name: None,
+                                                    value: arg_expr,
+                                                });
+
+                                                while let Some(comma_token) = self.tokens.peek() {
+                                                    if comma_token.token == Token::Comma {
+                                                        self.tokens.next(); // Consume ','
+                                                        let arg_expr = self.parse_expression()?;
+                                                        arguments.push(Argument {
+                                                            name: None,
+                                                            value: arg_expr,
+                                                        });
+                                                    } else {
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        self.expect_token(
+                                            Token::RightParen,
+                                            "Expected ')' after method arguments",
+                                        )?;
+
+                                        expr = Expression::MethodCall {
+                                            object: Box::new(expr),
+                                            method: property_name.clone(),
+                                            arguments,
+                                            line: token.line,
+                                            column: token.column,
+                                        };
+
+                                        // Continue the loop to check for more chaining
+                                        continue;
+                                    }
+                                }
+
+                                // Property access without method call
+                                expr = Expression::PropertyAccess {
+                                    object: Box::new(expr),
+                                    property: property_name.clone(),
+                                    line: token.line,
+                                    column: token.column,
+                                };
+
+                                // Continue the loop to check for more chaining
+                                continue;
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected property name after '.'".to_string(),
+                                    property_token.line,
+                                    property_token.column,
+                                ));
+                            }
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected property name after '.'".to_string(),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                    }
+                    // Add index access support for chaining as well
+                    Token::LeftBracket => {
+                        self.tokens.next(); // Consume '['
+                        let index = self.parse_expression()?;
+                        self.expect_token(Token::RightBracket, "Expected ']' after index")?;
+
+                        expr = Expression::IndexAccess {
+                            collection: Box::new(expr),
+                            index: Box::new(index),
+                            line: token.line,
+                            column: token.column,
+                        };
+
+                        // Continue the loop to check for more chaining
+                        continue;
+                    }
+                    _ => break, // No more chaining
+                }
+            } else {
+                break; // End of tokens
+            }
+        }
+
+        Ok(expr)
+    }
+
     fn parse_binary_expression(&mut self, precedence: u8) -> Result<Expression, ParseError> {
-        let mut left = self.parse_primary_expression()?;
+        let mut left = self.parse_postfix_expression()?;
 
         let left_line = if let Some(token) = self.tokens.peek() {
             token.line
@@ -1839,6 +2019,26 @@ impl<'a> Parser<'a> {
                 }
                 Token::StringLiteral(s) => {
                     let token_pos = self.tokens.next().unwrap();
+
+                    // Check if this string contains interpolation patterns
+                    if s.contains('{') && s.contains('}') {
+                        let parts = self.parse_string_interpolation_parts(
+                            s,
+                            token_pos.line,
+                            token_pos.column,
+                        )?;
+                        if parts.len() > 1
+                            || matches!(parts.get(0), Some(StringInterpolationPart::Expression(_)))
+                        {
+                            return Ok(Expression::StringInterpolation {
+                                parts,
+                                line: token_pos.line,
+                                column: token_pos.column,
+                            });
+                        }
+                    }
+
+                    // Regular string literal
                     Ok(Expression::Literal(
                         Literal::String(s.to_string()),
                         token_pos.line,
@@ -1880,91 +2080,9 @@ impl<'a> Parser<'a> {
                 Token::Identifier(name) => {
                     self.tokens.next();
 
-                    // Check for property access (dot notation)
+                    // Check for special syntax like "with" for function calls
                     if let Some(next_token) = self.tokens.peek().cloned() {
-                        if next_token.token == Token::Dot {
-                            self.tokens.next(); // Consume '.'
-
-                            if let Some(property_token) = self.tokens.peek().cloned() {
-                                if let Token::Identifier(property_name) = &property_token.token {
-                                    self.tokens.next(); // Consume property name
-
-                                    // Check for method call with parentheses
-                                    if let Some(paren_token) = self.tokens.peek().cloned() {
-                                        if paren_token.token == Token::LeftParen {
-                                            self.tokens.next(); // Consume '('
-
-                                            let mut arguments = Vec::new();
-
-                                            if let Some(next_token) = self.tokens.peek() {
-                                                if next_token.token != Token::RightParen {
-                                                    let expr = self.parse_expression()?;
-                                                    arguments.push(Argument {
-                                                        name: None,
-                                                        value: expr,
-                                                    });
-
-                                                    while let Some(comma_token) = self.tokens.peek()
-                                                    {
-                                                        if comma_token.token == Token::Comma {
-                                                            self.tokens.next(); // Consume ','
-                                                            let expr = self.parse_expression()?;
-                                                            arguments.push(Argument {
-                                                                name: None,
-                                                                value: expr,
-                                                            });
-                                                        } else {
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            self.expect_token(
-                                                Token::RightParen,
-                                                "Expected ')' after method arguments",
-                                            )?;
-
-                                            return Ok(Expression::MethodCall {
-                                                object: Box::new(Expression::Variable(
-                                                    name.clone(),
-                                                    token.line,
-                                                    token.column,
-                                                )),
-                                                method: property_name.clone(),
-                                                arguments,
-                                                line: token.line,
-                                                column: token.column,
-                                            });
-                                        }
-                                    }
-
-                                    // Property access without method call
-                                    return Ok(Expression::PropertyAccess {
-                                        object: Box::new(Expression::Variable(
-                                            name.clone(),
-                                            token.line,
-                                            token.column,
-                                        )),
-                                        property: property_name.clone(),
-                                        line: token.line,
-                                        column: token.column,
-                                    });
-                                } else {
-                                    return Err(ParseError::new(
-                                        "Expected property name after '.'".to_string(),
-                                        property_token.line,
-                                        property_token.column,
-                                    ));
-                                }
-                            } else {
-                                return Err(ParseError::new(
-                                    "Expected property name after '.'".to_string(),
-                                    token.line,
-                                    token.column,
-                                ));
-                            }
-                        } else if let Token::Identifier(id) = &next_token.token {
+                        if let Token::Identifier(id) = &next_token.token {
                             if id.to_lowercase() == "with" {
                                 self.tokens.next(); // Consume "with"
 
@@ -2612,6 +2730,13 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Expression::ListFilesFiltered { line, column, .. } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
+                Expression::StringInterpolation { line, column, .. } => {
                     Ok(Statement::DisplayStatement {
                         value: expr,
                         line,

@@ -1,0 +1,7 @@
+// Simple string interpolation test
+store name as "Alice"
+store age as 28
+
+display "Hello {name}!"
+display "You are {age} years old"
+display "Age plus 2: {age plus 2}"

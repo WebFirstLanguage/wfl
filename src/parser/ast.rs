@@ -452,6 +452,17 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    StringInterpolation {
+        parts: Vec<StringInterpolationPart>,
+        line: usize,
+        column: usize,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StringInterpolationPart {
+    Text(String),
+    Expression(Expression),
 }
 
 #[derive(Debug, Clone, PartialEq)]
