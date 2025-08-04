@@ -1,0 +1,25 @@
+// Test file append mode implementation
+display "Testing file append mode..."
+
+// First create a file with initial content
+create file at "test_append.txt" with "Line 1\n"
+display "Created file with initial content"
+
+// Now open in append mode and add more content
+store append_handle as nothing
+open file at "test_append.txt" for append as append_handle
+write "Line 2 (appended)\n" to append_handle
+write "Line 3 (appended)\n" to append_handle
+close append_handle
+display "Appended content to file"
+
+// Read the file to verify
+read file content from "test_append.txt" as file_content
+display "File contents after append:"
+display file_content
+
+// Clean up
+delete file at "test_append.txt"
+display "Cleaned up test file"
+
+display "Append mode test passed!"

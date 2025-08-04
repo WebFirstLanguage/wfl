@@ -1428,20 +1428,14 @@ impl Interpreter {
                     }
                 };
 
-                // TODO: Handle different file open modes (Read, Write, Append)
-                // For now, all files are opened in read/write mode
-                match self.io_client.open_file(&path_str).await {
+                // Use the appropriate file open mode
+                match self.io_client.open_file_with_mode(&path_str, mode.clone()).await {
                     Ok(handle) => {
-                        // If append mode, seek to end of file
-                        if matches!(mode, FileOpenMode::Append) {
-                            // File is already opened, append operations will seek to end
-                        }
-
                         env.borrow_mut()
                             .define(variable_name, Value::Text(handle.into()));
                         Ok((Value::Null, ControlFlow::None))
                     }
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    Err(e) => Err(e),
                 }
             }
             Statement::ReadFileStatement {
@@ -2077,36 +2071,21 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // Look up the container definition
-                let _container_def = match env.borrow().get(container_type) {
-                    Some(Value::ContainerDefinition(def)) => def.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Container '{container_type}' not found"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                // Create container instance with inheritance support
+                let mut instance = self.create_container_instance_with_inheritance(
+                    container_type,
+                    &env,
+                    *line,
+                    *column,
+                )?;
 
-                // Create a new container instance with initial properties
-                let mut instance_properties = HashMap::new();
-
-                // Process property initializers
+                // Process property initializers (override inherited properties)
                 for initializer in property_initializers {
                     let init_value = self
                         ._evaluate_expression(&initializer.value, env.clone())
                         .await?;
-                    instance_properties.insert(initializer.name.clone(), init_value);
+                    instance.properties.insert(initializer.name.clone(), init_value);
                 }
-
-                let instance = ContainerInstanceValue {
-                    container_type: container_type.clone(),
-                    properties: instance_properties,
-                    parent: None, // TODO: Handle inheritance
-                    line: *line,
-                    column: *column,
-                };
 
                 let instance_value = Value::ContainerInstance(Rc::new(RefCell::new(instance)));
 
@@ -2114,8 +2093,57 @@ impl Interpreter {
                 env.borrow_mut()
                     .define(instance_name, instance_value.clone());
 
+                // Call constructor method if arguments are provided
                 if !arguments.is_empty() {
-                    // TODO: Call constructor method with arguments
+                    // Look up the container definition to find the initialize method
+                    let container_def = match env.borrow().get(container_type) {
+                        Some(Value::ContainerDefinition(def)) => def.clone(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!("Container '{container_type}' not found"),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    };
+
+                    // Check if the container has an "initialize" method
+                    if let Some(init_method) = container_def.methods.get("initialize") {
+                        // Create a function value from the initialize method
+                        let init_function = FunctionValue {
+                            name: Some("initialize".to_string()),
+                            params: init_method.params.clone(),
+                            body: init_method.body.clone(),
+                            env: init_method.env.clone(),
+                            line: init_method.line,
+                            column: init_method.column,
+                        };
+
+                        // Create a new environment for the constructor execution
+                        let init_env = Environment::new_child_env(&env);
+
+                        // Add 'this' to the environment (the instance being constructed)
+                        init_env.borrow_mut().define("this", instance_value.clone());
+
+                        // Evaluate the arguments
+                        let mut arg_values = Vec::with_capacity(arguments.len());
+                        for arg in arguments {
+                            let arg_val = self
+                                .evaluate_expression(&arg.value, env.clone())
+                                .await?;
+                            arg_values.push(arg_val);
+                        }
+
+                        // Call the initialize method
+                        self.call_function(&init_function, arg_values, *line, *column)
+                            .await?;
+                    } else if !arguments.is_empty() {
+                        return Err(RuntimeError::new(
+                            format!("Container '{}' does not have an initialize method but arguments were provided", container_type),
+                            *line,
+                            *column,
+                        ));
+                    }
                 }
 
                 Ok((instance_value, ControlFlow::None))
@@ -3490,6 +3518,66 @@ impl Interpreter {
             (Value::Null, Value::Null) => true,
             _ => false,
         }
+    }
+
+    // Helper method to create container instance with inheritance
+    fn create_container_instance_with_inheritance(
+        &self,
+        container_type: &str,
+        env: &Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<ContainerInstanceValue, RuntimeError> {
+        // Look up the container definition
+        let container_def = match env.borrow().get(container_type) {
+            Some(Value::ContainerDefinition(def)) => def.clone(),
+            _ => {
+                return Err(RuntimeError::new(
+                    format!("Container '{container_type}' not found"),
+                    line,
+                    column,
+                ));
+            }
+        };
+
+        // Create parent instance if container extends another
+        let parent_instance = if let Some(parent_type) = &container_def.extends {
+            // Recursively create parent instance
+            let parent = self.create_container_instance_with_inheritance(
+                parent_type,
+                env,
+                line,
+                column,
+            )?;
+            Some(Rc::new(RefCell::new(parent)))
+        } else {
+            None
+        };
+
+        // Create instance with inherited properties
+        let mut instance_properties = HashMap::new();
+        
+        // Copy properties from parent if exists
+        if let Some(ref parent) = parent_instance {
+            for (key, value) in &parent.borrow().properties {
+                instance_properties.insert(key.clone(), value.clone());
+            }
+        }
+
+        // Initialize properties with default values from container definition
+        for (prop_name, prop_def) in &container_def.properties {
+            if let Some(default_value) = &prop_def.default_value {
+                instance_properties.insert(prop_name.clone(), default_value.clone());
+            }
+        }
+
+        Ok(ContainerInstanceValue {
+            container_type: container_type.to_string(),
+            properties: instance_properties,
+            parent: parent_instance,
+            line,
+            column,
+        })
     }
 
     fn greater_than(
