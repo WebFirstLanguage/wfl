@@ -4,7 +4,13 @@
       "Bash(find:*)",
       "Bash(ls:*)",
       "Bash(/mnt/c/logbie/wfl/target/release/wfl TestPrograms/simple_test.wfl)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(./target/release/wfl:*)",
+      "Bash(cargo build:*)",
+      "Bash(.targetreleasewfl.exe TestProgramsfileIO.wfl)",
+      "Bash(./target/debug/wfl.exe TestPrograms/fileIO.wfl)",
+      "Bash(./target/debug/wfl.exe TestPrograms/fileIO_fixed.wfl)",
+      "Bash(./target/debug/wfl.exe:*)"
     ],
     "deny": []
   }

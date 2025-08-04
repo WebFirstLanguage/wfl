@@ -83,6 +83,16 @@ pub enum Token {
     KeywordClose,
     #[token("file")]
     KeywordFile,
+    #[token("directory")]
+    KeywordDirectory,
+    #[token("delete")]
+    KeywordDelete,
+    #[token("exists")]
+    KeywordExists,
+    #[token("list")]
+    KeywordList,
+    #[token("files")]
+    KeywordFiles,
     #[token("url")]
     KeywordUrl,
     #[token("database")]

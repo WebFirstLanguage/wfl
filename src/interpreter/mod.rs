@@ -34,7 +34,7 @@ use crate::exec_var_assign;
 use crate::exec_var_declare;
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
-use crate::parser::ast::{Expression, Literal, Operator, Program, Statement, UnaryOperator};
+use crate::parser::ast::{Expression, Literal, Operator, Program, Statement, UnaryOperator, FileOpenMode};
 use crate::stdlib;
 use crate::stdlib::pattern;
 use std::cell::RefCell;
@@ -71,7 +71,12 @@ fn stmt_type(stmt: &Statement) -> String {
             format!("ReadFileStatement '{variable_name}'")
         }
         Statement::WriteFileStatement { .. } => "WriteFileStatement".to_string(),
+        Statement::WriteToStatement { .. } => "WriteToStatement".to_string(),
         Statement::CloseFileStatement { .. } => "CloseFileStatement".to_string(),
+        Statement::CreateDirectoryStatement { .. } => "CreateDirectoryStatement".to_string(),
+        Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
+        Statement::DeleteFileStatement { .. } => "DeleteFileStatement".to_string(),
+        Statement::DeleteDirectoryStatement { .. } => "DeleteDirectoryStatement".to_string(),
         Statement::WaitForStatement { .. } => "WaitForStatement".to_string(),
         Statement::TryStatement { error_name, .. } => format!("TryStatement '{error_name}'"),
         Statement::HttpGetStatement { variable_name, .. } => {
@@ -132,6 +137,10 @@ fn expr_type(expr: &Expression) -> String {
         } => format!("StaticMemberAccess '{container}' member '{member}'"),
         Expression::MethodCall { method, .. } => format!("MethodCall '{method}'"),
         Expression::PropertyAccess { property, .. } => format!("PropertyAccess '{property}'"),
+        Expression::FileExists { .. } => "FileExists".to_string(),
+        Expression::DirectoryExists { .. } => "DirectoryExists".to_string(),
+        Expression::ListFiles { .. } => "ListFiles".to_string(),
+        Expression::ReadContent { .. } => "ReadContent".to_string(),
     }
 }
 
@@ -331,6 +340,38 @@ impl IoClient {
                 Err(e) => Err(format!("Failed to append to file: {e}")),
             },
             Err(e) => Err(format!("Failed to seek to end of file: {e}")),
+        }
+    }
+
+    #[allow(dead_code)]
+    async fn create_directory(&self, path: &str) -> Result<(), String> {
+        match tokio::fs::create_dir_all(path).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("Failed to create directory: {e}")),
+        }
+    }
+
+    #[allow(dead_code)]
+    async fn create_file(&self, path: &str, content: &str) -> Result<(), String> {
+        match tokio::fs::write(path, content).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("Failed to create file: {e}")),
+        }
+    }
+
+    #[allow(dead_code)]
+    async fn delete_file(&self, path: &str) -> Result<(), String> {
+        match tokio::fs::remove_file(path).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("Failed to delete file: {e}")),
+        }
+    }
+
+    #[allow(dead_code)]
+    async fn delete_directory(&self, path: &str) -> Result<(), String> {
+        match tokio::fs::remove_dir_all(path).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("Failed to delete directory: {e}")),
         }
     }
 }
@@ -737,7 +778,12 @@ impl Interpreter {
             Statement::OpenFileStatement { line, column, .. } => (*line, *column),
             Statement::ReadFileStatement { line, column, .. } => (*line, *column),
             Statement::WriteFileStatement { line, column, .. } => (*line, *column),
+            Statement::WriteToStatement { line, column, .. } => (*line, *column),
             Statement::CloseFileStatement { line, column, .. } => (*line, *column),
+            Statement::CreateDirectoryStatement { line, column, .. } => (*line, *column),
+            Statement::CreateFileStatement { line, column, .. } => (*line, *column),
+            Statement::DeleteFileStatement { line, column, .. } => (*line, *column),
+            Statement::DeleteDirectoryStatement { line, column, .. } => (*line, *column),
             Statement::WaitForStatement { line, column, .. } => (*line, *column),
             Statement::TryStatement { line, column, .. } => (*line, *column),
             Statement::HttpGetStatement { line, column, .. } => (*line, *column),
@@ -1312,6 +1358,7 @@ impl Interpreter {
             Statement::OpenFileStatement {
                 path,
                 variable_name,
+                mode,
                 line,
                 column,
             } => {
@@ -1327,8 +1374,15 @@ impl Interpreter {
                     }
                 };
 
+                // TODO: Handle different file open modes (Read, Write, Append)
+                // For now, all files are opened in read/write mode
                 match self.io_client.open_file(&path_str).await {
                     Ok(handle) => {
+                        // If append mode, seek to end of file
+                        if matches!(mode, FileOpenMode::Append) {
+                            // File is already opened, append operations will seek to end
+                        }
+                        
                         env.borrow_mut()
                             .define(variable_name, Value::Text(handle.into()));
                         Ok((Value::Null, ControlFlow::None))
@@ -1445,6 +1499,104 @@ impl Interpreter {
                 };
 
                 match self.io_client.close_file(&file_str).await {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Statement::CreateDirectoryStatement { path, line, column } => {
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_str = match &path_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for directory path, got {path_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.create_directory(&path_str).await {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Statement::CreateFileStatement { path, content, line, column } => {
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                
+                let path_str = match &path_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for file path, got {path_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let content_str = format!("{}", content_value);
+
+                match self.io_client.create_file(&path_str, &content_str).await {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Statement::DeleteFileStatement { path, line, column } => {
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_str = match &path_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for file path, got {path_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.delete_file(&path_str).await {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Statement::WriteToStatement { content, file, line, column } => {
+                let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                let file_value = self.evaluate_expression(file, Rc::clone(&env)).await?;
+
+                let file_str = match &file_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for file handle, got {file_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let content_str = format!("{}", content_value);
+
+                match self.io_client.write_file(&file_str, &content_str).await {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Statement::DeleteDirectoryStatement { path, line, column } => {
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_str = match &path_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for directory path, got {path_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.delete_directory(&path_str).await {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
@@ -2787,6 +2939,87 @@ impl Interpreter {
                         *line,
                         *column,
                     )),
+                }
+            }
+            Expression::FileExists { path, line, column } => {
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_str = match &path_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for file path, got {path_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                
+                Ok(Value::Bool(tokio::fs::metadata(&*path_str).await.is_ok()))
+            }
+            Expression::DirectoryExists { path, line, column } => {
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_str = match &path_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for directory path, got {path_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                
+                match tokio::fs::metadata(&*path_str).await {
+                    Ok(metadata) => Ok(Value::Bool(metadata.is_dir())),
+                    Err(_) => Ok(Value::Bool(false)),
+                }
+            }
+            Expression::ListFiles { path, line, column } => {
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_str = match &path_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for directory path, got {path_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                
+                match tokio::fs::read_dir(&*path_str).await {
+                    Ok(mut entries) => {
+                        let mut files = Vec::new();
+                        while let Ok(Some(entry)) = entries.next_entry().await {
+                            if let Ok(file_name) = entry.file_name().into_string() {
+                                files.push(Value::Text(file_name.into()));
+                            }
+                        }
+                        Ok(Value::List(Rc::new(RefCell::new(files))))
+                    }
+                    Err(e) => Err(RuntimeError::new(
+                        format!("Failed to list files in directory: {e}"),
+                        *line,
+                        *column,
+                    )),
+                }
+            }
+            Expression::ReadContent { file_handle, line, column } => {
+                let handle_value = self.evaluate_expression(file_handle, Rc::clone(&env)).await?;
+                let handle_str = match &handle_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for file handle, got {handle_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+                
+                match self.io_client.read_file(&handle_str).await {
+                    Ok(content) => Ok(Value::Text(content.into())),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
         };

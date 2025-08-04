@@ -188,6 +188,7 @@ pub enum Statement {
     OpenFileStatement {
         path: Expression,
         variable_name: String,
+        mode: FileOpenMode,
         line: usize,
         column: usize,
     },
@@ -204,8 +205,35 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    WriteToStatement {
+        content: Expression,
+        file: Expression,
+        line: usize,
+        column: usize,
+    },
     CloseFileStatement {
         file: Expression,
+        line: usize,
+        column: usize,
+    },
+    CreateDirectoryStatement {
+        path: Expression,
+        line: usize,
+        column: usize,
+    },
+    CreateFileStatement {
+        path: Expression,
+        content: Expression,
+        line: usize,
+        column: usize,
+    },
+    DeleteFileStatement {
+        path: Expression,
+        line: usize,
+        column: usize,
+    },
+    DeleteDirectoryStatement {
+        path: Expression,
         line: usize,
         column: usize,
     },
@@ -393,6 +421,26 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    FileExists {
+        path: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    DirectoryExists {
+        path: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    ListFiles {
+        path: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    ReadContent {
+        file_handle: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -498,6 +546,13 @@ impl fmt::Display for ParseError {
 #[derive(Debug, Clone, PartialEq)]
 pub enum WriteMode {
     Overwrite,
+    Append,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FileOpenMode {
+    Read,
+    Write,
     Append,
 }
 

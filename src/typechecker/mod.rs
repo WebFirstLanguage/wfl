@@ -607,6 +607,7 @@ impl TypeChecker {
             Statement::OpenFileStatement {
                 path,
                 variable_name,
+                mode: _mode,
                 line: _line,
                 column: _column,
             } => {
@@ -697,6 +698,94 @@ impl TypeChecker {
                 {
                     self.type_error(
                         "Expected a File object".to_string(),
+                        Some(Type::Custom("File".to_string())),
+                        Some(file_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
+            Statement::CreateDirectoryStatement {
+                path,
+                line: _line,
+                column: _column,
+            } => {
+                let path_type = self.infer_expression_type(path);
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error {
+                    self.type_error(
+                        "Expected string for directory path".to_string(),
+                        Some(Type::Text),
+                        Some(path_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
+            Statement::CreateFileStatement {
+                path,
+                content,
+                line: _line,
+                column: _column,
+            } => {
+                let path_type = self.infer_expression_type(path);
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error {
+                    self.type_error(
+                        "Expected string for file path".to_string(),
+                        Some(Type::Text),
+                        Some(path_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+                let _content_type = self.infer_expression_type(content); // Content can be any type
+            }
+            Statement::DeleteFileStatement {
+                path,
+                line: _line,
+                column: _column,
+            } => {
+                let path_type = self.infer_expression_type(path);
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error {
+                    self.type_error(
+                        "Expected string for file path".to_string(),
+                        Some(Type::Text),
+                        Some(path_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
+            Statement::DeleteDirectoryStatement {
+                path,
+                line: _line,
+                column: _column,
+            } => {
+                let path_type = self.infer_expression_type(path);
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error {
+                    self.type_error(
+                        "Expected string for directory path".to_string(),
+                        Some(Type::Text),
+                        Some(path_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
+            Statement::WriteToStatement {
+                content,
+                file,
+                line: _line,
+                column: _column,
+            } => {
+                let _content_type = self.infer_expression_type(content); // Content can be any type
+                let file_type = self.infer_expression_type(file);
+                if file_type != Type::Custom("File".to_string())
+                    && file_type != Type::Text  // Allow string file handles
+                    && file_type != Type::Unknown
+                    && file_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected a file handle or string".to_string(),
                         Some(Type::Custom("File".to_string())),
                         Some(file_type),
                         *_line,
@@ -1659,6 +1748,10 @@ impl TypeChecker {
                     }
                 }
             }
+            Expression::FileExists { .. } => Type::Boolean,
+            Expression::DirectoryExists { .. } => Type::Boolean,
+            Expression::ListFiles { .. } => Type::List(Box::new(Type::Text)),
+            Expression::ReadContent { .. } => Type::Text,
         }
     }
 

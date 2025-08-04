@@ -1,0 +1,31 @@
+// WFL File CRUD Test - uses only implemented features
+store test_root as "./wfl_test_area"
+display "Test root: " with test_root
+
+// Create directory
+display "Creating directory..."
+create directory at "./wfl_test_area"
+
+// Create files
+display "Creating files..."
+create file at "./wfl_test_area/test1.txt" with "First test file"
+create file at "./wfl_test_area/test2.txt" with "Second test file"
+
+// Open and use file handle with wait for syntax (existing)
+display "Testing file handle operations..."
+open file at "./wfl_test_area/output.txt" as output_file
+wait for write content "Line 1" into output_file
+wait for append content "\nLine 2" into output_file
+close output_file
+
+// Delete individual files
+display "Deleting files..."
+delete file at "./wfl_test_area/test1.txt"
+delete file at "./wfl_test_area/test2.txt"
+delete file at "./wfl_test_area/output.txt"
+
+// Delete directory
+display "Deleting directory..."
+delete directory at "./wfl_test_area"
+
+display "Test completed successfully!"

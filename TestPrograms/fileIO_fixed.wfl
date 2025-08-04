@@ -1,0 +1,193 @@
+// WFL File and Directory I/O Comprehensive Test Script
+// This script demonstrates CRUD operations, directory traversal,
+// multi-file reading and writing, and error handling.
+
+// --- Setup: Define base directory for tests ---
+store testRoot as "./wfl_io_test_area"
+perform create directory at testRoot
+
+// --- 1. Basic File CRUD (Create, Read, Update, Delete) ---
+display "--- Running Basic File CRUD Test ---"
+store crudFilePath as testRoot with "/crud_test.txt"
+
+try:
+    // CREATE
+    display "Creating file: " with crudFilePath
+    create file at crudFilePath with "Initial content for CRUD test.\n"
+
+    // READ
+    display "Reading file content..."
+    open file at crudFilePath as fileHandle
+    store fileContent as read content from fileHandle
+    close fileHandle
+    display "  - Content: " with fileContent
+
+    // UPDATE (Append)
+    display "Updating file (appending content)..."
+    open file at crudFilePath for append as fileHandle
+    write "This is appended content.\n" to fileHandle
+    close fileHandle
+
+    // READ AGAIN to verify update
+    display "Reading file again to verify update..."
+    open file at crudFilePath as fileHandle
+    store updatedContent as read content from fileHandle
+    close fileHandle
+    display "  - Updated Content: " with updatedContent
+
+    // DELETE
+    display "Deleting file..."
+    delete file at crudFilePath
+    display "  - File deleted."
+
+    // Verify Deletion
+    check if file exists at crudFilePath:
+        display "  - Verification FAILED: File still exists."
+    otherwise:
+        display "  - Verification PASSED: File does not exist."
+    end check
+
+when permission denied:
+    display "Error: Permission denied during CRUD operations in " with testRoot
+otherwise:
+    display "  - CRUD operations completed successfully."
+
+// --- 2. Directory Operations ---
+display ""
+display "--- Running Directory Operations Test ---"
+store subdir as testRoot with "/subdir"
+store subdirPath as testRoot with "/subdir"
+
+try:
+    display "Creating subdirectory: " with subdirPath
+    create directory at subdirPath
+    
+    // Create multiple files in the subdirectory
+    count from 1 to 3:
+        store fileName as subdirPath with "/file_" with count with ".txt"
+        store fileData as "This is content for file " with count with ".\n"
+        create file at fileName with fileData
+        display "  - Created: " with fileName
+    end count
+    
+    // List files in directory
+    display "Listing files in subdirectory..."
+    store fileList as list files in subdirPath
+    for each fileName in fileList:
+        display "  - Found: " with fileName
+    end for
+    
+    // Directory Traversal and Listing
+    store traversalDir as testRoot
+    store dirFiles as list files in traversalDir
+    display "Files in main test directory: "
+    for each found in dirFiles:
+        display "  - " with found
+    end for
+
+when file not found:
+    display "Error: File not found while performing directory operations."
+otherwise:
+    display "  - Directory operations completed successfully."
+
+// --- 3. Multi-File Read/Write ---
+display ""
+display "--- Running Multi-File Read/Write Test ---"
+store sourceDir as testRoot with "/multi_source"
+store destFile as testRoot with "/aggregated_output.txt"
+
+try:
+    create directory at sourceDir
+    
+    // Create source files
+    display "Creating source files..."
+    count from 1 to 3:
+        store sourceFileName as "source_" with count with ".txt"
+        store sourceFilePath as sourceDir with "/" with sourceFileName
+        store sourceData as "Content from source file " with count with ".\n"
+        create file at sourceFilePath with sourceData
+        display "  - Created: " with sourceFilePath
+    end count
+    
+    // Read from multiple files and write to a single destination
+    display "Reading from multiple files and writing to a single destination..."
+    // Open destination file for writing
+    open file at destFile for write as destHandle
+    
+    // Read each source file and append to destination
+    store sourceFiles as list files in sourceDir
+    for each sourceFileName in sourceFiles:
+        store sourceFilePath as sourceDir with "/" with sourceFileName
+        open file at sourceFilePath as sourceHandle
+        store sourceText as read content from sourceHandle
+        close sourceHandle
+        
+        write "--- From " to destHandle
+        write sourceFileName to destHandle
+        write " ---\n" to destHandle
+        write sourceText to destHandle
+        write "\n" to destHandle
+    end for
+    
+    close destHandle
+    display "  - Aggregation complete. Output written to " with destFile
+    
+    // Verify the aggregated content
+    open file at destFile as verifyHandle
+    store finalContent as read content from verifyHandle
+    close verifyHandle
+    display "  - Verifying aggregated content: " with finalContent
+
+when permission denied:
+    display "Error: Permission denied during multi-file operations."
+otherwise:
+    display "  - Multi-file operations completed successfully."
+
+// --- 4. File Not Found Error Handling ---
+display ""
+display "--- Testing File Not Found Error Handling ---"
+store nonExistentFile as testRoot with "/no_such_file.txt"
+
+try:
+    open file at nonExistentFile as fileHandle
+    store data as read content from fileHandle
+    close fileHandle
+    display "ERROR: This should not execute - file should not exist!"
+when file not found:
+    display "  - Correctly caught 'file not found' error for: " with nonExistentFile
+otherwise:
+    display "  - Error handling test completed."
+
+// --- 5. Directory Existence Checks ---
+display ""
+display "--- Testing Directory Existence Checks ---"
+check if directory exists at testRoot:
+    display "  - Main test directory exists: " with testRoot
+otherwise:
+    display "  - Main test directory does not exist (unexpected)."
+end check
+
+store fakeDirPath as testRoot with "/non_existent_dir"
+check if directory exists at fakeDirPath:
+    display "  - Fake directory exists (unexpected): " with fakeDirPath
+otherwise:
+    display "  - Fake directory does not exist (expected): " with fakeDirPath
+end check
+
+// --- Cleanup ---
+display ""
+display "--- Cleaning up test area ---"
+try:
+    // Delete all created files and directories
+    delete directory at sourceDir
+    delete directory at subdirPath
+    delete file at destFile
+    delete directory at testRoot
+    display "  - Cleanup completed successfully."
+when permission denied:
+    display "  - Warning: Could not clean up some test files due to permissions."
+otherwise:
+    display "  - All test files cleaned up."
+
+display ""
+display "=== File I/O test script completed ==="

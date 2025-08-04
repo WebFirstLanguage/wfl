@@ -1032,6 +1032,8 @@ impl<'a> Parser<'a> {
                             Token::KeywordInterface => self.parse_interface_definition(),
                             Token::KeywordNew => self.parse_container_instantiation(),
                             Token::KeywordPattern => self.parse_create_pattern_statement(),
+                            Token::KeywordDirectory => self.parse_create_directory_statement(),
+                            Token::KeywordFile => self.parse_create_file_statement(),
                             _ => self.parse_variable_declaration(), // Default to variable declaration
                         }
                     } else {
@@ -1122,17 +1124,9 @@ impl<'a> Parser<'a> {
                         self.parse_open_file_statement()
                     }
                 }
-                Token::KeywordClose => {
-                    if let Some(next_token) = self.tokens.clone().nth(1) {
-                        if next_token.token == Token::KeywordFile {
-                            self.parse_close_file_statement()
-                        } else {
-                            self.parse_expression_statement()
-                        }
-                    } else {
-                        self.parse_expression_statement()
-                    }
-                }
+                Token::KeywordClose => self.parse_close_file_statement(),
+                Token::KeywordDelete => self.parse_delete_statement(),
+                Token::KeywordWrite => self.parse_write_to_statement(),
                 Token::KeywordWait => self.parse_wait_for_statement(),
                 Token::KeywordGive | Token::KeywordReturn => self.parse_return_statement(),
                 _ => self.parse_expression_statement(),
@@ -2133,6 +2127,110 @@ impl<'a> Parser<'a> {
                         token_column,
                     ))
                 }
+                Token::KeywordFile => {
+                    self.tokens.next(); // Consume "file"
+                    let token_line = token.line;
+                    let token_column = token.column;
+                    
+                    // Check if it's "file exists at"
+                    if let Some(next_token) = self.tokens.peek() {
+                        if next_token.token == Token::KeywordExists {
+                            self.tokens.next(); // Consume "exists"
+                            self.expect_token(Token::KeywordAt, "Expected 'at' after 'file exists'")?;
+                            let path = self.parse_primary_expression()?;
+                            return Ok(Expression::FileExists {
+                                path: Box::new(path),
+                                line: token_line,
+                                column: token_column,
+                            });
+                        }
+                    }
+                    
+                    // Otherwise treat "file" as a variable
+                    Ok(Expression::Variable(
+                        "file".to_string(),
+                        token_line,
+                        token_column,
+                    ))
+                }
+                Token::KeywordDirectory => {
+                    self.tokens.next(); // Consume "directory"
+                    let token_line = token.line;
+                    let token_column = token.column;
+                    
+                    // Check if it's "directory exists at"
+                    if let Some(next_token) = self.tokens.peek() {
+                        if next_token.token == Token::KeywordExists {
+                            self.tokens.next(); // Consume "exists"
+                            self.expect_token(Token::KeywordAt, "Expected 'at' after 'directory exists'")?;
+                            let path = self.parse_primary_expression()?;
+                            return Ok(Expression::DirectoryExists {
+                                path: Box::new(path),
+                                line: token_line,
+                                column: token_column,
+                            });
+                        }
+                    }
+                    
+                    // Otherwise treat "directory" as a variable
+                    Ok(Expression::Variable(
+                        "directory".to_string(),
+                        token_line,
+                        token_column,
+                    ))
+                }
+                Token::KeywordList => {
+                    self.tokens.next(); // Consume "list"
+                    let token_line = token.line;
+                    let token_column = token.column;
+                    
+                    // Check if it's "list files in"
+                    if let Some(next_token) = self.tokens.peek() {
+                        if next_token.token == Token::KeywordFiles {
+                            self.tokens.next(); // Consume "files"
+                            self.expect_token(Token::KeywordIn, "Expected 'in' after 'list files'")?;
+                            let path = self.parse_primary_expression()?;
+                            return Ok(Expression::ListFiles {
+                                path: Box::new(path),
+                                line: token_line,
+                                column: token_column,
+                            });
+                        }
+                    }
+                    
+                    // Otherwise treat "list" as a variable
+                    Ok(Expression::Variable(
+                        "list".to_string(),
+                        token_line,
+                        token_column,
+                    ))
+                }
+                Token::KeywordRead => {
+                    self.tokens.next(); // Consume "read"
+                    let token_line = token.line;
+                    let token_column = token.column;
+                    
+                    // Check if it's "read content from"
+                    if let Some(next_token) = self.tokens.peek() {
+                        if next_token.token == Token::KeywordContent {
+                            self.tokens.next(); // Consume "content"
+                            self.expect_token(Token::KeywordFrom, "Expected 'from' after 'read content'")?;
+                            let file_handle = self.parse_primary_expression()?;
+                            return Ok(Expression::ReadContent {
+                                file_handle: Box::new(file_handle),
+                                line: token_line,
+                                column: token_column,
+                            });
+                        }
+                    }
+                    
+                    // Otherwise treat "read" as a variable
+                    Ok(Expression::Variable(
+                        "read".to_string(),
+                        token_line,
+                        token_column,
+                    ))
+                }
                 Token::KeywordFind => {
                     self.tokens.next(); // Consume "find"
                     let pattern_expr = self.parse_expression()?;
@@ -2421,6 +2519,34 @@ impl<'a> Parser<'a> {
                     column,
                 }),
                 Expression::PropertyAccess { line, column, .. } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
+                Expression::FileExists { line, column, .. } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
+                Expression::DirectoryExists { line, column, .. } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
+                Expression::ListFiles { line, column, .. } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
+                Expression::ReadContent { line, column, .. } => {
                     Ok(Statement::DisplayStatement {
                         value: expr,
                         line,
@@ -3396,9 +3522,44 @@ impl<'a> Parser<'a> {
                     return Err(ParseError::new("Unexpected end of input".to_string(), 0, 0));
                 };
 
-                // Check for both "and read content as" pattern AND direct "as" pattern
+                // Check for "for append", "and read content as" pattern AND direct "as" pattern
                 if let Some(next_token) = self.tokens.peek().cloned() {
-                    if next_token.token == Token::KeywordAnd {
+                    if next_token.token == Token::KeywordFor {
+                        // Check for "for append as" pattern
+                        self.tokens.next(); // Consume "for"
+                        self.expect_token(Token::KeywordAppend, "Expected 'append' after 'for'")?;
+                        self.expect_token(Token::KeywordAs, "Expected 'as' after 'append'")?;
+                        
+                        let variable_name = if let Some(token) = self.tokens.peek().cloned() {
+                            if let Token::Identifier(name) = &token.token {
+                                self.tokens.next(); // Consume the identifier
+                                name.clone()
+                            } else {
+                                return Err(ParseError::new(
+                                    format!(
+                                        "Expected identifier after 'as', found {:?}",
+                                        token.token
+                                    ),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
+                        } else {
+                            return Err(ParseError::new(
+                                "Unexpected end of input after 'as'".to_string(),
+                                0,
+                                0,
+                            ));
+                        };
+                        
+                        return Ok(Statement::OpenFileStatement {
+                            path: path_expr,
+                            variable_name,
+                            mode: FileOpenMode::Append,
+                            line: open_token.line,
+                            column: open_token.column,
+                        });
+                    } else if next_token.token == Token::KeywordAnd {
                         // Original pattern: "open file at "path" and read content as variable"
                         self.tokens.next(); // Consume "and"
                         self.expect_token(Token::KeywordRead, "Expected 'read' after 'and'")?;
@@ -3469,6 +3630,7 @@ impl<'a> Parser<'a> {
                         return Ok(Statement::OpenFileStatement {
                             path: path_expr,
                             variable_name,
+                            mode: FileOpenMode::Read,
                             line: open_token.line,
                             column: open_token.column,
                         });
@@ -3492,7 +3654,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let path = self.parse_expression()?;
+        let path = self.parse_primary_expression()?;
 
         self.expect_token(Token::KeywordAs, "Expected 'as' after file path")?;
 
@@ -3518,6 +3680,7 @@ impl<'a> Parser<'a> {
         Ok(Statement::OpenFileStatement {
             path,
             variable_name,
+            mode: FileOpenMode::Read,
             line: open_token.line,
             column: open_token.column,
         })
@@ -3686,7 +3849,14 @@ impl<'a> Parser<'a> {
 
     fn parse_close_file_statement(&mut self) -> Result<Statement, ParseError> {
         let token_pos = self.tokens.next().unwrap(); // Consume "close"
-        self.expect_token(Token::KeywordFile, "Expected 'file' after 'close'")?;
+        
+        // Check if the next token is "file" (for "close file file_handle" syntax)
+        // Otherwise, parse the expression directly (for "close file_handle" syntax)
+        if let Some(next_token) = self.tokens.peek() {
+            if next_token.token == Token::KeywordFile {
+                self.tokens.next(); // Consume "file"
+            }
+        }
 
         let file = self.parse_expression()?;
 
@@ -3695,6 +3865,100 @@ impl<'a> Parser<'a> {
             line: token_pos.line,
             column: token_pos.column,
         })
+    }
+
+    fn parse_create_directory_statement(&mut self) -> Result<Statement, ParseError> {
+        let token_pos = self.tokens.next().unwrap(); // Consume "create"
+        self.expect_token(Token::KeywordDirectory, "Expected 'directory' after 'create'")?;
+        self.expect_token(Token::KeywordAt, "Expected 'at' after 'create directory'")?;
+
+        let path = self.parse_primary_expression()?;
+
+        Ok(Statement::CreateDirectoryStatement {
+            path,
+            line: token_pos.line,
+            column: token_pos.column,
+        })
+    }
+
+    fn parse_create_file_statement(&mut self) -> Result<Statement, ParseError> {
+        let token_pos = self.tokens.next().unwrap(); // Consume "create"
+        self.expect_token(Token::KeywordFile, "Expected 'file' after 'create'")?;
+        self.expect_token(Token::KeywordAt, "Expected 'at' after 'create file'")?;
+
+        let path = self.parse_primary_expression()?;
+        
+        self.expect_token(Token::KeywordWith, "Expected 'with' after file path")?;
+        let content = self.parse_expression()?;
+
+        Ok(Statement::CreateFileStatement {
+            path,
+            content,
+            line: token_pos.line,
+            column: token_pos.column,
+        })
+    }
+
+    fn parse_write_to_statement(&mut self) -> Result<Statement, ParseError> {
+        let token_pos = self.tokens.next().unwrap(); // Consume "write"
+        
+        let content = self.parse_expression()?;
+        
+        self.expect_token(Token::KeywordTo, "Expected 'to' after content in write statement")?;
+        
+        let file = self.parse_primary_expression()?;
+        
+        Ok(Statement::WriteToStatement {
+            content,
+            file,
+            line: token_pos.line,
+            column: token_pos.column,
+        })
+    }
+
+    fn parse_delete_statement(&mut self) -> Result<Statement, ParseError> {
+        let token_pos = self.tokens.next().unwrap(); // Consume "delete"
+        
+        // Check if next token is "file" or "directory"
+        if let Some(next_token) = self.tokens.peek() {
+            match next_token.token {
+                Token::KeywordFile => {
+                    self.tokens.next(); // Consume "file"
+                    self.expect_token(Token::KeywordAt, "Expected 'at' after 'delete file'")?;
+                    let path = self.parse_primary_expression()?;
+                    
+                    Ok(Statement::DeleteFileStatement {
+                        path,
+                        line: token_pos.line,
+                        column: token_pos.column,
+                    })
+                }
+                Token::KeywordDirectory => {
+                    self.tokens.next(); // Consume "directory"
+                    self.expect_token(Token::KeywordAt, "Expected 'at' after 'delete directory'")?;
+                    let path = self.parse_primary_expression()?;
+                    
+                    Ok(Statement::DeleteDirectoryStatement {
+                        path,
+                        line: token_pos.line,
+                        column: token_pos.column,
+                    })
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        format!("Expected 'file' or 'directory' after 'delete', found {:?}", next_token.token),
+                        next_token.line,
+                        next_token.column,
+                    ));
+                }
+            }
+        } else {
+            return Err(ParseError::new(
+                "Expected 'file' or 'directory' after 'delete'".to_string(),
+                token_pos.line,
+                token_pos.column,
+            ));
+        }
     }
 
     fn parse_argument_list(&mut self) -> Result<Vec<Argument>, ParseError> {

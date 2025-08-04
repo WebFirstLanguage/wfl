@@ -752,6 +752,37 @@ impl Analyzer {
                 }
             }
 
+            Statement::CreateDirectoryStatement { path, .. } => {
+                self.analyze_expression(path);
+            }
+
+            Statement::CreateFileStatement { path, content, .. } => {
+                self.analyze_expression(path);
+                self.analyze_expression(content);
+            }
+
+            Statement::DeleteFileStatement { path, .. } => {
+                self.analyze_expression(path);
+            }
+
+            Statement::DeleteDirectoryStatement { path, .. } => {
+                self.analyze_expression(path);
+            }
+
+            Statement::CloseFileStatement { file, .. } => {
+                self.analyze_expression(file);
+            }
+
+            Statement::WriteFileStatement { file, content, .. } => {
+                self.analyze_expression(file);
+                self.analyze_expression(content);
+            }
+
+            Statement::WriteToStatement { content, file, .. } => {
+                self.analyze_expression(content);
+                self.analyze_expression(file);
+            }
+
             _ => {}
         }
     }
@@ -991,6 +1022,18 @@ impl Analyzer {
             }
             Expression::PropertyAccess { object, .. } => {
                 self.analyze_expression(object);
+            }
+            Expression::FileExists { path, .. } => {
+                self.analyze_expression(path);
+            }
+            Expression::DirectoryExists { path, .. } => {
+                self.analyze_expression(path);
+            }
+            Expression::ListFiles { path, .. } => {
+                self.analyze_expression(path);
+            }
+            Expression::ReadContent { file_handle, .. } => {
+                self.analyze_expression(file_handle);
             }
         }
     }
