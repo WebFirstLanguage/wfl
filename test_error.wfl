@@ -1,7 +1,0 @@
-define action called divide:
-    store x as 10
-    store y as 0
-    give back x divided by y
-end action
-
-divide

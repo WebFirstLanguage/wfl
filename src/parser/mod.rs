@@ -3411,32 +3411,7 @@ impl<'a> Parser<'a> {
                         if token.token == Token::KeywordAt {
                             self.tokens.next(); // Consume "at"
 
-                            let url_expr = if let Some(token) = self.tokens.peek().cloned() {
-                                if let Token::StringLiteral(url_str) = &token.token {
-                                    let token_clone = token;
-                                    self.tokens.next(); // Consume the string literal
-                                    Expression::Literal(
-                                        Literal::String(url_str.clone()),
-                                        token_clone.line,
-                                        token_clone.column,
-                                    )
-                                } else {
-                                    return Err(ParseError::new(
-                                        format!(
-                                            "Expected string literal for URL, found {:?}",
-                                            token.token
-                                        ),
-                                        token.line,
-                                        token.column,
-                                    ));
-                                }
-                            } else {
-                                return Err(ParseError::new(
-                                    "Unexpected end of input".to_string(),
-                                    0,
-                                    0,
-                                ));
-                            };
+                            let url_expr = self.parse_expression()?;
 
                             // Check for "and read content as" pattern
                             if let Some(next_token) = self.tokens.peek().cloned() {
@@ -3564,28 +3539,7 @@ impl<'a> Parser<'a> {
             if token.token == Token::KeywordAt {
                 self.tokens.next(); // Consume "at"
 
-                let path_expr = if let Some(token) = self.tokens.peek().cloned() {
-                    if let Token::StringLiteral(path_str) = &token.token {
-                        let token_clone = token;
-                        self.tokens.next(); // Consume the string literal
-                        Expression::Literal(
-                            Literal::String(path_str.clone()),
-                            token_clone.line,
-                            token_clone.column,
-                        )
-                    } else {
-                        return Err(ParseError::new(
-                            format!(
-                                "Expected string literal for file path, found {:?}",
-                                token.token
-                            ),
-                            token.line,
-                            token.column,
-                        ));
-                    }
-                } else {
-                    return Err(ParseError::new("Unexpected end of input".to_string(), 0, 0));
-                };
+                let path_expr = self.parse_expression()?;
 
                 // Check for "for append", "and read content as" pattern AND direct "as" pattern
                 if let Some(next_token) = self.tokens.peek().cloned() {
