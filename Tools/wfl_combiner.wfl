@@ -45,13 +45,8 @@ Generated on: August 2025
             close source_handle
             
             // Build the new section
-            store section as "---
-
-## File " with file_number with ": " with file_path with "
-
-" with file_content with "
-
-"
+            store section_header as "---" with "\n" with "\n" with "## File " with file_number with ": " with file_path with "\n" with "\n"
+            store section as section_header with file_content with "\n" with "\n"
             
             // Combine existing content with new section
             store updated_content as existing_content with section
