@@ -345,4 +345,8 @@ wfl/
 5. **Stability**: Ensuring backward compatibility
 6. **Version**: Currently at v2025.50.0
 
+## Debugging 
+
+- **Interpreter Debugging Principle**: We are building WFL, so unless told to debug the script, we are debugging the interpreter itself
+
 Remember: This is alpha software under active development. Always prioritize stability and backward compatibility while implementing new features. The goal is to make programming accessible while maintaining professional-grade tooling and performance.
