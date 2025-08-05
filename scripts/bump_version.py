@@ -38,7 +38,11 @@ def get_current_version():
             print(f"Error: {BUILD_META_FILE} is not valid JSON")
             sys.exit(1)
     
-    return meta, f"{meta.get('year', datetime.datetime.now().year)}.{meta.get('build', 0)}"
+    # New version format: YY.MM.BUILD
+    year = meta.get('year', datetime.datetime.now().year % 100)
+    month = meta.get('month', datetime.datetime.now().month)
+    build = meta.get('build', 1)
+    return meta, f"{year}.{month}.{build}"
 
 def bump_version(skip_bump=False):
     """Increment the build number in build_meta.json and update version.rs."""
@@ -48,19 +52,25 @@ def bump_version(skip_bump=False):
         print(f"Using current version: {old_version}")
         return meta, old_version
     
-    current_year = datetime.datetime.now().year
-    build_num = meta.get("build", 0)
-    last_year = meta.get("year", current_year)
+    now = datetime.datetime.now()
+    current_year = now.year % 100  # Get 2-digit year
+    current_month = now.month
     
-    if current_year != last_year:
+    build_num = meta.get("build", 1)
+    last_year = meta.get("year", current_year)
+    last_month = meta.get("month", current_month)
+    
+    # Reset build number if year or month changes
+    if current_year != last_year or current_month != last_month:
         build_num = 1
         meta["year"] = current_year
+        meta["month"] = current_month
     else:
         build_num += 1
     
     meta["build"] = build_num
     
-    new_version = f"{current_year}.{build_num}"
+    new_version = f"{current_year}.{current_month}.{build_num}"
     print(f"Bumped version: {old_version} -> {new_version}")
     
     with open(BUILD_META_FILE, "w") as f:
@@ -86,8 +96,8 @@ def update_cargo_toml(version):
     with open(CARGO_TOML, "r") as f:
         content = f.read()
     
-    # Convert version to semver format for Cargo.toml
-    semver_version = f"{version}.0"
+    # Convert version to semver format for Cargo.toml (YY.MM.BUILD)
+    semver_version = version
     
     # Update package version
     new_content = re.sub(r'(version = )"(\d+\.\d+\.\d+)"', f'\\1"{semver_version}"', content, count=1)
@@ -114,8 +124,9 @@ def update_wix_toml(version):
     with open(WIX_TOML, "r") as f:
         content = f.read()
     
-    # Windows MSI version needs 4 components: major.minor.patch.build
-    windows_version = f"{version}.0.0"
+    # Windows MSI version needs 4 components: major.minor.build.0
+    # Our format YY.MM.BUILD already has 3 components, just add .0
+    windows_version = f"{version}.0"
     
     if 'version = "' in content:
         # Replace existing version line
@@ -150,8 +161,8 @@ def update_vscode_extensions(version):
                 print(f"Warning: {pkg_file} is not valid JSON, skipping")
                 continue
         
-        # VS Code extensions use semver
-        semver_version = f"{version}.0"
+        # VS Code extensions use semver (our format is already compatible)
+        semver_version = version
         
         pkg_data["version"] = semver_version
         

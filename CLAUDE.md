@@ -351,7 +351,7 @@ wfl/
 3. **Error Messages**: Improving clarity and helpfulness
 4. **Documentation**: Keeping all docs up-to-date
 5. **Stability**: Ensuring backward compatibility
-6. **Version**: Currently at v2025.50.0
+6. **Version**: Currently at v25.8.3
 
 ## Debugging 
 
