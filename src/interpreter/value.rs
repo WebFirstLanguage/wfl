@@ -1,7 +1,7 @@
 use super::environment::Environment;
 use super::error::RuntimeError;
 use crate::parser::ast::Statement;
-use crate::stdlib::pattern::CompiledPattern;
+use crate::pattern::CompiledPattern;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;

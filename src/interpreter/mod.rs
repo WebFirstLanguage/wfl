@@ -37,6 +37,7 @@ use crate::logging::IndentGuard;
 use crate::parser::ast::{
     Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
 };
+use crate::pattern::CompiledPattern;
 use crate::stdlib;
 use crate::stdlib::pattern;
 use std::cell::RefCell;
@@ -2441,11 +2442,23 @@ impl Interpreter {
                 }
             }
             Statement::PatternDefinition { name, pattern, .. } => {
-                // TODO: Implement pattern definition handling
-                // For now, just store as a placeholder in the environment
-                let pattern_value = Value::Text(Rc::from(format!("Pattern<{}>", name)));
-                env.borrow_mut().define(name, pattern_value.clone());
-                Ok((pattern_value, ControlFlow::None))
+                // Compile the pattern AST into bytecode
+                match CompiledPattern::compile(pattern) {
+                    Ok(compiled_pattern) => {
+                        // Store the compiled pattern in the environment
+                        let pattern_value = Value::Pattern(Rc::new(compiled_pattern));
+                        env.borrow_mut().define(name, pattern_value.clone());
+                        Ok((pattern_value, ControlFlow::None))
+                    }
+                    Err(compile_error) => {
+                        Err(RuntimeError {
+                            kind: ErrorKind::General,
+                            message: format!("Failed to compile pattern '{}': {}", name, compile_error),
+                            line: line,
+                            column: column,
+                        })
+                    }
+                }
             }
         };
 
@@ -2658,13 +2671,13 @@ impl Interpreter {
                 Literal::Float(f) => Ok(Value::Number(*f)),
                 Literal::Boolean(b) => Ok(Value::Bool(*b)),
                 Literal::Nothing => Ok(Value::Null),
-                Literal::Pattern(ir_string) => match pattern::parse_ir(ir_string) {
-                    Ok(compiled_pattern) => Ok(Value::Pattern(Rc::new(compiled_pattern))),
-                    Err(err) => Err(RuntimeError::new(
-                        format!("Pattern compilation error: {err}"),
+                Literal::Pattern(_ir_string) => {
+                    // TODO: Update to use new pattern system 
+                    Err(RuntimeError::new(
+                        "Pattern literals not yet supported in new pattern system".to_string(),
                         *_line,
                         *_column,
-                    )),
+                    ))
                 },
                 Literal::List(elements) => {
                     let mut list_values = Vec::new();
@@ -2981,8 +2994,29 @@ impl Interpreter {
                 let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
                 let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
 
-                let args = vec![text_val, pattern_val];
-                crate::stdlib::pattern::native_pattern_matches(args, *_line, *_column)
+                // Extract text string
+                let text_str = match &text_val {
+                    Value::Text(s) => s.as_ref(),
+                    _ => return Err(RuntimeError::new(
+                        "Pattern match requires text as first argument".to_string(),
+                        *_line,
+                        *_column,
+                    )),
+                };
+
+                // Extract compiled pattern
+                let compiled_pattern = match &pattern_val {
+                    Value::Pattern(p) => p,
+                    _ => return Err(RuntimeError::new(
+                        "Pattern match requires pattern as second argument".to_string(),
+                        *_line,
+                        *_column,
+                    )),
+                };
+
+                // Perform the match
+                let matches = compiled_pattern.matches(text_str);
+                Ok(Value::Bool(matches))
             }
 
             Expression::PatternFind {
@@ -2994,8 +3028,48 @@ impl Interpreter {
                 let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
                 let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
 
-                let args = vec![text_val, pattern_val]; // Note: text first, then pattern
-                crate::stdlib::pattern::native_pattern_find(args, *_line, *_column)
+                // Extract text string
+                let text_str = match &text_val {
+                    Value::Text(s) => s.as_ref(),
+                    _ => return Err(RuntimeError::new(
+                        "Pattern find requires text as first argument".to_string(),
+                        *_line,
+                        *_column,
+                    )),
+                };
+
+                // Extract compiled pattern
+                let compiled_pattern = match &pattern_val {
+                    Value::Pattern(p) => p,
+                    _ => return Err(RuntimeError::new(
+                        "Pattern find requires pattern as second argument".to_string(),
+                        *_line,
+                        *_column,
+                    )),
+                };
+
+                // Find the first match
+                match compiled_pattern.find(text_str) {
+                    Some(match_result) => {
+                        // Return an object with match information
+                        let mut result_map = std::collections::HashMap::new();
+                        result_map.insert("matched_text".to_string(), Value::Text(Rc::from(match_result.matched_text.as_str())));
+                        result_map.insert("start".to_string(), Value::Number(match_result.start as f64));
+                        result_map.insert("end".to_string(), Value::Number(match_result.end as f64));
+                        
+                        // Add captures if any
+                        if !match_result.captures.is_empty() {
+                            let mut captures_map = std::collections::HashMap::new();
+                            for (name, value) in match_result.captures {
+                                captures_map.insert(name, Value::Text(Rc::from(value.as_str())));
+                            }
+                            result_map.insert("captures".to_string(), Value::Object(Rc::new(RefCell::new(captures_map))));
+                        }
+                        
+                        Ok(Value::Object(Rc::new(RefCell::new(result_map))))
+                    }
+                    None => Ok(Value::Null),
+                }
             }
 
             Expression::PatternReplace {

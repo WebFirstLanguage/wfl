@@ -1,0 +1,52 @@
+// Test comprehensive pattern matching with new Phase 2 system
+
+// Create some patterns
+create pattern greeting:
+    "hello"
+end pattern
+
+create pattern phone_number:
+    digit digit digit
+end pattern
+
+create pattern flexible_digits:
+    one or more digit
+end pattern
+
+create pattern greeting_alternatives:
+    "hello" or "hi" or "hey"
+end pattern
+
+// Test basic pattern matching
+store test_text as "hello world"
+check if test_text matches greeting:
+    display "✓ Basic pattern matching works!"
+otherwise:
+    display "✗ Basic pattern matching failed"
+end check
+
+// Test phone number pattern
+store phone_text as "123 is my code"
+check if phone_text matches phone_number:
+    display "✓ Character class pattern matching works!"
+otherwise:
+    display "✗ Character class pattern matching failed"
+end check
+
+// Test flexible digits pattern
+store number_text as "12345 items"
+check if number_text matches flexible_digits:
+    display "✓ Quantified pattern matching works!"
+otherwise:
+    display "✗ Quantified pattern matching failed"
+end check
+
+// Test alternative patterns
+store alt_text as "hi there"
+check if alt_text matches greeting_alternatives:
+    display "✓ Alternative pattern matching works!"
+otherwise:
+    display "✗ Alternative pattern matching failed"
+end check
+
+display "Pattern matching tests completed!"

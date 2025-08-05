@@ -1,0 +1,40 @@
+// Test new standard library pattern functions
+
+// Create some patterns
+create pattern word_pattern:
+    one or more letter
+end pattern
+
+create pattern number_pattern:
+    one or more digit
+end pattern
+
+// Test data
+store test_text as "Hello 123 world 456"
+
+// Test pattern_matches function
+store word_matches as pattern_matches(test_text, word_pattern)
+display "Word pattern matches: " with word_matches
+
+store number_matches as pattern_matches("999", number_pattern)  
+display "Number pattern matches '999': " with number_matches
+
+// Test pattern_find function
+store first_match as pattern_find(test_text, word_pattern)
+check if first_match is not nothing:
+    display "First word found: " with first_match.matched_text
+    display "Position: " with first_match.start with " to " with first_match.end
+otherwise:
+    display "No word found"
+end check
+
+// Test pattern_find_all function
+store all_matches as pattern_find_all(test_text, word_pattern)
+display "Found " with length of all_matches with " word matches:"
+
+count i from 0 to length of all_matches minus 1:
+    store match_result as all_matches at i
+    display "  Match " with i with ": '" with match_result.matched_text with "' at position " with match_result.start
+end count
+
+display "Standard library pattern tests completed!"
