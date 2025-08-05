@@ -1,0 +1,6 @@
+// Simple test of pattern creation and matching
+create pattern test_pattern:
+    "hello"
+end pattern
+
+display "Pattern created successfully"
