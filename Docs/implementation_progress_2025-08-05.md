@@ -28,3 +28,10 @@
 - Status: SUCCESS
 - Output: `target/x86_64-pc-windows-msvc/release/wfl-25.3.msi`
 
+
+## MSI Build - 09:46:14
+
+- Version: 25.3
+- Status: SUCCESS
+- Output: `target/x86_64-pc-windows-msvc/release/wfl-25.3.msi`
+
