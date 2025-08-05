@@ -477,6 +477,10 @@ pub enum CharClass {
     Digit,      // digit
     Letter,     // letter
     Whitespace, // whitespace
+    // Unicode categories
+    UnicodeCategory(String), // e.g., "Letter", "Number", "Symbol"
+    UnicodeScript(String),   // e.g., "Greek", "Latin", "Arabic"
+    UnicodeProperty(String), // e.g., "Alphabetic", "Uppercase", "Lowercase"
 }
 
 /// Represents different types of quantifiers

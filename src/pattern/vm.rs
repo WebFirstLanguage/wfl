@@ -15,10 +15,16 @@ pub struct MatchResult {
 
 impl MatchResult {
     pub fn new(start: usize, end: usize, text: &str) -> Self {
+        let chars: Vec<char> = text.chars().collect();
+        let matched_text = if start <= end && end <= chars.len() {
+            chars[start..end].iter().collect()
+        } else {
+            String::new()
+        };
         Self {
             start,
             end,
-            matched_text: text[start..end].to_string(),
+            matched_text,
             captures: HashMap::new(),
         }
     }
@@ -29,10 +35,16 @@ impl MatchResult {
         text: &str,
         captures: HashMap<String, String>,
     ) -> Self {
+        let chars: Vec<char> = text.chars().collect();
+        let matched_text = if start <= end && end <= chars.len() {
+            chars[start..end].iter().collect()
+        } else {
+            String::new()
+        };
         Self {
             start,
             end,
-            matched_text: text[start..end].to_string(),
+            matched_text,
             captures,
         }
     }
@@ -209,9 +221,14 @@ impl PatternVM {
                         let mut captures: HashMap<String, String> = HashMap::new();
 
                         // Extract captures from the final state
+                        let text_chars: Vec<char> = text.chars().collect();
                         for (i, name) in capture_names.iter().enumerate() {
                             if let Some((start, end)) = final_state.captures[i] {
-                                let captured_text = text[start..end].to_string();
+                                let captured_text: String = if start <= end && end <= text_chars.len() {
+                                    text_chars[start..end].iter().collect()
+                                } else {
+                                    String::new()
+                                };
                                 captures.insert(name.clone(), captured_text);
                             }
                         }
@@ -551,25 +568,91 @@ impl PatternVM {
                     state.pc += 1;
                 }
 
-                Instruction::CheckLookbehind(length) => {
-                    // Check if we have enough characters behind us
-                    if state.pos >= *length {
-                        // For now, this is a simplified placeholder
-                        // In a full implementation, we'd run a sub-pattern on the text before current position
+                Instruction::CheckLookbehind(lookbehind_program) => {
+                    // Execute the lookbehind pattern against text before current position
+                    // We need to find where the pattern should start matching
+                    
+                    // Try matching at different positions before current position
+                    let mut matched = false;
+                    let text_chars: Vec<char> = text.chars().collect();
+                    
+                    // Get the text before current position
+                    if state.pos > 0 {
+                        // Try to match the pattern ending at current position
+                        // We'll try different starting positions
+                        let max_lookback = state.pos.min(1000); // Limit lookback distance
+                        
+                        for start_offset in 1..=max_lookback {
+                            let start_pos = state.pos - start_offset;
+                            
+                            // Create a new VM to execute the lookbehind pattern
+                            let mut lookbehind_vm = PatternVM::new();
+                            
+                            // Create a slice of text to match against
+                            let text_slice: String = text_chars[start_pos..state.pos].iter().collect();
+                            
+                            // Try to match the entire slice
+                            if let Ok(result) = lookbehind_vm.execute(lookbehind_program, &text_slice) {
+                                if result {
+                                    // Check if the match uses the entire slice
+                                    let matches = lookbehind_vm.find_all(lookbehind_program, &text_slice, &[]);
+                                    if let Some(first_match) = matches.first() {
+                                        if first_match.start == 0 && first_match.end == text_slice.len() {
+                                            matched = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if matched {
                         state.pc += 1;
                     } else {
                         return Ok(StepResult::Fail);
                     }
                 }
 
-                Instruction::CheckNegativeLookbehind(length) => {
+                Instruction::CheckNegativeLookbehind(lookbehind_program) => {
                     // Similar to CheckLookbehind but expects the pattern to NOT match
-                    if state.pos >= *length {
-                        // Simplified placeholder
+                    let mut matched = false;
+                    let text_chars: Vec<char> = text.chars().collect();
+                    
+                    if state.pos > 0 {
+                        // Try to match the pattern ending at current position
+                        let max_lookback = state.pos.min(1000); // Limit lookback distance
+                        
+                        for start_offset in 1..=max_lookback {
+                            let start_pos = state.pos - start_offset;
+                            
+                            // Create a new VM to execute the lookbehind pattern
+                            let mut lookbehind_vm = PatternVM::new();
+                            
+                            // Create a slice of text to match against
+                            let text_slice: String = text_chars[start_pos..state.pos].iter().collect();
+                            
+                            // Try to match the entire slice
+                            if let Ok(result) = lookbehind_vm.execute(lookbehind_program, &text_slice) {
+                                if result {
+                                    // Check if the match uses the entire slice
+                                    let matches = lookbehind_vm.find_all(lookbehind_program, &text_slice, &[]);
+                                    if let Some(first_match) = matches.first() {
+                                        if first_match.start == 0 && first_match.end == text_slice.len() {
+                                            matched = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // For negative lookbehind, we succeed if the pattern did NOT match
+                    if !matched {
                         state.pc += 1;
                     } else {
-                        // If we don't have enough characters, the negative lookbehind succeeds
-                        state.pc += 1;
+                        return Ok(StepResult::Fail);
                     }
                 }
             }

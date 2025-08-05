@@ -56,10 +56,10 @@ pub enum Instruction {
     EndNegativeLookahead,
     
     /// Check positive lookbehind - verify pattern matches before current position
-    CheckLookbehind(usize), // length of the lookbehind pattern
+    CheckLookbehind(Box<Program>), // sub-program to match before current position
     
     /// Check negative lookbehind - verify pattern doesn't match before current position
-    CheckNegativeLookbehind(usize), // length of the lookbehind pattern
+    CheckNegativeLookbehind(Box<Program>), // sub-program to match before current position
 }
 
 /// Character class types supported by the pattern system
@@ -69,6 +69,10 @@ pub enum CharClassType {
     Letter,     // matches a-z, A-Z
     Whitespace, // matches space, tab, newline, etc.
     Any,        // matches any single character
+    // Unicode categories
+    UnicodeCategory(String), // e.g., "Letter", "Number", "Symbol"
+    UnicodeScript(String),   // e.g., "Greek", "Latin", "Arabic"
+    UnicodeProperty(String), // e.g., "Alphabetic", "Uppercase", "Lowercase"
 }
 
 impl CharClassType {
@@ -79,12 +83,61 @@ impl CharClassType {
             CharClassType::Letter => ch.is_alphabetic(),
             CharClassType::Whitespace => ch.is_whitespace(),
             CharClassType::Any => true,
+            CharClassType::UnicodeCategory(category) => match category.as_str() {
+                "Letter" | "L" => ch.is_alphabetic(),
+                "Number" | "N" => ch.is_numeric(),
+                "Symbol" | "S" => matches!(ch, 
+                    '$' | '+' | '<' | '=' | '>' | '^' | '`' | '|' | '~' |
+                    '\u{00A2}'..='\u{00A5}' | '\u{00A7}' | '\u{00A9}' | '\u{00AC}' |
+                    '\u{00AE}'..='\u{00B1}' | '\u{00B4}' | '\u{00B6}' | '\u{00B8}' |
+                    '\u{00D7}' | '\u{00F7}' | '\u{02C2}'..='\u{02C5}' | 
+                    '\u{02D2}'..='\u{02DF}' | '\u{02E5}'..='\u{02EB}' | '\u{02ED}' |
+                    '\u{2100}'..='\u{214F}' | '\u{2190}'..='\u{2328}' | 
+                    '\u{2400}'..='\u{2426}' | '\u{2440}'..='\u{244A}'
+                ),
+                "Punctuation" | "P" => ch.is_ascii_punctuation() || matches!(ch,
+                    '\u{2010}'..='\u{2027}' | '\u{2030}'..='\u{203E}' |
+                    '\u{2041}'..='\u{2053}' | '\u{2055}'..='\u{205E}'
+                ),
+                "Mark" | "M" => matches!(ch,
+                    '\u{0300}'..='\u{036F}' | '\u{0483}'..='\u{0489}' |
+                    '\u{0591}'..='\u{05BD}' | '\u{05BF}' | '\u{05C1}'..='\u{05C2}' |
+                    '\u{05C4}'..='\u{05C5}' | '\u{05C7}' | '\u{0610}'..='\u{061A}'
+                ),
+                _ => false,
+            },
+            CharClassType::UnicodeScript(script) => match script.as_str() {
+                "Latin" => matches!(ch, 'A'..='Z' | 'a'..='z' | 
+                    '\u{00C0}'..='\u{00FF}' | '\u{0100}'..='\u{017F}' | 
+                    '\u{0180}'..='\u{024F}' | '\u{1E00}'..='\u{1EFF}'),
+                "Greek" => matches!(ch, '\u{0370}'..='\u{03FF}' | '\u{1F00}'..='\u{1FFF}'),
+                "Cyrillic" => matches!(ch, '\u{0400}'..='\u{04FF}' | '\u{0500}'..='\u{052F}'),
+                "Arabic" => matches!(ch, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}'),
+                "Hebrew" => matches!(ch, '\u{0590}'..='\u{05FF}'),
+                "Devanagari" => matches!(ch, '\u{0900}'..='\u{097F}'),
+                "Chinese" | "Han" => matches!(ch, '\u{4E00}'..='\u{9FFF}' | 
+                    '\u{3400}'..='\u{4DBF}' | '\u{20000}'..='\u{2A6DF}'),
+                "Japanese" | "Hiragana" => matches!(ch, '\u{3040}'..='\u{309F}'),
+                "Katakana" => matches!(ch, '\u{30A0}'..='\u{30FF}'),
+                "Korean" | "Hangul" => matches!(ch, '\u{AC00}'..='\u{D7AF}' | 
+                    '\u{1100}'..='\u{11FF}' | '\u{3130}'..='\u{318F}'),
+                _ => false,
+            },
+            CharClassType::UnicodeProperty(property) => match property.as_str() {
+                "Alphabetic" => ch.is_alphabetic(),
+                "Uppercase" => ch.is_uppercase(),
+                "Lowercase" => ch.is_lowercase(),
+                "Numeric" => ch.is_numeric(),
+                "Alphanumeric" => ch.is_alphanumeric(),
+                "Control" => ch.is_control(),
+                _ => false,
+            },
         }
     }
 }
 
 /// A compiled pattern program consisting of a sequence of instructions
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub instructions: Vec<Instruction>,
     pub num_captures: usize,

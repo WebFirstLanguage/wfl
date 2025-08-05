@@ -118,6 +118,9 @@ impl PatternCompiler {
             CharClass::Digit => CharClassType::Digit,
             CharClass::Letter => CharClassType::Letter,
             CharClass::Whitespace => CharClassType::Whitespace,
+            CharClass::UnicodeCategory(category) => CharClassType::UnicodeCategory(category.clone()),
+            CharClass::UnicodeScript(script) => CharClassType::UnicodeScript(script.clone()),
+            CharClass::UnicodeProperty(property) => CharClassType::UnicodeProperty(property.clone()),
         };
         self.program.push(Instruction::CharClass(class_type));
         Ok(())
@@ -397,44 +400,27 @@ impl PatternCompiler {
 
     /// Compile a positive lookbehind
     fn compile_lookbehind(&mut self, pattern: &PatternExpression) -> Result<(), PatternError> {
-        // For lookbehinds, we need to calculate the fixed length of the pattern
-        // This is a simplified implementation that only supports fixed-length lookbehinds
-        match self.calculate_pattern_length(pattern) {
-            Some(length) => {
-                // Create a separate program for the lookbehind pattern
-                let mut lookbehind_compiler = PatternCompiler::new();
-                lookbehind_compiler.compile_expression(pattern)?;
-                lookbehind_compiler.program.push(Instruction::Match);
-                
-                // For now, we'll use a simplified approach:
-                // Store the lookbehind length and let the VM handle it
-                self.program.push(Instruction::CheckLookbehind(length));
-                
-                // TODO: In a full implementation, we'd embed the lookbehind program
-                // as data within the instruction
-            }
-            None => {
-                return Err(PatternError::CompileError(
-                    "Lookbehind patterns must have a fixed length".to_string()
-                ));
-            }
-        }
+        // Create a separate program for the lookbehind pattern
+        let mut lookbehind_compiler = PatternCompiler::new();
+        lookbehind_compiler.compile_expression(pattern)?;
+        lookbehind_compiler.program.push(Instruction::Match);
+        
+        // Embed the lookbehind program in the instruction
+        self.program.push(Instruction::CheckLookbehind(Box::new(lookbehind_compiler.program)));
+        
         Ok(())
     }
 
     /// Compile a negative lookbehind
     fn compile_negative_lookbehind(&mut self, pattern: &PatternExpression) -> Result<(), PatternError> {
-        // Similar to positive lookbehind but checks for non-match
-        match self.calculate_pattern_length(pattern) {
-            Some(length) => {
-                self.program.push(Instruction::CheckNegativeLookbehind(length));
-            }
-            None => {
-                return Err(PatternError::CompileError(
-                    "Lookbehind patterns must have a fixed length".to_string()
-                ));
-            }
-        }
+        // Create a separate program for the negative lookbehind pattern
+        let mut lookbehind_compiler = PatternCompiler::new();
+        lookbehind_compiler.compile_expression(pattern)?;
+        lookbehind_compiler.program.push(Instruction::Match);
+        
+        // Embed the lookbehind program in the instruction
+        self.program.push(Instruction::CheckNegativeLookbehind(Box::new(lookbehind_compiler.program)));
+        
         Ok(())
     }
 

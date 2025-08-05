@@ -5100,6 +5100,99 @@ impl<'a> Parser<'a> {
                 *i += 1;
                 PatternExpression::CharacterClass(CharClass::Whitespace)
             }
+            
+            // Unicode patterns
+            Token::KeywordUnicode => {
+                *i += 1;
+                if *i < tokens.len() {
+                    match &tokens[*i].token {
+                        Token::KeywordLetter => {
+                            *i += 1;
+                            PatternExpression::CharacterClass(CharClass::UnicodeProperty("Alphabetic".to_string()))
+                        }
+                        Token::KeywordDigit => {
+                            *i += 1;
+                            PatternExpression::CharacterClass(CharClass::UnicodeProperty("Numeric".to_string()))
+                        }
+                        Token::KeywordCategory => {
+                            *i += 1;
+                            if *i < tokens.len() {
+                                if let Token::StringLiteral(category) = &tokens[*i].token {
+                                    *i += 1;
+                                    PatternExpression::CharacterClass(CharClass::UnicodeCategory(category.clone()))
+                                } else {
+                                    return Err(ParseError::new(
+                                        "Expected string literal after 'unicode category'".to_string(),
+                                        tokens[*i].line,
+                                        tokens[*i].column,
+                                    ));
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected category name after 'unicode category'".to_string(),
+                                    tokens[*i - 1].line,
+                                    tokens[*i - 1].column,
+                                ));
+                            }
+                        }
+                        Token::KeywordScript => {
+                            *i += 1;
+                            if *i < tokens.len() {
+                                if let Token::StringLiteral(script) = &tokens[*i].token {
+                                    *i += 1;
+                                    PatternExpression::CharacterClass(CharClass::UnicodeScript(script.clone()))
+                                } else {
+                                    return Err(ParseError::new(
+                                        "Expected string literal after 'unicode script'".to_string(),
+                                        tokens[*i].line,
+                                        tokens[*i].column,
+                                    ));
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected script name after 'unicode script'".to_string(),
+                                    tokens[*i - 1].line,
+                                    tokens[*i - 1].column,
+                                ));
+                            }
+                        }
+                        Token::Identifier(name) if name == "property" => {
+                            *i += 1;
+                            if *i < tokens.len() {
+                                if let Token::StringLiteral(property) = &tokens[*i].token {
+                                    *i += 1;
+                                    PatternExpression::CharacterClass(CharClass::UnicodeProperty(property.clone()))
+                                } else {
+                                    return Err(ParseError::new(
+                                        "Expected string literal after 'unicode property'".to_string(),
+                                        tokens[*i].line,
+                                        tokens[*i].column,
+                                    ));
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected property name after 'unicode property'".to_string(),
+                                    tokens[*i - 1].line,
+                                    tokens[*i - 1].column,
+                                ));
+                            }
+                        }
+                        _ => {
+                            return Err(ParseError::new(
+                                "Expected 'letter', 'digit', 'category', 'script', or 'property' after 'unicode'".to_string(),
+                                tokens[*i].line,
+                                tokens[*i].column,
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        "Incomplete unicode pattern".to_string(),
+                        tokens[*i - 1].line,
+                        tokens[*i - 1].column,
+                    ));
+                }
+            }
 
             // Anchors
             Token::KeywordStart => {

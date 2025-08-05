@@ -1,0 +1,22 @@
+// Debug lookbehind issue
+create pattern not_after_the:
+    check not behind for {"the "}
+    one or more letter
+end pattern
+
+store txt as "the cat"
+store match_result as find not_after_the in txt
+check if match_result is not nothing:
+    display "Found match: " with match_result
+otherwise:
+    display "No match found"
+end check
+
+// Try matching at position 4 (start of 'cat')
+store txt2 as "cat"
+store match2 as find not_after_the in txt2
+check if match2 is not nothing:
+    display "Found match in 'cat': " with match2
+otherwise:
+    display "No match in 'cat'"
+end check

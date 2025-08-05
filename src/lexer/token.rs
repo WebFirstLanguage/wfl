@@ -173,6 +173,12 @@ pub enum Token {
     KeywordLetter,
     #[token("whitespace")]
     KeywordWhitespace,
+    #[token("unicode")]
+    KeywordUnicode,
+    #[token("category")]
+    KeywordCategory,
+    #[token("script")]
+    KeywordScript,
     #[token("greedy")]
     KeywordGreedy,
     #[token("lazy")]

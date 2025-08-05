@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: TestPrograms/debug_lookbehind.wfl
+Time: 2025-08-05 06:05:16
+
+=== Error Summary ===
+Runtime error at line 8, column 27: Undefined variable 'all not_after_the'
+
+=== Stack Trace ===
+In main script at line 8, column 27
+
+=== Source Code ===
+   6: 
+   7: store txt as "the cat"
+>> 8: store all_matches as find all not_after_the in txt
+   9: display "Number of matches: " with length of all_matches
+   10: 
+
+=== Local Variables ===
+(No local variables in global scope)

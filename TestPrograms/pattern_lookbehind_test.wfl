@@ -1,0 +1,102 @@
+display "Testing Lookbehind Patterns"
+display "-----------------------------"
+
+// Test 1: Positive lookbehind - match digit preceded by dollar sign
+create pattern price_digit:
+    check behind for {"$"}
+    digit
+end pattern
+
+// Should match '5' in "$5" (digit preceded by $)
+store text1 as "$5"
+store match1 as find price_digit in text1
+check if match1 is not nothing:
+    display "✓ Found digit after $ in '$5': " with match1["match"]
+otherwise:
+    display "✗ Should find digit after $ in '$5'"
+end check
+
+// Should NOT match '5' in "5" (digit not preceded by $)
+store text2 as "5"
+store match2 as find price_digit in text2
+check if match2 is nothing:
+    display "✓ No match in '5' (no $ before digit)"
+otherwise:
+    display "✗ Should not match '5' without $"
+end check
+
+// Test 2: Negative lookbehind - match word NOT preceded by "the "
+create pattern not_after_the:
+    check not behind for {"the "}
+    one or more letter
+end pattern
+
+// Should match "cat" in "a cat" (not preceded by "the ")
+store text3 as "a cat"
+store match3 as find not_after_the in text3
+check if match3 is not nothing:
+    display "✓ Found word not after 'the ': " with match3["match"]
+otherwise:
+    display "✗ Should find 'cat' not after 'the '"
+end check
+
+// Should NOT match "cat" in "the cat" (preceded by "the ")
+store text4 as "the cat"
+store match4 as find not_after_the in text4
+check if match4 is nothing:
+    display "✓ No match in 'the cat' (preceded by 'the ')"
+otherwise:
+    display "✗ Should not match 'cat' after 'the '"
+end check
+
+// Test 3: Complex lookbehind - match number in parentheses
+create pattern number_in_parens:
+    check behind for {"("}
+    one or more digit
+    check ahead for {")"}
+end pattern
+
+// Should match "123" in "(123)"
+store text5 as "(123)"
+store match5 as find number_in_parens in text5
+check if match5 is not nothing:
+    display "✓ Found number in parentheses: " with match5["match"]
+otherwise:
+    display "✗ Should find number in '(123)'"
+end check
+
+// Should NOT match "123" in "[123]" 
+store text6 as "[123]"
+store match6 as find number_in_parens in text6
+check if match6 is nothing:
+    display "✓ No match in '[123]' (wrong brackets)"
+otherwise:
+    display "✗ Should not match in '[123]'"
+end check
+
+// Test 4: Variable-length lookbehind - match letter after any vowel
+create pattern after_vowel:
+    check behind for {letter}
+    letter
+end pattern
+
+// Should match second letter in "hello"
+store text7 as "hello"
+store match7 as find after_vowel in text7
+check if match7 is not nothing:
+    display "✓ Found letter after letter: " with match7["match"]
+otherwise:
+    display "✗ Should find letter after letter in 'hello'"
+end check
+
+// Test 5: Lookbehind at start of string
+store text8 as "cat"
+store match8 as find not_after_the in text8
+check if match8 is not nothing:
+    display "✓ Lookbehind works at start of string: " with match8["match"]
+otherwise:
+    display "✗ Should match at start of string"
+end check
+
+display ""
+display "Lookbehind tests completed!"
