@@ -48,3 +48,51 @@ fn test_line_col_to_offset() {
     assert_eq!(reporter.line_col_to_offset(file_id, 2, 1), Some(7));
     assert_eq!(reporter.line_col_to_offset(file_id, 3, 1), Some(14));
 }
+
+#[test]
+fn test_line_col_to_offset_with_many_newlines() {
+    let mut reporter = DiagnosticReporter::new();
+    // Simplified test: verify that newlines don't cause offset drift
+    let source = "line1\n\n\n\nline5 with ++ error";
+    let file_id = reporter.add_file("test.wfl", source);
+
+    // Line 5, column 12 should point to the first + (1-indexed)
+    let offset = reporter.line_col_to_offset(file_id, 5, 12).unwrap();
+    assert_eq!(&source[offset..offset + 2], "++");
+
+    // Test with the exact case from the bug report
+    let source2 = "store x as 1\n\n\nstore y as 2++3";
+    let file_id2 = reporter.add_file("test2.wfl", source2);
+
+    // Line 4, column 13 should point to the first + (1-indexed)
+    let offset = reporter.line_col_to_offset(file_id2, 4, 13).unwrap();
+    assert_eq!(&source2[offset..offset + 2], "++");
+
+    // Verify the fix: before the fix, adding newlines would shift the offset
+    // This test ensures that the offset calculation is correct regardless of newlines
+    let source3 = "abc\n\n\n\n\n\n\n\n\n\nxyz++123";
+    let file_id3 = reporter.add_file("test3.wfl", source3);
+    let offset = reporter.line_col_to_offset(file_id3, 11, 4).unwrap();
+    assert_eq!(&source3[offset..offset + 2], "++");
+}
+
+#[test]
+fn test_line_col_to_offset_edge_cases() {
+    let mut reporter = DiagnosticReporter::new();
+
+    // Test empty lines
+    let source = "\n\n\nabc";
+    let file_id = reporter.add_file("test.wfl", source);
+    assert_eq!(reporter.line_col_to_offset(file_id, 4, 1), Some(3));
+    assert_eq!(reporter.line_col_to_offset(file_id, 4, 2), Some(4));
+
+    // Test last line without newline
+    let source2 = "line1\nline2";
+    let file_id2 = reporter.add_file("test2.wfl", source2);
+    assert_eq!(reporter.line_col_to_offset(file_id2, 2, 1), Some(6));
+    assert_eq!(reporter.line_col_to_offset(file_id2, 2, 5), Some(10));
+
+    // Test out of bounds
+    assert_eq!(reporter.line_col_to_offset(file_id2, 3, 1), None);
+    assert_eq!(reporter.line_col_to_offset(file_id2, 2, 10), None);
+}

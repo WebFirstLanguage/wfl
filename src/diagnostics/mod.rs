@@ -182,16 +182,29 @@ impl DiagnosticReporter {
 
         if let Ok(file) = self.files.get(file_id) {
             let source = file.source();
-            let lines: Vec<&str> = source.lines().collect();
 
-            if line < lines.len() {
-                let line_start = source
-                    .lines()
-                    .take(line)
-                    .map(|l| l.len() + 1)
-                    .sum::<usize>();
-                if column <= lines[line].len() {
-                    return Some(line_start + column);
+            // Build line start positions by scanning for newlines
+            let mut line_starts = vec![0];
+            for (i, c) in source.char_indices() {
+                if c == '\n' {
+                    line_starts.push(i + 1);
+                }
+            }
+
+            // Check if the line number is valid
+            if line < line_starts.len() {
+                let line_start_offset = line_starts[line];
+
+                // Get the actual line content to check column bounds
+                let line_end = if line + 1 < line_starts.len() {
+                    line_starts[line + 1] - 1 // Exclude the newline
+                } else {
+                    source.len()
+                };
+
+                let line_length = line_end - line_start_offset;
+                if column <= line_length {
+                    return Some(line_start_offset + column);
                 }
             }
         }
