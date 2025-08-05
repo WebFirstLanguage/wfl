@@ -165,6 +165,8 @@ pub enum Token {
     KeywordExactly,
     #[token("capture")]
     KeywordCapture,
+    #[token("captured")]
+    KeywordCaptured,
     #[token("digit")]
     KeywordDigit,
     #[token("letter")]
@@ -207,6 +209,12 @@ pub enum Token {
     KeywordIs,
     #[token("than")]
     KeywordThan,
+    #[token("same")]
+    KeywordSame,
+    #[token("ahead")]
+    KeywordAhead,
+    #[token("behind")]
+    KeywordBehind,
 
     // Container-related keywords
     #[token("container")]

@@ -1,0 +1,36 @@
+warning: associated functions `compile_pattern_to_ir`, `parse_sequence`, `parse_element`, and `parse_quantified_content` are never used
+    --> src\parser\mod.rs:4508:8
+     |
+17   | impl<'a> Parser<'a> {
+     | ------------------- associated functions in this implementation
+...
+4508 |     fn compile_pattern_to_ir(tokens: &[TokenWithPosition]) -> Result<String, ParseError> {
+     |        ^^^^^^^^^^^^^^^^^^^^^
+...
+4527 |     fn parse_sequence(
+     |        ^^^^^^^^^^^^^^
+...
+4550 |     fn parse_element(tokens: &[TokenWithPosition], i: &mut usize) -> Result<String, ParseError> {
+     |        ^^^^^^^^^^^^^
+...
+4765 |     fn parse_quantified_content(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` on by default
+
+warning: `wfl` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s
+     Running `target\debug\wfl.exe TestPrograms/debug_lookahead_bytecode.wfl --debug`
+[0m[1m[38;5;9merror[ANALYZE-SEMANTIC][0m[1m: Variable 'test_pattern' is not defined[0m
+
+[0m[1m[38;5;9merror[ANALYZE-SEMANTIC][0m[1m: Variable 'test_pattern' is not defined[0m
+
+Type checking warnings:
+Type error at line 13, column 32: Variable 'test_pattern' is not defined
+Type error at line 14, column 32: Variable 'test_pattern' is not defined
+Type error at line 13, column 32: Variable 'test_pattern' is not defined
+Type error at line 14, column 32: Variable 'test_pattern' is not defined
+Debug: Testing lookahead bytecode generation
+--------------------------------------------
+✓ '5a' matched (correct)
+✗ '59' matched (incorrect - should not match)

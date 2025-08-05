@@ -39,7 +39,6 @@ use crate::parser::ast::{
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
-use crate::stdlib::pattern;
 use std::cell::RefCell;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -2450,14 +2449,12 @@ impl Interpreter {
                         env.borrow_mut().define(name, pattern_value.clone());
                         Ok((pattern_value, ControlFlow::None))
                     }
-                    Err(compile_error) => {
-                        Err(RuntimeError {
-                            kind: ErrorKind::General,
-                            message: format!("Failed to compile pattern '{}': {}", name, compile_error),
-                            line: line,
-                            column: column,
-                        })
-                    }
+                    Err(compile_error) => Err(RuntimeError {
+                        kind: ErrorKind::General,
+                        message: format!("Failed to compile pattern '{}': {}", name, compile_error),
+                        line,
+                        column,
+                    }),
                 }
             }
         };
@@ -2672,13 +2669,13 @@ impl Interpreter {
                 Literal::Boolean(b) => Ok(Value::Bool(*b)),
                 Literal::Nothing => Ok(Value::Null),
                 Literal::Pattern(_ir_string) => {
-                    // TODO: Update to use new pattern system 
+                    // TODO: Update to use new pattern system
                     Err(RuntimeError::new(
                         "Pattern literals not yet supported in new pattern system".to_string(),
                         *_line,
                         *_column,
                     ))
-                },
+                }
                 Literal::List(elements) => {
                     let mut list_values = Vec::new();
                     for element in elements {
@@ -2997,21 +2994,25 @@ impl Interpreter {
                 // Extract text string
                 let text_str = match &text_val {
                     Value::Text(s) => s.as_ref(),
-                    _ => return Err(RuntimeError::new(
-                        "Pattern match requires text as first argument".to_string(),
-                        *_line,
-                        *_column,
-                    )),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Pattern match requires text as first argument".to_string(),
+                            *_line,
+                            *_column,
+                        ));
+                    }
                 };
 
                 // Extract compiled pattern
                 let compiled_pattern = match &pattern_val {
                     Value::Pattern(p) => p,
-                    _ => return Err(RuntimeError::new(
-                        "Pattern match requires pattern as second argument".to_string(),
-                        *_line,
-                        *_column,
-                    )),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Pattern match requires pattern as second argument".to_string(),
+                            *_line,
+                            *_column,
+                        ));
+                    }
                 };
 
                 // Perform the match
@@ -3031,21 +3032,25 @@ impl Interpreter {
                 // Extract text string
                 let text_str = match &text_val {
                     Value::Text(s) => s.as_ref(),
-                    _ => return Err(RuntimeError::new(
-                        "Pattern find requires text as first argument".to_string(),
-                        *_line,
-                        *_column,
-                    )),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Pattern find requires text as first argument".to_string(),
+                            *_line,
+                            *_column,
+                        ));
+                    }
                 };
 
                 // Extract compiled pattern
                 let compiled_pattern = match &pattern_val {
                     Value::Pattern(p) => p,
-                    _ => return Err(RuntimeError::new(
-                        "Pattern find requires pattern as second argument".to_string(),
-                        *_line,
-                        *_column,
-                    )),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Pattern find requires pattern as second argument".to_string(),
+                            *_line,
+                            *_column,
+                        ));
+                    }
                 };
 
                 // Find the first match
@@ -3053,19 +3058,29 @@ impl Interpreter {
                     Some(match_result) => {
                         // Return an object with match information
                         let mut result_map = std::collections::HashMap::new();
-                        result_map.insert("matched_text".to_string(), Value::Text(Rc::from(match_result.matched_text.as_str())));
-                        result_map.insert("start".to_string(), Value::Number(match_result.start as f64));
-                        result_map.insert("end".to_string(), Value::Number(match_result.end as f64));
-                        
+                        result_map.insert(
+                            "matched_text".to_string(),
+                            Value::Text(Rc::from(match_result.matched_text.as_str())),
+                        );
+                        result_map.insert(
+                            "start".to_string(),
+                            Value::Number(match_result.start as f64),
+                        );
+                        result_map
+                            .insert("end".to_string(), Value::Number(match_result.end as f64));
+
                         // Add captures if any
                         if !match_result.captures.is_empty() {
                             let mut captures_map = std::collections::HashMap::new();
                             for (name, value) in match_result.captures {
                                 captures_map.insert(name, Value::Text(Rc::from(value.as_str())));
                             }
-                            result_map.insert("captures".to_string(), Value::Object(Rc::new(RefCell::new(captures_map))));
+                            result_map.insert(
+                                "captures".to_string(),
+                                Value::Object(Rc::new(RefCell::new(captures_map))),
+                            );
                         }
-                        
+
                         Ok(Value::Object(Rc::new(RefCell::new(result_map))))
                     }
                     None => Ok(Value::Null),

@@ -22,7 +22,9 @@
       "Bash(cargo test:*)",
       "Bash(cargo update:*)",
       "Bash(\"C:\\logbie\\wfl\\target\\release\\wfl.exe\" wfl_combiner.wfl)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(target/release/wfl.exe:*)",
+      "Bash(VM_DEBUG=1 cargo test test_positive_lookahead -- --nocapture)"
     ],
     "deny": []
   }

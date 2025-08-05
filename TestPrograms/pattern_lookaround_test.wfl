@@ -1,0 +1,134 @@
+display "Testing Pattern Lookarounds"
+display "------------------------------"
+
+// Test 1: Positive lookahead - match digit followed by letter (without consuming the letter)
+display ""
+display "Test 1: Positive lookahead"
+
+create pattern digit_before_letter:
+    digit check ahead for {letter}
+end pattern
+
+store test1_match1 as pattern_find of "5a" using digit_before_letter
+check if test1_match1 is not nothing:
+    display "✓ '5a' matches digit before letter"
+    store matched_text as property matched_text of test1_match1
+    store start_pos as property start of test1_match1
+    display "  Matched: '" with matched_text with "' at position " with start_pos
+otherwise:
+    display "✗ '5a' should match digit before letter"
+end check
+
+store test1_match2 as pattern_find of "59" using digit_before_letter
+check if test1_match2 is nothing:
+    display "✓ '59' does not match (no letter ahead)"
+otherwise:
+    display "✗ '59' should not match"
+end check
+
+// Test 2: Negative lookahead - match letter NOT followed by digit
+display ""
+display "Test 2: Negative lookahead"
+
+create pattern letter_not_before_digit:
+    letter check not ahead for {digit}
+end pattern
+
+store test2_match1 as pattern_find of "a5" using letter_not_before_digit
+check if test2_match1 is nothing:
+    display "✓ 'a5' does not match (letter followed by digit)"
+otherwise:
+    display "✗ 'a5' should not match"
+end check
+
+store test2_match2 as pattern_find of "ab" using letter_not_before_digit
+check if test2_match2 is not nothing:
+    display "✓ 'ab' matches (letter not followed by digit)"
+otherwise:
+    display "✗ 'ab' should match"
+end check
+
+// Test 3: Lookahead in password validation
+display ""
+display "Test 3: Password validation with lookahead"
+
+// Password must start with a letter and contain at least one digit somewhere
+// For now, simplified pattern
+create pattern password_pattern:
+    letter one or more letter or digit
+end pattern
+
+store test3_match1 as pattern_find of "pass123" using password_pattern
+check if test3_match1 is not nothing:
+    display "✓ 'pass123' is valid password"
+otherwise:
+    display "✗ 'pass123' should be valid"
+end check
+
+store test3_match2 as pattern_find of "password" using password_pattern
+check if test3_match2 is nothing:
+    display "✓ 'password' is invalid (no digits)"
+otherwise:
+    display "✗ 'password' should be invalid"
+end check
+
+// Test 4: Multiple lookaheads
+display ""
+display "Test 4: Multiple lookaheads"
+
+// Match position that has both letter and digit ahead
+create pattern complex_lookahead:
+    check ahead for {letter} check ahead for {digit} letter
+end pattern
+
+store test4_match1 as pattern_find of "x1a" using complex_lookahead
+check if test4_match1 is not nothing:
+    display "✓ 'x1a' has both letter and digit ahead"
+otherwise:
+    display "✗ 'x1a' should match"
+end check
+
+// Test 5: Lookbehind (simplified for now)
+display ""
+display "Test 5: Lookbehind patterns"
+
+// Match digit that comes after a letter
+create pattern digit_after_letter:
+    check behind for {letter} digit
+end pattern
+
+store test5_text as "a5b9"
+store test5_matches as pattern_find_all of test5_text using digit_after_letter
+
+check if length of test5_matches is equal to 2:
+    display "✓ Found both digits after letters"
+    for each match in test5_matches:
+        store match_text as property matched_text of match
+        store match_pos as property start of match
+        display "  Found '" with match_text with "' at position " with match_pos
+    end for
+otherwise:
+    display "✗ Should find 2 digits after letters"
+end check
+
+// Test 6: Negative lookbehind
+display ""
+display "Test 6: Negative lookbehind"
+
+// Match letter NOT preceded by digit
+create pattern letter_not_after_digit:
+    check not behind for {digit} letter
+end pattern
+
+store test6_text as "5a b9c"
+store test6_match as pattern_find of test6_text using letter_not_after_digit
+
+check if test6_match is not nothing:
+    store match_text as property matched_text of test6_match
+    display "✓ Found letter not after digit: '" with match_text with "'"
+otherwise:
+    display "✗ Should find letter not preceded by digit"
+end check
+
+display ""
+display "Lookaround tests completed!"

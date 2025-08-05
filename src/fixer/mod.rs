@@ -30,13 +30,16 @@ pub struct FixerSummary {
 
 impl FixerSummary {
     pub fn total(&self) -> usize {
-        self.lines_reformatted + self.vars_renamed + self.dead_code_removed + self.concatenations_fixed
+        self.lines_reformatted
+            + self.vars_renamed
+            + self.dead_code_removed
+            + self.concatenations_fixed
     }
 }
 
 impl CodeFixer {
     pub fn new() -> Self {
-        Self { 
+        Self {
             indent_size: 4,
             max_line_length: 100,
             max_concatenation_chain: 5,
@@ -1028,7 +1031,7 @@ impl CodeFixer {
     /// Analyzes a concatenation expression to determine if it needs reformatting
     fn should_reformat_concatenation(&self, expr: &Expression) -> bool {
         let chain_length = self.count_concatenation_chain(expr);
-        // Only reformat if we have a very long chain (more than 8 elements) 
+        // Only reformat if we have a very long chain (more than 8 elements)
         // or if we have genuinely poor formatting patterns
         chain_length > 8 || self.has_genuinely_poor_formatting(expr)
     }
@@ -1054,7 +1057,7 @@ impl CodeFixer {
             _ => false,
         }
     }
-    
+
     /// Detects specific problematic patterns like the original wfl_combiner.wfl issue
     fn has_problematic_multiline_pattern(&self, expr: &Expression) -> bool {
         match expr {
@@ -1066,12 +1069,16 @@ impl CodeFixer {
             _ => false,
         }
     }
-    
+
     /// Counts the number of "\n" literal strings in a concatenation chain
     fn count_newline_literals(&self, expr: &Expression) -> usize {
         match expr {
             Expression::Literal(Literal::String(s), ..) => {
-                if s == "\n" { 1 } else { 0 }
+                if s == "\n" {
+                    1
+                } else {
+                    0
+                }
             }
             Expression::Concatenation { left, right, .. } => {
                 self.count_newline_literals(left) + self.count_newline_literals(right)
@@ -1080,18 +1087,21 @@ impl CodeFixer {
         }
     }
 
-
     /// Formats a concatenation chain in a more readable way
     fn format_concatenation_chain(&self, expr: &Expression, is_multiline: bool) -> String {
         match expr {
             Expression::Concatenation { left, right, .. } => {
                 let left_str = match **left {
-                    Expression::Concatenation { .. } => self.format_concatenation_chain(left, is_multiline),
+                    Expression::Concatenation { .. } => {
+                        self.format_concatenation_chain(left, is_multiline)
+                    }
                     _ => self.format_single_expression_for_concatenation(left),
                 };
-                
+
                 let right_str = match **right {
-                    Expression::Concatenation { .. } => self.format_concatenation_chain(right, is_multiline),
+                    Expression::Concatenation { .. } => {
+                        self.format_concatenation_chain(right, is_multiline)
+                    }
                     _ => self.format_single_expression_for_concatenation(right),
                 };
 
@@ -1111,9 +1121,7 @@ impl CodeFixer {
             Expression::Literal(Literal::String(s), ..) => {
                 format!("\"{}\"", s)
             }
-            Expression::Variable(name, ..) => {
-                name.clone()
-            }
+            Expression::Variable(name, ..) => name.clone(),
             _ => format!("{:?}", expr), // Fallback for other expressions
         }
     }

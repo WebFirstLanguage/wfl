@@ -4897,7 +4897,10 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a sequence of pattern elements (handles alternation with "or")
-    fn parse_pattern_sequence(tokens: &[TokenWithPosition], i: &mut usize) -> Result<PatternExpression, ParseError> {
+    fn parse_pattern_sequence(
+        tokens: &[TokenWithPosition],
+        i: &mut usize,
+    ) -> Result<PatternExpression, ParseError> {
         let mut alternatives = vec![Self::parse_pattern_concatenation(tokens, i)?];
 
         while *i < tokens.len() {
@@ -4917,7 +4920,10 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a concatenation of pattern elements (sequence)
-    fn parse_pattern_concatenation(tokens: &[TokenWithPosition], i: &mut usize) -> Result<PatternExpression, ParseError> {
+    fn parse_pattern_concatenation(
+        tokens: &[TokenWithPosition],
+        i: &mut usize,
+    ) -> Result<PatternExpression, ParseError> {
         let mut elements = Vec::new();
 
         while *i < tokens.len() {
@@ -4930,6 +4936,27 @@ impl<'a> Parser<'a> {
             if let Token::Newline = tokens[*i].token {
                 *i += 1;
                 continue;
+            }
+
+            // Skip "followed by" as it's just natural language syntax
+            if *i < tokens.len() {
+                if let Token::Identifier(s) = &tokens[*i].token {
+                    if s == "followed" && *i + 1 < tokens.len() {
+                        if let Token::KeywordBy = tokens[*i + 1].token {
+                            *i += 2; // Skip "followed by"
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Debug: Print the current token before parsing
+            if *i < tokens.len() {
+                exec_trace!(
+                    "Pattern concatenation: About to parse token {:?} at position {}",
+                    tokens[*i].token,
+                    *i
+                );
             }
 
             elements.push(Self::parse_pattern_element(tokens, i)?);
@@ -4951,7 +4978,10 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a single pattern element (literal, character class, quantified, etc.)
-    fn parse_pattern_element(tokens: &[TokenWithPosition], i: &mut usize) -> Result<PatternExpression, ParseError> {
+    fn parse_pattern_element(
+        tokens: &[TokenWithPosition],
+        i: &mut usize,
+    ) -> Result<PatternExpression, ParseError> {
         if *i >= tokens.len() {
             return Err(ParseError::new(
                 "Unexpected end of pattern".to_string(),
@@ -4985,11 +5015,14 @@ impl<'a> Parser<'a> {
                             *i += 1;
                             PatternExpression::CharacterClass(CharClass::Whitespace)
                         }
-                        _ => return Err(ParseError::new(
-                            "Expected 'letter', 'digit', or 'whitespace' after 'any'".to_string(),
-                            tokens[*i].line,
-                            tokens[*i].column,
-                        )),
+                        _ => {
+                            return Err(ParseError::new(
+                                "Expected 'letter', 'digit', or 'whitespace' after 'any'"
+                                    .to_string(),
+                                tokens[*i].line,
+                                tokens[*i].column,
+                            ));
+                        }
                     }
                 } else {
                     return Err(ParseError::new(
@@ -5002,9 +5035,10 @@ impl<'a> Parser<'a> {
 
             // Handle quantifiers that start with specific keywords
             Token::KeywordOne => {
-                if *i + 2 < tokens.len() 
-                    && tokens[*i + 1].token == Token::KeywordOr 
-                    && tokens[*i + 2].token == Token::KeywordMore {
+                if *i + 2 < tokens.len()
+                    && tokens[*i + 1].token == Token::KeywordOr
+                    && tokens[*i + 2].token == Token::KeywordMore
+                {
                     // This is "one or more" which should be handled as a quantifier
                     // We need to parse the following element and then apply the quantifier
                     *i += 3; // Skip "one or more"
@@ -5023,9 +5057,10 @@ impl<'a> Parser<'a> {
             }
 
             Token::KeywordZero => {
-                if *i + 2 < tokens.len() 
-                    && tokens[*i + 1].token == Token::KeywordOr 
-                    && tokens[*i + 2].token == Token::KeywordMore {
+                if *i + 2 < tokens.len()
+                    && tokens[*i + 1].token == Token::KeywordOr
+                    && tokens[*i + 2].token == Token::KeywordMore
+                {
                     // This is "zero or more" which should be handled as a quantifier
                     *i += 3; // Skip "zero or more"
                     let base_element = Self::parse_pattern_element(tokens, i)?;
@@ -5068,9 +5103,10 @@ impl<'a> Parser<'a> {
 
             // Anchors
             Token::KeywordStart => {
-                if *i + 2 < tokens.len() 
-                    && tokens[*i + 1].token == Token::KeywordOf 
-                    && tokens[*i + 2].token == Token::KeywordText {
+                if *i + 2 < tokens.len()
+                    && tokens[*i + 1].token == Token::KeywordOf
+                    && tokens[*i + 2].token == Token::KeywordText
+                {
                     *i += 3;
                     PatternExpression::Anchor(Anchor::StartOfText)
                 } else {
@@ -5087,7 +5123,7 @@ impl<'a> Parser<'a> {
                 *i += 1;
                 if *i < tokens.len() && tokens[*i].token == Token::LeftBrace {
                     *i += 1; // Skip '{'
-                    
+
                     // Find the matching '}'
                     let start_pos = *i;
                     let mut brace_count = 1;
@@ -5099,7 +5135,7 @@ impl<'a> Parser<'a> {
                         }
                         *i += 1;
                     }
-                    
+
                     if brace_count > 0 {
                         return Err(ParseError::new(
                             "Unclosed capture group".to_string(),
@@ -5107,10 +5143,10 @@ impl<'a> Parser<'a> {
                             token.column,
                         ));
                     }
-                    
+
                     let end_pos = *i - 1; // Before the closing '}'
                     let capture_tokens = &tokens[start_pos..end_pos];
-                    
+
                     // Expect "as" and capture name
                     if *i < tokens.len() && tokens[*i].token == Token::KeywordAs {
                         *i += 1;
@@ -5118,7 +5154,8 @@ impl<'a> Parser<'a> {
                             if let Token::Identifier(name) = &tokens[*i].token {
                                 *i += 1;
                                 let mut inner_i = 0;
-                                let inner_pattern = Self::parse_pattern_sequence(capture_tokens, &mut inner_i)?;
+                                let inner_pattern =
+                                    Self::parse_pattern_sequence(capture_tokens, &mut inner_i)?;
                                 PatternExpression::Capture {
                                     name: name.clone(),
                                     pattern: Box::new(inner_pattern),
@@ -5153,6 +5190,207 @@ impl<'a> Parser<'a> {
                 }
             }
 
+            // Backreferences: "same as captured"
+            Token::KeywordSame => {
+                *i += 1;
+                if *i + 1 < tokens.len()
+                    && tokens[*i].token == Token::KeywordAs
+                    && tokens[*i + 1].token == Token::KeywordCaptured
+                {
+                    *i += 2; // Skip "as captured"
+
+                    if *i < tokens.len() {
+                        if let Token::StringLiteral(name) = &tokens[*i].token {
+                            *i += 1;
+                            PatternExpression::Backreference(name.clone())
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected capture name (in quotes) after 'same as captured'"
+                                    .to_string(),
+                                tokens[*i].line,
+                                tokens[*i].column,
+                            ));
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected capture name after 'same as captured'".to_string(),
+                            token.line,
+                            token.column,
+                        ));
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        "Expected 'as captured' after 'same'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+
+            // Lookarounds: "check ahead for", "check not ahead for", "check behind for", "check not behind for"
+            Token::KeywordCheck => {
+                *i += 1;
+                if *i >= tokens.len() {
+                    return Err(ParseError::new(
+                        "Expected 'ahead' or 'behind' after 'check'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+                
+                let is_negative = if tokens[*i].token == Token::KeywordNot {
+                    *i += 1;
+                    true
+                } else {
+                    false
+                };
+                
+                if *i >= tokens.len() {
+                    return Err(ParseError::new(
+                        "Expected 'ahead' or 'behind' after 'check'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+                
+                let lookaround_type = match &tokens[*i].token {
+                    Token::KeywordAhead => {
+                        *i += 1;
+                        if *i < tokens.len() && tokens[*i].token == Token::KeywordFor {
+                            *i += 1; // Skip "for"
+                            
+                            // Parse the pattern inside braces
+                            if *i < tokens.len() && tokens[*i].token == Token::LeftBrace {
+                                *i += 1; // Skip "{"
+                                let pattern_start = *i;
+                                
+                                // Find matching right brace
+                                let mut brace_count = 1;
+                                let mut pattern_end = *i;
+                                while pattern_end < tokens.len() && brace_count > 0 {
+                                    match &tokens[pattern_end].token {
+                                        Token::LeftBrace => brace_count += 1,
+                                        Token::RightBrace => brace_count -= 1,
+                                        _ => {}
+                                    }
+                                    if brace_count > 0 {
+                                        pattern_end += 1;
+                                    }
+                                }
+                                
+                                if brace_count != 0 {
+                                    return Err(ParseError::new(
+                                        "Unmatched '{' in lookahead pattern".to_string(),
+                                        tokens[pattern_start - 1].line,
+                                        tokens[pattern_start - 1].column,
+                                    ));
+                                }
+                                
+                                let pattern_tokens = &tokens[pattern_start..pattern_end];
+                                *i = pattern_end + 1; // Skip past '}'
+                                
+                                let inner_pattern = Self::parse_pattern_tokens(pattern_tokens)?;
+                                
+                                if is_negative {
+                                    PatternExpression::NegativeLookahead(Box::new(inner_pattern))
+                                } else {
+                                    PatternExpression::Lookahead(Box::new(inner_pattern))
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected '{' after 'check ahead for'".to_string(),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected 'for' after 'check ahead'".to_string(),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                    }
+                    Token::KeywordBehind => {
+                        *i += 1;
+                        if *i < tokens.len() && tokens[*i].token == Token::KeywordFor {
+                            *i += 1; // Skip "for"
+                            
+                            // Parse the pattern inside braces
+                            if *i < tokens.len() && tokens[*i].token == Token::LeftBrace {
+                                *i += 1; // Skip "{"
+                                let pattern_start = *i;
+                                
+                                // Find matching right brace
+                                let mut brace_count = 1;
+                                let mut pattern_end = *i;
+                                while pattern_end < tokens.len() && brace_count > 0 {
+                                    match &tokens[pattern_end].token {
+                                        Token::LeftBrace => brace_count += 1,
+                                        Token::RightBrace => brace_count -= 1,
+                                        _ => {}
+                                    }
+                                    if brace_count > 0 {
+                                        pattern_end += 1;
+                                    }
+                                }
+                                
+                                if brace_count != 0 {
+                                    return Err(ParseError::new(
+                                        "Unmatched '{' in lookbehind pattern".to_string(),
+                                        tokens[pattern_start - 1].line,
+                                        tokens[pattern_start - 1].column,
+                                    ));
+                                }
+                                
+                                let pattern_tokens = &tokens[pattern_start..pattern_end];
+                                *i = pattern_end + 1; // Skip past '}'
+                                
+                                let inner_pattern = Self::parse_pattern_tokens(pattern_tokens)?;
+                                
+                                if is_negative {
+                                    PatternExpression::NegativeLookbehind(Box::new(inner_pattern))
+                                } else {
+                                    PatternExpression::Lookbehind(Box::new(inner_pattern))
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected '{' after 'check behind for'".to_string(),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected 'for' after 'check behind'".to_string(),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(ParseError::new(
+                            "Expected 'ahead' or 'behind' after 'check'".to_string(),
+                            tokens[*i].line,
+                            tokens[*i].column,
+                        ));
+                    }
+                };
+                
+                lookaround_type
+            }
+
+            // Handle "by" token after identifier - this happens when "followed" was consumed elsewhere
+            Token::KeywordBy => {
+                // This is likely a stray "by" after "followed" was consumed
+                // Just return an error suggesting the issue
+                return Err(ParseError::new(
+                    "Found 'by' keyword - did you mean 'followed by'? Note: 'followed by' should be used between pattern elements".to_string(),
+                    token.line,
+                    token.column,
+                ));
+            }
+
             _ => {
                 return Err(ParseError::new(
                     format!("Unexpected token in pattern: {:?}", token.token),
@@ -5167,7 +5405,11 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse quantifiers that can appear after base elements (exactly, between)
-    fn parse_quantifier(tokens: &[TokenWithPosition], i: &mut usize, base_pattern: PatternExpression) -> Result<PatternExpression, ParseError> {
+    fn parse_quantifier(
+        tokens: &[TokenWithPosition],
+        i: &mut usize,
+        base_pattern: PatternExpression,
+    ) -> Result<PatternExpression, ParseError> {
         if *i >= tokens.len() {
             return Ok(base_pattern);
         }
@@ -5189,10 +5431,10 @@ impl<'a> Parser<'a> {
                 }
             }
             Token::KeywordBetween => {
-                if *i + 3 < tokens.len() 
-                    && tokens[*i + 2].token == Token::KeywordAnd {
-                    if let (Token::IntLiteral(min), Token::IntLiteral(max)) = 
-                        (&tokens[*i + 1].token, &tokens[*i + 3].token) {
+                if *i + 3 < tokens.len() && tokens[*i + 2].token == Token::KeywordAnd {
+                    if let (Token::IntLiteral(min), Token::IntLiteral(max)) =
+                        (&tokens[*i + 1].token, &tokens[*i + 3].token)
+                    {
                         *i += 4;
                         Ok(PatternExpression::Quantified {
                             pattern: Box::new(base_pattern),
@@ -5205,7 +5447,7 @@ impl<'a> Parser<'a> {
                     Ok(base_pattern)
                 }
             }
-            _ => Ok(base_pattern)
+            _ => Ok(base_pattern),
         }
     }
 }

@@ -482,18 +482,18 @@ pub enum CharClass {
 /// Represents different types of quantifiers
 #[derive(Debug, Clone, PartialEq)]
 pub enum Quantifier {
-    Optional,              // optional
-    ZeroOrMore,           // zero or more
-    OneOrMore,            // one or more
-    Exactly(u32),         // exactly N
-    Between(u32, u32),    // between N and M
+    Optional,          // optional
+    ZeroOrMore,        // zero or more
+    OneOrMore,         // one or more
+    Exactly(u32),      // exactly N
+    Between(u32, u32), // between N and M
 }
 
 /// Represents different types of anchors
 #[derive(Debug, Clone, PartialEq)]
 pub enum Anchor {
-    StartOfText,  // start of text
-    EndOfText,    // end of text
+    StartOfText, // start of text
+    EndOfText,   // end of text
 }
 
 /// Represents a pattern expression in the new pattern matching system
@@ -517,8 +517,18 @@ pub enum PatternExpression {
         name: String,
         pattern: Box<PatternExpression>,
     },
+    /// Backreference to a previously captured group
+    Backreference(String),
     /// Anchor pattern (start/end of text)
     Anchor(Anchor),
+    /// Positive lookahead - matches if pattern would match ahead
+    Lookahead(Box<PatternExpression>),
+    /// Negative lookahead - matches if pattern would NOT match ahead  
+    NegativeLookahead(Box<PatternExpression>),
+    /// Positive lookbehind - matches if pattern would match behind
+    Lookbehind(Box<PatternExpression>),
+    /// Negative lookbehind - matches if pattern would NOT match behind
+    NegativeLookbehind(Box<PatternExpression>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,0 +1,146 @@
+// Pattern Backreference Test Program
+// Tests the new backreference feature: "same as captured"
+
+display "Testing Pattern Backreferences"
+display "------------------------------"
+
+// Test 1: Simple backreference matching
+display "Test 1: Simple backreference"
+
+create pattern p1:
+    capture {any letter} as word same as captured "word"
+end pattern
+
+store text1 as "aa"
+store text2 as "ab"
+
+check if text1 matches p1:
+    display "✓ 'aa' matches (correct)"
+otherwise:
+    display "✗ 'aa' should match"
+end check
+
+check if text2 matches p1:
+    display "✗ 'ab' matches (incorrect)"
+otherwise:
+    display "✓ 'ab' doesn't match (correct)"
+end check
+
+// Test 2: Word repetition
+display ""
+display "Test 2: Word repetition"
+
+create pattern word_repeat:
+    capture {one or more letter} as word " " same as captured "word"
+end pattern
+
+store sentence1 as "hello hello"
+store sentence2 as "hello world"
+
+check if sentence1 matches word_repeat:
+    display "✓ 'hello hello' has repeated word"
+otherwise:
+    display "✗ 'hello hello' should match"
+end check
+
+check if sentence2 matches word_repeat:
+    display "✗ 'hello world' has repeated word"
+otherwise:
+    display "✓ 'hello world' has no repeated word"
+end check
+
+// Test 3: HTML/XML tag matching
+display ""
+display "Test 3: HTML tag matching"
+
+create pattern tag_pattern:
+    "<" capture {one or more letter} as tag ">" zero or more any letter "</" same as captured "tag" ">"
+end pattern
+
+store html1 as "<div>content</div>"
+store html2 as "<div>content</span>"
+
+check if html1 matches tag_pattern:
+    display "✓ '<div>content</div>' has matching tags"
+otherwise:
+    display "✗ '<div>content</div>' should match"
+end check
+
+check if html2 matches tag_pattern:
+    display "✗ '<div>content</span>' has matching tags"
+otherwise:
+    display "✓ '<div>content</span>' has mismatched tags"
+end check
+
+// Test 4: Finding repeated words with capture
+display ""
+display "Test 4: Finding repeated words"
+
+create pattern find_repeat:
+    capture {one or more letter} as word " " same as captured "word"
+end pattern
+
+store text3 as "the the quick brown fox"
+
+store match_result as find find_repeat in text3
+check if match_result is not nothing:
+    display "✓ Found repeated word: " with match_result["word"]
+otherwise:
+    display "✗ Should find repeated word 'the'"
+end check
+
+// Test 5: Multiple captures with backreferences
+display ""
+display "Test 5: Multiple captures"
+
+create pattern multi_pattern:
+    capture {digit} as d1 capture {letter} as l1 same as captured "d1" same as captured "l1"
+end pattern
+
+store text4 as "1a1a"
+store text5 as "1a2b"
+
+check if text4 matches multi_pattern:
+    display "✓ '1a1a' matches pattern"
+otherwise:
+    display "✗ '1a1a' should match"
+end check
+
+check if text5 matches multi_pattern:
+    display "✗ '1a2b' matches pattern"
+otherwise:
+    display "✓ '1a2b' doesn't match"
+end check
+
+// Test 6: Backreference in quantified pattern
+display ""
+display "Test 6: Backreference with quantifiers"
+
+create pattern quote_pattern:
+    capture {"'" or "\""} as quote one or more any letter same as captured "quote"
+end pattern
+
+store quoted1 as "'hello'"
+store quoted2 as "\"world\""
+store quoted3 as "'hello\""
+
+check if quoted1 matches quote_pattern:
+    display "✓ Single quoted string matches"
+otherwise:
+    display "✗ Single quoted string should match"
+end check
+
+check if quoted2 matches quote_pattern:
+    display "✓ Double quoted string matches"
+otherwise:
+    display "✗ Double quoted string should match"
+end check
+
+check if quoted3 matches quote_pattern:
+    display "✗ Mismatched quotes match"
+otherwise:
+    display "✓ Mismatched quotes don't match"
+end check
+
+display ""
+display "Backreference tests completed!"

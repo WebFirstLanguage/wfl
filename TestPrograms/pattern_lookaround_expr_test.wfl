@@ -1,0 +1,39 @@
+display "Testing Lookaround Pattern Expressions"
+display "------------------------------------"
+
+// Test positive lookahead
+create pattern digit_before_letter:
+    digit check ahead for {letter}
+end pattern
+
+// Test pattern matching
+store text1 as "5a"
+store result1 as text1 matches digit_before_letter
+
+check if result1:
+    display "✓ '5a' matches pattern"
+otherwise:
+    display "✗ '5a' should match pattern"
+end check
+
+// Test with non-matching text
+store text2 as "59"
+store result2 as text2 matches digit_before_letter
+
+check if not result2:
+    display "✓ '59' does not match (correct)"
+otherwise:
+    display "✗ '59' should not match"
+end check
+
+// Test pattern find
+store find_result as find digit_before_letter in "test 5a here"
+
+check if find_result is not nothing:
+    display "✓ Found pattern in 'test 5a here'"
+otherwise:
+    display "✗ Should find pattern in 'test 5a here'"
+end check
+
+display ""
+display "Test completed!"

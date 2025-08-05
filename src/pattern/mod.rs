@@ -58,7 +58,7 @@ impl CompiledPattern {
     /// Execute the pattern against input text
     pub fn matches(&self, text: &str) -> bool {
         let mut vm = PatternVM::new();
-        vm.execute(&self.program, text).is_ok()
+        vm.execute(&self.program, text).unwrap_or(false)
     }
 
     /// Find the first match in the text

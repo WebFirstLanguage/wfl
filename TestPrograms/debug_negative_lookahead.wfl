@@ -1,0 +1,17 @@
+display "Debug: Testing negative lookahead"
+display "--------------------------------"
+
+// Simple pattern that should NOT match '59'
+create pattern test_pattern:
+    digit check ahead for {letter}
+end pattern
+
+// Test matching
+store text1 as "59"
+store result as text1 matches test_pattern
+
+check if result:
+    display "WRONG: '59' matched (should not match)"
+otherwise:
+    display "CORRECT: '59' did not match"
+end check

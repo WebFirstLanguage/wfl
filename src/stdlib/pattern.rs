@@ -558,7 +558,7 @@ pub fn native_pattern_matches(
         ));
     }
 
-    let text = match &args[0] {
+    let _text = match &args[0] {
         Value::Text(t) => t.as_ref(),
         _ => {
             return Err(RuntimeError::new(
@@ -569,7 +569,7 @@ pub fn native_pattern_matches(
         }
     };
 
-    let pattern = match &args[1] {
+    let _pattern = match &args[1] {
         Value::Pattern(p) => p.as_ref(),
         _ => {
             return Err(RuntimeError::new(
@@ -597,7 +597,7 @@ pub fn native_pattern_find(
         ));
     }
 
-    let text = match &args[0] {
+    let _text = match &args[0] {
         Value::Text(t) => t.as_ref(),
         _ => {
             return Err(RuntimeError::new(
@@ -608,7 +608,7 @@ pub fn native_pattern_find(
         }
     };
 
-    let pattern = match &args[1] {
+    let _pattern = match &args[1] {
         Value::Pattern(p) => p.as_ref(),
         _ => {
             return Err(RuntimeError::new(
@@ -619,7 +619,7 @@ pub fn native_pattern_find(
         }
     };
 
-    // TODO: Update to use new pattern system  
+    // TODO: Update to use new pattern system
     Ok(Value::Null)
 }
 
@@ -647,7 +647,7 @@ pub fn native_pattern_replace(
         }
     };
 
-    let pattern = match &args[1] {
+    let _pattern = match &args[1] {
         Value::Pattern(p) => p.as_ref(),
         _ => {
             return Err(RuntimeError::new(
@@ -658,7 +658,7 @@ pub fn native_pattern_replace(
         }
     };
 
-    let replacement = match &args[2] {
+    let _replacement = match &args[2] {
         Value::Text(t) => t.as_ref(),
         _ => {
             return Err(RuntimeError::new(
@@ -697,7 +697,7 @@ pub fn native_pattern_split(
         }
     };
 
-    let pattern = match &args[1] {
+    let _pattern = match &args[1] {
         Value::Pattern(p) => p.as_ref(),
         _ => {
             return Err(RuntimeError::new(
@@ -710,14 +710,13 @@ pub fn native_pattern_split(
 
     use std::rc::Rc;
     let mut parts = Vec::new();
-    let mut last_end = 0;
-    let mut search_pos = 0;
+    let last_end = 0;
+    let search_pos = 0;
 
-    while search_pos < text.len() {
-        let remaining_text = &text[search_pos..];
-        // TODO: Update to use new pattern system
-        break;
-    }
+    // TODO: Update to use new pattern system
+    // This will iterate through the text finding all matches and splitting at those points
+    // For now, we just return the original text as a single element
+    _ = search_pos; // Mark as intentionally unused
 
     if last_end < text.len() {
         parts.push(Value::Text(Rc::from(&text[last_end..])));
@@ -733,11 +732,20 @@ pub fn native_pattern_split(
 pub fn register(env: &mut Environment) {
     // Register legacy pattern functions (for backward compatibility)
     crate::stdlib::legacy_pattern::register(env);
-    
+
     // Register new pattern functions that work with our pattern system
-    env.define("pattern_matches", Value::NativeFunction("pattern_matches", pattern_matches_native));
-    env.define("pattern_find", Value::NativeFunction("pattern_find", pattern_find_native));
-    env.define("pattern_find_all", Value::NativeFunction("pattern_find_all", pattern_find_all_native));
+    env.define(
+        "pattern_matches",
+        Value::NativeFunction("pattern_matches", pattern_matches_native),
+    );
+    env.define(
+        "pattern_find",
+        Value::NativeFunction("pattern_find", pattern_find_native),
+    );
+    env.define(
+        "pattern_find_all",
+        Value::NativeFunction("pattern_find_all", pattern_find_all_native),
+    );
 }
 
 /// Native function: pattern_matches(text, pattern) -> boolean
@@ -753,20 +761,24 @@ pub fn pattern_matches_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let text_str = match &args[0] {
         Value::Text(s) => s.as_ref(),
-        _ => return Err(RuntimeError::new(
-            "First argument to pattern_matches must be text".to_string(),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                "First argument to pattern_matches must be text".to_string(),
+                0,
+                0,
+            ));
+        }
     };
 
     let compiled_pattern = match &args[1] {
         Value::Pattern(p) => p,
-        _ => return Err(RuntimeError::new(
-            "Second argument to pattern_matches must be a compiled pattern".to_string(),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                "Second argument to pattern_matches must be a compiled pattern".to_string(),
+                0,
+                0,
+            ));
+        }
     };
 
     let matches = compiled_pattern.matches(text_str);
@@ -786,38 +798,51 @@ pub fn pattern_find_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let text_str = match &args[0] {
         Value::Text(s) => s.as_ref(),
-        _ => return Err(RuntimeError::new(
-            "First argument to pattern_find must be text".to_string(),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                "First argument to pattern_find must be text".to_string(),
+                0,
+                0,
+            ));
+        }
     };
 
     let compiled_pattern = match &args[1] {
         Value::Pattern(p) => p,
-        _ => return Err(RuntimeError::new(
-            "Second argument to pattern_find must be a compiled pattern".to_string(),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                "Second argument to pattern_find must be a compiled pattern".to_string(),
+                0,
+                0,
+            ));
+        }
     };
 
     match compiled_pattern.find(text_str) {
         Some(match_result) => {
             let mut result_map = HashMap::new();
-            result_map.insert("matched_text".to_string(), Value::Text(Rc::from(match_result.matched_text.as_str())));
-            result_map.insert("start".to_string(), Value::Number(match_result.start as f64));
+            result_map.insert(
+                "matched_text".to_string(),
+                Value::Text(Rc::from(match_result.matched_text.as_str())),
+            );
+            result_map.insert(
+                "start".to_string(),
+                Value::Number(match_result.start as f64),
+            );
             result_map.insert("end".to_string(), Value::Number(match_result.end as f64));
-            
+
             // Add captures if any
             if !match_result.captures.is_empty() {
                 let mut captures_map = HashMap::new();
                 for (name, value) in match_result.captures {
                     captures_map.insert(name, Value::Text(Rc::from(value.as_str())));
                 }
-                result_map.insert("captures".to_string(), Value::Object(Rc::new(RefCell::new(captures_map))));
+                result_map.insert(
+                    "captures".to_string(),
+                    Value::Object(Rc::new(RefCell::new(captures_map))),
+                );
             }
-            
+
             Ok(Value::Object(Rc::new(RefCell::new(result_map))))
         }
         None => Ok(Value::Null),
@@ -837,51 +862,62 @@ pub fn pattern_find_all_native(args: Vec<Value>) -> Result<Value, RuntimeError> 
 
     let text_str = match &args[0] {
         Value::Text(s) => s.as_ref(),
-        _ => return Err(RuntimeError::new(
-            "First argument to pattern_find_all must be text".to_string(),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                "First argument to pattern_find_all must be text".to_string(),
+                0,
+                0,
+            ));
+        }
     };
 
     let compiled_pattern = match &args[1] {
         Value::Pattern(p) => p,
-        _ => return Err(RuntimeError::new(
-            "Second argument to pattern_find_all must be a compiled pattern".to_string(),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                "Second argument to pattern_find_all must be a compiled pattern".to_string(),
+                0,
+                0,
+            ));
+        }
     };
 
     let matches = compiled_pattern.find_all(text_str);
     let mut result_list = Vec::new();
-    
+
     for match_result in matches {
         let mut result_map = HashMap::new();
-        result_map.insert("matched_text".to_string(), Value::Text(Rc::from(match_result.matched_text.as_str())));
-        result_map.insert("start".to_string(), Value::Number(match_result.start as f64));
+        result_map.insert(
+            "matched_text".to_string(),
+            Value::Text(Rc::from(match_result.matched_text.as_str())),
+        );
+        result_map.insert(
+            "start".to_string(),
+            Value::Number(match_result.start as f64),
+        );
         result_map.insert("end".to_string(), Value::Number(match_result.end as f64));
-        
+
         // Add captures if any
         if !match_result.captures.is_empty() {
             let mut captures_map = HashMap::new();
             for (name, value) in match_result.captures {
                 captures_map.insert(name, Value::Text(Rc::from(value.as_str())));
             }
-            result_map.insert("captures".to_string(), Value::Object(Rc::new(RefCell::new(captures_map))));
+            result_map.insert(
+                "captures".to_string(),
+                Value::Object(Rc::new(RefCell::new(captures_map))),
+            );
         }
-        
+
         result_list.push(Value::Object(Rc::new(RefCell::new(result_map))));
     }
-    
+
     Ok(Value::List(Rc::new(RefCell::new(result_list))))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interpreter::value::Value;
-    use std::rc::Rc;
 
     #[test]
     fn test_ir_parse_literal() {
@@ -911,17 +947,17 @@ mod tests {
         assert_eq!(result.unwrap().matched_text, "5");
     }
 
-    #[test]
-    fn test_native_pattern_matches_basic() {
-        // TODO: Update to use new pattern system
-        assert!(true);
-    }
+    // TODO: Add test when new pattern system is integrated
+    // #[test]
+    // fn test_native_pattern_matches_basic() {
+    //     // TODO: Update to use new pattern system
+    // }
 
-    #[test] 
-    fn test_native_pattern_find_with_captures() {
-        // TODO: Update to use new pattern system
-        assert!(true);
-    }
+    // TODO: Add test when new pattern system is integrated
+    // #[test]
+    // fn test_native_pattern_find_with_captures() {
+    //     // TODO: Update to use new pattern system
+    // }
 
     #[test]
     fn test_performance_regression_20_optional_groups() {

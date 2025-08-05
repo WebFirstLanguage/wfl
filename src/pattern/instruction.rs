@@ -3,42 +3,63 @@
 pub enum Instruction {
     /// Match a specific character
     Char(char),
-    
+
     /// Match any character in a character class
     CharClass(CharClassType),
-    
+
     /// Match a literal string
     Literal(String),
-    
+
     /// Jump to another instruction (used for alternatives and quantifiers)
     Jump(usize),
-    
+
     /// Split execution into two paths (for alternation and optional matching)
     Split(usize, usize), // try first address, then second
-    
+
     /// Start a capture group
     StartCapture(usize), // capture group index
-    
+
     /// End a capture group
     EndCapture(usize), // capture group index
-    
+
+    /// Match a backreference to a previously captured group
+    Backreference(usize), // capture group index
+
     /// Match start of text
     StartAnchor,
-    
+
     /// Match end of text
     EndAnchor,
-    
+
     /// Successfully match
     Match,
-    
+
     /// Fail to match (used for error cases)
     Fail,
-    
+
     /// Save current position for backtracking
     Save(usize), // slot index
-    
+
     /// Restore position from saved slot
     Restore(usize), // slot index
+
+    /// Begin positive lookahead - save position and execute nested program
+    BeginLookahead,
+    
+    /// End positive lookahead - restore position and continue if nested program matched
+    EndLookahead,
+    
+    /// Begin negative lookahead - save position and execute nested program  
+    BeginNegativeLookahead,
+    
+    /// End negative lookahead - restore position and continue if nested program failed
+    EndNegativeLookahead,
+    
+    /// Check positive lookbehind - verify pattern matches before current position
+    CheckLookbehind(usize), // length of the lookbehind pattern
+    
+    /// Check negative lookbehind - verify pattern doesn't match before current position
+    CheckNegativeLookbehind(usize), // length of the lookbehind pattern
 }
 
 /// Character class types supported by the pattern system
@@ -78,7 +99,7 @@ impl Program {
             num_saves: 0,
         }
     }
-    
+
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             instructions: Vec::with_capacity(capacity),
@@ -86,29 +107,29 @@ impl Program {
             num_saves: 0,
         }
     }
-    
+
     pub fn push(&mut self, instruction: Instruction) {
         self.instructions.push(instruction);
     }
-    
+
     pub fn len(&self) -> usize {
         self.instructions.len()
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.instructions.is_empty()
     }
-    
+
     /// Get an instruction at a specific program counter
     pub fn get(&self, pc: usize) -> Option<&Instruction> {
         self.instructions.get(pc)
     }
-    
+
     /// Set the number of capture groups in this program
     pub fn set_num_captures(&mut self, count: usize) {
         self.num_captures = count;
     }
-    
+
     /// Set the number of save slots needed for backtracking
     pub fn set_num_saves(&mut self, count: usize) {
         self.num_saves = count;
@@ -170,10 +191,10 @@ mod tests {
         let mut program = Program::new();
         assert!(program.is_empty());
         assert_eq!(program.len(), 0);
-        
+
         program.push(Instruction::Char('a'));
         program.push(Instruction::Match);
-        
+
         assert!(!program.is_empty());
         assert_eq!(program.len(), 2);
         assert_eq!(program.get(0), Some(&Instruction::Char('a')));

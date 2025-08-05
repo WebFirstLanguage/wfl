@@ -54,7 +54,10 @@ fn test_concatenation_simple_no_fix() {
     let fixer = CodeFixer::new();
     let (fixed_code, summary) = fixer.fix(&program, input);
 
-    assert_eq!(fixed_code.trim(), r#"store message as "Hello" with " World""#);
+    assert_eq!(
+        fixed_code.trim(),
+        r#"store message as "Hello" with " World""#
+    );
     assert_eq!(summary.concatenations_fixed, 0);
 }
 
@@ -77,14 +80,14 @@ fn test_concatenation_problematic_multiline() {
 #[test]
 fn test_concatenation_count_newline_literals() {
     let fixer = CodeFixer::new();
-    
+
     // Test using a actual newline character which is what WFL parses "\\n" as
     let tokens = lex_wfl_with_positions("store x as \"\n\"");
     let program = Parser::new(&tokens).parse().unwrap();
     if let Some(Statement::VariableDeclaration { value, .. }) = program.statements.first() {
         assert_eq!(fixer.count_newline_literals(value), 1);
     }
-    
+
     // Test with simple string (no newlines)
     let tokens = lex_wfl_with_positions(r#"store x as "hello""#);
     let program = Parser::new(&tokens).parse().unwrap();
@@ -96,14 +99,14 @@ fn test_concatenation_count_newline_literals() {
 #[test]
 fn test_concatenation_chain_length() {
     let fixer = CodeFixer::new();
-    
+
     // Test simple concatenation (chain length = 1)
     let tokens = lex_wfl_with_positions(r#""a" with "b""#);
     let program = Parser::new(&tokens).parse().unwrap();
     if let Some(Statement::ExpressionStatement { expression, .. }) = program.statements.first() {
         assert_eq!(fixer.count_concatenation_chain(expression), 1);
     }
-    
+
     // Test longer concatenation chain (chain length = 2)
     let tokens = lex_wfl_with_positions(r#""a" with "b" with "c""#);
     let program = Parser::new(&tokens).parse().unwrap();
