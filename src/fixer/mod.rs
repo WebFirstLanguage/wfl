@@ -1037,6 +1037,7 @@ impl CodeFixer {
     }
 
     /// Counts the length of a concatenation chain
+    #[allow(clippy::only_used_in_recursion)]
     fn count_concatenation_chain(&self, expr: &Expression) -> usize {
         match expr {
             Expression::Concatenation { left, right, .. } => {
@@ -1071,6 +1072,7 @@ impl CodeFixer {
     }
 
     /// Counts the number of "\n" literal strings in a concatenation chain
+    #[allow(clippy::only_used_in_recursion)]
     fn count_newline_literals(&self, expr: &Expression) -> usize {
         match expr {
             Expression::Literal(Literal::String(s), ..) => {
@@ -1106,9 +1108,9 @@ impl CodeFixer {
                 };
 
                 if is_multiline {
-                    format!("{} with\n    {}", left_str, right_str)
+                    format!("{left_str} with\n    {right_str}")
                 } else {
-                    format!("{} with {}", left_str, right_str)
+                    format!("{left_str} with {right_str}")
                 }
             }
             _ => self.format_single_expression_for_concatenation(expr),
@@ -1119,10 +1121,10 @@ impl CodeFixer {
     fn format_single_expression_for_concatenation(&self, expr: &Expression) -> String {
         match expr {
             Expression::Literal(Literal::String(s), ..) => {
-                format!("\"{}\"", s)
+                format!("\"{s}\"")
             }
             Expression::Variable(name, ..) => name.clone(),
-            _ => format!("{:?}", expr), // Fallback for other expressions
+            _ => format!("{expr:?}"), // Fallback for other expressions
         }
     }
 

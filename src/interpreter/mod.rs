@@ -1601,7 +1601,7 @@ impl Interpreter {
                     }
                 };
 
-                let content_str = format!("{}", content_value);
+                let content_str = format!("{content_value}");
 
                 match self.io_client.create_file(&path_str, &content_str).await {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
@@ -1646,7 +1646,7 @@ impl Interpreter {
                     }
                 };
 
-                let content_str = format!("{}", content_value);
+                let content_str = format!("{content_value}");
 
                 match self.io_client.write_file(&file_str, &content_str).await {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
@@ -2152,8 +2152,7 @@ impl Interpreter {
                     } else if !arguments.is_empty() {
                         return Err(RuntimeError::new(
                             format!(
-                                "Container '{}' does not have an initialize method but arguments were provided",
-                                container_type
+                                "Container '{container_type}' does not have an initialize method but arguments were provided"
                             ),
                             *line,
                             *column,
@@ -2451,7 +2450,7 @@ impl Interpreter {
                     }
                     Err(compile_error) => Err(RuntimeError {
                         kind: ErrorKind::General,
-                        message: format!("Failed to compile pattern '{}': {}", name, compile_error),
+                        message: format!("Failed to compile pattern '{name}': {compile_error}"),
                         line,
                         column,
                     }),
@@ -3607,6 +3606,7 @@ impl Interpreter {
     }
 
     // Helper method to create container instance with inheritance
+    #[allow(clippy::only_used_in_recursion)]
     fn create_container_instance_with_inheritance(
         &self,
         container_type: &str,
@@ -3811,7 +3811,7 @@ impl Interpreter {
                         let file_ext = path
                             .extension()
                             .and_then(|ext| ext.to_str())
-                            .map(|ext| format!(".{}", ext));
+                            .map(|ext| format!(".{ext}"));
 
                         if let Some(ext) = file_ext {
                             if exts.iter().any(|e| e == &ext) {
@@ -3848,7 +3848,7 @@ impl Interpreter {
                 let file_ext = path
                     .extension()
                     .and_then(|ext| ext.to_str())
-                    .map(|ext| format!(".{}", ext));
+                    .map(|ext| format!(".{ext}"));
 
                 if let Some(ext) = file_ext {
                     if extensions.iter().any(|e| e == &ext) {

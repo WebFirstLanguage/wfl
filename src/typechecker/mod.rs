@@ -1699,8 +1699,7 @@ impl TypeChecker {
                     // Member not found
                     self.errors.push(TypeError::new(
                         format!(
-                            "Static member '{}' not found in container '{}'",
-                            member, container
+                            "Static member '{member}' not found in container '{container}'"
                         ),
                         None,
                         None,
@@ -1711,7 +1710,7 @@ impl TypeChecker {
                 } else {
                     // Container not found
                     self.errors.push(TypeError::new(
-                        format!("Container '{}' not found", container),
+                        format!("Container '{container}' not found"),
                         None,
                         None,
                         *line,
@@ -1860,8 +1859,7 @@ impl TypeChecker {
                                 } else {
                                     self.errors.push(TypeError::new(
                                         format!(
-                                            "Method '{}' not found in container '{}'",
-                                            method, container_name
+                                            "Method '{method}' not found in container '{container_name}'"
                                         ),
                                         None,
                                         None,
@@ -1873,7 +1871,7 @@ impl TypeChecker {
                             }
                         } else {
                             self.errors.push(TypeError::new(
-                                format!("Container '{}' not found", container_name),
+                                format!("Container '{container_name}' not found"),
                                 None,
                                 None,
                                 *line,
@@ -1885,8 +1883,7 @@ impl TypeChecker {
                     _ => {
                         self.type_error(
                             format!(
-                                "Cannot call method '{}' on non-container type {}",
-                                method, object_type
+                                "Cannot call method '{method}' on non-container type {object_type}"
                             ),
                             Some(Type::ContainerInstance(String::from("Unknown"))),
                             Some(object_type),
@@ -1937,8 +1934,7 @@ impl TypeChecker {
                                 if !found {
                                     self.errors.push(TypeError::new(
                                         format!(
-                                            "Property '{}' not found in container '{}'",
-                                            property, container_name
+                                            "Property '{property}' not found in container '{container_name}'"
                                         ),
                                         None,
                                         None,
@@ -1952,7 +1948,7 @@ impl TypeChecker {
                             }
                         } else {
                             self.errors.push(TypeError::new(
-                                format!("Container '{}' not found", container_name),
+                                format!("Container '{container_name}' not found"),
                                 None,
                                 None,
                                 *line,
@@ -1964,8 +1960,7 @@ impl TypeChecker {
                     _ => {
                         self.type_error(
                             format!(
-                                "Cannot access property '{}' on non-container type {}",
-                                property, object_type
+                                "Cannot access property '{property}' on non-container type {object_type}"
                             ),
                             Some(Type::ContainerInstance("Unknown".to_string())),
                             Some(object_type),

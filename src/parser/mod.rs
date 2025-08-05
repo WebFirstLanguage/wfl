@@ -3970,22 +3970,22 @@ impl<'a> Parser<'a> {
                     })
                 }
                 _ => {
-                    return Err(ParseError::new(
+                    Err(ParseError::new(
                         format!(
                             "Expected 'file' or 'directory' after 'delete', found {:?}",
                             next_token.token
                         ),
                         next_token.line,
                         next_token.column,
-                    ));
+                    ))
                 }
             }
         } else {
-            return Err(ParseError::new(
+            Err(ParseError::new(
                 "Expected 'file' or 'directory' after 'delete'".to_string(),
                 token_pos.line,
                 token_pos.column,
-            ));
+            ))
         }
     }
 
@@ -4505,324 +4505,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn compile_pattern_to_ir(tokens: &[TokenWithPosition]) -> Result<String, ParseError> {
-        let mut i = 0;
-        let sequence_parts = Self::parse_sequence(tokens, &mut i)?;
-
-        if sequence_parts.is_empty() {
-            return Err(ParseError::new(
-                "Empty pattern definition".to_string(),
-                0,
-                0,
-            ));
-        }
-
-        if sequence_parts.len() == 1 {
-            Ok(sequence_parts[0].clone())
-        } else {
-            Ok(format!("seq({})", sequence_parts.join(",")))
-        }
-    }
-
-    fn parse_sequence(
-        tokens: &[TokenWithPosition],
-        i: &mut usize,
-    ) -> Result<Vec<String>, ParseError> {
-        let mut sequence_parts = Vec::new();
-
-        while *i < tokens.len() {
-            let token = &tokens[*i];
-            match &token.token {
-                Token::Newline => {
-                    *i += 1;
-                    continue;
-                }
-                _ => {
-                    let element = Self::parse_element(tokens, i)?;
-                    sequence_parts.push(element);
-                }
-            }
-        }
-
-        Ok(sequence_parts)
-    }
-
-    fn parse_element(tokens: &[TokenWithPosition], i: &mut usize) -> Result<String, ParseError> {
-        if *i >= tokens.len() {
-            return Err(ParseError::new(
-                "Expected pattern element".to_string(),
-                0,
-                0,
-            ));
-        }
-
-        let token = &tokens[*i];
-        match &token.token {
-            // Handle quantifiers first
-            Token::KeywordOne => {
-                *i += 1;
-                if *i < tokens.len() && tokens[*i].token == Token::KeywordOr {
-                    *i += 1;
-                    if *i < tokens.len() && tokens[*i].token == Token::KeywordMore {
-                        *i += 1;
-                        let inner = Self::parse_quantified_content(tokens, i)?;
-                        Ok(format!("rep(1,inf,{inner})"))
-                    } else {
-                        Err(ParseError::new(
-                            "Expected 'more' after 'one or'".to_string(),
-                            token.line,
-                            token.column,
-                        ))
-                    }
-                } else {
-                    Err(ParseError::new(
-                        "Expected 'or' after 'one'".to_string(),
-                        token.line,
-                        token.column,
-                    ))
-                }
-            }
-
-            Token::KeywordOptional => {
-                *i += 1;
-                let inner = Self::parse_quantified_content(tokens, i)?;
-                Ok(format!("rep(0,1,{inner})"))
-            }
-
-            Token::KeywordBetween => {
-                *i += 1;
-                if *i + 3 < tokens.len() {
-                    if let Token::IntLiteral(min) = &tokens[*i].token {
-                        let min_val = *min;
-                        *i += 1;
-                        if tokens[*i].token == Token::KeywordAnd {
-                            *i += 1;
-                            if let Token::IntLiteral(max) = &tokens[*i].token {
-                                let max_val = *max;
-                                *i += 1;
-                                let inner = Self::parse_quantified_content(tokens, i)?;
-                                Ok(format!("rep({min_val},{max_val},{inner})"))
-                            } else {
-                                Err(ParseError::new(
-                                    "Expected number after 'and'".to_string(),
-                                    token.line,
-                                    token.column,
-                                ))
-                            }
-                        } else {
-                            Err(ParseError::new(
-                                "Expected 'and' after first number".to_string(),
-                                token.line,
-                                token.column,
-                            ))
-                        }
-                    } else {
-                        Err(ParseError::new(
-                            "Expected number after 'between'".to_string(),
-                            token.line,
-                            token.column,
-                        ))
-                    }
-                } else {
-                    Err(ParseError::new(
-                        "Incomplete 'between' quantifier".to_string(),
-                        token.line,
-                        token.column,
-                    ))
-                }
-            }
-
-            // Handle captures
-            Token::KeywordCapture => {
-                *i += 1;
-                if *i < tokens.len() && tokens[*i].token == Token::LeftBrace {
-                    *i += 1;
-                    let mut capture_tokens = Vec::new();
-                    let mut brace_count = 1;
-
-                    while *i < tokens.len() && brace_count > 0 {
-                        match &tokens[*i].token {
-                            Token::LeftBrace => brace_count += 1,
-                            Token::RightBrace => brace_count -= 1,
-                            _ => {}
-                        }
-                        if brace_count > 0 {
-                            capture_tokens.push(tokens[*i].clone());
-                        }
-                        *i += 1;
-                    }
-
-                    if *i + 1 < tokens.len() && tokens[*i].token == Token::KeywordAs {
-                        *i += 1;
-                        if let Token::Identifier(name) = &tokens[*i].token {
-                            let capture_name = name.clone();
-                            *i += 1;
-                            let inner_ir = Self::compile_pattern_to_ir(&capture_tokens)?;
-                            Ok(format!("cap(\"{capture_name}\",{inner_ir})"))
-                        } else {
-                            Err(ParseError::new(
-                                "Expected identifier after 'as'".to_string(),
-                                token.line,
-                                token.column,
-                            ))
-                        }
-                    } else {
-                        Err(ParseError::new(
-                            "Expected 'as' after capture group".to_string(),
-                            token.line,
-                            token.column,
-                        ))
-                    }
-                } else {
-                    Err(ParseError::new(
-                        "Expected '{' after 'capture'".to_string(),
-                        token.line,
-                        token.column,
-                    ))
-                }
-            }
-
-            // Handle anchors
-            Token::KeywordAt => {
-                *i += 1;
-                if *i < tokens.len() && tokens[*i].token == Token::KeywordStart {
-                    *i += 1;
-                    if *i < tokens.len() && tokens[*i].token == Token::KeywordOf {
-                        *i += 1;
-                        if *i < tokens.len() && tokens[*i].token == Token::KeywordText {
-                            *i += 1;
-                            Ok("anchor(start)".to_string())
-                        } else {
-                            Err(ParseError::new(
-                                "Expected 'text' after 'of'".to_string(),
-                                token.line,
-                                token.column,
-                            ))
-                        }
-                    } else {
-                        Err(ParseError::new(
-                            "Expected 'of' after 'start'".to_string(),
-                            token.line,
-                            token.column,
-                        ))
-                    }
-                } else if *i < tokens.len() && tokens[*i].token == Token::KeywordEnd {
-                    *i += 1;
-                    if *i < tokens.len() && tokens[*i].token == Token::KeywordOf {
-                        *i += 1;
-                        if *i < tokens.len() && tokens[*i].token == Token::KeywordText {
-                            *i += 1;
-                            Ok("anchor(end)".to_string())
-                        } else {
-                            Err(ParseError::new(
-                                "Expected 'text' after 'of'".to_string(),
-                                token.line,
-                                token.column,
-                            ))
-                        }
-                    } else {
-                        Err(ParseError::new(
-                            "Expected 'of' after 'end'".to_string(),
-                            token.line,
-                            token.column,
-                        ))
-                    }
-                } else {
-                    Err(ParseError::new(
-                        "Expected 'start' or 'end' after 'at'".to_string(),
-                        token.line,
-                        token.column,
-                    ))
-                }
-            }
-
-            // Handle basic elements
-            Token::StringLiteral(s) => {
-                *i += 1;
-                Ok(format!("lit(\"{}\")", s.replace("\"", "\\\"")))
-            }
-            Token::KeywordDigit => {
-                *i += 1;
-                Ok("class(digit)".to_string())
-            }
-            Token::KeywordLetter => {
-                *i += 1;
-                Ok("class(letter)".to_string())
-            }
-            Token::KeywordWhitespace => {
-                *i += 1;
-                Ok("class(whitespace)".to_string())
-            }
-
-            _ => Err(ParseError::new(
-                "Invalid pattern element".to_string(),
-                token.line,
-                token.column,
-            )),
-        }
-    }
-
-    fn parse_quantified_content(
-        tokens: &[TokenWithPosition],
-        i: &mut usize,
-    ) -> Result<String, ParseError> {
-        let mut alternatives = Vec::new();
-
-        loop {
-            if *i >= tokens.len() {
-                break;
-            }
-
-            let token = &tokens[*i];
-            match &token.token {
-                Token::StringLiteral(s) => {
-                    *i += 1;
-                    alternatives.push(format!("lit(\"{}\")", s.replace("\"", "\\\"")));
-                }
-                Token::KeywordDigit => {
-                    *i += 1;
-                    alternatives.push("class(digit)".to_string());
-                }
-                Token::KeywordLetter => {
-                    *i += 1;
-                    alternatives.push("class(letter)".to_string());
-                }
-                Token::KeywordWhitespace => {
-                    *i += 1;
-                    alternatives.push("class(whitespace)".to_string());
-                }
-                Token::KeywordOr => {
-                    *i += 1;
-                    // Continue to next alternative
-                    continue;
-                }
-                _ => {
-                    break;
-                }
-            }
-
-            // Check if there's an "or" following
-            if *i < tokens.len() && tokens[*i].token == Token::KeywordOr {
-                continue;
-            } else {
-                break; // End of alternatives
-            }
-        }
-
-        if alternatives.is_empty() {
-            return Err(ParseError::new(
-                "Expected pattern element after quantifier".to_string(),
-                0,
-                0,
-            ));
-        }
-
-        if alternatives.len() == 1 {
-            Ok(alternatives[0].clone())
-        } else {
-            Ok(format!("alt({})", alternatives.join(",")))
-        }
-    }
 
     fn parse_extension_filter(&mut self) -> Result<Vec<Expression>, ParseError> {
         // Expect "extension" or "extensions"
@@ -5346,7 +5028,7 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 
-                let lookaround_type = match &tokens[*i].token {
+                match &tokens[*i].token {
                     Token::KeywordAhead => {
                         *i += 1;
                         if *i < tokens.len() && tokens[*i].token == Token::KeywordFor {
@@ -5468,9 +5150,7 @@ impl<'a> Parser<'a> {
                             tokens[*i].column,
                         ));
                     }
-                };
-                
-                lookaround_type
+                }
             }
 
             // Handle "by" token after identifier - this happens when "followed" was consumed elsewhere

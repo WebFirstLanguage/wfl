@@ -21,11 +21,11 @@ pub enum PatternError {
 impl std::fmt::Display for PatternError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PatternError::CompileError(msg) => write!(f, "Pattern compile error: {}", msg),
-            PatternError::RuntimeError(msg) => write!(f, "Pattern runtime error: {}", msg),
+            PatternError::CompileError(msg) => write!(f, "Pattern compile error: {msg}"),
+            PatternError::RuntimeError(msg) => write!(f, "Pattern runtime error: {msg}"),
             PatternError::StepLimitExceeded => write!(f, "Pattern execution step limit exceeded"),
-            PatternError::InvalidCapture(name) => write!(f, "Invalid capture group: {}", name),
-            PatternError::InvalidInstruction(msg) => write!(f, "Invalid instruction: {}", msg),
+            PatternError::InvalidCapture(name) => write!(f, "Invalid capture group: {name}"),
+            PatternError::InvalidInstruction(msg) => write!(f, "Invalid instruction: {msg}"),
         }
     }
 }

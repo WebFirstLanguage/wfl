@@ -506,8 +506,7 @@ end pattern"#;
     let result = parser.parse_statement();
     assert!(
         result.is_ok(),
-        "Failed to parse simple pattern: {:?}",
-        result
+        "Failed to parse simple pattern: {result:?}"
     );
 
     if let Ok(Statement::PatternDefinition { name, pattern, .. }) = result {
@@ -515,10 +514,10 @@ end pattern"#;
         if let PatternExpression::Literal(s) = pattern {
             assert_eq!(s, "hello");
         } else {
-            panic!("Expected literal pattern, got {:?}", pattern);
+            panic!("Expected literal pattern, got {pattern:?}");
         }
     } else {
-        panic!("Expected PatternDefinition, got {:?}", result);
+        panic!("Expected PatternDefinition, got {result:?}");
     }
 }
 
@@ -534,8 +533,7 @@ end pattern"#;
     let result = parser.parse_statement();
     assert!(
         result.is_ok(),
-        "Failed to parse character class pattern: {:?}",
-        result
+        "Failed to parse character class pattern: {result:?}"
     );
 
     if let Ok(Statement::PatternDefinition { name, pattern, .. }) = result {
@@ -546,14 +544,14 @@ end pattern"#;
                 if let PatternExpression::CharacterClass(CharClass::Digit) = element {
                     // Correct
                 } else {
-                    panic!("Expected digit character class, got {:?}", element);
+                    panic!("Expected digit character class, got {element:?}");
                 }
             }
         } else {
-            panic!("Expected sequence pattern, got {:?}", pattern);
+            panic!("Expected sequence pattern, got {pattern:?}");
         }
     } else {
-        panic!("Expected PatternDefinition, got {:?}", result);
+        panic!("Expected PatternDefinition, got {result:?}");
     }
 }
 
@@ -569,8 +567,7 @@ end pattern"#;
     let result = parser.parse_statement();
     assert!(
         result.is_ok(),
-        "Failed to parse quantified pattern: {:?}",
-        result
+        "Failed to parse quantified pattern: {result:?}"
     );
 
     if let Ok(Statement::PatternDefinition { name, pattern, .. }) = result {
@@ -583,18 +580,18 @@ end pattern"#;
             if let PatternExpression::CharacterClass(CharClass::Digit) = inner.as_ref() {
                 // Correct
             } else {
-                panic!("Expected digit character class, got {:?}", inner);
+                panic!("Expected digit character class, got {inner:?}");
             }
             if let Quantifier::OneOrMore = quantifier {
                 // Correct
             } else {
-                panic!("Expected OneOrMore quantifier, got {:?}", quantifier);
+                panic!("Expected OneOrMore quantifier, got {quantifier:?}");
             }
         } else {
-            panic!("Expected quantified pattern, got {:?}", pattern);
+            panic!("Expected quantified pattern, got {pattern:?}");
         }
     } else {
-        panic!("Expected PatternDefinition, got {:?}", result);
+        panic!("Expected PatternDefinition, got {result:?}");
     }
 }
 
@@ -610,8 +607,7 @@ end pattern"#;
     let result = parser.parse_statement();
     assert!(
         result.is_ok(),
-        "Failed to parse alternative pattern: {:?}",
-        result
+        "Failed to parse alternative pattern: {result:?}"
     );
 
     if let Ok(Statement::PatternDefinition { name, pattern, .. }) = result {
@@ -621,23 +617,23 @@ end pattern"#;
             if let PatternExpression::Literal(s1) = &alternatives[0] {
                 assert_eq!(s1, "hello");
             } else {
+                let alt = &alternatives[0];
                 panic!(
-                    "Expected first alternative to be 'hello', got {:?}",
-                    alternatives[0]
+                    "Expected first alternative to be 'hello', got {alt:?}"
                 );
             }
             if let PatternExpression::Literal(s2) = &alternatives[1] {
                 assert_eq!(s2, "hi");
             } else {
+                let alt = &alternatives[1];
                 panic!(
-                    "Expected second alternative to be 'hi', got {:?}",
-                    alternatives[1]
+                    "Expected second alternative to be 'hi', got {alt:?}"
                 );
             }
         } else {
-            panic!("Expected alternative pattern, got {:?}", pattern);
+            panic!("Expected alternative pattern, got {pattern:?}");
         }
     } else {
-        panic!("Expected PatternDefinition, got {:?}", result);
+        panic!("Expected PatternDefinition, got {result:?}");
     }
 }

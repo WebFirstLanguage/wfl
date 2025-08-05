@@ -253,6 +253,7 @@ impl PatternVM {
     }
 
     /// Execute one step of the virtual machine
+    #[allow(clippy::only_used_in_recursion)]
     fn step(
         &mut self,
         program: &Program,
@@ -285,9 +286,10 @@ impl PatternVM {
                         #[cfg(test)]
                         if self.debug {
                             if state.pos >= chars.len() {
-                                println!("  CharClass {:?} failed - end of string", char_class);
+                                println!("  CharClass {char_class:?} failed - end of string");
                             } else {
-                                println!("  CharClass {:?} failed - char '{}' doesn't match", char_class, chars[state.pos]);
+                                let ch = chars[state.pos];
+                                println!("  CharClass {char_class:?} failed - char '{ch}' doesn't match");
                             }
                         }
                         return Ok(StepResult::Fail);
@@ -421,7 +423,7 @@ impl PatternVM {
                     
                     #[cfg(test)]
                     if self.debug {
-                        println!("  BeginLookahead at pos {}", _saved_pos);
+                        println!("  BeginLookahead at pos {_saved_pos}");
                     }
                     
                     // Find the matching EndLookahead
@@ -540,7 +542,8 @@ impl PatternVM {
                         while skip_depth > 0 && state.pc < program.instructions.len() {
                             #[cfg(test)]
             if std::env::var("VM_DEBUG").is_ok() {
-                println!("PC: {}, Pos: {}, Inst: {:?}", state.pc, state.pos, &program.instructions[state.pc]);
+                let inst = &program.instructions[state.pc];
+                println!("PC: {pc}, Pos: {pos}, Inst: {inst:?}", pc = state.pc, pos = state.pos);
             }
             
             match &program.instructions[state.pc] {
@@ -776,7 +779,7 @@ mod tests {
 
         println!("Program instructions:");
         for (i, inst) in program.instructions.iter().enumerate() {
-            println!("{}: {:?}", i, inst);
+            println!("{i}: {inst:?}");
         }
 
         let mut vm = PatternVM::new();
@@ -785,13 +788,13 @@ mod tests {
         // Should match "5a" (digit followed by letter)
         println!("\nTesting '5a':");
         let result1 = vm.execute(&program, "5a").unwrap();
-        println!("Result: {}", result1);
+        println!("Result: {result1}");
         assert!(result1);
         
         // Should NOT match "59" (digit not followed by letter)
         println!("\nTesting '59':");
         let result2 = vm.execute(&program, "59").unwrap();
-        println!("Result: {}", result2);
+        println!("Result: {result2}");
         assert!(!result2);
     }
 }

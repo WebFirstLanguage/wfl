@@ -355,8 +355,7 @@ impl PatternCompiler {
             Ok(())
         } else {
             Err(PatternError::CompileError(format!(
-                "Backreference to undefined capture group: '{}'",
-                name
+                "Backreference to undefined capture group: '{name}'"
             )))
         }
     }
@@ -425,6 +424,8 @@ impl PatternCompiler {
     }
 
     /// Calculate the fixed length of a pattern (if possible)
+    #[allow(dead_code)]
+    #[allow(clippy::only_used_in_recursion)]
     fn calculate_pattern_length(&self, pattern: &PatternExpression) -> Option<usize> {
         match pattern {
             PatternExpression::Literal(s) => Some(s.chars().count()),
