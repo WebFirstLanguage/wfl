@@ -255,58 +255,6 @@ For best performance:
 - Avoid deeply nested optional groups
 - Test complex patterns on representative data
 
-## Migration from Legacy Patterns
-
-**⚠️ DEPRECATION NOTICE**: The legacy regex-based pattern system is deprecated and will be removed in a future version. Please migrate to the new `create pattern` syntax.
-
-### Legacy Syntax (Deprecated)
-
-```wfl
-// Old way - deprecated
-store email_regex as pattern "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-if text matches email_regex:
-    display "Valid email"
-end if
-```
-
-### New Syntax (Recommended)
-
-```wfl
-// New way - recommended
-create pattern email:
-    one or more letter or digit or "." or "_" or "%" or "+" or "-"
-    "@"
-    one or more letter or digit or "." or "-"
-    "."
-    between 2 and 10 letter
-end pattern
-
-if text matches email:
-    display "Valid email"
-end if
-```
-
-### Migration Steps
-
-1. **Identify legacy patterns** - Look for `pattern "regex"` syntax
-2. **Convert to natural language** - Replace regex syntax with WFL pattern blocks
-3. **Update pattern usage** - Ensure all `matches`, `find`, `replace`, `split` operations use new patterns
-4. **Test thoroughly** - Verify behavior matches expectations
-5. **Remove legacy patterns** - Clean up old pattern definitions
-
-### Common Conversions
-
-| Legacy Regex | New Pattern Syntax |
-|--------------|-------------------|
-| `\d+` | `one or more digit` |
-| `\w*` | `zero or more letter or digit` |
-| `[a-zA-Z]+` | `one or more letter` |
-| `\s+` | `one or more whitespace` |
-| `(pattern)` | `capture { pattern } as name` |
-| `pattern?` | `optional pattern` |
-| `pattern{2,5}` | `between 2 and 5 pattern` |
-| `pattern1\|pattern2` | `pattern1 or pattern2` |
-
 ## Examples
 
 ### Email Validation
@@ -430,5 +378,71 @@ end for each
 - Always check `is not nothing` before using capture values
 - Remember captures are `Option<Text>`, not `Text`
 - Use flow-sensitive analysis to narrow types
+
+## Design Philosophy
+
+WFL's pattern system represents a fundamental reimagining of how developers work with text patterns. Traditional regular expressions, while powerful, suffer from a terse, symbol-heavy syntax that makes them notoriously difficult to read and maintain. As Martin Fowler noted, "Code should not need to be figured out, it should just be read."
+
+### Why Natural Language Patterns?
+
+The decision to use natural language for patterns stems from several key insights:
+
+1. **Readability Over Brevity**: While regex prioritizes compact notation, WFL patterns prioritize clarity. Compare `^\d{3}-[A-Za-z]{2}$` with "three digits '-' two letters" - the latter is instantly understandable.
+
+2. **Self-Documenting Code**: WFL patterns serve as their own documentation. Instead of needing comments to explain what a pattern does, the pattern itself explains its purpose in plain English.
+
+3. **Lower Barrier to Entry**: By using familiar words instead of cryptic symbols, WFL makes pattern matching accessible to beginners and non-programmers who work with text data.
+
+4. **Fewer Errors**: Natural language patterns eliminate common regex pitfalls like escaping issues, greedy vs. lazy quantifiers, and backreference confusion.
+
+### Historical Context and Inspirations
+
+WFL's pattern system draws inspiration from several sources:
+
+- **SNOBOL and Icon**: These languages from the 1960s-70s treated patterns as first-class objects with readable syntax
+- **Raku (Perl 6)**: Introduced rules and grammars that made regex more like structured code
+- **Parser Combinators**: Functional programming's approach of composing small, understandable parsers
+- **Rebol/Red PARSE**: A dialect that uses keywords instead of regex symbols
+- **Cucumber Expressions**: BDD tools that replaced regex with placeholders like `{int}` and `{string}`
+
+### Design Principles
+
+1. **Minimal Special Characters**: Most characters in patterns are literal, reducing the need for escaping
+2. **Descriptive Quantifiers**: Words like "optional", "one or more" replace symbols like `?`, `+`
+3. **Named Captures by Default**: Placeholders like `{username}` make extraction intuitive
+4. **Composability**: Patterns can be named, reused, and combined like other code elements
+5. **Safe Defaults**: The system includes built-in protections against catastrophic backtracking
+
+### Trade-offs and Benefits
+
+While WFL patterns may be more verbose than regex, this verbosity brings significant benefits:
+- **Maintainability**: Changes are straightforward - changing "three" to "four" is clearer than changing `{3}` to `{4}`
+- **Collaboration**: Team members can understand and modify patterns without regex expertise
+- **AI-Friendly**: Natural language patterns can be more easily generated and understood by AI assistants
+
+The WFL pattern system demonstrates that powerful text processing doesn't require cryptic syntax. By aligning pattern matching with how humans naturally describe patterns, WFL makes this essential programming task accessible, maintainable, and even enjoyable.
+
+## Migration from Legacy Patterns
+
+If you have code using the deprecated regex-based pattern syntax, follow these steps to migrate:
+
+### Legacy Syntax (No Longer Supported)
+```wfl
+// Old way - no longer works
+store email_regex as pattern "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+```
+
+### Migration Guide
+
+| Legacy Regex | New Pattern Syntax |
+|--------------|-------------------|
+| `\d+` | `one or more digit` |
+| `\w*` | `zero or more letter or digit` |
+| `[a-zA-Z]+` | `one or more letter` |
+| `\s+` | `one or more whitespace` |
+| `(pattern)` | `capture { pattern } as name` |
+| `pattern?` | `optional pattern` |
+| `pattern{2,5}` | `between 2 and 5 pattern` |
+| `pattern1\|pattern2` | `pattern1 or pattern2` |
 
 For additional help, see the WFL documentation or community forums.

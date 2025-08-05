@@ -10,14 +10,56 @@
 display "WFL File Combiner"
 
 // Settings
-store input_dir as "./Docs"
+store input_dir as "../Docs"
 store output_file as "./combined/wfl_docs_combined.md"
+
+// Create pattern to match files starting with "wfl-"
+create pattern wfl_prefix:
+    "wfl-"
+    one or more letter or digit or "-" or "_" or "."
+end pattern
 
 display "Input: " with input_dir
 display "Output: " with output_file
+display "Filter: Files starting with 'wfl-'"
 
 try:
-    store file_list as list files in input_dir with extension ".md"
+    // Get all .md files
+    store all_md_files as list files in input_dir with extension ".md"
+    display "Found " with length of all_md_files with " .md files total"
+    
+    // Filter to only files starting with "wfl-"
+    store file_list as []
+    for each file_path in all_md_files:
+        // Extract filename from path (after last slash or backslash)
+        store filename as file_path
+        store last_slash as -1
+        store pos as 0
+        
+        // Find last slash or backslash
+        for each char in file_path:
+            check if char is "/" or char is "\\":
+                change last_slash to pos
+            end check
+            change pos to pos plus 1
+        end for
+        
+        // Extract filename if we found a separator
+        check if last_slash is greater than -1:
+            store filename as ""
+            store i as last_slash plus 1
+            count from i to length of file_path minus 1:
+                change filename to filename with character at position i of file_path
+            end count
+        end check
+        
+        // Check if filename matches our pattern
+        check if filename matches pattern wfl_prefix:
+            add file_path to file_list
+        end check
+    end for
+    
+    display "Filtered to " with length of file_list with " files starting with 'wfl-'"
     display "Found files to process..."
     
     // Create the header

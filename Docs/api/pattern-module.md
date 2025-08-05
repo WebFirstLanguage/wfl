@@ -1,19 +1,10 @@
 ## Pattern Module (Text Pattern Matching)
 
-**⚠️ DEPRECATION NOTICE**: This document describes the legacy regex-based pattern system which is now deprecated. Please use the new `create pattern` block syntax documented in [`docs/patterns.md`](../docs/patterns.md). The legacy pattern system will be removed in a future version of WFL.
+**Note**: This document describes the legacy pattern API. For the current pattern system, see the [Pattern Matching Guide](../patterns.md).
 
-**For new projects, use the modern pattern syntax:**
-```wfl
-create pattern my_pattern:
-    // Natural language pattern description
-end pattern
-```
+## Legacy Pattern Module Documentation
 
----
-
-## Legacy Pattern Module Documentation (Deprecated)
-
-The **pattern module** provides a natural language approach to text pattern matching, allowing users to work with patterns in a more intuitive way than traditional regular expressions.This module implements the "Not Your Father's Regex" concept, making pattern matching accessible to beginners while still being powerful enough for complex text processing tasks.
+The legacy pattern module provided a natural language approach to text pattern matching. This system has been replaced by the more powerful `create pattern` block syntax which offers better performance, type safety, and clearer error messages.
 
 Pattern operations use plain English expressions instead of cryptic symbols, making them easier to read, write, and understand. The module includes functions for matching, finding, replacing, and splitting text using patterns.
 
@@ -22,7 +13,17 @@ Pattern operations use plain English expressions instead of cryptic symbols, mak
 Pattern literals are defined using the `pattern` keyword followed by a string that describes the pattern in natural language:
 
 ```wfl
+// Legacy syntax - no longer supported
 store email pattern as pattern "{one or more letters or digits}@{one or more letters or digits}.{2 or 3 letters}"
+
+// Use the new syntax instead:
+create pattern email:
+    one or more letter or digit
+    "@"
+    one or more letter or digit
+    "."
+    between 2 and 3 letter
+end pattern
 ```
 
 Pattern literals can include:

@@ -20,7 +20,8 @@
       "Bash(cargo clippy:*)",
       "Bash(cargo test)",
       "Bash(cargo test:*)",
-      "Bash(cargo update:*)"
+      "Bash(cargo update:*)",
+      "Bash(\"C:\\logbie\\wfl\\target\\release\\wfl.exe\" wfl_combiner.wfl)"
     ],
     "deny": []
   }

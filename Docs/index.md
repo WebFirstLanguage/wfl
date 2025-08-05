@@ -48,7 +48,7 @@ Other documentation and resources:
 
 ### Language Features
 - **[I/O Operations](wfl-IO.md)** - File and network I/O
-- **[Regular Expressions](wfl-regex.md)** - Pattern matching with regex
+- **[Pattern Matching](patterns.md)** - Natural language pattern matching system
 - **[Logging System](wfl-logging.md)** - Structured logging
 - **[Linting](wfl-lint.md)** - Code style and quality checks
 - **[OOP Design](wfl-oop-design.md)** - Object-oriented programming concepts
@@ -57,7 +57,6 @@ Other documentation and resources:
 - **[Arguments Handling](wfl-args.md)** - Command-line arguments
 - **[Integration Notes](wfl-int2.md)** - Integration with other systems
 - **[Step Execution](wfl-step.md)** - Step-by-step execution details
-- **[Patterns Implementation](patterns.md)** - Pattern matching implementation
 
 ### Historical and Research
 - **[Devin Integration](wfl-devin.md)** - AI assistant integration notes
