@@ -1,0 +1,6 @@
+// Test simple pattern definition and usage
+create pattern greeting:
+    "hello"
+end pattern
+
+display "Pattern parsing test passed!"

@@ -175,8 +175,12 @@ pub enum Token {
     KeywordGreedy,
     #[token("lazy")]
     KeywordLazy,
+    #[token("zero")]
+    KeywordZero,
     #[token("one")]
     KeywordOne,
+    #[token("any")]
+    KeywordAny,
     #[token("optional")]
     KeywordOptional,
     #[token("between")]
@@ -368,6 +372,8 @@ impl Token {
                 | Token::KeywordSkip
                 | Token::KeywordThan
                 | Token::KeywordPush
+                | Token::KeywordZero
+                | Token::KeywordAny
                 | Token::KeywordContainer
                 | Token::KeywordProperty
                 | Token::KeywordExtends

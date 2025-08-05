@@ -102,6 +102,9 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::ParentMethodCall { method_name, .. } => {
             format!("ParentMethodCall '{method_name}'")
         }
+        Statement::PatternDefinition { name, .. } => {
+            format!("PatternDefinition '{name}'")
+        }
     }
 }
 
@@ -851,6 +854,7 @@ impl Interpreter {
             Statement::EventTrigger { line, column, .. } => (*line, *column),
             Statement::EventHandler { line, column, .. } => (*line, *column),
             Statement::ParentMethodCall { line, column, .. } => (*line, *column),
+            Statement::PatternDefinition { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {
@@ -2435,6 +2439,13 @@ impl Interpreter {
                         *column,
                     ))
                 }
+            }
+            Statement::PatternDefinition { name, pattern, .. } => {
+                // TODO: Implement pattern definition handling
+                // For now, just store as a placeholder in the environment
+                let pattern_value = Value::Text(Rc::from(format!("Pattern<{}>", name)));
+                env.borrow_mut().define(name, pattern_value.clone());
+                Ok((pattern_value, ControlFlow::None))
             }
         };
 

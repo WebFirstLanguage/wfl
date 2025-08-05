@@ -958,6 +958,10 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {}
+            Statement::PatternDefinition { .. } => {
+                // TODO: Add type checking for pattern definitions
+                // For now, patterns are valid without additional type checking
+            }
         }
     }
 
