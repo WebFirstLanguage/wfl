@@ -1,15 +1,14 @@
 // Tests for the pattern standard library module
-// 
+//
 // Note: Legacy IR parsing tests have been removed in favor of the new bytecode VM pattern system.
 // The new pattern system is tested through integration tests in TestPrograms/pattern_*.wfl
 
 #[cfg(test)]
 mod tests {
+    use crate::interpreter::value::Value;
     use crate::stdlib::pattern::{
         pattern_find_all_native, pattern_find_native, pattern_matches_native,
     };
-    use crate::interpreter::value::Value;
-    use std::rc::Rc;
 
     // These are basic tests for the native function signatures
     // Full functionality is tested through WFL integration tests
@@ -18,21 +17,36 @@ mod tests {
     fn test_pattern_matches_native_wrong_arg_count() {
         let result = pattern_matches_native(vec![]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("exactly 2 arguments"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exactly 2 arguments")
+        );
     }
 
-    #[test] 
+    #[test]
     fn test_pattern_find_native_wrong_arg_count() {
         let result = pattern_find_native(vec![]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("exactly 2 arguments"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exactly 2 arguments")
+        );
     }
 
     #[test]
     fn test_pattern_find_all_native_wrong_arg_count() {
         let result = pattern_find_all_native(vec![]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("exactly 2 arguments"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exactly 2 arguments")
+        );
     }
 
     #[test]

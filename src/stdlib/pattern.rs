@@ -277,8 +277,7 @@ pub fn native_pattern_split(
 
     // TODO: Update to use new pattern system for splitting
     // For now, return the original text as a single element
-    let mut parts = Vec::new();
-    parts.push(Value::Text(Rc::from(text)));
+    let parts = vec![Value::Text(Rc::from(text))];
 
     Ok(Value::List(Rc::new(RefCell::new(parts))))
 }
