@@ -456,13 +456,6 @@ impl PatternCompiler {
             _ => None, // Quantifiers, alternatives, etc. don't have fixed length
         }
     }
-
-    /// Allocate a new save slot for backtracking
-    fn _alloc_save_slot(&mut self) -> usize {
-        let slot = self.save_counter;
-        self.save_counter += 1;
-        slot
-    }
 }
 
 impl Default for PatternCompiler {
