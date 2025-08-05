@@ -45,19 +45,19 @@ pub enum Instruction {
 
     /// Begin positive lookahead - save position and execute nested program
     BeginLookahead,
-    
+
     /// End positive lookahead - restore position and continue if nested program matched
     EndLookahead,
-    
+
     /// Begin negative lookahead - save position and execute nested program  
     BeginNegativeLookahead,
-    
+
     /// End negative lookahead - restore position and continue if nested program failed
     EndNegativeLookahead,
-    
+
     /// Check positive lookbehind - verify pattern matches before current position
     CheckLookbehind(Box<Program>), // sub-program to match before current position
-    
+
     /// Check negative lookbehind - verify pattern doesn't match before current position
     CheckNegativeLookbehind(Box<Program>), // sub-program to match before current position
 }
@@ -86,19 +86,22 @@ impl CharClassType {
             CharClassType::UnicodeCategory(category) => match category.as_str() {
                 "Letter" | "L" => ch.is_alphabetic(),
                 "Number" | "N" => ch.is_numeric(),
-                "Symbol" | "S" => matches!(ch, 
+                "Symbol" | "S" => matches!(ch,
                     '$' | '+' | '<' | '=' | '>' | '^' | '`' | '|' | '~' |
                     '\u{00A2}'..='\u{00A5}' | '\u{00A7}' | '\u{00A9}' | '\u{00AC}' |
                     '\u{00AE}'..='\u{00B1}' | '\u{00B4}' | '\u{00B6}' | '\u{00B8}' |
-                    '\u{00D7}' | '\u{00F7}' | '\u{02C2}'..='\u{02C5}' | 
+                    '\u{00D7}' | '\u{00F7}' | '\u{02C2}'..='\u{02C5}' |
                     '\u{02D2}'..='\u{02DF}' | '\u{02E5}'..='\u{02EB}' | '\u{02ED}' |
-                    '\u{2100}'..='\u{214F}' | '\u{2190}'..='\u{2328}' | 
+                    '\u{2100}'..='\u{214F}' | '\u{2190}'..='\u{2328}' |
                     '\u{2400}'..='\u{2426}' | '\u{2440}'..='\u{244A}'
                 ),
-                "Punctuation" | "P" => ch.is_ascii_punctuation() || matches!(ch,
-                    '\u{2010}'..='\u{2027}' | '\u{2030}'..='\u{203E}' |
-                    '\u{2041}'..='\u{2053}' | '\u{2055}'..='\u{205E}'
-                ),
+                "Punctuation" | "P" => {
+                    ch.is_ascii_punctuation()
+                        || matches!(ch,
+                            '\u{2010}'..='\u{2027}' | '\u{2030}'..='\u{203E}' |
+                            '\u{2041}'..='\u{2053}' | '\u{2055}'..='\u{205E}'
+                        )
+                }
                 "Mark" | "M" => matches!(ch,
                     '\u{0300}'..='\u{036F}' | '\u{0483}'..='\u{0489}' |
                     '\u{0591}'..='\u{05BD}' | '\u{05BF}' | '\u{05C1}'..='\u{05C2}' |
@@ -108,7 +111,7 @@ impl CharClassType {
             },
             CharClassType::UnicodeScript(script) => match script.as_str() {
                 "Latin" => matches!(ch, 'A'..='Z' | 'a'..='z' | 
-                    '\u{00C0}'..='\u{00FF}' | '\u{0100}'..='\u{017F}' | 
+                    '\u{00C0}'..='\u{00FF}' | '\u{0100}'..='\u{017F}' |
                     '\u{0180}'..='\u{024F}' | '\u{1E00}'..='\u{1EFF}'),
                 "Greek" => matches!(ch, '\u{0370}'..='\u{03FF}' | '\u{1F00}'..='\u{1FFF}'),
                 "Cyrillic" => matches!(ch, '\u{0400}'..='\u{04FF}' | '\u{0500}'..='\u{052F}'),

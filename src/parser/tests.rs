@@ -504,10 +504,7 @@ end pattern"#;
     let mut parser = Parser::new(&tokens);
 
     let result = parser.parse_statement();
-    assert!(
-        result.is_ok(),
-        "Failed to parse simple pattern: {result:?}"
-    );
+    assert!(result.is_ok(), "Failed to parse simple pattern: {result:?}");
 
     if let Ok(Statement::PatternDefinition { name, pattern, .. }) = result {
         assert_eq!(name, "greeting");
@@ -618,17 +615,13 @@ end pattern"#;
                 assert_eq!(s1, "hello");
             } else {
                 let alt = &alternatives[0];
-                panic!(
-                    "Expected first alternative to be 'hello', got {alt:?}"
-                );
+                panic!("Expected first alternative to be 'hello', got {alt:?}");
             }
             if let PatternExpression::Literal(s2) = &alternatives[1] {
                 assert_eq!(s2, "hi");
             } else {
                 let alt = &alternatives[1];
-                panic!(
-                    "Expected second alternative to be 'hi', got {alt:?}"
-                );
+                panic!("Expected second alternative to be 'hi', got {alt:?}");
             }
         } else {
             panic!("Expected alternative pattern, got {pattern:?}");

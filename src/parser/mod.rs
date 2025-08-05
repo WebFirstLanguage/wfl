@@ -3969,16 +3969,14 @@ impl<'a> Parser<'a> {
                         column: token_pos.column,
                     })
                 }
-                _ => {
-                    Err(ParseError::new(
-                        format!(
-                            "Expected 'file' or 'directory' after 'delete', found {:?}",
-                            next_token.token
-                        ),
-                        next_token.line,
-                        next_token.column,
-                    ))
-                }
+                _ => Err(ParseError::new(
+                    format!(
+                        "Expected 'file' or 'directory' after 'delete', found {:?}",
+                        next_token.token
+                    ),
+                    next_token.line,
+                    next_token.column,
+                )),
             }
         } else {
             Err(ParseError::new(
@@ -4505,7 +4503,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-
     fn parse_extension_filter(&mut self) -> Result<Vec<Expression>, ParseError> {
         // Expect "extension" or "extensions"
         if let Some(token) = self.tokens.peek() {
@@ -4782,7 +4779,7 @@ impl<'a> Parser<'a> {
                 *i += 1;
                 PatternExpression::CharacterClass(CharClass::Whitespace)
             }
-            
+
             // Unicode patterns
             Token::KeywordUnicode => {
                 *i += 1;
@@ -4790,21 +4787,28 @@ impl<'a> Parser<'a> {
                     match &tokens[*i].token {
                         Token::KeywordLetter => {
                             *i += 1;
-                            PatternExpression::CharacterClass(CharClass::UnicodeProperty("Alphabetic".to_string()))
+                            PatternExpression::CharacterClass(CharClass::UnicodeProperty(
+                                "Alphabetic".to_string(),
+                            ))
                         }
                         Token::KeywordDigit => {
                             *i += 1;
-                            PatternExpression::CharacterClass(CharClass::UnicodeProperty("Numeric".to_string()))
+                            PatternExpression::CharacterClass(CharClass::UnicodeProperty(
+                                "Numeric".to_string(),
+                            ))
                         }
                         Token::KeywordCategory => {
                             *i += 1;
                             if *i < tokens.len() {
                                 if let Token::StringLiteral(category) = &tokens[*i].token {
                                     *i += 1;
-                                    PatternExpression::CharacterClass(CharClass::UnicodeCategory(category.clone()))
+                                    PatternExpression::CharacterClass(CharClass::UnicodeCategory(
+                                        category.clone(),
+                                    ))
                                 } else {
                                     return Err(ParseError::new(
-                                        "Expected string literal after 'unicode category'".to_string(),
+                                        "Expected string literal after 'unicode category'"
+                                            .to_string(),
                                         tokens[*i].line,
                                         tokens[*i].column,
                                     ));
@@ -4822,10 +4826,13 @@ impl<'a> Parser<'a> {
                             if *i < tokens.len() {
                                 if let Token::StringLiteral(script) = &tokens[*i].token {
                                     *i += 1;
-                                    PatternExpression::CharacterClass(CharClass::UnicodeScript(script.clone()))
+                                    PatternExpression::CharacterClass(CharClass::UnicodeScript(
+                                        script.clone(),
+                                    ))
                                 } else {
                                     return Err(ParseError::new(
-                                        "Expected string literal after 'unicode script'".to_string(),
+                                        "Expected string literal after 'unicode script'"
+                                            .to_string(),
                                         tokens[*i].line,
                                         tokens[*i].column,
                                     ));
@@ -4843,10 +4850,13 @@ impl<'a> Parser<'a> {
                             if *i < tokens.len() {
                                 if let Token::StringLiteral(property) = &tokens[*i].token {
                                     *i += 1;
-                                    PatternExpression::CharacterClass(CharClass::UnicodeProperty(property.clone()))
+                                    PatternExpression::CharacterClass(CharClass::UnicodeProperty(
+                                        property.clone(),
+                                    ))
                                 } else {
                                     return Err(ParseError::new(
-                                        "Expected string literal after 'unicode property'".to_string(),
+                                        "Expected string literal after 'unicode property'"
+                                            .to_string(),
                                         tokens[*i].line,
                                         tokens[*i].column,
                                     ));
@@ -5012,14 +5022,14 @@ impl<'a> Parser<'a> {
                         token.column,
                     ));
                 }
-                
+
                 let is_negative = if tokens[*i].token == Token::KeywordNot {
                     *i += 1;
                     true
                 } else {
                     false
                 };
-                
+
                 if *i >= tokens.len() {
                     return Err(ParseError::new(
                         "Expected 'ahead' or 'behind' after 'check'".to_string(),
@@ -5027,18 +5037,18 @@ impl<'a> Parser<'a> {
                         token.column,
                     ));
                 }
-                
+
                 match &tokens[*i].token {
                     Token::KeywordAhead => {
                         *i += 1;
                         if *i < tokens.len() && tokens[*i].token == Token::KeywordFor {
                             *i += 1; // Skip "for"
-                            
+
                             // Parse the pattern inside braces
                             if *i < tokens.len() && tokens[*i].token == Token::LeftBrace {
                                 *i += 1; // Skip "{"
                                 let pattern_start = *i;
-                                
+
                                 // Find matching right brace
                                 let mut brace_count = 1;
                                 let mut pattern_end = *i;
@@ -5052,7 +5062,7 @@ impl<'a> Parser<'a> {
                                         pattern_end += 1;
                                     }
                                 }
-                                
+
                                 if brace_count != 0 {
                                     return Err(ParseError::new(
                                         "Unmatched '{' in lookahead pattern".to_string(),
@@ -5060,12 +5070,12 @@ impl<'a> Parser<'a> {
                                         tokens[pattern_start - 1].column,
                                     ));
                                 }
-                                
+
                                 let pattern_tokens = &tokens[pattern_start..pattern_end];
                                 *i = pattern_end + 1; // Skip past '}'
-                                
+
                                 let inner_pattern = Self::parse_pattern_tokens(pattern_tokens)?;
-                                
+
                                 if is_negative {
                                     PatternExpression::NegativeLookahead(Box::new(inner_pattern))
                                 } else {
@@ -5090,12 +5100,12 @@ impl<'a> Parser<'a> {
                         *i += 1;
                         if *i < tokens.len() && tokens[*i].token == Token::KeywordFor {
                             *i += 1; // Skip "for"
-                            
+
                             // Parse the pattern inside braces
                             if *i < tokens.len() && tokens[*i].token == Token::LeftBrace {
                                 *i += 1; // Skip "{"
                                 let pattern_start = *i;
-                                
+
                                 // Find matching right brace
                                 let mut brace_count = 1;
                                 let mut pattern_end = *i;
@@ -5109,7 +5119,7 @@ impl<'a> Parser<'a> {
                                         pattern_end += 1;
                                     }
                                 }
-                                
+
                                 if brace_count != 0 {
                                     return Err(ParseError::new(
                                         "Unmatched '{' in lookbehind pattern".to_string(),
@@ -5117,12 +5127,12 @@ impl<'a> Parser<'a> {
                                         tokens[pattern_start - 1].column,
                                     ));
                                 }
-                                
+
                                 let pattern_tokens = &tokens[pattern_start..pattern_end];
                                 *i = pattern_end + 1; // Skip past '}'
-                                
+
                                 let inner_pattern = Self::parse_pattern_tokens(pattern_tokens)?;
-                                
+
                                 if is_negative {
                                     PatternExpression::NegativeLookbehind(Box::new(inner_pattern))
                                 } else {

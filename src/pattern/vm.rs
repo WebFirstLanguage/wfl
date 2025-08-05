@@ -224,11 +224,12 @@ impl PatternVM {
                         let text_chars: Vec<char> = text.chars().collect();
                         for (i, name) in capture_names.iter().enumerate() {
                             if let Some((start, end)) = final_state.captures[i] {
-                                let captured_text: String = if start <= end && end <= text_chars.len() {
-                                    text_chars[start..end].iter().collect()
-                                } else {
-                                    String::new()
-                                };
+                                let captured_text: String =
+                                    if start <= end && end <= text_chars.len() {
+                                        text_chars[start..end].iter().collect()
+                                    } else {
+                                        String::new()
+                                    };
                                 captures.insert(name.clone(), captured_text);
                             }
                         }
@@ -289,7 +290,9 @@ impl PatternVM {
                                 println!("  CharClass {char_class:?} failed - end of string");
                             } else {
                                 let ch = chars[state.pos];
-                                println!("  CharClass {char_class:?} failed - char '{ch}' doesn't match");
+                                println!(
+                                    "  CharClass {char_class:?} failed - char '{ch}' doesn't match"
+                                );
                             }
                         }
                         return Ok(StepResult::Fail);
@@ -420,12 +423,12 @@ impl PatternVM {
                 Instruction::BeginLookahead => {
                     // Save the current position
                     let _saved_pos = state.pos;
-                    
+
                     #[cfg(test)]
                     if self.debug {
                         println!("  BeginLookahead at pos {_saved_pos}");
                     }
-                    
+
                     // Find the matching EndLookahead
                     let mut end_pc = state.pc + 1;
                     let mut depth = 1;
@@ -439,28 +442,32 @@ impl PatternVM {
                             end_pc += 1;
                         }
                     }
-                    
+
                     // Create a sub-program for the lookahead pattern
                     let mut lookahead_program = Program::new();
                     for i in (state.pc + 1)..end_pc {
                         lookahead_program.push(program.instructions[i].clone());
                     }
                     lookahead_program.push(Instruction::Match);
-                    
+
                     #[cfg(test)]
                     if self.debug {
-                        println!("  Lookahead sub-program: {:?}", lookahead_program.instructions);
+                        println!(
+                            "  Lookahead sub-program: {:?}",
+                            lookahead_program.instructions
+                        );
                     }
-                    
+
                     // Try to match the lookahead pattern at the current position
                     let mut lookahead_vm = PatternVM::new();
                     #[cfg(test)]
                     {
                         lookahead_vm.debug = self.debug;
                     }
-                    
-                    let lookahead_matched = lookahead_vm.execute_at_position(&lookahead_program, text, state.pos)?;
-                    
+
+                    let lookahead_matched =
+                        lookahead_vm.execute_at_position(&lookahead_program, text, state.pos)?;
+
                     if lookahead_matched {
                         #[cfg(test)]
                         if self.debug {
@@ -486,23 +493,23 @@ impl PatternVM {
                     // Save the current position
                     let saved_pos = state.pos;
                     state.pc += 1;
-                    
+
                     // Try to match the lookahead pattern
                     let lookahead_state = state.clone();
-                    
+
                     // Execute until we hit EndNegativeLookahead or fail
                     let mut depth = 1;
                     let mut current_states = vec![lookahead_state];
                     let mut any_matched = false;
-                    
+
                     'outer: while depth > 0 && !current_states.is_empty() {
                         let mut next_states = Vec::new();
-                        
+
                         for lookahead_state in current_states.drain(..) {
                             if lookahead_state.pc >= program.instructions.len() {
                                 continue;
                             }
-                            
+
                             match &program.instructions[lookahead_state.pc] {
                                 Instruction::BeginNegativeLookahead => depth += 1,
                                 Instruction::EndNegativeLookahead => {
@@ -517,7 +524,7 @@ impl PatternVM {
                                 }
                                 _ => {}
                             }
-                            
+
                             match self.step(program, text, lookahead_state)? {
                                 StepResult::Fail => {
                                     // Good - this path failed
@@ -531,22 +538,26 @@ impl PatternVM {
                                 }
                             }
                         }
-                        
+
                         current_states = next_states;
                     }
-                    
+
                     if !any_matched && current_states.is_empty() {
                         // All paths failed - which is what we want for negative lookahead
                         // Skip to after EndNegativeLookahead
                         let mut skip_depth = 1;
                         while skip_depth > 0 && state.pc < program.instructions.len() {
                             #[cfg(test)]
-            if std::env::var("VM_DEBUG").is_ok() {
-                let inst = &program.instructions[state.pc];
-                println!("PC: {pc}, Pos: {pos}, Inst: {inst:?}", pc = state.pc, pos = state.pos);
-            }
-            
-            match &program.instructions[state.pc] {
+                            if std::env::var("VM_DEBUG").is_ok() {
+                                let inst = &program.instructions[state.pc];
+                                println!(
+                                    "PC: {pc}, Pos: {pos}, Inst: {inst:?}",
+                                    pc = state.pc,
+                                    pos = state.pos
+                                );
+                            }
+
+                            match &program.instructions[state.pc] {
                                 Instruction::BeginNegativeLookahead => skip_depth += 1,
                                 Instruction::EndNegativeLookahead => {
                                     skip_depth -= 1;
@@ -574,33 +585,42 @@ impl PatternVM {
                 Instruction::CheckLookbehind(lookbehind_program) => {
                     // Execute the lookbehind pattern against text before current position
                     // We need to find where the pattern should start matching
-                    
+
                     // Try matching at different positions before current position
                     let mut matched = false;
                     let text_chars: Vec<char> = text.chars().collect();
-                    
+
                     // Get the text before current position
                     if state.pos > 0 {
                         // Try to match the pattern ending at current position
                         // We'll try different starting positions
                         let max_lookback = state.pos.min(1000); // Limit lookback distance
-                        
+
                         for start_offset in 1..=max_lookback {
                             let start_pos = state.pos - start_offset;
-                            
+
                             // Create a new VM to execute the lookbehind pattern
                             let mut lookbehind_vm = PatternVM::new();
-                            
+
                             // Create a slice of text to match against
-                            let text_slice: String = text_chars[start_pos..state.pos].iter().collect();
-                            
+                            let text_slice: String =
+                                text_chars[start_pos..state.pos].iter().collect();
+
                             // Try to match the entire slice
-                            if let Ok(result) = lookbehind_vm.execute(lookbehind_program, &text_slice) {
+                            if let Ok(result) =
+                                lookbehind_vm.execute(lookbehind_program, &text_slice)
+                            {
                                 if result {
                                     // Check if the match uses the entire slice
-                                    let matches = lookbehind_vm.find_all(lookbehind_program, &text_slice, &[]);
+                                    let matches = lookbehind_vm.find_all(
+                                        lookbehind_program,
+                                        &text_slice,
+                                        &[],
+                                    );
                                     if let Some(first_match) = matches.first() {
-                                        if first_match.start == 0 && first_match.end == text_slice.len() {
+                                        if first_match.start == 0
+                                            && first_match.end == text_slice.len()
+                                        {
                                             matched = true;
                                             break;
                                         }
@@ -609,7 +629,7 @@ impl PatternVM {
                             }
                         }
                     }
-                    
+
                     if matched {
                         state.pc += 1;
                     } else {
@@ -621,27 +641,36 @@ impl PatternVM {
                     // Similar to CheckLookbehind but expects the pattern to NOT match
                     let mut matched = false;
                     let text_chars: Vec<char> = text.chars().collect();
-                    
+
                     if state.pos > 0 {
                         // Try to match the pattern ending at current position
                         let max_lookback = state.pos.min(1000); // Limit lookback distance
-                        
+
                         for start_offset in 1..=max_lookback {
                             let start_pos = state.pos - start_offset;
-                            
+
                             // Create a new VM to execute the lookbehind pattern
                             let mut lookbehind_vm = PatternVM::new();
-                            
+
                             // Create a slice of text to match against
-                            let text_slice: String = text_chars[start_pos..state.pos].iter().collect();
-                            
+                            let text_slice: String =
+                                text_chars[start_pos..state.pos].iter().collect();
+
                             // Try to match the entire slice
-                            if let Ok(result) = lookbehind_vm.execute(lookbehind_program, &text_slice) {
+                            if let Ok(result) =
+                                lookbehind_vm.execute(lookbehind_program, &text_slice)
+                            {
                                 if result {
                                     // Check if the match uses the entire slice
-                                    let matches = lookbehind_vm.find_all(lookbehind_program, &text_slice, &[]);
+                                    let matches = lookbehind_vm.find_all(
+                                        lookbehind_program,
+                                        &text_slice,
+                                        &[],
+                                    );
                                     if let Some(first_match) = matches.first() {
-                                        if first_match.start == 0 && first_match.end == text_slice.len() {
+                                        if first_match.start == 0
+                                            && first_match.end == text_slice.len()
+                                        {
                                             matched = true;
                                             break;
                                         }
@@ -650,7 +679,7 @@ impl PatternVM {
                             }
                         }
                     }
-                    
+
                     // For negative lookbehind, we succeed if the pattern did NOT match
                     if !matched {
                         state.pc += 1;
@@ -784,13 +813,13 @@ mod tests {
 
         let mut vm = PatternVM::new();
         vm.debug = true;
-        
+
         // Should match "5a" (digit followed by letter)
         println!("\nTesting '5a':");
         let result1 = vm.execute(&program, "5a").unwrap();
         println!("Result: {result1}");
         assert!(result1);
-        
+
         // Should NOT match "59" (digit not followed by letter)
         println!("\nTesting '59':");
         let result2 = vm.execute(&program, "59").unwrap();

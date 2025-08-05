@@ -1698,9 +1698,7 @@ impl TypeChecker {
 
                     // Member not found
                     self.errors.push(TypeError::new(
-                        format!(
-                            "Static member '{member}' not found in container '{container}'"
-                        ),
+                        format!("Static member '{member}' not found in container '{container}'"),
                         None,
                         None,
                         *line,

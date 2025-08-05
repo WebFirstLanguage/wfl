@@ -118,9 +118,13 @@ impl PatternCompiler {
             CharClass::Digit => CharClassType::Digit,
             CharClass::Letter => CharClassType::Letter,
             CharClass::Whitespace => CharClassType::Whitespace,
-            CharClass::UnicodeCategory(category) => CharClassType::UnicodeCategory(category.clone()),
+            CharClass::UnicodeCategory(category) => {
+                CharClassType::UnicodeCategory(category.clone())
+            }
             CharClass::UnicodeScript(script) => CharClassType::UnicodeScript(script.clone()),
-            CharClass::UnicodeProperty(property) => CharClassType::UnicodeProperty(property.clone()),
+            CharClass::UnicodeProperty(property) => {
+                CharClassType::UnicodeProperty(property.clone())
+            }
         };
         self.program.push(Instruction::CharClass(class_type));
         Ok(())
@@ -386,7 +390,10 @@ impl PatternCompiler {
     }
 
     /// Compile a negative lookahead
-    fn compile_negative_lookahead(&mut self, pattern: &PatternExpression) -> Result<(), PatternError> {
+    fn compile_negative_lookahead(
+        &mut self,
+        pattern: &PatternExpression,
+    ) -> Result<(), PatternError> {
         // For negative lookaheads:
         // 1. Begin negative lookahead (saves position)
         // 2. Compile the pattern to check
@@ -403,23 +410,31 @@ impl PatternCompiler {
         let mut lookbehind_compiler = PatternCompiler::new();
         lookbehind_compiler.compile_expression(pattern)?;
         lookbehind_compiler.program.push(Instruction::Match);
-        
+
         // Embed the lookbehind program in the instruction
-        self.program.push(Instruction::CheckLookbehind(Box::new(lookbehind_compiler.program)));
-        
+        self.program.push(Instruction::CheckLookbehind(Box::new(
+            lookbehind_compiler.program,
+        )));
+
         Ok(())
     }
 
     /// Compile a negative lookbehind
-    fn compile_negative_lookbehind(&mut self, pattern: &PatternExpression) -> Result<(), PatternError> {
+    fn compile_negative_lookbehind(
+        &mut self,
+        pattern: &PatternExpression,
+    ) -> Result<(), PatternError> {
         // Create a separate program for the negative lookbehind pattern
         let mut lookbehind_compiler = PatternCompiler::new();
         lookbehind_compiler.compile_expression(pattern)?;
         lookbehind_compiler.program.push(Instruction::Match);
-        
+
         // Embed the lookbehind program in the instruction
-        self.program.push(Instruction::CheckNegativeLookbehind(Box::new(lookbehind_compiler.program)));
-        
+        self.program
+            .push(Instruction::CheckNegativeLookbehind(Box::new(
+                lookbehind_compiler.program,
+            )));
+
         Ok(())
     }
 
