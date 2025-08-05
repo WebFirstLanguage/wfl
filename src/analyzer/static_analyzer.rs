@@ -444,6 +444,18 @@ impl Analyzer {
                     self.collect_variable_declarations(stmt, usages);
                 }
             }
+            Statement::PatternDefinition {
+                name, line, column, ..
+            } => {
+                usages.insert(
+                    name.clone(),
+                    VariableUsage {
+                        name: name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
             _ => {}
         }
     }
