@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 use std::process;
+use std::time::Instant;
 use wfl::Interpreter;
 use wfl::analyzer::{Analyzer, StaticAnalyzer};
 use wfl::config;
@@ -35,6 +36,7 @@ fn print_help() {
     println!("    --edit             Open the specified file in the default editor");
     println!("    --lex              Dump lexer output to a text file and exit");
     println!("    --ast              Dump abstract syntax tree to a text file and exit");
+    println!("    --time             Measure and display execution time");
     println!();
     println!("Configuration Maintenance:");
     println!("    --configCheck      Check configuration files for issues");
@@ -88,6 +90,7 @@ async fn main() -> io::Result<()> {
     let mut edit_mode = false;
     let mut lex_dump = false;
     let mut ast_dump = false;
+    let mut time_mode = false;
     let mut file_path = String::new();
 
     let mut i = 1;
@@ -229,6 +232,10 @@ async fn main() -> io::Result<()> {
                     process::exit(2);
                 }
                 step_mode = true;
+                i += 1;
+            }
+            "--time" => {
+                time_mode = true;
                 i += 1;
             }
             "--version" | "-v" => {
@@ -719,7 +726,33 @@ async fn main() -> io::Result<()> {
                 // Log program details if execution logging is enabled
                 exec_trace!("Program contains {} statements", program.statements.len());
 
+                // Start timing if requested
+                let start_time = if time_mode {
+                    Some(Instant::now())
+                } else {
+                    None
+                };
+
                 let interpret_result = interpreter.interpret(&program).await;
+
+                // Calculate and display execution time if timing was requested
+                if let Some(start) = start_time {
+                    let elapsed = start.elapsed();
+
+                    // Format the time appropriately
+                    if elapsed.as_secs() > 0 {
+                        println!("\nExecution time: {:.3}s", elapsed.as_secs_f64());
+                    } else {
+                        let millis = elapsed.as_millis();
+                        if millis > 0 {
+                            println!("\nExecution time: {millis}ms");
+                        } else {
+                            let micros = elapsed.as_micros();
+                            println!("\nExecution time: {micros}µs");
+                        }
+                    }
+                }
+
                 match interpret_result {
                     Ok(_result) => {
                         if config.logging_enabled {

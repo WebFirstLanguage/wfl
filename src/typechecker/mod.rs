@@ -86,6 +86,7 @@ impl fmt::Display for Type {
 pub struct TypeChecker {
     analyzer: Analyzer,
     errors: Vec<TypeError>,
+    analyzer_already_run: bool,
 }
 
 impl Default for TypeChecker {
@@ -103,6 +104,7 @@ impl TypeChecker {
         TypeChecker {
             analyzer,
             errors: Vec::new(),
+            analyzer_already_run: false,
         }
     }
 
@@ -112,6 +114,7 @@ impl TypeChecker {
         TypeChecker {
             analyzer,
             errors: Vec::new(),
+            analyzer_already_run: true, // Analyzer has already been run when passed in
         }
     }
 
@@ -121,17 +124,22 @@ impl TypeChecker {
     }
 
     pub fn check_types(&mut self, program: &Program) -> Result<(), Vec<TypeError>> {
-        if let Err(semantic_errors) = self.analyzer.analyze(program) {
-            for error in semantic_errors {
-                self.errors.push(TypeError::new(
-                    error.message,
-                    None,
-                    None,
-                    error.line,
-                    error.column,
-                ));
+        // Only run the analyzer if it hasn't been run already
+        // When created with with_analyzer(), the analyzer has already been run,
+        // so we don't need to analyze again. This prevents duplicate symbol registration.
+        if !self.analyzer_already_run {
+            if let Err(semantic_errors) = self.analyzer.analyze(program) {
+                for error in semantic_errors {
+                    self.errors.push(TypeError::new(
+                        error.message,
+                        None,
+                        None,
+                        error.line,
+                        error.column,
+                    ));
+                }
+                return Err(self.errors.clone());
             }
-            return Err(self.errors.clone());
         }
 
         for statement in &program.statements {

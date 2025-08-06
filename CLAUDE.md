@@ -138,7 +138,7 @@ npm run test       # Run tests
 | `--diff` | Show diff for --fix | `cargo run -- --fix program.wfl --diff` |
 | `--debug` | Enable debug output | `cargo run -- --debug program.wfl` |
 | `--config` | Specify config file | `cargo run -- --config custom.wflcfg program.wfl` |
-| `--time` | Show execution time | `cargo run -- --time program.wfl` |
+| `--time` | Measure and display execution time | `cargo run -- --time program.wfl` |
 | `--interactive` | Start REPL mode | `cargo run -- --interactive` |
 | `-v, --version` | Show version info | `cargo run -- --version` |
 
