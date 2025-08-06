@@ -2,6 +2,7 @@ pub mod core;
 pub mod filesystem;
 pub mod list;
 pub mod math;
+pub mod network;
 pub mod pattern;
 pub mod pattern_test;
 pub mod text;
@@ -14,6 +15,7 @@ pub fn register_stdlib(env: &mut Environment) {
     core::register_core(env);
     filesystem::register_filesystem(env);
     math::register_math(env);
+    network::register_network(env);
     text::register_text(env);
     list::register_list(env);
     pattern::register(env);

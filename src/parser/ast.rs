@@ -327,6 +327,25 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    // Network-related statements
+    AcceptConnection {
+        listener_handle: Box<Expression>,
+        connection_variable: String,
+        line: usize,
+        column: usize,
+    },
+    ReadFromConnection {
+        connection_handle: Box<Expression>,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
+    WriteToConnection {
+        connection_handle: Box<Expression>,
+        data: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -455,6 +474,12 @@ pub enum Expression {
     ListFilesFiltered {
         path: Box<Expression>,
         extensions: Vec<Expression>,
+        line: usize,
+        column: usize,
+    },
+    // Network-related expressions
+    ListenOnPort {
+        port: Box<Expression>,
         line: usize,
         column: usize,
     },

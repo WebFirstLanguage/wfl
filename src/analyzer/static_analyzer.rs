@@ -802,6 +802,10 @@ impl Analyzer {
                             Statement::DeleteFileStatement { line, .. } => *line,
                             Statement::DeleteDirectoryStatement { line, .. } => *line,
                             Statement::PatternDefinition { line, .. } => *line,
+                            // Network-related statements
+                            Statement::AcceptConnection { line, .. } => *line,
+                            Statement::ReadFromConnection { line, .. } => *line,
+                            Statement::WriteToConnection { line, .. } => *line,
                         },
                         column: match statement {
                             Statement::VariableDeclaration { column, .. } => *column,
@@ -844,6 +848,10 @@ impl Analyzer {
                             Statement::DeleteFileStatement { column, .. } => *column,
                             Statement::DeleteDirectoryStatement { column, .. } => *column,
                             Statement::PatternDefinition { column, .. } => *column,
+                            // Network-related statements
+                            Statement::AcceptConnection { column, .. } => *column,
+                            Statement::ReadFromConnection { column, .. } => *column,
+                            Statement::WriteToConnection { column, .. } => *column,
                         },
                     });
                     stmt_nodes.push(node_idx);
@@ -914,6 +922,10 @@ impl Analyzer {
                                 Statement::DeleteFileStatement { line, .. } => *line,
                                 Statement::DeleteDirectoryStatement { line, .. } => *line,
                                 Statement::PatternDefinition { line, .. } => *line,
+                                // Network-related statements
+                                Statement::AcceptConnection { line, .. } => *line,
+                                Statement::ReadFromConnection { line, .. } => *line,
+                                Statement::WriteToConnection { line, .. } => *line,
                             },
                             column: match stmt {
                                 Statement::VariableDeclaration { column, .. } => *column,
@@ -956,6 +968,10 @@ impl Analyzer {
                                 Statement::DeleteFileStatement { column, .. } => *column,
                                 Statement::DeleteDirectoryStatement { column, .. } => *column,
                                 Statement::PatternDefinition { column, .. } => *column,
+                                // Network-related statements
+                                Statement::AcceptConnection { column, .. } => *column,
+                                Statement::ReadFromConnection { column, .. } => *column,
+                                Statement::WriteToConnection { column, .. } => *column,
                             },
                         });
                         then_nodes.push(then_node_idx);
@@ -1014,6 +1030,10 @@ impl Analyzer {
                                     Statement::DeleteFileStatement { line, .. } => *line,
                                     Statement::DeleteDirectoryStatement { line, .. } => *line,
                                     Statement::PatternDefinition { line, .. } => *line,
+                                    // Network-related statements
+                                    Statement::AcceptConnection { line, .. } => *line,
+                                    Statement::ReadFromConnection { line, .. } => *line,
+                                    Statement::WriteToConnection { line, .. } => *line,
                                 },
                                 column: match stmt {
                                     Statement::VariableDeclaration { column, .. } => *column,
@@ -1056,6 +1076,10 @@ impl Analyzer {
                                     Statement::DeleteFileStatement { column, .. } => *column,
                                     Statement::DeleteDirectoryStatement { column, .. } => *column,
                                     Statement::PatternDefinition { column, .. } => *column,
+                                    // Network-related statements
+                                    Statement::AcceptConnection { column, .. } => *column,
+                                    Statement::ReadFromConnection { column, .. } => *column,
+                                    Statement::WriteToConnection { column, .. } => *column,
                                 },
                             });
                             else_nodes.push(else_node_idx);

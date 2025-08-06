@@ -1127,7 +1127,61 @@ impl<'a> Parser<'a> {
                 Token::KeywordClose => self.parse_close_file_statement(),
                 Token::KeywordDelete => self.parse_delete_statement(),
                 Token::KeywordWrite => self.parse_write_to_statement(),
-                Token::KeywordWait => self.parse_wait_for_statement(),
+                Token::KeywordWait => {
+                    // Check if it's "wait for connection" or regular "wait for"
+                    let mut tokens_clone = self.tokens.clone();
+                    tokens_clone.next(); // Skip "wait"
+                    if let Some(next_token) = tokens_clone.next() {
+                        if next_token.token == Token::KeywordFor {
+                            if let Some(third_token) = tokens_clone.next() {
+                                if third_token.token == Token::KeywordConnection {
+                                    return self.parse_accept_connection_statement();
+                                }
+                            }
+                        }
+                    }
+                    self.parse_wait_for_statement()
+                }
+                Token::KeywordListen => self.parse_listen_statement(),
+                Token::KeywordRead => {
+                    // Check if it's "read [data] from connection" or regular read
+                    let mut tokens_clone = self.tokens.clone();
+                    tokens_clone.next(); // Skip "read"
+                    let mut is_network_read = false;
+
+                    // Skip optional "data" or "request"
+                    if let Some(next_token) = tokens_clone.next() {
+                        match next_token.token {
+                            Token::KeywordData | Token::Identifier(_) => {
+                                // Check for "from connection"
+                                if let Some(from_token) = tokens_clone.next() {
+                                    if from_token.token == Token::KeywordFrom {
+                                        if let Some(conn_token) = tokens_clone.next() {
+                                            if conn_token.token == Token::KeywordConnection {
+                                                is_network_read = true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Token::KeywordFrom => {
+                                // Direct "read from connection"
+                                if let Some(conn_token) = tokens_clone.next() {
+                                    if conn_token.token == Token::KeywordConnection {
+                                        is_network_read = true;
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if is_network_read {
+                        self.parse_read_from_connection_statement()
+                    } else {
+                        self.parse_read_statement()
+                    }
+                }
                 Token::KeywordGive | Token::KeywordReturn => self.parse_return_statement(),
                 _ => self.parse_expression_statement(),
             }
@@ -2618,6 +2672,11 @@ impl<'a> Parser<'a> {
                         column,
                     })
                 }
+                Expression::ListenOnPort { line, column, .. } => Ok(Statement::DisplayStatement {
+                    value: expr,
+                    line,
+                    column,
+                }),
             };
         };
 
@@ -5340,5 +5399,192 @@ impl<'a> Parser<'a> {
             }
             _ => Ok(base_pattern),
         }
+    }
+
+    // Network-related parsing functions
+
+    /// Parse "listen on port X as Y" statements
+    fn parse_listen_statement(&mut self) -> Result<Statement, ParseError> {
+        let listen_token_pos = self.tokens.peek().map_or(
+            &TokenWithPosition {
+                token: Token::KeywordListen,
+                line: 0,
+                column: 0,
+                length: 0,
+            },
+            |v| v,
+        );
+        self.tokens.next(); // Consume "listen"
+        self.expect_token(Token::KeywordOn, "Expected 'on' after 'listen'")?;
+        self.expect_token(Token::KeywordPort, "Expected 'port' after 'listen on'")?;
+
+        let port_expr = self.parse_expression()?;
+
+        self.expect_token(Token::KeywordAs, "Expected 'as' after port expression")?;
+
+        let variable_name = if let Some(token) = self.tokens.peek() {
+            match &token.token {
+                Token::Identifier(name) => {
+                    let name = name.clone();
+                    self.tokens.next();
+                    name
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        "Expected variable name after 'as'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+        } else {
+            return Err(ParseError::new(
+                "Expected variable name after 'as'".to_string(),
+                listen_token_pos.line,
+                listen_token_pos.column,
+            ));
+        };
+
+        // Create a variable declaration with a listen expression
+        Ok(Statement::VariableDeclaration {
+            name: variable_name,
+            value: Expression::ListenOnPort {
+                port: Box::new(port_expr),
+                line: listen_token_pos.line,
+                column: listen_token_pos.column,
+            },
+            line: listen_token_pos.line,
+            column: listen_token_pos.column,
+        })
+    }
+
+    /// Parse "wait for connection on X as Y" statements
+    fn parse_accept_connection_statement(&mut self) -> Result<Statement, ParseError> {
+        let wait_token_pos = self.tokens.peek().map_or(
+            &TokenWithPosition {
+                token: Token::KeywordWait,
+                line: 0,
+                column: 0,
+                length: 0,
+            },
+            |v| v,
+        );
+        self.tokens.next(); // Consume "wait"
+        self.expect_token(Token::KeywordFor, "Expected 'for' after 'wait'")?;
+        self.expect_token(
+            Token::KeywordConnection,
+            "Expected 'connection' after 'wait for'",
+        )?;
+        self.expect_token(
+            Token::KeywordOn,
+            "Expected 'on' after 'wait for connection'",
+        )?;
+
+        let listener_expr = self.parse_expression()?;
+
+        self.expect_token(Token::KeywordAs, "Expected 'as' after listener expression")?;
+
+        let variable_name = if let Some(token) = self.tokens.peek() {
+            match &token.token {
+                Token::Identifier(name) => {
+                    let name = name.clone();
+                    self.tokens.next();
+                    name
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        "Expected variable name after 'as'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+        } else {
+            return Err(ParseError::new(
+                "Expected variable name after 'as'".to_string(),
+                wait_token_pos.line,
+                wait_token_pos.column,
+            ));
+        };
+
+        Ok(Statement::AcceptConnection {
+            listener_handle: Box::new(listener_expr),
+            connection_variable: variable_name,
+            line: wait_token_pos.line,
+            column: wait_token_pos.column,
+        })
+    }
+
+    /// Parse "read [data] from connection X as Y" statements
+    fn parse_read_from_connection_statement(&mut self) -> Result<Statement, ParseError> {
+        let read_token_pos = self.tokens.peek().map_or(
+            &TokenWithPosition {
+                token: Token::KeywordRead,
+                line: 0,
+                column: 0,
+                length: 0,
+            },
+            |v| v,
+        );
+        self.tokens.next(); // Consume "read"
+
+        // Skip optional "data" or variable name
+        if let Some(token) = self.tokens.peek() {
+            match &token.token {
+                Token::KeywordData | Token::Identifier(_) => {
+                    self.tokens.next(); // Skip the optional word
+                }
+                _ => {}
+            }
+        }
+
+        self.expect_token(Token::KeywordFrom, "Expected 'from' in read statement")?;
+        self.expect_token(
+            Token::KeywordConnection,
+            "Expected 'connection' after 'from'",
+        )?;
+
+        let connection_expr = self.parse_expression()?;
+
+        self.expect_token(
+            Token::KeywordAs,
+            "Expected 'as' after connection expression",
+        )?;
+
+        let variable_name = if let Some(token) = self.tokens.peek() {
+            match &token.token {
+                Token::Identifier(name) => {
+                    let name = name.clone();
+                    self.tokens.next();
+                    name
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        "Expected variable name after 'as'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+        } else {
+            return Err(ParseError::new(
+                "Expected variable name after 'as'".to_string(),
+                read_token_pos.line,
+                read_token_pos.column,
+            ));
+        };
+
+        Ok(Statement::ReadFromConnection {
+            connection_handle: Box::new(connection_expr),
+            variable_name,
+            line: read_token_pos.line,
+            column: read_token_pos.column,
+        })
+    }
+
+    /// Helper function for handling network read statement parsing fallback
+    fn parse_read_statement(&mut self) -> Result<Statement, ParseError> {
+        // For now, just delegate to expression statement as a fallback
+        self.parse_expression_statement()
     }
 }

@@ -1336,6 +1336,9 @@ impl Analyzer {
                     self.analyze_expression(ext);
                 }
             }
+            Expression::ListenOnPort { port, .. } => {
+                self.analyze_expression(port);
+            }
         }
     }
 }

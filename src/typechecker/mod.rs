@@ -970,6 +970,17 @@ impl TypeChecker {
                 // TODO: Add type checking for pattern definitions
                 // For now, patterns are valid without additional type checking
             }
+            // Network-related statements
+            Statement::AcceptConnection { .. } => {
+                // TODO: Add proper type checking for network operations
+                // For now, accept connections are valid without additional type checking
+            }
+            Statement::ReadFromConnection { .. } => {
+                // TODO: Add proper type checking for network read operations
+            }
+            Statement::WriteToConnection { .. } => {
+                // TODO: Add proper type checking for network write operations
+            }
         }
     }
 
@@ -1983,6 +1994,8 @@ impl TypeChecker {
             Expression::ReadContent { .. } => Type::Text,
             Expression::ListFilesRecursive { .. } => Type::List(Box::new(Type::Text)),
             Expression::ListFilesFiltered { .. } => Type::List(Box::new(Type::Text)),
+            // Network-related expressions
+            Expression::ListenOnPort { .. } => Type::Text, // Returns a handle ID as text
         }
     }
 

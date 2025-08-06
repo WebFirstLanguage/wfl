@@ -105,6 +105,17 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::PatternDefinition { name, .. } => {
             format!("PatternDefinition '{name}'")
         }
+        // Network-related statements
+        Statement::AcceptConnection {
+            connection_variable,
+            ..
+        } => {
+            format!("AcceptConnection as '{connection_variable}'")
+        }
+        Statement::ReadFromConnection { variable_name, .. } => {
+            format!("ReadFromConnection as '{variable_name}'")
+        }
+        Statement::WriteToConnection { .. } => "WriteToConnection".to_string(),
     }
 }
 
@@ -148,6 +159,8 @@ fn expr_type(expr: &Expression) -> String {
         Expression::ReadContent { .. } => "ReadContent".to_string(),
         Expression::ListFilesRecursive { .. } => "ListFilesRecursive".to_string(),
         Expression::ListFilesFiltered { .. } => "ListFilesFiltered".to_string(),
+        // Network-related expressions
+        Expression::ListenOnPort { .. } => "ListenOnPort".to_string(),
     }
 }
 
@@ -855,6 +868,10 @@ impl Interpreter {
             Statement::EventHandler { line, column, .. } => (*line, *column),
             Statement::ParentMethodCall { line, column, .. } => (*line, *column),
             Statement::PatternDefinition { line, column, .. } => (*line, *column),
+            // Network-related statements
+            Statement::AcceptConnection { line, column, .. } => (*line, *column),
+            Statement::ReadFromConnection { line, column, .. } => (*line, *column),
+            Statement::WriteToConnection { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {
@@ -2456,6 +2473,99 @@ impl Interpreter {
                     }),
                 }
             }
+
+            // Network-related statements
+            Statement::AcceptConnection {
+                listener_handle,
+                connection_variable,
+                line,
+                column,
+            } => {
+                let listener_value = self
+                    .evaluate_expression(listener_handle, Rc::clone(&env))
+                    .await?;
+
+                // For now, return a placeholder since async network operations
+                // require integration with the interpreter's async runtime
+                match listener_value {
+                    Value::Text(_handle_id) => {
+                        // Create a placeholder connection handle
+                        let connection_handle = Value::Text(Rc::from("conn_placeholder"));
+                        env.borrow_mut()
+                            .define(connection_variable, connection_handle.clone());
+                        Ok((connection_handle, ControlFlow::None))
+                    }
+                    _ => Err(RuntimeError::new(
+                        format!(
+                            "Expected listener handle, got {}",
+                            listener_value.type_name()
+                        ),
+                        *line,
+                        *column,
+                    )),
+                }
+            }
+
+            Statement::ReadFromConnection {
+                connection_handle,
+                variable_name,
+                line,
+                column,
+            } => {
+                let connection_value = self
+                    .evaluate_expression(connection_handle, Rc::clone(&env))
+                    .await?;
+
+                match connection_value {
+                    Value::Text(_handle_id) => {
+                        // Create a placeholder read result
+                        let read_data = Value::Text(Rc::from("TCP data placeholder"));
+                        env.borrow_mut().define(variable_name, read_data.clone());
+                        Ok((read_data, ControlFlow::None))
+                    }
+                    _ => Err(RuntimeError::new(
+                        format!(
+                            "Expected connection handle, got {}",
+                            connection_value.type_name()
+                        ),
+                        *line,
+                        *column,
+                    )),
+                }
+            }
+
+            Statement::WriteToConnection {
+                connection_handle,
+                data,
+                line,
+                column,
+            } => {
+                let connection_value = self
+                    .evaluate_expression(connection_handle, Rc::clone(&env))
+                    .await?;
+                let data_value = self.evaluate_expression(data, Rc::clone(&env)).await?;
+
+                match (&connection_value, &data_value) {
+                    (Value::Text(_handle_id), Value::Text(text_data)) => {
+                        // Placeholder: print the data that would be sent
+                        println!("TCP write placeholder: {text_data}");
+                        Ok((Value::Null, ControlFlow::None))
+                    }
+                    (Value::Text(_), _) => Err(RuntimeError::new(
+                        "Expected text data to write to connection".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    _ => Err(RuntimeError::new(
+                        format!(
+                            "Expected connection handle, got {}",
+                            connection_value.type_name()
+                        ),
+                        *line,
+                        *column,
+                    )),
+                }
+            }
         };
 
         if self.step_mode {
@@ -3359,6 +3469,26 @@ impl Interpreter {
                         *column,
                     )),
                 }
+            }
+
+            // Network-related expressions
+            Expression::ListenOnPort { port, line, column } => {
+                let port_value = self.evaluate_expression(port, Rc::clone(&env)).await?;
+                let port_num = match &port_value {
+                    Value::Number(n) => *n as u16,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected number for port, got {}", port_value.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // For now, return a placeholder handle since async network operations
+                // require integration with the interpreter's async runtime
+                let handle_id = format!("listen_{port_num}");
+                Ok(Value::Text(Rc::from(handle_id)))
             }
         };
         self.assert_invariants();

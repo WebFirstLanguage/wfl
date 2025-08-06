@@ -133,6 +133,14 @@ pub enum Token {
     // KeywordOtherwise,
     #[token("error")]
     KeywordError,
+
+    // Network-related keywords
+    #[token("listen")]
+    KeywordListen,
+    #[token("port")]
+    KeywordPort,
+    #[token("connection")]
+    KeywordConnection,
     #[token("plus")]
     KeywordPlus, // arithmetic operators in word form
     #[token("minus")]
