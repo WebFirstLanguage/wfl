@@ -3,6 +3,7 @@ use codespan_reporting::files::SimpleFiles;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 // use std::fmt;
+use std::collections::HashMap;
 use std::io;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +133,9 @@ impl WflDiagnostic {
 
 pub struct DiagnosticReporter {
     pub files: SimpleFiles<String, String>,
+    /// Cache of line start positions for each file to avoid recomputing them
+    /// Key: file_id, Value: vector of byte offsets where each line starts
+    line_starts_cache: HashMap<usize, Vec<usize>>,
 }
 
 impl Default for DiagnosticReporter {
@@ -144,11 +148,15 @@ impl DiagnosticReporter {
     pub fn new() -> Self {
         DiagnosticReporter {
             files: SimpleFiles::new(),
+            line_starts_cache: HashMap::new(),
         }
     }
 
     pub fn add_file(&mut self, name: impl Into<String>, source: impl Into<String>) -> usize {
-        self.files.add(name.into(), source.into())
+        let file_id = self.files.add(name.into(), source.into());
+        // Clear any cached line starts for this file since we're adding/updating it
+        self.line_starts_cache.remove(&file_id);
+        file_id
     }
 
     pub fn report_diagnostic(&self, file_id: usize, diagnostic: &WflDiagnostic) -> io::Result<()> {
@@ -176,43 +184,114 @@ impl DiagnosticReporter {
             .map_err(|_| io::Error::other("Failed to emit diagnostic"))
     }
 
-    pub fn line_col_to_offset(&self, file_id: usize, line: usize, column: usize) -> Option<usize> {
+    /// Get or compute line start positions for a file, using cache when available.
+    /// Returns a vector where each element is the byte offset where a line starts.
+    /// The first element is always 0 (start of file).
+    fn get_line_starts(&mut self, file_id: usize) -> Option<&Vec<usize>> {
+        // Check if we already have cached line starts for this file
+        if !self.line_starts_cache.contains_key(&file_id) {
+            // Need to compute and cache line starts
+            if let Ok(file) = self.files.get(file_id) {
+                let source = file.source();
+
+                // Build line start positions by scanning for newlines
+                let mut line_starts = vec![0];
+                for (i, c) in source.char_indices() {
+                    if c == '\n' {
+                        line_starts.push(i + 1);
+                    }
+                }
+
+                self.line_starts_cache.insert(file_id, line_starts);
+            } else {
+                return None;
+            }
+        }
+
+        self.line_starts_cache.get(&file_id)
+    }
+
+    pub fn offset_to_line_col(&mut self, file_id: usize, offset: usize) -> Option<(usize, usize)> {
+        let source_len = if let Ok(file) = self.files.get(file_id) {
+            file.source().len()
+        } else {
+            return None;
+        };
+
+        // Get cached line starts (this will compute and cache them if needed)
+        let line_starts = self.get_line_starts(file_id)?;
+
+        // Use binary search to find which line this offset belongs to.
+        // binary_search returns Ok(idx) if the offset is exactly at line_starts[idx],
+        // or Err(idx) if the offset would be inserted at position idx.
+        let line_idx = match line_starts.binary_search(&offset) {
+            Ok(idx) => idx, // Offset is exactly at the start of a line
+            Err(idx) => {
+                if idx == 0 {
+                    0 // Offset is before the first line (shouldn't happen with valid offsets)
+                } else {
+                    // Offset falls within the line that started at line_starts[idx-1].
+                    // We use idx-1 because binary_search returns the insertion point,
+                    // which is one past the line where this offset actually belongs.
+                    idx - 1
+                }
+            }
+        };
+
+        if line_idx < line_starts.len() {
+            let line = line_idx + 1; // Convert to 1-based line numbering for WFL
+            let column = offset - line_starts[line_idx] + 1; // Convert to 1-based column numbering for WFL
+
+            // Ensure the offset is within the file bounds
+            if offset <= source_len {
+                return Some((line, column));
+            }
+        }
+
+        None
+    }
+
+    pub fn line_col_to_offset(
+        &mut self,
+        file_id: usize,
+        line: usize,
+        column: usize,
+    ) -> Option<usize> {
+        // Convert from 1-based to 0-based indexing
         let line = line.saturating_sub(1);
         let column = column.saturating_sub(1);
 
-        if let Ok(file) = self.files.get(file_id) {
-            let source = file.source();
+        let source_len = if let Ok(file) = self.files.get(file_id) {
+            file.source().len()
+        } else {
+            return None;
+        };
 
-            // Build line start positions by scanning for newlines
-            let mut line_starts = vec![0];
-            for (i, c) in source.char_indices() {
-                if c == '\n' {
-                    line_starts.push(i + 1);
-                }
-            }
+        // Get cached line starts (this will compute and cache them if needed)
+        let line_starts = self.get_line_starts(file_id)?;
 
-            // Check if the line number is valid
-            if line < line_starts.len() {
-                let line_start_offset = line_starts[line];
+        // Check if the line number is valid
+        if line < line_starts.len() {
+            let line_start_offset = line_starts[line];
 
-                // Get the actual line content to check column bounds
-                let line_end = if line + 1 < line_starts.len() {
-                    line_starts[line + 1] - 1 // Exclude the newline
-                } else {
-                    source.len()
-                };
+            // Get the actual line content to check column bounds
+            let line_end = if line + 1 < line_starts.len() {
+                line_starts[line + 1] - 1 // Exclude the newline
+            } else {
+                source_len
+            };
 
-                let line_length = line_end - line_start_offset;
-                if column <= line_length {
-                    return Some(line_start_offset + column);
-                }
+            let line_length = line_end - line_start_offset;
+            if column <= line_length {
+                return Some(line_start_offset + column);
             }
         }
+
         None
     }
 
     pub fn convert_parse_error(
-        &self,
+        &mut self,
         file_id: usize,
         error: &crate::parser::ast::ParseError,
     ) -> WflDiagnostic {
@@ -297,7 +376,7 @@ impl DiagnosticReporter {
     }
 
     pub fn convert_type_error(
-        &self,
+        &mut self,
         file_id: usize,
         error: &crate::typechecker::TypeError,
     ) -> WflDiagnostic {
@@ -335,7 +414,7 @@ impl DiagnosticReporter {
     }
 
     pub fn convert_semantic_error(
-        &self,
+        &mut self,
         file_id: usize,
         error: &crate::analyzer::SemanticError,
     ) -> WflDiagnostic {
@@ -443,7 +522,7 @@ impl DiagnosticReporter {
     }
 
     pub fn convert_runtime_error(
-        &self,
+        &mut self,
         file_id: usize,
         error: &crate::interpreter::error::RuntimeError,
     ) -> WflDiagnostic {
@@ -540,7 +619,7 @@ impl DiagnosticReporter {
     }
 
     pub fn convert_pattern_error(
-        &self,
+        &mut self,
         file_id: usize,
         error_message: &str,
         pattern_name: Option<&str>,
