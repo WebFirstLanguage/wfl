@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: pattern.wfl
+Time: 2025-08-06 09:39:04
+
+=== Error Summary ===
+Runtime error at line 4, column 30: Pattern match requires pattern as second argument
+
+=== Stack Trace ===
+In main script at line 4, column 30
+
+=== Source Code ===
+   2: 
+   3: // Simple string matching
+>> 4: check if "hello@example.com" matches pattern "email":
+   5:     display "Valid email!"
+   6: otherwise:
+
+=== Local Variables ===
+(No local variables in global scope)
