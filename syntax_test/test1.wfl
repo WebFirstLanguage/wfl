@@ -1,0 +1,32 @@
+store number1 as 10
+store number2 as 20
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ //hi there you in the wrong place buddy
+
+
+
+store sum as number1 ++ number2  // This line adds number1 and number2
+display "sum is: " + sum

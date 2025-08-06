@@ -92,7 +92,38 @@ python rust_loc_counter.py
 
 ### WFL Markdown Combiner (`wfl_md_combiner.py`)
 
-A utility for combining markdown files into a single document.
+A Python utility for combining markdown files into a single document.
 
 #### Usage
 See the script's internal documentation for details.
+
+### WFL File Combiner (`wfl_combiner.wfl`)
+
+A WFL implementation of the markdown combiner, demonstrating WFL's file I/O capabilities.
+
+#### Features
+- Combines multiple markdown (.md) files from the Docs directory
+- Creates a single output file with proper headers and separators
+- Demonstrates advanced WFL programming techniques
+- Serves as both a practical tool and a showcase of WFL capabilities
+
+#### Usage
+```bash
+wfl Tools/wfl_combiner.wfl
+```
+
+This will:
+- Read all .md files from the `./Docs` directory
+- Combine them into `./combined/wfl_docs_combined.md`
+- Include proper formatting with file headers and separators
+
+#### Technical Notes
+This script demonstrates:
+- File discovery using `list files in` with extension filtering
+- File I/O operations with `open file at`, `read content from`, `create file at`
+- Error handling with `try/when error/end try` blocks
+- String concatenation and manipulation
+- Loop iteration over file lists
+- Working around WFL's variable scoping in loops
+
+The WFL version serves as a practical port of the Python script and showcases WFL's capabilities for real-world file processing tasks.

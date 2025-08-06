@@ -1,7 +1,7 @@
 # WFL (WebFirst Language)
 
 <div align="center">
-  <img src="https://img.shields.io/badge/version-2025.50-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-25.8.3-blue" alt="Version">
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="Status">
   <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License">
   <img src="https://img.shields.io/badge/rust-1.75+-brown" alt="Rust Version">
@@ -300,6 +300,24 @@ Key components:
 | Error Reporting | ✅ Complete | User-friendly diagnostics |
 | Code Quality Tools | ✅ Complete | Linter, analyzer, formatter |
 | Bytecode VM | 🔄 Planned | Performance optimization |
+
+## 🔢 Version Scheme
+
+WFL uses a calendar-based version scheme: **YY.MM.BUILD**
+
+- **YY**: Two-digit year (e.g., 25 for 2025)
+- **MM**: Month number (1-12)
+- **BUILD**: Build number within the month (resets each month)
+
+Example: `25.8.3` means Year 2025, August, Build 3
+
+### Why This Format?
+
+The previous format (YYYY.BUILD) exceeded Windows MSI installer limitations, which require the major version to be less than 256. Our new format:
+- ✅ Compatible with Windows installers
+- ✅ Clear indication of release date
+- ✅ Predictable monthly release cycles
+- ✅ Easy to understand and remember
 
 ## 📖 Documentation
 

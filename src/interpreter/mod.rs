@@ -37,8 +37,8 @@ use crate::logging::IndentGuard;
 use crate::parser::ast::{
     Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
 };
+use crate::pattern::CompiledPattern;
 use crate::stdlib;
-use crate::stdlib::pattern;
 use std::cell::RefCell;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -101,6 +101,9 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::EventHandler { event_name, .. } => format!("EventHandler '{event_name}'"),
         Statement::ParentMethodCall { method_name, .. } => {
             format!("ParentMethodCall '{method_name}'")
+        }
+        Statement::PatternDefinition { name, .. } => {
+            format!("PatternDefinition '{name}'")
         }
     }
 }
@@ -851,6 +854,7 @@ impl Interpreter {
             Statement::EventTrigger { line, column, .. } => (*line, *column),
             Statement::EventHandler { line, column, .. } => (*line, *column),
             Statement::ParentMethodCall { line, column, .. } => (*line, *column),
+            Statement::PatternDefinition { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {
@@ -1088,6 +1092,10 @@ impl Interpreter {
                     self.check_time()?;
 
                     *self.current_count.borrow_mut() = Some(count);
+
+                    // Also make count available as a regular variable in the loop environment
+                    // This ensures consistency and allows for nested count loops to work properly
+                    loop_env.borrow_mut().define("count", Value::Number(count));
 
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await;
 
@@ -1429,7 +1437,11 @@ impl Interpreter {
                 };
 
                 // Use the appropriate file open mode
-                match self.io_client.open_file_with_mode(&path_str, mode.clone()).await {
+                match self
+                    .io_client
+                    .open_file_with_mode(&path_str, mode.clone())
+                    .await
+                {
                     Ok(handle) => {
                         env.borrow_mut()
                             .define(variable_name, Value::Text(handle.into()));
@@ -1589,7 +1601,7 @@ impl Interpreter {
                     }
                 };
 
-                let content_str = format!("{}", content_value);
+                let content_str = format!("{content_value}");
 
                 match self.io_client.create_file(&path_str, &content_str).await {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
@@ -1634,7 +1646,7 @@ impl Interpreter {
                     }
                 };
 
-                let content_str = format!("{}", content_value);
+                let content_str = format!("{content_value}");
 
                 match self.io_client.write_file(&file_str, &content_str).await {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
@@ -2084,7 +2096,9 @@ impl Interpreter {
                     let init_value = self
                         ._evaluate_expression(&initializer.value, env.clone())
                         .await?;
-                    instance.properties.insert(initializer.name.clone(), init_value);
+                    instance
+                        .properties
+                        .insert(initializer.name.clone(), init_value);
                 }
 
                 let instance_value = Value::ContainerInstance(Rc::new(RefCell::new(instance)));
@@ -2128,9 +2142,7 @@ impl Interpreter {
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
                         for arg in arguments {
-                            let arg_val = self
-                                .evaluate_expression(&arg.value, env.clone())
-                                .await?;
+                            let arg_val = self.evaluate_expression(&arg.value, env.clone()).await?;
                             arg_values.push(arg_val);
                         }
 
@@ -2139,7 +2151,9 @@ impl Interpreter {
                             .await?;
                     } else if !arguments.is_empty() {
                         return Err(RuntimeError::new(
-                            format!("Container '{}' does not have an initialize method but arguments were provided", container_type),
+                            format!(
+                                "Container '{container_type}' does not have an initialize method but arguments were provided"
+                            ),
                             *line,
                             *column,
                         ));
@@ -2425,6 +2439,23 @@ impl Interpreter {
                     ))
                 }
             }
+            Statement::PatternDefinition { name, pattern, .. } => {
+                // Compile the pattern AST into bytecode
+                match CompiledPattern::compile(pattern) {
+                    Ok(compiled_pattern) => {
+                        // Store the compiled pattern in the environment
+                        let pattern_value = Value::Pattern(Rc::new(compiled_pattern));
+                        env.borrow_mut().define(name, pattern_value.clone());
+                        Ok((pattern_value, ControlFlow::None))
+                    }
+                    Err(compile_error) => Err(RuntimeError {
+                        kind: ErrorKind::General,
+                        message: format!("Failed to compile pattern '{name}': {compile_error}"),
+                        line,
+                        column,
+                    }),
+                }
+            }
         };
 
         if self.step_mode {
@@ -2636,14 +2667,14 @@ impl Interpreter {
                 Literal::Float(f) => Ok(Value::Number(*f)),
                 Literal::Boolean(b) => Ok(Value::Bool(*b)),
                 Literal::Nothing => Ok(Value::Null),
-                Literal::Pattern(ir_string) => match pattern::parse_ir(ir_string) {
-                    Ok(compiled_pattern) => Ok(Value::Pattern(Rc::new(compiled_pattern))),
-                    Err(err) => Err(RuntimeError::new(
-                        format!("Pattern compilation error: {err}"),
+                Literal::Pattern(_ir_string) => {
+                    // TODO: Update to use new pattern system
+                    Err(RuntimeError::new(
+                        "Pattern literals not yet supported in new pattern system".to_string(),
                         *_line,
                         *_column,
-                    )),
-                },
+                    ))
+                }
                 Literal::List(elements) => {
                     let mut list_values = Vec::new();
                     for element in elements {
@@ -2657,19 +2688,29 @@ impl Interpreter {
             },
 
             Expression::Variable(name, line, column) => {
-                if name == "count" {
+                // Handle special count variable inside count loops
+                if name == "count" && *self.in_count_loop.borrow() {
                     if let Some(count_value) = *self.current_count.borrow() {
                         return Ok(Value::Number(count_value));
-                    } else {
-                        println!(
-                            "Warning: Using 'count' outside of a count loop context at line {line}, column {column}"
-                        );
-                        return Ok(Value::Number(0.0));
                     }
+                    // If we're in a count loop but don't have a current count, this is an error
+                    return Err(RuntimeError::new(
+                        "Internal error: count variable accessed in count loop but no current count set".to_string(),
+                        *line,
+                        *column,
+                    ));
                 }
 
+                // Try normal variable lookup first (allows user-defined 'count' variables outside loops)
                 if let Some(value) = env.borrow().get(name) {
                     Ok(value)
+                } else if name == "count" {
+                    // If 'count' is not found and we're not in a count loop, provide helpful error
+                    Err(RuntimeError::new(
+                        "Variable 'count' can only be used inside count loops. Use 'count from X to Y:' to create a count loop.".to_string(),
+                        *line,
+                        *column,
+                    ))
                 } else {
                     Err(RuntimeError::new(
                         format!("Undefined variable '{name}'"),
@@ -2686,33 +2727,11 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let left_val = match left.as_ref() {
-                    Expression::Variable(name, _, _) if name == "count" => {
-                        if let Some(count_value) = *self.current_count.borrow() {
-                            Value::Number(count_value)
-                        } else {
-                            // Use Box::pin to handle recursion in async fn
-                            let future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
-                            future.await?
-                        }
-                    }
-                    _ => {
-                        // Use Box::pin to handle recursion in async fn
-                        let future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
-                        future.await?
-                    }
-                };
+                // Use Box::pin to handle recursion in async fn
+                let left_future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
+                let left_val = left_future.await?;
 
-                let right_val = match right.as_ref() {
-                    Expression::Variable(name, _, _) if name == "count" => {
-                        if let Some(count_value) = *self.current_count.borrow() {
-                            Value::Number(count_value)
-                        } else {
-                            self.evaluate_expression(right, Rc::clone(&env)).await?
-                        }
-                    }
-                    _ => self.evaluate_expression(right, Rc::clone(&env)).await?,
-                };
+                let right_val = self.evaluate_expression(right, Rc::clone(&env)).await?;
 
                 match operator {
                     Operator::Plus => self.add(left_val, right_val, *line, *column),
@@ -2954,22 +2973,9 @@ impl Interpreter {
                 let left_future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
                 let left_val = left_future.await?;
 
-                let right_val = match right.as_ref() {
-                    Expression::Variable(name, _, _) if name == "count" => {
-                        if let Some(count_value) = *self.current_count.borrow() {
-                            Value::Number(count_value)
-                        } else {
-                            // Use Box::pin to handle recursion in async fn
-                            let future = Box::pin(self.evaluate_expression(right, Rc::clone(&env)));
-                            future.await?
-                        }
-                    }
-                    _ => {
-                        // Use Box::pin to handle recursion in async fn
-                        let future = Box::pin(self.evaluate_expression(right, Rc::clone(&env)));
-                        future.await?
-                    }
-                };
+                // Use Box::pin to handle recursion in async fn
+                let right_future = Box::pin(self.evaluate_expression(right, Rc::clone(&env)));
+                let right_val = right_future.await?;
 
                 let result = format!("{left_val}{right_val}");
                 Ok(Value::Text(Rc::from(result.as_str())))
@@ -2984,8 +2990,33 @@ impl Interpreter {
                 let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
                 let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
 
-                let args = vec![text_val, pattern_val];
-                crate::stdlib::pattern::native_pattern_matches(args, *_line, *_column)
+                // Extract text string
+                let text_str = match &text_val {
+                    Value::Text(s) => s.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Pattern match requires text as first argument".to_string(),
+                            *_line,
+                            *_column,
+                        ));
+                    }
+                };
+
+                // Extract compiled pattern
+                let compiled_pattern = match &pattern_val {
+                    Value::Pattern(p) => p,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Pattern match requires pattern as second argument".to_string(),
+                            *_line,
+                            *_column,
+                        ));
+                    }
+                };
+
+                // Perform the match
+                let matches = compiled_pattern.matches(text_str);
+                Ok(Value::Bool(matches))
             }
 
             Expression::PatternFind {
@@ -2997,8 +3028,62 @@ impl Interpreter {
                 let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
                 let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
 
-                let args = vec![text_val, pattern_val]; // Note: text first, then pattern
-                crate::stdlib::pattern::native_pattern_find(args, *_line, *_column)
+                // Extract text string
+                let text_str = match &text_val {
+                    Value::Text(s) => s.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Pattern find requires text as first argument".to_string(),
+                            *_line,
+                            *_column,
+                        ));
+                    }
+                };
+
+                // Extract compiled pattern
+                let compiled_pattern = match &pattern_val {
+                    Value::Pattern(p) => p,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Pattern find requires pattern as second argument".to_string(),
+                            *_line,
+                            *_column,
+                        ));
+                    }
+                };
+
+                // Find the first match
+                match compiled_pattern.find(text_str) {
+                    Some(match_result) => {
+                        // Return an object with match information
+                        let mut result_map = std::collections::HashMap::new();
+                        result_map.insert(
+                            "matched_text".to_string(),
+                            Value::Text(Rc::from(match_result.matched_text.as_str())),
+                        );
+                        result_map.insert(
+                            "start".to_string(),
+                            Value::Number(match_result.start as f64),
+                        );
+                        result_map
+                            .insert("end".to_string(), Value::Number(match_result.end as f64));
+
+                        // Add captures if any
+                        if !match_result.captures.is_empty() {
+                            let mut captures_map = std::collections::HashMap::new();
+                            for (name, value) in match_result.captures {
+                                captures_map.insert(name, Value::Text(Rc::from(value.as_str())));
+                            }
+                            result_map.insert(
+                                "captures".to_string(),
+                                Value::Object(Rc::new(RefCell::new(captures_map))),
+                            );
+                        }
+
+                        Ok(Value::Object(Rc::new(RefCell::new(result_map))))
+                    }
+                    None => Ok(Value::Null),
+                }
             }
 
             Expression::PatternReplace {
@@ -3521,6 +3606,7 @@ impl Interpreter {
     }
 
     // Helper method to create container instance with inheritance
+    #[allow(clippy::only_used_in_recursion)]
     fn create_container_instance_with_inheritance(
         &self,
         container_type: &str,
@@ -3543,12 +3629,8 @@ impl Interpreter {
         // Create parent instance if container extends another
         let parent_instance = if let Some(parent_type) = &container_def.extends {
             // Recursively create parent instance
-            let parent = self.create_container_instance_with_inheritance(
-                parent_type,
-                env,
-                line,
-                column,
-            )?;
+            let parent =
+                self.create_container_instance_with_inheritance(parent_type, env, line, column)?;
             Some(Rc::new(RefCell::new(parent)))
         } else {
             None
@@ -3556,7 +3638,7 @@ impl Interpreter {
 
         // Create instance with inherited properties
         let mut instance_properties = HashMap::new();
-        
+
         // Copy properties from parent if exists
         if let Some(ref parent) = parent_instance {
             for (key, value) in &parent.borrow().properties {
@@ -3729,7 +3811,7 @@ impl Interpreter {
                         let file_ext = path
                             .extension()
                             .and_then(|ext| ext.to_str())
-                            .map(|ext| format!(".{}", ext));
+                            .map(|ext| format!(".{ext}"));
 
                         if let Some(ext) = file_ext {
                             if exts.iter().any(|e| e == &ext) {
@@ -3766,7 +3848,7 @@ impl Interpreter {
                 let file_ext = path
                     .extension()
                     .and_then(|ext| ext.to_str())
-                    .map(|ext| format!(".{}", ext));
+                    .map(|ext| format!(".{ext}"));
 
                 if let Some(ext) = file_ext {
                     if extensions.iter().any(|e| e == &ext) {

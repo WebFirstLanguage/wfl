@@ -165,18 +165,30 @@ pub enum Token {
     KeywordExactly,
     #[token("capture")]
     KeywordCapture,
+    #[token("captured")]
+    KeywordCaptured,
     #[token("digit")]
     KeywordDigit,
     #[token("letter")]
     KeywordLetter,
     #[token("whitespace")]
     KeywordWhitespace,
+    #[token("unicode")]
+    KeywordUnicode,
+    #[token("category")]
+    KeywordCategory,
+    #[token("script")]
+    KeywordScript,
     #[token("greedy")]
     KeywordGreedy,
     #[token("lazy")]
     KeywordLazy,
+    #[token("zero")]
+    KeywordZero,
     #[token("one")]
     KeywordOne,
+    #[token("any")]
+    KeywordAny,
     #[token("optional")]
     KeywordOptional,
     #[token("between")]
@@ -203,6 +215,12 @@ pub enum Token {
     KeywordIs,
     #[token("than")]
     KeywordThan,
+    #[token("same")]
+    KeywordSame,
+    #[token("ahead")]
+    KeywordAhead,
+    #[token("behind")]
+    KeywordBehind,
 
     // Container-related keywords
     #[token("container")]
@@ -368,6 +386,8 @@ impl Token {
                 | Token::KeywordSkip
                 | Token::KeywordThan
                 | Token::KeywordPush
+                | Token::KeywordZero
+                | Token::KeywordAny
                 | Token::KeywordContainer
                 | Token::KeywordProperty
                 | Token::KeywordExtends

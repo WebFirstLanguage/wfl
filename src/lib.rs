@@ -15,6 +15,7 @@ pub mod lexer;
 pub mod linter;
 pub mod logging;
 pub mod parser;
+pub mod pattern;
 pub mod repl;
 pub mod stdlib;
 pub mod typechecker;

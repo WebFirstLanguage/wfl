@@ -493,3 +493,140 @@ fn test_than_keyword_parsing() {
         panic!("Expected if statement");
     }
 }
+
+#[test]
+fn test_parse_simple_pattern_definition() {
+    let input = r#"create pattern greeting:
+    "hello"
+end pattern"#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Failed to parse simple pattern: {result:?}");
+
+    if let Ok(Statement::PatternDefinition { name, pattern, .. }) = result {
+        assert_eq!(name, "greeting");
+        if let PatternExpression::Literal(s) = pattern {
+            assert_eq!(s, "hello");
+        } else {
+            panic!("Expected literal pattern, got {pattern:?}");
+        }
+    } else {
+        panic!("Expected PatternDefinition, got {result:?}");
+    }
+}
+
+#[test]
+fn test_parse_character_class_pattern() {
+    let input = r#"create pattern phone:
+    digit digit digit
+end pattern"#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse character class pattern: {result:?}"
+    );
+
+    if let Ok(Statement::PatternDefinition { name, pattern, .. }) = result {
+        assert_eq!(name, "phone");
+        if let PatternExpression::Sequence(elements) = pattern {
+            assert_eq!(elements.len(), 3);
+            for element in elements {
+                if let PatternExpression::CharacterClass(CharClass::Digit) = element {
+                    // Correct
+                } else {
+                    panic!("Expected digit character class, got {element:?}");
+                }
+            }
+        } else {
+            panic!("Expected sequence pattern, got {pattern:?}");
+        }
+    } else {
+        panic!("Expected PatternDefinition, got {result:?}");
+    }
+}
+
+#[test]
+fn test_parse_quantified_pattern() {
+    let input = r#"create pattern flexible:
+    one or more digit
+end pattern"#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse quantified pattern: {result:?}"
+    );
+
+    if let Ok(Statement::PatternDefinition { name, pattern, .. }) = result {
+        assert_eq!(name, "flexible");
+        if let PatternExpression::Quantified {
+            pattern: inner,
+            quantifier,
+        } = pattern
+        {
+            if let PatternExpression::CharacterClass(CharClass::Digit) = inner.as_ref() {
+                // Correct
+            } else {
+                panic!("Expected digit character class, got {inner:?}");
+            }
+            if let Quantifier::OneOrMore = quantifier {
+                // Correct
+            } else {
+                panic!("Expected OneOrMore quantifier, got {quantifier:?}");
+            }
+        } else {
+            panic!("Expected quantified pattern, got {pattern:?}");
+        }
+    } else {
+        panic!("Expected PatternDefinition, got {result:?}");
+    }
+}
+
+#[test]
+fn test_parse_alternative_pattern() {
+    let input = r#"create pattern greeting:
+    "hello" or "hi"
+end pattern"#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse alternative pattern: {result:?}"
+    );
+
+    if let Ok(Statement::PatternDefinition { name, pattern, .. }) = result {
+        assert_eq!(name, "greeting");
+        if let PatternExpression::Alternative(alternatives) = pattern {
+            assert_eq!(alternatives.len(), 2);
+            if let PatternExpression::Literal(s1) = &alternatives[0] {
+                assert_eq!(s1, "hello");
+            } else {
+                let alt = &alternatives[0];
+                panic!("Expected first alternative to be 'hello', got {alt:?}");
+            }
+            if let PatternExpression::Literal(s2) = &alternatives[1] {
+                assert_eq!(s2, "hi");
+            } else {
+                let alt = &alternatives[1];
+                panic!("Expected second alternative to be 'hi', got {alt:?}");
+            }
+        } else {
+            panic!("Expected alternative pattern, got {pattern:?}");
+        }
+    } else {
+        panic!("Expected PatternDefinition, got {result:?}");
+    }
+}

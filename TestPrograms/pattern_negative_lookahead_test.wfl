@@ -1,0 +1,62 @@
+display "Testing Negative Lookahead Patterns"
+display "----------------------------------"
+
+// Test 1: Match letter NOT followed by digit
+create pattern letter_not_before_digit:
+    letter check not ahead for {digit}
+end pattern
+
+// Should match 'a' in "ab" (letter not followed by digit)
+store text1 as "ab"
+store result1 as text1 matches letter_not_before_digit
+check if result1:
+    display "✓ 'ab' matches (letter not followed by digit)"
+otherwise:
+    display "✗ 'ab' should match"
+end check
+
+// Should NOT match 'a' in "a5" (letter followed by digit)
+store text2 as "a5"
+store result2 as text2 matches letter_not_before_digit
+check if not result2:
+    display "✓ 'a5' does not match (letter followed by digit)"
+otherwise:
+    display "✗ 'a5' should not match"
+end check
+
+// Test 2: Match word boundary (letter not followed by letter)
+create pattern word_end:
+    letter check not ahead for {letter}
+end pattern
+
+store text3 as "cat dog"
+store result3 as text3 matches word_end
+check if result3:
+    display "✓ 'cat dog' has word ending"
+otherwise:
+    display "✗ 'cat dog' should have word ending"
+end check
+
+// Test 3: Match non-comment line (start of line not followed by #)
+create pattern non_comment:
+    start of text check not ahead for {"#"}
+end pattern
+
+store text4 as "# This is a comment"
+store result4 as text4 matches non_comment
+check if not result4:
+    display "✓ Comment line correctly rejected"
+otherwise:
+    display "✗ Comment line should not match"
+end check
+
+store text5 as "This is code"
+store result5 as text5 matches non_comment
+check if result5:
+    display "✓ Non-comment line matches"
+otherwise:
+    display "✗ Non-comment line should match"
+end check
+
+display ""
+display "Negative lookahead tests completed!"

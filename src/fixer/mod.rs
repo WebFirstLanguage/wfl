@@ -11,6 +11,8 @@ use std::path::Path;
 
 pub struct CodeFixer {
     indent_size: usize,
+    max_line_length: usize,
+    max_concatenation_chain: usize,
 }
 
 pub enum FixerOutputMode {
@@ -23,21 +25,37 @@ pub struct FixerSummary {
     pub lines_reformatted: usize,
     pub vars_renamed: usize,
     pub dead_code_removed: usize,
+    pub concatenations_fixed: usize,
 }
 
 impl FixerSummary {
     pub fn total(&self) -> usize {
-        self.lines_reformatted + self.vars_renamed + self.dead_code_removed
+        self.lines_reformatted
+            + self.vars_renamed
+            + self.dead_code_removed
+            + self.concatenations_fixed
     }
 }
 
 impl CodeFixer {
     pub fn new() -> Self {
-        Self { indent_size: 4 }
+        Self {
+            indent_size: 4,
+            max_line_length: 100,
+            max_concatenation_chain: 5,
+        }
     }
 
     pub fn set_indent_size(&mut self, size: usize) {
         self.indent_size = size;
+    }
+
+    pub fn set_max_line_length(&mut self, length: usize) {
+        self.max_line_length = length;
+    }
+
+    pub fn set_max_concatenation_chain(&mut self, max_chain: usize) {
+        self.max_concatenation_chain = max_chain;
     }
 
     pub fn fix(&self, program: &Program, _source: &str) -> (String, FixerSummary) {
@@ -51,6 +69,7 @@ impl CodeFixer {
             lines_reformatted: 0,
             vars_renamed: 0,
             dead_code_removed: dead_code.len(),
+            concatenations_fixed: 0,
         };
 
         self.pretty_print(&simplified_program, &mut output, 0, &mut summary);
@@ -892,9 +911,17 @@ impl CodeFixer {
                 output.push(']');
             }
             Expression::Concatenation { left, right, .. } => {
-                self.pretty_print_expression(left, output, indent_level, summary);
-                output.push_str(" & ");
-                self.pretty_print_expression(right, output, indent_level, summary);
+                if self.should_reformat_concatenation(expression) {
+                    let chain_length = self.count_concatenation_chain(expression);
+                    let is_multiline = chain_length > 3;
+                    let formatted = self.format_concatenation_chain(expression, is_multiline);
+                    output.push_str(&formatted);
+                    summary.concatenations_fixed += 1;
+                } else {
+                    self.pretty_print_expression(left, output, indent_level, summary);
+                    output.push_str(" with ");
+                    self.pretty_print_expression(right, output, indent_level, summary);
+                }
             }
             Expression::PatternMatch { text, pattern, .. } => {
                 self.pretty_print_expression(text, output, indent_level, summary);
@@ -999,6 +1026,106 @@ impl CodeFixer {
         }
 
         result
+    }
+
+    /// Analyzes a concatenation expression to determine if it needs reformatting
+    fn should_reformat_concatenation(&self, expr: &Expression) -> bool {
+        let chain_length = self.count_concatenation_chain(expr);
+        // Only reformat if we have a very long chain (more than 8 elements)
+        // or if we have genuinely poor formatting patterns
+        chain_length > 8 || self.has_genuinely_poor_formatting(expr)
+    }
+
+    /// Counts the length of a concatenation chain
+    #[allow(clippy::only_used_in_recursion)]
+    fn count_concatenation_chain(&self, expr: &Expression) -> usize {
+        match expr {
+            Expression::Concatenation { left, right, .. } => {
+                1 + self.count_concatenation_chain(left) + self.count_concatenation_chain(right)
+            }
+            _ => 0,
+        }
+    }
+
+    /// Checks if concatenation has genuinely poor formatting that needs fixing
+    fn has_genuinely_poor_formatting(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Concatenation { .. } => {
+                // Look for very specific poor patterns like the original problematic case:
+                // multiline strings with embedded newlines that span multiple actual lines
+                self.has_problematic_multiline_pattern(expr)
+            }
+            _ => false,
+        }
+    }
+
+    /// Detects specific problematic patterns like the original wfl_combiner.wfl issue
+    fn has_problematic_multiline_pattern(&self, expr: &Expression) -> bool {
+        match expr {
+            Expression::Concatenation { .. } => {
+                // Look for patterns where we have multiple string literals with newlines
+                // concatenated in a way that suggests the original multiline format
+                self.count_newline_literals(expr) > 4 // More than 4 "\n" literals suggests poor formatting
+            }
+            _ => false,
+        }
+    }
+
+    /// Counts the number of "\n" literal strings in a concatenation chain
+    #[allow(clippy::only_used_in_recursion)]
+    fn count_newline_literals(&self, expr: &Expression) -> usize {
+        match expr {
+            Expression::Literal(Literal::String(s), ..) => {
+                if s == "\n" {
+                    1
+                } else {
+                    0
+                }
+            }
+            Expression::Concatenation { left, right, .. } => {
+                self.count_newline_literals(left) + self.count_newline_literals(right)
+            }
+            _ => 0,
+        }
+    }
+
+    /// Formats a concatenation chain in a more readable way
+    fn format_concatenation_chain(&self, expr: &Expression, is_multiline: bool) -> String {
+        match expr {
+            Expression::Concatenation { left, right, .. } => {
+                let left_str = match **left {
+                    Expression::Concatenation { .. } => {
+                        self.format_concatenation_chain(left, is_multiline)
+                    }
+                    _ => self.format_single_expression_for_concatenation(left),
+                };
+
+                let right_str = match **right {
+                    Expression::Concatenation { .. } => {
+                        self.format_concatenation_chain(right, is_multiline)
+                    }
+                    _ => self.format_single_expression_for_concatenation(right),
+                };
+
+                if is_multiline {
+                    format!("{left_str} with\n    {right_str}")
+                } else {
+                    format!("{left_str} with {right_str}")
+                }
+            }
+            _ => self.format_single_expression_for_concatenation(expr),
+        }
+    }
+
+    /// Formats a single expression within a concatenation chain
+    fn format_single_expression_for_concatenation(&self, expr: &Expression) -> String {
+        match expr {
+            Expression::Literal(Literal::String(s), ..) => {
+                format!("\"{s}\"")
+            }
+            Expression::Variable(name, ..) => name.clone(),
+            _ => format!("{expr:?}"), // Fallback for other expressions
+        }
     }
 
     #[allow(clippy::only_used_in_recursion)]

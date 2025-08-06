@@ -1,0 +1,34 @@
+// Test program to verify the count variable fix
+define action called main:
+    display "Testing direct count access:"
+    
+    // Test 1: Direct count access in display
+    count from 1 to 3:
+        display "Count is: " with count
+    end count
+    
+    // Test 2: Count in expressions
+    store total as 0
+    count from 1 to 4:
+        change total to total plus count
+        display "Adding " with count with ", total now: " with total
+    end count
+    
+    // Test 3: Nested count loops (should work with proper scoping)
+    display "Testing nested loops:"
+    count from 1 to 2:
+        store outer as count
+        display "Outer loop: " with outer
+        count from 1 to 2:
+            store inner as count
+            display "  Inner loop: " with inner with " (outer: " with outer with ")"
+        end count
+    end count
+    
+    // Test 4: Count outside loop (should give helpful error)
+    display "Testing count outside loop (should error):"
+    // Uncomment the next line to test error handling:
+    // display "Count outside: " with count
+    
+    display "All tests completed!"
+end action

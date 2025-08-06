@@ -1,3 +1,0 @@
-13:27:28.7196183 [INFO] WFL execution logging initialized at 2025-08-04 08:27:28 - wfl_exec.log
-13:27:28.7204306 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:3325] EXEC: ┌─ Block entry: function greet
-13:27:28.7205425 [DEBUG] (1) wfl::interpreter: [C:\logbie\wfl\src\interpreter\mod.rs:3335] EXEC:   └─ Block exit: function greet

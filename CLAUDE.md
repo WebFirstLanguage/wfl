@@ -309,6 +309,11 @@ After making changes:
 4. Write tests in the module's test section
 5. Document in function catalog
 
+## Debug and code quality
+
+MUST ALWAYS run cargo clippy --all-targets --all-features -- -D warnings and fix any reported errors
+MUST ALWAYS run cargo fmt --all to fix formatting issues
+
 ## Key Files to Understand
 
 - `src/main.rs` - CLI entry point and command handling
@@ -351,7 +356,7 @@ wfl/
 3. **Error Messages**: Improving clarity and helpfulness
 4. **Documentation**: Keeping all docs up-to-date
 5. **Stability**: Ensuring backward compatibility
-6. **Version**: Currently at v2025.50.0
+6. **Version**: Currently at v25.8.3
 
 ## Debugging 
 

@@ -321,6 +321,12 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    PatternDefinition {
+        name: String,
+        pattern: PatternExpression,
+        line: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -463,6 +469,70 @@ pub enum Literal {
     Nothing,
     Pattern(String),
     List(Vec<Expression>),
+}
+
+/// Represents different types of character classes in patterns
+#[derive(Debug, Clone, PartialEq)]
+pub enum CharClass {
+    Digit,      // digit
+    Letter,     // letter
+    Whitespace, // whitespace
+    // Unicode categories
+    UnicodeCategory(String), // e.g., "Letter", "Number", "Symbol"
+    UnicodeScript(String),   // e.g., "Greek", "Latin", "Arabic"
+    UnicodeProperty(String), // e.g., "Alphabetic", "Uppercase", "Lowercase"
+}
+
+/// Represents different types of quantifiers
+#[derive(Debug, Clone, PartialEq)]
+pub enum Quantifier {
+    Optional,          // optional
+    ZeroOrMore,        // zero or more
+    OneOrMore,         // one or more
+    Exactly(u32),      // exactly N
+    Between(u32, u32), // between N and M
+}
+
+/// Represents different types of anchors
+#[derive(Debug, Clone, PartialEq)]
+pub enum Anchor {
+    StartOfText, // start of text
+    EndOfText,   // end of text
+}
+
+/// Represents a pattern expression in the new pattern matching system
+#[derive(Debug, Clone, PartialEq)]
+pub enum PatternExpression {
+    /// Literal text to match exactly
+    Literal(String),
+    /// Character class (digit, letter, whitespace)
+    CharacterClass(CharClass),
+    /// A quantified pattern (e.g., "one or more digit")
+    Quantified {
+        pattern: Box<PatternExpression>,
+        quantifier: Quantifier,
+    },
+    /// A sequence of patterns (e.g., "digit '-' digit")
+    Sequence(Vec<PatternExpression>),
+    /// Alternative patterns (e.g., "letter or digit")
+    Alternative(Vec<PatternExpression>),
+    /// Named capture group
+    Capture {
+        name: String,
+        pattern: Box<PatternExpression>,
+    },
+    /// Backreference to a previously captured group
+    Backreference(String),
+    /// Anchor pattern (start/end of text)
+    Anchor(Anchor),
+    /// Positive lookahead - matches if pattern would match ahead
+    Lookahead(Box<PatternExpression>),
+    /// Negative lookahead - matches if pattern would NOT match ahead  
+    NegativeLookahead(Box<PatternExpression>),
+    /// Positive lookbehind - matches if pattern would match behind
+    Lookbehind(Box<PatternExpression>),
+    /// Negative lookbehind - matches if pattern would NOT match behind
+    NegativeLookbehind(Box<PatternExpression>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -192,7 +192,7 @@ async fn test_return_from_loop_in_action() {
 #[tokio::test]
 async fn test_break_from_foreach_loop() {
     let code = r#"
-    create list as items
+    store items as []
     push with items and 1
     push with items and 2
     push with items and 3
@@ -222,7 +222,7 @@ async fn test_break_from_foreach_loop() {
 #[tokio::test]
 async fn test_continue_from_foreach_loop() {
     let code = r#"
-    create list as items
+    store items as []
     push with items and 1
     push with items and 2
     push with items and 3

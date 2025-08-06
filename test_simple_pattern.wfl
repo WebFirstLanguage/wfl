@@ -1,0 +1,32 @@
+// Simple test of pattern creation and matching
+create pattern test_pattern:
+    "hello"
+end pattern
+
+display "Pattern created successfully"
+
+// Test positive case - should match
+store test_text1 as "hello world"
+check if test_text1 matches test_pattern:
+    display "✓ PASS: 'hello world' correctly matched the pattern"
+otherwise:
+    display "✗ FAIL: 'hello world' should have matched the pattern"
+end check
+
+// Test negative case - should not match
+store test_text2 as "goodbye world"
+check if test_text2 matches test_pattern:
+    display "✗ FAIL: 'goodbye world' should not have matched the pattern"
+otherwise:
+    display "✓ PASS: 'goodbye world' correctly did not match the pattern"
+end check
+
+// Test exact match
+store test_text3 as "hello"
+check if test_text3 matches test_pattern:
+    display "✓ PASS: Exact match 'hello' worked correctly"
+otherwise:
+    display "✗ FAIL: Exact match 'hello' should have worked"
+end check
+
+display "Pattern matching tests completed!"

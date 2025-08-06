@@ -11,6 +11,7 @@ pub enum SymbolKind {
         parameters: Vec<Parameter>,
         return_type: Option<Type>,
     },
+    Pattern,
 }
 
 #[derive(Debug, Clone)]
@@ -1018,6 +1019,26 @@ impl Analyzer {
                 };
 
                 if let Err(e) = self.current_scope.define(instance_symbol) {
+                    self.errors.push(e);
+                }
+            }
+
+            Statement::PatternDefinition {
+                name,
+                pattern: _,
+                line,
+                column,
+            } => {
+                // Register the pattern as a symbol
+                let pattern_symbol = Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Pattern,
+                    symbol_type: Some(Type::Pattern),
+                    line: *line,
+                    column: *column,
+                };
+
+                if let Err(e) = self.current_scope.define(pattern_symbol) {
                     self.errors.push(e);
                 }
             }

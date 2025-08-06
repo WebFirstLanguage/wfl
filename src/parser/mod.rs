@@ -3411,32 +3411,7 @@ impl<'a> Parser<'a> {
                         if token.token == Token::KeywordAt {
                             self.tokens.next(); // Consume "at"
 
-                            let url_expr = if let Some(token) = self.tokens.peek().cloned() {
-                                if let Token::StringLiteral(url_str) = &token.token {
-                                    let token_clone = token;
-                                    self.tokens.next(); // Consume the string literal
-                                    Expression::Literal(
-                                        Literal::String(url_str.clone()),
-                                        token_clone.line,
-                                        token_clone.column,
-                                    )
-                                } else {
-                                    return Err(ParseError::new(
-                                        format!(
-                                            "Expected string literal for URL, found {:?}",
-                                            token.token
-                                        ),
-                                        token.line,
-                                        token.column,
-                                    ));
-                                }
-                            } else {
-                                return Err(ParseError::new(
-                                    "Unexpected end of input".to_string(),
-                                    0,
-                                    0,
-                                ));
-                            };
+                            let url_expr = self.parse_primary_expression()?;
 
                             // Check for "and read content as" pattern
                             if let Some(next_token) = self.tokens.peek().cloned() {
@@ -3564,28 +3539,7 @@ impl<'a> Parser<'a> {
             if token.token == Token::KeywordAt {
                 self.tokens.next(); // Consume "at"
 
-                let path_expr = if let Some(token) = self.tokens.peek().cloned() {
-                    if let Token::StringLiteral(path_str) = &token.token {
-                        let token_clone = token;
-                        self.tokens.next(); // Consume the string literal
-                        Expression::Literal(
-                            Literal::String(path_str.clone()),
-                            token_clone.line,
-                            token_clone.column,
-                        )
-                    } else {
-                        return Err(ParseError::new(
-                            format!(
-                                "Expected string literal for file path, found {:?}",
-                                token.token
-                            ),
-                            token.line,
-                            token.column,
-                        ));
-                    }
-                } else {
-                    return Err(ParseError::new("Unexpected end of input".to_string(), 0, 0));
-                };
+                let path_expr = self.parse_primary_expression()?;
 
                 // Check for "for append", "and read content as" pattern AND direct "as" pattern
                 if let Some(next_token) = self.tokens.peek().cloned() {
@@ -4015,23 +3969,21 @@ impl<'a> Parser<'a> {
                         column: token_pos.column,
                     })
                 }
-                _ => {
-                    return Err(ParseError::new(
-                        format!(
-                            "Expected 'file' or 'directory' after 'delete', found {:?}",
-                            next_token.token
-                        ),
-                        next_token.line,
-                        next_token.column,
-                    ));
-                }
+                _ => Err(ParseError::new(
+                    format!(
+                        "Expected 'file' or 'directory' after 'delete', found {:?}",
+                        next_token.token
+                    ),
+                    next_token.line,
+                    next_token.column,
+                )),
             }
         } else {
-            return Err(ParseError::new(
+            Err(ParseError::new(
                 "Expected 'file' or 'directory' after 'delete'".to_string(),
                 token_pos.line,
                 token_pos.column,
-            ));
+            ))
         }
     }
 
@@ -4540,337 +4492,15 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        let ir_string = Self::compile_pattern_to_ir(&pattern_parts)?;
+        // Parse the pattern parts into the new PatternExpression AST structure
+        let pattern_expr = Self::parse_pattern_tokens(&pattern_parts)?;
 
-        Ok(Statement::VariableDeclaration {
+        Ok(Statement::PatternDefinition {
             name: pattern_name,
-            value: Expression::Literal(
-                Literal::Pattern(ir_string),
-                create_token.line,
-                create_token.column,
-            ),
+            pattern: pattern_expr,
             line: create_token.line,
             column: create_token.column,
         })
-    }
-
-    fn compile_pattern_to_ir(tokens: &[TokenWithPosition]) -> Result<String, ParseError> {
-        let mut i = 0;
-        let sequence_parts = Self::parse_sequence(tokens, &mut i)?;
-
-        if sequence_parts.is_empty() {
-            return Err(ParseError::new(
-                "Empty pattern definition".to_string(),
-                0,
-                0,
-            ));
-        }
-
-        if sequence_parts.len() == 1 {
-            Ok(sequence_parts[0].clone())
-        } else {
-            Ok(format!("seq({})", sequence_parts.join(",")))
-        }
-    }
-
-    fn parse_sequence(
-        tokens: &[TokenWithPosition],
-        i: &mut usize,
-    ) -> Result<Vec<String>, ParseError> {
-        let mut sequence_parts = Vec::new();
-
-        while *i < tokens.len() {
-            let token = &tokens[*i];
-            match &token.token {
-                Token::Newline => {
-                    *i += 1;
-                    continue;
-                }
-                _ => {
-                    let element = Self::parse_element(tokens, i)?;
-                    sequence_parts.push(element);
-                }
-            }
-        }
-
-        Ok(sequence_parts)
-    }
-
-    fn parse_element(tokens: &[TokenWithPosition], i: &mut usize) -> Result<String, ParseError> {
-        if *i >= tokens.len() {
-            return Err(ParseError::new(
-                "Expected pattern element".to_string(),
-                0,
-                0,
-            ));
-        }
-
-        let token = &tokens[*i];
-        match &token.token {
-            // Handle quantifiers first
-            Token::KeywordOne => {
-                *i += 1;
-                if *i < tokens.len() && tokens[*i].token == Token::KeywordOr {
-                    *i += 1;
-                    if *i < tokens.len() && tokens[*i].token == Token::KeywordMore {
-                        *i += 1;
-                        let inner = Self::parse_quantified_content(tokens, i)?;
-                        Ok(format!("rep(1,inf,{inner})"))
-                    } else {
-                        Err(ParseError::new(
-                            "Expected 'more' after 'one or'".to_string(),
-                            token.line,
-                            token.column,
-                        ))
-                    }
-                } else {
-                    Err(ParseError::new(
-                        "Expected 'or' after 'one'".to_string(),
-                        token.line,
-                        token.column,
-                    ))
-                }
-            }
-
-            Token::KeywordOptional => {
-                *i += 1;
-                let inner = Self::parse_quantified_content(tokens, i)?;
-                Ok(format!("rep(0,1,{inner})"))
-            }
-
-            Token::KeywordBetween => {
-                *i += 1;
-                if *i + 3 < tokens.len() {
-                    if let Token::IntLiteral(min) = &tokens[*i].token {
-                        let min_val = *min;
-                        *i += 1;
-                        if tokens[*i].token == Token::KeywordAnd {
-                            *i += 1;
-                            if let Token::IntLiteral(max) = &tokens[*i].token {
-                                let max_val = *max;
-                                *i += 1;
-                                let inner = Self::parse_quantified_content(tokens, i)?;
-                                Ok(format!("rep({min_val},{max_val},{inner})"))
-                            } else {
-                                Err(ParseError::new(
-                                    "Expected number after 'and'".to_string(),
-                                    token.line,
-                                    token.column,
-                                ))
-                            }
-                        } else {
-                            Err(ParseError::new(
-                                "Expected 'and' after first number".to_string(),
-                                token.line,
-                                token.column,
-                            ))
-                        }
-                    } else {
-                        Err(ParseError::new(
-                            "Expected number after 'between'".to_string(),
-                            token.line,
-                            token.column,
-                        ))
-                    }
-                } else {
-                    Err(ParseError::new(
-                        "Incomplete 'between' quantifier".to_string(),
-                        token.line,
-                        token.column,
-                    ))
-                }
-            }
-
-            // Handle captures
-            Token::KeywordCapture => {
-                *i += 1;
-                if *i < tokens.len() && tokens[*i].token == Token::LeftBrace {
-                    *i += 1;
-                    let mut capture_tokens = Vec::new();
-                    let mut brace_count = 1;
-
-                    while *i < tokens.len() && brace_count > 0 {
-                        match &tokens[*i].token {
-                            Token::LeftBrace => brace_count += 1,
-                            Token::RightBrace => brace_count -= 1,
-                            _ => {}
-                        }
-                        if brace_count > 0 {
-                            capture_tokens.push(tokens[*i].clone());
-                        }
-                        *i += 1;
-                    }
-
-                    if *i + 1 < tokens.len() && tokens[*i].token == Token::KeywordAs {
-                        *i += 1;
-                        if let Token::Identifier(name) = &tokens[*i].token {
-                            let capture_name = name.clone();
-                            *i += 1;
-                            let inner_ir = Self::compile_pattern_to_ir(&capture_tokens)?;
-                            Ok(format!("cap(\"{capture_name}\",{inner_ir})"))
-                        } else {
-                            Err(ParseError::new(
-                                "Expected identifier after 'as'".to_string(),
-                                token.line,
-                                token.column,
-                            ))
-                        }
-                    } else {
-                        Err(ParseError::new(
-                            "Expected 'as' after capture group".to_string(),
-                            token.line,
-                            token.column,
-                        ))
-                    }
-                } else {
-                    Err(ParseError::new(
-                        "Expected '{' after 'capture'".to_string(),
-                        token.line,
-                        token.column,
-                    ))
-                }
-            }
-
-            // Handle anchors
-            Token::KeywordAt => {
-                *i += 1;
-                if *i < tokens.len() && tokens[*i].token == Token::KeywordStart {
-                    *i += 1;
-                    if *i < tokens.len() && tokens[*i].token == Token::KeywordOf {
-                        *i += 1;
-                        if *i < tokens.len() && tokens[*i].token == Token::KeywordText {
-                            *i += 1;
-                            Ok("anchor(start)".to_string())
-                        } else {
-                            Err(ParseError::new(
-                                "Expected 'text' after 'of'".to_string(),
-                                token.line,
-                                token.column,
-                            ))
-                        }
-                    } else {
-                        Err(ParseError::new(
-                            "Expected 'of' after 'start'".to_string(),
-                            token.line,
-                            token.column,
-                        ))
-                    }
-                } else if *i < tokens.len() && tokens[*i].token == Token::KeywordEnd {
-                    *i += 1;
-                    if *i < tokens.len() && tokens[*i].token == Token::KeywordOf {
-                        *i += 1;
-                        if *i < tokens.len() && tokens[*i].token == Token::KeywordText {
-                            *i += 1;
-                            Ok("anchor(end)".to_string())
-                        } else {
-                            Err(ParseError::new(
-                                "Expected 'text' after 'of'".to_string(),
-                                token.line,
-                                token.column,
-                            ))
-                        }
-                    } else {
-                        Err(ParseError::new(
-                            "Expected 'of' after 'end'".to_string(),
-                            token.line,
-                            token.column,
-                        ))
-                    }
-                } else {
-                    Err(ParseError::new(
-                        "Expected 'start' or 'end' after 'at'".to_string(),
-                        token.line,
-                        token.column,
-                    ))
-                }
-            }
-
-            // Handle basic elements
-            Token::StringLiteral(s) => {
-                *i += 1;
-                Ok(format!("lit(\"{}\")", s.replace("\"", "\\\"")))
-            }
-            Token::KeywordDigit => {
-                *i += 1;
-                Ok("class(digit)".to_string())
-            }
-            Token::KeywordLetter => {
-                *i += 1;
-                Ok("class(letter)".to_string())
-            }
-            Token::KeywordWhitespace => {
-                *i += 1;
-                Ok("class(whitespace)".to_string())
-            }
-
-            _ => Err(ParseError::new(
-                "Invalid pattern element".to_string(),
-                token.line,
-                token.column,
-            )),
-        }
-    }
-
-    fn parse_quantified_content(
-        tokens: &[TokenWithPosition],
-        i: &mut usize,
-    ) -> Result<String, ParseError> {
-        let mut alternatives = Vec::new();
-
-        loop {
-            if *i >= tokens.len() {
-                break;
-            }
-
-            let token = &tokens[*i];
-            match &token.token {
-                Token::StringLiteral(s) => {
-                    *i += 1;
-                    alternatives.push(format!("lit(\"{}\")", s.replace("\"", "\\\"")));
-                }
-                Token::KeywordDigit => {
-                    *i += 1;
-                    alternatives.push("class(digit)".to_string());
-                }
-                Token::KeywordLetter => {
-                    *i += 1;
-                    alternatives.push("class(letter)".to_string());
-                }
-                Token::KeywordWhitespace => {
-                    *i += 1;
-                    alternatives.push("class(whitespace)".to_string());
-                }
-                Token::KeywordOr => {
-                    *i += 1;
-                    // Continue to next alternative
-                    continue;
-                }
-                _ => {
-                    break;
-                }
-            }
-
-            // Check if there's an "or" following
-            if *i < tokens.len() && tokens[*i].token == Token::KeywordOr {
-                continue;
-            } else {
-                break; // End of alternatives
-            }
-        }
-
-        if alternatives.is_empty() {
-            return Err(ParseError::new(
-                "Expected pattern element after quantifier".to_string(),
-                0,
-                0,
-            ));
-        }
-
-        if alternatives.len() == 1 {
-            Ok(alternatives[0].clone())
-        } else {
-            Ok(format!("alt({})", alternatives.join(",")))
-        }
     }
 
     fn parse_extension_filter(&mut self) -> Result<Vec<Expression>, ParseError> {
@@ -4929,5 +4559,678 @@ impl<'a> Parser<'a> {
         // Parse a single list element without parsing binary operators
         // This prevents "and" from being interpreted as a boolean operator
         self.parse_primary_expression()
+    }
+
+    /// Parse tokens into the new PatternExpression AST structure
+    fn parse_pattern_tokens(tokens: &[TokenWithPosition]) -> Result<PatternExpression, ParseError> {
+        if tokens.is_empty() {
+            return Err(ParseError::new(
+                "Empty pattern definition".to_string(),
+                0,
+                0,
+            ));
+        }
+
+        let mut i = 0;
+        Self::parse_pattern_sequence(tokens, &mut i)
+    }
+
+    /// Parse a sequence of pattern elements (handles alternation with "or")
+    fn parse_pattern_sequence(
+        tokens: &[TokenWithPosition],
+        i: &mut usize,
+    ) -> Result<PatternExpression, ParseError> {
+        let mut alternatives = vec![Self::parse_pattern_concatenation(tokens, i)?];
+
+        while *i < tokens.len() {
+            if let Token::KeywordOr = tokens[*i].token {
+                *i += 1; // Skip "or"
+                alternatives.push(Self::parse_pattern_concatenation(tokens, i)?);
+            } else {
+                break;
+            }
+        }
+
+        if alternatives.len() == 1 {
+            Ok(alternatives.into_iter().next().unwrap())
+        } else {
+            Ok(PatternExpression::Alternative(alternatives))
+        }
+    }
+
+    /// Parse a concatenation of pattern elements (sequence)
+    fn parse_pattern_concatenation(
+        tokens: &[TokenWithPosition],
+        i: &mut usize,
+    ) -> Result<PatternExpression, ParseError> {
+        let mut elements = Vec::new();
+
+        while *i < tokens.len() {
+            // Stop if we hit "or" (handled at a higher level)
+            if let Token::KeywordOr = tokens[*i].token {
+                break;
+            }
+
+            // Skip newlines
+            if let Token::Newline = tokens[*i].token {
+                *i += 1;
+                continue;
+            }
+
+            // Skip "followed by" as it's just natural language syntax
+            if *i < tokens.len() {
+                if let Token::Identifier(s) = &tokens[*i].token {
+                    if s == "followed" && *i + 1 < tokens.len() {
+                        if let Token::KeywordBy = tokens[*i + 1].token {
+                            *i += 2; // Skip "followed by"
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Debug: Print the current token before parsing
+            if *i < tokens.len() {
+                exec_trace!(
+                    "Pattern concatenation: About to parse token {:?} at position {}",
+                    tokens[*i].token,
+                    *i
+                );
+            }
+
+            elements.push(Self::parse_pattern_element(tokens, i)?);
+        }
+
+        if elements.is_empty() {
+            return Err(ParseError::new(
+                "Expected pattern element".to_string(),
+                0,
+                0,
+            ));
+        }
+
+        if elements.len() == 1 {
+            Ok(elements.into_iter().next().unwrap())
+        } else {
+            Ok(PatternExpression::Sequence(elements))
+        }
+    }
+
+    /// Parse a single pattern element (literal, character class, quantified, etc.)
+    fn parse_pattern_element(
+        tokens: &[TokenWithPosition],
+        i: &mut usize,
+    ) -> Result<PatternExpression, ParseError> {
+        if *i >= tokens.len() {
+            return Err(ParseError::new(
+                "Unexpected end of pattern".to_string(),
+                0,
+                0,
+            ));
+        }
+
+        let token = &tokens[*i];
+        let element = match &token.token {
+            // String literals
+            Token::StringLiteral(s) => {
+                *i += 1;
+                PatternExpression::Literal(s.clone())
+            }
+
+            // Character classes
+            Token::KeywordAny => {
+                *i += 1;
+                if *i < tokens.len() {
+                    match &tokens[*i].token {
+                        Token::KeywordLetter => {
+                            *i += 1;
+                            PatternExpression::CharacterClass(CharClass::Letter)
+                        }
+                        Token::KeywordDigit => {
+                            *i += 1;
+                            PatternExpression::CharacterClass(CharClass::Digit)
+                        }
+                        Token::KeywordWhitespace => {
+                            *i += 1;
+                            PatternExpression::CharacterClass(CharClass::Whitespace)
+                        }
+                        _ => {
+                            return Err(ParseError::new(
+                                "Expected 'letter', 'digit', or 'whitespace' after 'any'"
+                                    .to_string(),
+                                tokens[*i].line,
+                                tokens[*i].column,
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        "Expected character class after 'any'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+
+            // Handle quantifiers that start with specific keywords
+            Token::KeywordOne => {
+                if *i + 2 < tokens.len()
+                    && tokens[*i + 1].token == Token::KeywordOr
+                    && tokens[*i + 2].token == Token::KeywordMore
+                {
+                    // This is "one or more" which should be handled as a quantifier
+                    // We need to parse the following element and then apply the quantifier
+                    *i += 3; // Skip "one or more"
+                    let base_element = Self::parse_pattern_element(tokens, i)?;
+                    PatternExpression::Quantified {
+                        pattern: Box::new(base_element),
+                        quantifier: Quantifier::OneOrMore,
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        "Unexpected 'one' in pattern (did you mean 'one or more'?)".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+
+            Token::KeywordZero => {
+                if *i + 2 < tokens.len()
+                    && tokens[*i + 1].token == Token::KeywordOr
+                    && tokens[*i + 2].token == Token::KeywordMore
+                {
+                    // This is "zero or more" which should be handled as a quantifier
+                    *i += 3; // Skip "zero or more"
+                    let base_element = Self::parse_pattern_element(tokens, i)?;
+                    PatternExpression::Quantified {
+                        pattern: Box::new(base_element),
+                        quantifier: Quantifier::ZeroOrMore,
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        "Unexpected 'zero' in pattern (did you mean 'zero or more'?)".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+
+            Token::KeywordOptional => {
+                // This is "optional" which should be handled as a quantifier
+                *i += 1; // Skip "optional"
+                let base_element = Self::parse_pattern_element(tokens, i)?;
+                PatternExpression::Quantified {
+                    pattern: Box::new(base_element),
+                    quantifier: Quantifier::Optional,
+                }
+            }
+
+            // Direct character classes
+            Token::KeywordLetter => {
+                *i += 1;
+                PatternExpression::CharacterClass(CharClass::Letter)
+            }
+            Token::KeywordDigit => {
+                *i += 1;
+                PatternExpression::CharacterClass(CharClass::Digit)
+            }
+            Token::KeywordWhitespace => {
+                *i += 1;
+                PatternExpression::CharacterClass(CharClass::Whitespace)
+            }
+
+            // Unicode patterns
+            Token::KeywordUnicode => {
+                *i += 1;
+                if *i < tokens.len() {
+                    match &tokens[*i].token {
+                        Token::KeywordLetter => {
+                            *i += 1;
+                            PatternExpression::CharacterClass(CharClass::UnicodeProperty(
+                                "Alphabetic".to_string(),
+                            ))
+                        }
+                        Token::KeywordDigit => {
+                            *i += 1;
+                            PatternExpression::CharacterClass(CharClass::UnicodeProperty(
+                                "Numeric".to_string(),
+                            ))
+                        }
+                        Token::KeywordCategory => {
+                            *i += 1;
+                            if *i < tokens.len() {
+                                if let Token::StringLiteral(category) = &tokens[*i].token {
+                                    *i += 1;
+                                    PatternExpression::CharacterClass(CharClass::UnicodeCategory(
+                                        category.clone(),
+                                    ))
+                                } else {
+                                    return Err(ParseError::new(
+                                        "Expected string literal after 'unicode category'"
+                                            .to_string(),
+                                        tokens[*i].line,
+                                        tokens[*i].column,
+                                    ));
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected category name after 'unicode category'".to_string(),
+                                    tokens[*i - 1].line,
+                                    tokens[*i - 1].column,
+                                ));
+                            }
+                        }
+                        Token::KeywordScript => {
+                            *i += 1;
+                            if *i < tokens.len() {
+                                if let Token::StringLiteral(script) = &tokens[*i].token {
+                                    *i += 1;
+                                    PatternExpression::CharacterClass(CharClass::UnicodeScript(
+                                        script.clone(),
+                                    ))
+                                } else {
+                                    return Err(ParseError::new(
+                                        "Expected string literal after 'unicode script'"
+                                            .to_string(),
+                                        tokens[*i].line,
+                                        tokens[*i].column,
+                                    ));
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected script name after 'unicode script'".to_string(),
+                                    tokens[*i - 1].line,
+                                    tokens[*i - 1].column,
+                                ));
+                            }
+                        }
+                        Token::Identifier(name) if name == "property" => {
+                            *i += 1;
+                            if *i < tokens.len() {
+                                if let Token::StringLiteral(property) = &tokens[*i].token {
+                                    *i += 1;
+                                    PatternExpression::CharacterClass(CharClass::UnicodeProperty(
+                                        property.clone(),
+                                    ))
+                                } else {
+                                    return Err(ParseError::new(
+                                        "Expected string literal after 'unicode property'"
+                                            .to_string(),
+                                        tokens[*i].line,
+                                        tokens[*i].column,
+                                    ));
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected property name after 'unicode property'".to_string(),
+                                    tokens[*i - 1].line,
+                                    tokens[*i - 1].column,
+                                ));
+                            }
+                        }
+                        _ => {
+                            return Err(ParseError::new(
+                                "Expected 'letter', 'digit', 'category', 'script', or 'property' after 'unicode'".to_string(),
+                                tokens[*i].line,
+                                tokens[*i].column,
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        "Incomplete unicode pattern".to_string(),
+                        tokens[*i - 1].line,
+                        tokens[*i - 1].column,
+                    ));
+                }
+            }
+
+            // Anchors
+            Token::KeywordStart => {
+                if *i + 2 < tokens.len()
+                    && tokens[*i + 1].token == Token::KeywordOf
+                    && tokens[*i + 2].token == Token::KeywordText
+                {
+                    *i += 3;
+                    PatternExpression::Anchor(Anchor::StartOfText)
+                } else {
+                    return Err(ParseError::new(
+                        "Expected 'start of text'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+
+            // Capture groups
+            Token::KeywordCapture => {
+                *i += 1;
+                if *i < tokens.len() && tokens[*i].token == Token::LeftBrace {
+                    *i += 1; // Skip '{'
+
+                    // Find the matching '}'
+                    let start_pos = *i;
+                    let mut brace_count = 1;
+                    while *i < tokens.len() && brace_count > 0 {
+                        match tokens[*i].token {
+                            Token::LeftBrace => brace_count += 1,
+                            Token::RightBrace => brace_count -= 1,
+                            _ => {}
+                        }
+                        *i += 1;
+                    }
+
+                    if brace_count > 0 {
+                        return Err(ParseError::new(
+                            "Unclosed capture group".to_string(),
+                            token.line,
+                            token.column,
+                        ));
+                    }
+
+                    let end_pos = *i - 1; // Before the closing '}'
+                    let capture_tokens = &tokens[start_pos..end_pos];
+
+                    // Expect "as" and capture name
+                    if *i < tokens.len() && tokens[*i].token == Token::KeywordAs {
+                        *i += 1;
+                        if *i < tokens.len() {
+                            if let Token::Identifier(name) = &tokens[*i].token {
+                                *i += 1;
+                                let mut inner_i = 0;
+                                let inner_pattern =
+                                    Self::parse_pattern_sequence(capture_tokens, &mut inner_i)?;
+                                PatternExpression::Capture {
+                                    name: name.clone(),
+                                    pattern: Box::new(inner_pattern),
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected identifier after 'as'".to_string(),
+                                    tokens[*i].line,
+                                    tokens[*i].column,
+                                ));
+                            }
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected capture name after 'as'".to_string(),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected 'as' after capture group".to_string(),
+                            token.line,
+                            token.column,
+                        ));
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        "Expected '{' after 'capture'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+
+            // Backreferences: "same as captured"
+            Token::KeywordSame => {
+                *i += 1;
+                if *i + 1 < tokens.len()
+                    && tokens[*i].token == Token::KeywordAs
+                    && tokens[*i + 1].token == Token::KeywordCaptured
+                {
+                    *i += 2; // Skip "as captured"
+
+                    if *i < tokens.len() {
+                        if let Token::StringLiteral(name) = &tokens[*i].token {
+                            *i += 1;
+                            PatternExpression::Backreference(name.clone())
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected capture name (in quotes) after 'same as captured'"
+                                    .to_string(),
+                                tokens[*i].line,
+                                tokens[*i].column,
+                            ));
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected capture name after 'same as captured'".to_string(),
+                            token.line,
+                            token.column,
+                        ));
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        "Expected 'as captured' after 'same'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+
+            // Lookarounds: "check ahead for", "check not ahead for", "check behind for", "check not behind for"
+            Token::KeywordCheck => {
+                *i += 1;
+                if *i >= tokens.len() {
+                    return Err(ParseError::new(
+                        "Expected 'ahead' or 'behind' after 'check'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+
+                let is_negative = if tokens[*i].token == Token::KeywordNot {
+                    *i += 1;
+                    true
+                } else {
+                    false
+                };
+
+                if *i >= tokens.len() {
+                    return Err(ParseError::new(
+                        "Expected 'ahead' or 'behind' after 'check'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+
+                match &tokens[*i].token {
+                    Token::KeywordAhead => {
+                        *i += 1;
+                        if *i < tokens.len() && tokens[*i].token == Token::KeywordFor {
+                            *i += 1; // Skip "for"
+
+                            // Parse the pattern inside braces
+                            if *i < tokens.len() && tokens[*i].token == Token::LeftBrace {
+                                *i += 1; // Skip "{"
+                                let pattern_start = *i;
+
+                                // Find matching right brace
+                                let mut brace_count = 1;
+                                let mut pattern_end = *i;
+                                while pattern_end < tokens.len() && brace_count > 0 {
+                                    match &tokens[pattern_end].token {
+                                        Token::LeftBrace => brace_count += 1,
+                                        Token::RightBrace => brace_count -= 1,
+                                        _ => {}
+                                    }
+                                    if brace_count > 0 {
+                                        pattern_end += 1;
+                                    }
+                                }
+
+                                if brace_count != 0 {
+                                    return Err(ParseError::new(
+                                        "Unmatched '{' in lookahead pattern".to_string(),
+                                        tokens[pattern_start - 1].line,
+                                        tokens[pattern_start - 1].column,
+                                    ));
+                                }
+
+                                let pattern_tokens = &tokens[pattern_start..pattern_end];
+                                *i = pattern_end + 1; // Skip past '}'
+
+                                let inner_pattern = Self::parse_pattern_tokens(pattern_tokens)?;
+
+                                if is_negative {
+                                    PatternExpression::NegativeLookahead(Box::new(inner_pattern))
+                                } else {
+                                    PatternExpression::Lookahead(Box::new(inner_pattern))
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected '{' after 'check ahead for'".to_string(),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected 'for' after 'check ahead'".to_string(),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                    }
+                    Token::KeywordBehind => {
+                        *i += 1;
+                        if *i < tokens.len() && tokens[*i].token == Token::KeywordFor {
+                            *i += 1; // Skip "for"
+
+                            // Parse the pattern inside braces
+                            if *i < tokens.len() && tokens[*i].token == Token::LeftBrace {
+                                *i += 1; // Skip "{"
+                                let pattern_start = *i;
+
+                                // Find matching right brace
+                                let mut brace_count = 1;
+                                let mut pattern_end = *i;
+                                while pattern_end < tokens.len() && brace_count > 0 {
+                                    match &tokens[pattern_end].token {
+                                        Token::LeftBrace => brace_count += 1,
+                                        Token::RightBrace => brace_count -= 1,
+                                        _ => {}
+                                    }
+                                    if brace_count > 0 {
+                                        pattern_end += 1;
+                                    }
+                                }
+
+                                if brace_count != 0 {
+                                    return Err(ParseError::new(
+                                        "Unmatched '{' in lookbehind pattern".to_string(),
+                                        tokens[pattern_start - 1].line,
+                                        tokens[pattern_start - 1].column,
+                                    ));
+                                }
+
+                                let pattern_tokens = &tokens[pattern_start..pattern_end];
+                                *i = pattern_end + 1; // Skip past '}'
+
+                                let inner_pattern = Self::parse_pattern_tokens(pattern_tokens)?;
+
+                                if is_negative {
+                                    PatternExpression::NegativeLookbehind(Box::new(inner_pattern))
+                                } else {
+                                    PatternExpression::Lookbehind(Box::new(inner_pattern))
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected '{' after 'check behind for'".to_string(),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected 'for' after 'check behind'".to_string(),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(ParseError::new(
+                            "Expected 'ahead' or 'behind' after 'check'".to_string(),
+                            tokens[*i].line,
+                            tokens[*i].column,
+                        ));
+                    }
+                }
+            }
+
+            // Handle "by" token after identifier - this happens when "followed" was consumed elsewhere
+            Token::KeywordBy => {
+                // This is likely a stray "by" after "followed" was consumed
+                // Just return an error suggesting the issue
+                return Err(ParseError::new(
+                    "Found 'by' keyword - did you mean 'followed by'? Note: 'followed by' should be used between pattern elements".to_string(),
+                    token.line,
+                    token.column,
+                ));
+            }
+
+            _ => {
+                return Err(ParseError::new(
+                    format!("Unexpected token in pattern: {:?}", token.token),
+                    token.line,
+                    token.column,
+                ));
+            }
+        };
+
+        // Check for quantifiers after the element
+        Self::parse_quantifier(tokens, i, element)
+    }
+
+    /// Parse quantifiers that can appear after base elements (exactly, between)
+    fn parse_quantifier(
+        tokens: &[TokenWithPosition],
+        i: &mut usize,
+        base_pattern: PatternExpression,
+    ) -> Result<PatternExpression, ParseError> {
+        if *i >= tokens.len() {
+            return Ok(base_pattern);
+        }
+
+        match &tokens[*i].token {
+            Token::KeywordExactly => {
+                if *i + 1 < tokens.len() {
+                    if let Token::IntLiteral(n) = tokens[*i + 1].token {
+                        *i += 2;
+                        Ok(PatternExpression::Quantified {
+                            pattern: Box::new(base_pattern),
+                            quantifier: Quantifier::Exactly(n as u32),
+                        })
+                    } else {
+                        Ok(base_pattern)
+                    }
+                } else {
+                    Ok(base_pattern)
+                }
+            }
+            Token::KeywordBetween => {
+                if *i + 3 < tokens.len() && tokens[*i + 2].token == Token::KeywordAnd {
+                    if let (Token::IntLiteral(min), Token::IntLiteral(max)) =
+                        (&tokens[*i + 1].token, &tokens[*i + 3].token)
+                    {
+                        *i += 4;
+                        Ok(PatternExpression::Quantified {
+                            pattern: Box::new(base_pattern),
+                            quantifier: Quantifier::Between(*min as u32, *max as u32),
+                        })
+                    } else {
+                        Ok(base_pattern)
+                    }
+                } else {
+                    Ok(base_pattern)
+                }
+            }
+            _ => Ok(base_pattern),
+        }
     }
 }

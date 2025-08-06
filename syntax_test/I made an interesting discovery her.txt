@@ -1,0 +1,89 @@
+I made an interesting discovery here is some sample code
+
+store number1 as 10
+store number2 as 20
+store sum as number1 ++ number2  // This line adds number1 and number2
+display "sum is: " + sum
+
+This code has two plus signs in it and throws this error. it already starts out shifted to the left by 1
+
+error[ERROR]: Unexpected token in expression: Plus
+  ┌─ test1.wfl:3:21
+  │
+3 │ store sum as number1 ++ number2  // This line adds number1 and number2
+  │                     ^ Error occurred here
+
+The error is correct even though the ^ is off by one here is the lex output for that
+
+  11: Identifier("number1") at line 3, column 14 (length: 7)
+  12: Plus at line 3, column 22 (length: 1)
+  13: Plus at line 3, column 23 (length: 1)
+
+However if we add a newline
+
+store number1 as 10
+store number2 as 20
+
+store sum as number1 ++ number2  // This line adds number1 and number2
+display "sum is: " + sum
+
+We get
+
+error[ERROR]: Unexpected token in expression: Plus
+  ┌─ test1.wfl:4:20
+  │
+4 │ store sum as number1 ++ number2  // This line adds number1 and number2
+  │                    ^ Error occurred here
+
+Notice how the ^ moved to the left by one
+
+
+Every newline shifts the ^ to the left by 1. thus the "error" shift along with it
+
+Thus
+
+store number1 as 10
+store number2 as 20
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ //hi there you in the wrong place buddy
+
+
+
+store sum as number1 ++ number2  // This line adds number1 and number2
+display "sum is: " + sum
+
+nets us
+error[ERROR]: Unexpected token in expression: Plus
+   ┌─ test1.wfl:27:41
+   │
+27 │  //hi there you in the wrong place buddy
+   │                                         ^ Error occurred here
+
+the lex output
+
+  11: Identifier("number1") at line 31, column 14 (length: 7)
+  12: Plus at line 31, column 22 (length: 1)
+  13: Plus at line 31, column 23 (length: 1)

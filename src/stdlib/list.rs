@@ -36,8 +36,15 @@ pub fn native_length(args: Vec<Value>) -> Result<Value, RuntimeError> {
         ));
     }
 
-    let list = expect_list(&args[0])?;
-    Ok(Value::Number(list.borrow().len() as f64))
+    match &args[0] {
+        Value::List(list) => Ok(Value::Number(list.borrow().len() as f64)),
+        Value::Text(text) => Ok(Value::Number(text.len() as f64)),
+        _ => Err(RuntimeError::new(
+            format!("length expects a list or text, got {}", args[0].type_name()),
+            0,
+            0,
+        )),
+    }
 }
 
 pub fn native_push(args: Vec<Value>) -> Result<Value, RuntimeError> {

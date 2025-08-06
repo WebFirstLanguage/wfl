@@ -1,6 +1,5 @@
 pub mod core;
 pub mod filesystem;
-pub mod legacy_pattern;
 pub mod list;
 pub mod math;
 pub mod pattern;
