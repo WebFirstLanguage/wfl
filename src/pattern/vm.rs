@@ -1,19 +1,50 @@
+//! Pattern Virtual Machine - Executes Pattern Bytecode
+//!
+//! The pattern VM is a stack-based virtual machine that executes compiled
+//! pattern bytecode. It provides efficient pattern matching with support
+//! for advanced features like backtracking, lookaround assertions, and
+//! capture groups.
+
 use super::PatternError;
 use super::instruction::{Instruction, Program};
 use std::collections::HashMap;
 
+/// Maximum number of execution steps to prevent ReDoS (Regular Expression Denial of Service) attacks.
+/// This limit ensures that malicious or poorly designed patterns cannot cause infinite loops.
 const MAX_STEPS: usize = 100_000;
 
-/// Result of a pattern match
+/// Result of a pattern match operation.
+///
+/// Contains the position of the match, the matched text, and any captured groups.
+/// All positions are character indices, not byte indices, for proper Unicode support.
+///
+/// # Fields
+/// * `start` - Character index where the match begins (inclusive)
+/// * `end` - Character index where the match ends (exclusive)  
+/// * `matched_text` - The actual text that was matched
+/// * `captures` - Named capture groups and their matched content
 #[derive(Debug, Clone)]
 pub struct MatchResult {
+    /// Start position of the match (character index)
     pub start: usize,
+    /// End position of the match (character index)
     pub end: usize,
+    /// The text that was matched
     pub matched_text: String,
+    /// Named capture groups and their values
     pub captures: HashMap<String, String>,
 }
 
 impl MatchResult {
+    /// Create a new match result without capture groups.
+    ///
+    /// # Arguments
+    /// * `start` - Starting character index of the match
+    /// * `end` - Ending character index of the match (exclusive)
+    /// * `text` - The full input text being matched
+    ///
+    /// # Returns
+    /// A new MatchResult with empty captures
     pub fn new(start: usize, end: usize, text: &str) -> Self {
         let chars: Vec<char> = text.chars().collect();
         let matched_text = if start <= end && end <= chars.len() {
@@ -29,6 +60,16 @@ impl MatchResult {
         }
     }
 
+    /// Create a new match result with capture groups.
+    ///
+    /// # Arguments
+    /// * `start` - Starting character index of the match
+    /// * `end` - Ending character index of the match (exclusive)
+    /// * `text` - The full input text being matched
+    /// * `captures` - Named capture groups and their matched values
+    ///
+    /// # Returns
+    /// A new MatchResult with the provided captures
     pub fn with_captures(
         start: usize,
         end: usize,
@@ -70,9 +111,29 @@ impl VMState {
     }
 }
 
-/// Pattern matching virtual machine
+/// Pattern matching virtual machine.
+///
+/// The VM executes compiled pattern bytecode using a stack-based approach
+/// with support for backtracking, captures, and advanced pattern features.
+///
+/// ## Security Features
+/// * **Step Limiting**: Prevents ReDoS attacks by limiting execution steps
+/// * **Memory Safety**: All operations are bounds-checked
+/// * **Safe Backtracking**: Controlled state management prevents infinite loops
+///
+/// ## Performance Features
+/// * **Bytecode Execution**: Efficient interpretation of compiled patterns
+/// * **Character-based**: Works with Unicode character indices
+/// * **Optimized Backtracking**: Minimal state saves for performance
+///
+/// ## Thread Safety
+/// Each VM instance maintains its own execution state, making it safe to use
+/// different VM instances concurrently. However, a single VM instance should
+/// not be used from multiple threads simultaneously.
 pub struct PatternVM {
+    /// Count of execution steps to prevent infinite loops
     step_count: usize,
+    /// Debug flag for test mode (only available in test builds)
     #[cfg(test)]
     debug: bool,
 }

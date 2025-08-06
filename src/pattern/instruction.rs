@@ -1,4 +1,22 @@
-/// Bytecode instructions for the pattern matching virtual machine
+//! Bytecode Instructions for Pattern Virtual Machine
+//!
+//! This module defines the instruction set for the WFL pattern matching
+//! virtual machine. The instructions provide a comprehensive set of operations
+//! for efficient pattern matching with Unicode support.
+
+/// Bytecode instructions for the pattern matching virtual machine.
+///
+/// Each instruction represents a single operation that the VM can execute.
+/// Instructions are designed to be atomic and efficient, supporting advanced
+/// pattern matching features while maintaining good performance.
+///
+/// ## Instruction Categories
+/// * **Character Matching**: `Char`, `CharClass`, `Literal`
+/// * **Control Flow**: `Jump`, `Split`, `Match`, `Fail`
+/// * **Captures**: `StartCapture`, `EndCapture`, `Backreference`  
+/// * **Anchors**: `StartAnchor`, `EndAnchor`
+/// * **Backtracking**: `Save`, `Restore`
+/// * **Lookaround**: `BeginLookahead`, `EndLookahead`, etc.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
     /// Match a specific character
@@ -62,17 +80,40 @@ pub enum Instruction {
     CheckNegativeLookbehind(Box<Program>), // sub-program to match before current position
 }
 
-/// Character class types supported by the pattern system
+/// Character class types supported by the pattern system.
+///
+/// Provides comprehensive Unicode support including character categories,
+/// scripts, and properties. This allows patterns to match character sets
+/// beyond ASCII using Unicode standards.
+///
+/// ## Built-in Classes
+/// * `Digit` - ASCII digits 0-9
+/// * `Letter` - ASCII letters a-z, A-Z (extended for Unicode)
+/// * `Whitespace` - Space, tab, newline, and other whitespace characters
+/// * `Any` - Matches any single character (except line terminators in some modes)
+///
+/// ## Unicode Support
+/// * `UnicodeCategory` - Unicode general categories (Letter, Number, Symbol, etc.)
+/// * `UnicodeScript` - Unicode scripts (Greek, Latin, Arabic, Cyrillic, etc.)
+/// * `UnicodeProperty` - Unicode properties (Alphabetic, Uppercase, etc.)
+///
+/// For complete Unicode category and script support, see the Unicode documentation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CharClassType {
-    Digit,      // matches 0-9
-    Letter,     // matches a-z, A-Z
-    Whitespace, // matches space, tab, newline, etc.
-    Any,        // matches any single character
-    // Unicode categories
-    UnicodeCategory(String), // e.g., "Letter", "Number", "Symbol"
-    UnicodeScript(String),   // e.g., "Greek", "Latin", "Arabic"
-    UnicodeProperty(String), // e.g., "Alphabetic", "Uppercase", "Lowercase"
+    /// ASCII digits 0-9
+    Digit,
+    /// Letters (ASCII a-z, A-Z, extended for Unicode)
+    Letter,
+    /// Whitespace characters (space, tab, newline, etc.)
+    Whitespace,
+    /// Any single character
+    Any,
+    /// Unicode general category (e.g., "Letter", "Number", "Symbol")
+    UnicodeCategory(String),
+    /// Unicode script (e.g., "Greek", "Latin", "Arabic")
+    UnicodeScript(String),
+    /// Unicode property (e.g., "Alphabetic", "Uppercase", "Lowercase")
+    UnicodeProperty(String),
 }
 
 impl CharClassType {
