@@ -1,0 +1,8 @@
+
+
+// Simple string matching
+check if "hello@example.com" matches pattern "email":
+    display "Valid email!"
+otherwise:
+    display "Invalid email"
+end check
