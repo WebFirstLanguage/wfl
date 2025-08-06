@@ -1,0 +1,4 @@
+store name as "Alice"
+store age as 30
+display "Hello " with name
+display "Age: " with age

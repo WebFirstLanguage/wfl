@@ -1,0 +1,4 @@
+store a as 5
+store b as 3
+display "Addition: " with (a plus b)
+display "Multiplication: " with (a times b)

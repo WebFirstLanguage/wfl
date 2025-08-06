@@ -1,0 +1,13 @@
+store name as "test"
+store number as 42
+
+display "Empty: '{}'"
+
+display "Nested: {number plus 10}"
+
+display "Complex: {(number plus 5) times 2}"
+
+display "Multiple: {name} has {number} items and {number plus 1} total"
+
+store items as [1 and 2 and 3]
+display "Chained: First item total is {length of items}"

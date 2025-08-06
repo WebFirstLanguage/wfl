@@ -136,3 +136,14 @@ pub fn register_list(env: &mut Environment) {
         Value::NativeFunction("index_of", native_indexof),
     );
 }
+
+pub fn register_list_specific(env: &mut Environment) {
+    env.define("push", Value::NativeFunction("push", native_push));
+    env.define("pop", Value::NativeFunction("pop", native_pop));
+    env.define("indexof", Value::NativeFunction("indexof", native_indexof));
+
+    env.define(
+        "index_of",
+        Value::NativeFunction("index_of", native_indexof),
+    );
+}

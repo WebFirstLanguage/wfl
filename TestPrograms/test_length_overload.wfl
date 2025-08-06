@@ -1,0 +1,7 @@
+store message as "hello"
+store numbers as [1 and 2 and 3 and 4]
+
+display "Text length: {length of message}"
+display "List length: {length of numbers}"
+display "Text: '{message}' has {length of message} characters"
+display "List has {length of numbers} items"

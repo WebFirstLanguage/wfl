@@ -135,3 +135,27 @@ pub fn register_text(env: &mut Environment) {
         Value::NativeFunction("to_lowercase", native_tolowercase),
     );
 }
+
+pub fn register_text_specific(env: &mut Environment) {
+    env.define(
+        "touppercase",
+        Value::NativeFunction("touppercase", native_touppercase),
+    );
+    env.define(
+        "tolowercase",
+        Value::NativeFunction("tolowercase", native_tolowercase),
+    );
+    env.define(
+        "substring",
+        Value::NativeFunction("substring", native_substring),
+    );
+
+    env.define(
+        "to_uppercase",
+        Value::NativeFunction("to_uppercase", native_touppercase),
+    );
+    env.define(
+        "to_lowercase",
+        Value::NativeFunction("to_lowercase", native_tolowercase),
+    );
+}
