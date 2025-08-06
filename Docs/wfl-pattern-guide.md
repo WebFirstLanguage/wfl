@@ -54,32 +54,103 @@ store words as pattern_split(text, whitespace_pattern)
 
 ### Character Classes
 
-```wfl
-// Basic character types
-any letter          // [a-zA-Z]
-any digit           // [0-9] 
-any whitespace      // [ \t\n\r]
-any punctuation     // punctuation characters
-any character       // . (any single character)
+Character classes define what types of characters to match at a specific position in your pattern.
 
-// Combined classes
-any letter or digit              // [a-zA-Z0-9]
-any letter or digit or "_"       // [a-zA-Z0-9_]
-any character not in "xyz"       // [^xyz]
-any character from "a" to "z"    // [a-z]
+#### Basic Character Types
+
+| Pattern | What it matches | Example matches | When to use |
+|---------|----------------|-----------------|-------------|
+| `any letter` | Any uppercase or lowercase letter (A-Z, a-z) | "a", "B", "z", "Q" | Matching names, words, or alphabetic content |
+| `any digit` | Any numeric digit (0-9) | "0", "5", "9" | Matching numbers, IDs, or numeric codes |
+| `any whitespace` | Spaces, tabs, newlines, carriage returns | " ", "\t", "\n" | Separating words or handling formatting |
+| `any punctuation` | Common punctuation marks | ".", "!", "?", ",", ";" | Matching sentence endings or separators |
+| `any character` | Literally any single character | "a", "7", "@", " ", "€" | Wildcard matching when you don't care what character appears |
+
+**Examples:**
+```wfl
+// Match any single letter
+check if "A" matches pattern "any letter":  // ✓ matches
+check if "5" matches pattern "any letter":  // ✗ doesn't match
+
+// Match any digit
+check if "7" matches pattern "any digit":   // ✓ matches
+check if "x" matches pattern "any digit":   // ✗ doesn't match
+```
+
+#### Combined Character Classes
+
+These patterns match characters from multiple categories or specific sets.
+
+| Pattern | What it matches | Example matches | When to use |
+|---------|----------------|-----------------|-------------|
+| `any letter or digit` | Letters (A-Z, a-z) OR digits (0-9) | "a", "5", "Z", "0" | Alphanumeric content like usernames or IDs |
+| `any letter or digit or "_"` | Letters, digits, OR underscore | "a", "5", "_" | Variable names or identifiers in code |
+| `any character not in "xyz"` | Any character EXCEPT x, y, or z | "a", "b", "1", "@" (but not "x", "y", "z") | Excluding specific characters |
+| `any character from "a" to "z"` | Lowercase letters only | "a", "m", "z" (but not "A" or "Z") | Case-sensitive matching |
+
+**Examples:**
+```wfl
+// Match alphanumeric characters
+check if "user123" matches pattern "one or more of (any letter or digit)":  // ✓ matches
+check if "user@123" matches pattern "one or more of (any letter or digit)": // ✗ contains @
+
+// Exclude specific characters
+check if "hello" matches pattern "one or more of (any character not in 'l')":  // ✗ contains 'l'
+check if "world" matches pattern "one or more of (any character not in 'x')":  // ✓ no 'x' present
 ```
 
 ### Quantifiers
 
+Quantifiers specify how many times a pattern should repeat. They control the "greediness" of your pattern matching.
+
+#### Repetition Patterns
+
+| Pattern | What it means | Example pattern | Matches | Doesn't match |
+|---------|---------------|-----------------|---------|---------------|
+| `zero or more` | Match 0 or unlimited times (optional and repeatable) | `zero or more letters` | "", "a", "abc", "hello" | "123", "a b" (has space) |
+| `one or more` | Match at least once (required and repeatable) | `one or more digits` | "1", "42", "999999" | "", "abc", "12a" |
+| `optional` | Match 0 or 1 time (may or may not exist) | `optional whitespace` | "", " " (single space) | "  " (multiple spaces) |
+| `exactly N` | Match exactly N times | `exactly 3 digits` | "123", "000", "789" | "12", "1234", "abc" |
+| `N to M` | Match between N and M times (inclusive) | `2 to 4 letters` | "ab", "abc", "abcd" | "a", "abcde" |
+| `at least N` | Match N or more times | `at least 5 characters` | "hello", "hello world" | "hi", "test" |
+| `at most N` | Match up to N times (0 to N) | `at most 10 digits` | "", "1", "1234567890" | "12345678901" |
+
+**Practical Examples:**
 ```wfl
-// Repetition patterns
-zero or more letters    // letter*
-one or more digits      // digit+
-optional whitespace     // whitespace?
-exactly 3 digits        // digit{3}
-2 to 4 letters         // letter{2,4}
-at least 5 characters   // character{5,}
-at most 10 digits       // digit{,10}
+// Phone number with optional country code
+create pattern phone:
+    optional "+"              // Country code prefix (may or may not exist)
+    one or more digits        // Required phone number digits
+end pattern
+
+// Password with length requirements
+create pattern password:
+    at least 8 of any character    // Minimum 8 characters
+end pattern
+
+// ZIP code (exactly 5 or 9 digits)
+create pattern zip_code:
+    exactly 5 digits
+    optional (
+        "-" then exactly 4 digits  // Optional +4 extension
+    )
+end pattern
+
+// Username (3-20 alphanumeric characters)
+create pattern username:
+    3 to 20 of (any letter or digit or "_")
+end pattern
+```
+
+**Understanding Greedy vs Non-Greedy:**
+- By default, quantifiers are "greedy" - they match as much as possible
+- Use `minimal` or `lazy` keywords for non-greedy matching when needed
+```wfl
+// Greedy: matches entire string between quotes
+"one or more of any character" between quotes
+
+// Non-greedy: matches shortest possible string
+"minimal one or more of any character" between quotes
 ```
 
 ### Sequences and Alternatives

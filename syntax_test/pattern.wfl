@@ -45,6 +45,7 @@ otherwise:
     display phone1 + " is a Invalid phone number"
 end check
 
+
 // Compile patterns for performance (future feature)
 // compile pattern "email" as email_validator
 
