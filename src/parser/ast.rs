@@ -482,6 +482,7 @@ pub enum CharClass {
     Digit,      // digit
     Letter,     // letter
     Whitespace, // whitespace
+    Any,        // any character (.)
     // Unicode categories
     UnicodeCategory(String), // e.g., "Letter", "Number", "Symbol"
     UnicodeScript(String),   // e.g., "Greek", "Latin", "Arabic"
@@ -496,6 +497,8 @@ pub enum Quantifier {
     OneOrMore,         // one or more
     Exactly(u32),      // exactly N
     Between(u32, u32), // between N and M
+    AtLeast(u32),      // at least N
+    AtMost(u32),       // at most N
 }
 
 /// Represents different types of anchors

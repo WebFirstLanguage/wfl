@@ -111,6 +111,10 @@ pub enum Token {
     KeywordDatabase,
     #[token("at")]
     KeywordAt,
+    #[token("least")]
+    KeywordLeast,
+    #[token("most")]
+    KeywordMost,
     #[token("read")]
     KeywordRead,
     #[token("write")]
@@ -173,6 +177,8 @@ pub enum Token {
     KeywordLetter,
     #[token("whitespace")]
     KeywordWhitespace,
+    #[token("character")]
+    KeywordCharacter,
     #[token("unicode")]
     KeywordUnicode,
     #[token("category")]
@@ -375,6 +381,8 @@ impl Token {
                 | Token::KeywordBack
                 | Token::KeywordAs
                 | Token::KeywordAt
+                | Token::KeywordLeast
+                | Token::KeywordMost
                 | Token::KeywordDefine
                 | Token::KeywordNeeds
                 | Token::KeywordChange

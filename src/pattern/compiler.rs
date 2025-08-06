@@ -232,6 +232,7 @@ impl PatternCompiler {
             CharClass::Digit => CharClassType::Digit,
             CharClass::Letter => CharClassType::Letter,
             CharClass::Whitespace => CharClassType::Whitespace,
+            CharClass::Any => CharClassType::Any,
             CharClass::UnicodeCategory(category) => {
                 CharClassType::UnicodeCategory(category.clone())
             }
@@ -422,6 +423,55 @@ impl PatternCompiler {
                 // Optional repetitions
                 let optional_count = max - min;
                 for _ in 0..optional_count {
+                    let split_addr = self.program.len();
+                    self.program.push(Instruction::Split(0, 0)); // Will be patched
+
+                    self.compile_expression(pattern)?;
+
+                    let end_addr = self.program.len();
+
+                    // Patch split
+                    if let Some(Instruction::Split(first, second)) =
+                        self.program.instructions.get_mut(split_addr)
+                    {
+                        *first = split_addr + 1; // Try the pattern
+                        *second = end_addr; // Or skip it
+                    }
+                }
+            }
+
+            Quantifier::AtLeast(n) => {
+                // At least N: first N required, then zero or more optional
+
+                // Required repetitions
+                for _ in 0..*n {
+                    self.compile_expression(pattern)?;
+                }
+
+                // Then zero or more (same as ZeroOrMore logic)
+                let loop_start = self.program.len();
+                self.program.push(Instruction::Split(0, 0)); // Will be patched
+
+                self.compile_expression(pattern)?;
+
+                // Jump back to loop start
+                self.program.push(Instruction::Jump(loop_start));
+
+                let end_addr = self.program.len();
+
+                // Patch split
+                if let Some(Instruction::Split(first, second)) =
+                    self.program.instructions.get_mut(loop_start)
+                {
+                    *first = loop_start + 1; // Try the pattern
+                    *second = end_addr; // Or exit loop
+                }
+            }
+
+            Quantifier::AtMost(n) => {
+                // At most N: all repetitions are optional, up to N
+
+                for _ in 0..*n {
                     let split_addr = self.program.len();
                     self.program.push(Instruction::Split(0, 0)); // Will be patched
 

@@ -45,6 +45,22 @@ otherwise:
     display phone1 + " is a Invalid phone number"
 end check
 
+create pattern id_number:
+   exactly 3 digits
+    then "-"
+    then 3 to 4 digits
+    then "-"
+    then exactly 3 digits
+end pattern
+
+store id1 as "1234-567-8901"
+
+check if id1 matches id_number:
+    display id1 + " is a Valid ID number!"
+otherwise:
+    display id1 + " is a Invalid ID number"
+end check
+
 
 // Compile patterns for performance (future feature)
 // compile pattern "email" as email_validator

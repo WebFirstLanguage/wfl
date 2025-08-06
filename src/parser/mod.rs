@@ -4737,9 +4737,13 @@ impl<'a> Parser<'a> {
                             *i += 1;
                             PatternExpression::CharacterClass(CharClass::Whitespace)
                         }
+                        Token::KeywordCharacter => {
+                            *i += 1;
+                            PatternExpression::CharacterClass(CharClass::Any)
+                        }
                         _ => {
                             return Err(ParseError::new(
-                                "Expected 'letter', 'digit', or 'whitespace' after 'any'"
+                                "Expected 'letter', 'digit', 'whitespace', or 'character' after 'any'"
                                     .to_string(),
                                 tokens[*i].line,
                                 tokens[*i].column,
@@ -4818,6 +4822,157 @@ impl<'a> Parser<'a> {
                 PatternExpression::Quantified {
                     pattern: Box::new(base_element),
                     quantifier: Quantifier::Optional,
+                }
+            }
+
+            Token::KeywordExactly => {
+                // Handle "exactly N element" syntax
+                *i += 1; // Skip "exactly"
+                if *i < tokens.len() {
+                    if let Token::IntLiteral(n) = tokens[*i].token {
+                        *i += 1; // Skip the number
+
+                        // Optionally consume "of" keyword
+                        if *i < tokens.len() && tokens[*i].token == Token::KeywordOf {
+                            *i += 1; // Skip "of"
+                        }
+
+                        let base_element = Self::parse_pattern_element(tokens, i)?;
+                        PatternExpression::Quantified {
+                            pattern: Box::new(base_element),
+                            quantifier: Quantifier::Exactly(n as u32),
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected number after 'exactly' in pattern".to_string(),
+                            tokens[*i].line,
+                            tokens[*i].column,
+                        ));
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        "Expected number after 'exactly' in pattern".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+
+            Token::KeywordAt => {
+                // Handle "at least N" or "at most N" syntax
+                *i += 1; // Skip "at"
+                if *i < tokens.len() {
+                    match &tokens[*i].token {
+                        Token::KeywordLeast => {
+                            *i += 1; // Skip "least"
+                            if *i < tokens.len() {
+                                if let Token::IntLiteral(n) = tokens[*i].token {
+                                    *i += 1; // Skip the number
+
+                                    // Optionally consume "of" keyword
+                                    if *i < tokens.len() && tokens[*i].token == Token::KeywordOf {
+                                        *i += 1; // Skip "of"
+                                    }
+
+                                    let base_element = Self::parse_pattern_element(tokens, i)?;
+                                    PatternExpression::Quantified {
+                                        pattern: Box::new(base_element),
+                                        quantifier: Quantifier::AtLeast(n as u32),
+                                    }
+                                } else {
+                                    return Err(ParseError::new(
+                                        "Expected number after 'at least' in pattern".to_string(),
+                                        tokens[*i].line,
+                                        tokens[*i].column,
+                                    ));
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected number after 'at least' in pattern".to_string(),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
+                        }
+                        Token::KeywordMost => {
+                            *i += 1; // Skip "most"
+                            if *i < tokens.len() {
+                                if let Token::IntLiteral(n) = tokens[*i].token {
+                                    *i += 1; // Skip the number
+
+                                    // Optionally consume "of" keyword
+                                    if *i < tokens.len() && tokens[*i].token == Token::KeywordOf {
+                                        *i += 1; // Skip "of"
+                                    }
+
+                                    let base_element = Self::parse_pattern_element(tokens, i)?;
+                                    PatternExpression::Quantified {
+                                        pattern: Box::new(base_element),
+                                        quantifier: Quantifier::AtMost(n as u32),
+                                    }
+                                } else {
+                                    return Err(ParseError::new(
+                                        "Expected number after 'at most' in pattern".to_string(),
+                                        tokens[*i].line,
+                                        tokens[*i].column,
+                                    ));
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected number after 'at most' in pattern".to_string(),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
+                        }
+                        _ => {
+                            return Err(ParseError::new(
+                                "Expected 'least' or 'most' after 'at' in pattern".to_string(),
+                                tokens[*i].line,
+                                tokens[*i].column,
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        "Expected 'least' or 'most' after 'at' in pattern".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+
+            // Handle "N to M" syntax for numeric ranges
+            Token::IntLiteral(min) => {
+                let min_val = *min as u32;
+                *i += 1; // Skip the number
+
+                // Check if this is a range pattern "N to M"
+                if *i + 1 < tokens.len() && tokens[*i].token == Token::KeywordTo {
+                    *i += 1; // Skip "to"
+                    if let Token::IntLiteral(max) = tokens[*i].token {
+                        *i += 1; // Skip the max number
+
+                        // Optionally consume "of" keyword
+                        if *i < tokens.len() && tokens[*i].token == Token::KeywordOf {
+                            *i += 1; // Skip "of"
+                        }
+
+                        let base_element = Self::parse_pattern_element(tokens, i)?;
+                        PatternExpression::Quantified {
+                            pattern: Box::new(base_element),
+                            quantifier: Quantifier::Between(min_val, max as u32),
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected number after 'to' in pattern".to_string(),
+                            tokens[*i].line,
+                            tokens[*i].column,
+                        ));
+                    }
+                } else {
+                    // It's just a number literal, treat it as a literal pattern
+                    PatternExpression::Literal(min.to_string())
                 }
             }
 
@@ -5237,41 +5392,6 @@ impl<'a> Parser<'a> {
                     token.line,
                     token.column,
                 ));
-            }
-
-            // Integer literals for range quantifiers (e.g., "2 to 6 letters")
-            Token::IntLiteral(min) => {
-                let min_val = *min;
-                *i += 1; // Skip the number
-
-                // Check if this is a range quantifier pattern
-                if *i + 1 < tokens.len() && tokens[*i].token == Token::KeywordTo {
-                    if let Token::IntLiteral(max) = &tokens[*i + 1].token {
-                        let max_val = *max;
-                        *i += 2; // Skip "to" and the second number
-
-                        // Now parse the element that follows
-                        let base_element = Self::parse_pattern_element(tokens, i)?;
-
-                        PatternExpression::Quantified {
-                            pattern: Box::new(base_element),
-                            quantifier: Quantifier::Between(min_val as u32, max_val as u32),
-                        }
-                    } else {
-                        return Err(ParseError::new(
-                            "Expected number after 'to' in range quantifier".to_string(),
-                            token.line,
-                            token.column,
-                        ));
-                    }
-                } else {
-                    // Single number quantifier (e.g., "3 digits")
-                    let base_element = Self::parse_pattern_element(tokens, i)?;
-                    PatternExpression::Quantified {
-                        pattern: Box::new(base_element),
-                        quantifier: Quantifier::Exactly(min_val as u32),
-                    }
-                }
             }
 
             // Parentheses for grouping
