@@ -48,7 +48,11 @@ impl WflLanguageServer {
                 if let Err(errors) = analyzer.analyze(&program) {
                     for error in errors {
                         let wfl_diag = diagnostic_reporter.convert_semantic_error(file_id, &error);
-                        diagnostics.push(self.convert_to_lsp_diagnostic(&wfl_diag));
+                        diagnostics.push(self.convert_to_lsp_diagnostic(
+                            &wfl_diag,
+                            &diagnostic_reporter,
+                            file_id,
+                        ));
                     }
                 }
 
@@ -56,14 +60,22 @@ impl WflLanguageServer {
                 if let Err(errors) = type_checker.check_types(&program) {
                     for error in errors {
                         let wfl_diag = diagnostic_reporter.convert_type_error(file_id, &error);
-                        diagnostics.push(self.convert_to_lsp_diagnostic(&wfl_diag));
+                        diagnostics.push(self.convert_to_lsp_diagnostic(
+                            &wfl_diag,
+                            &diagnostic_reporter,
+                            file_id,
+                        ));
                     }
                 }
             }
             Err(errors) => {
                 for error in errors {
                     let wfl_diag = diagnostic_reporter.convert_parse_error(file_id, &error);
-                    diagnostics.push(self.convert_to_lsp_diagnostic(&wfl_diag));
+                    diagnostics.push(self.convert_to_lsp_diagnostic(
+                        &wfl_diag,
+                        &diagnostic_reporter,
+                        file_id,
+                    ));
                 }
             }
         }
@@ -71,7 +83,12 @@ impl WflLanguageServer {
         diagnostics
     }
 
-    fn convert_to_lsp_diagnostic(&self, wfl_diag: &WflDiagnostic) -> Diagnostic {
+    fn convert_to_lsp_diagnostic(
+        &self,
+        wfl_diag: &WflDiagnostic,
+        diagnostic_reporter: &DiagnosticReporter,
+        file_id: usize,
+    ) -> Diagnostic {
         let severity = match wfl_diag.severity {
             wfl::diagnostics::Severity::Error => Some(DiagnosticSeverity::ERROR),
             wfl::diagnostics::Severity::Warning => Some(DiagnosticSeverity::WARNING),
@@ -116,21 +133,25 @@ impl WflLanguageServer {
         };
 
         if let Some((span, _)) = wfl_diag.labels.first() {
-            let start_line = (span.start / 80) as u32; // Rough estimate assuming 80 chars per line
-            let start_character = (span.start % 80) as u32;
-            let end_line = (span.end / 80) as u32;
-            let end_character = (span.end % 80) as u32;
+            // Use proper line/column conversion instead of rough estimation
+            if let Some((start_line, start_character)) =
+                diagnostic_reporter.offset_to_line_col(file_id, span.start)
+            {
+                let (end_line, end_character) = diagnostic_reporter
+                    .offset_to_line_col(file_id, span.end)
+                    .unwrap_or((start_line, start_character + 1)); // Default to start + 1 if end conversion fails
 
-            range = Range {
-                start: Position {
-                    line: start_line,
-                    character: start_character,
-                },
-                end: Position {
-                    line: end_line,
-                    character: end_character,
-                },
-            };
+                range = Range {
+                    start: Position {
+                        line: (start_line.saturating_sub(1)) as u32, // Convert to 0-based line numbering for LSP
+                        character: (start_character.saturating_sub(1)) as u32, // Convert to 0-based column numbering for LSP
+                    },
+                    end: Position {
+                        line: (end_line.saturating_sub(1)) as u32,
+                        character: (end_character.saturating_sub(1)) as u32,
+                    },
+                };
+            }
         }
 
         Diagnostic {

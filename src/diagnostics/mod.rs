@@ -176,6 +176,43 @@ impl DiagnosticReporter {
             .map_err(|_| io::Error::other("Failed to emit diagnostic"))
     }
 
+    pub fn offset_to_line_col(&self, file_id: usize, offset: usize) -> Option<(usize, usize)> {
+        if let Ok(file) = self.files.get(file_id) {
+            let source = file.source();
+
+            // Build line start positions by scanning for newlines
+            let mut line_starts = vec![0];
+            for (i, c) in source.char_indices() {
+                if c == '\n' {
+                    line_starts.push(i + 1);
+                }
+            }
+
+            // Find which line this offset belongs to
+            let line_idx = match line_starts.binary_search(&offset) {
+                Ok(idx) => idx, // Offset is exactly at the start of a line
+                Err(idx) => {
+                    if idx == 0 {
+                        0 // Offset is before the first line
+                    } else {
+                        idx - 1 // Offset is within the previous line
+                    }
+                }
+            };
+
+            if line_idx < line_starts.len() {
+                let line = line_idx + 1; // Convert to 1-based line numbering
+                let column = offset - line_starts[line_idx] + 1; // Convert to 1-based column numbering
+
+                // Ensure the offset is within the file bounds
+                if offset <= source.len() {
+                    return Some((line, column));
+                }
+            }
+        }
+        None
+    }
+
     pub fn line_col_to_offset(&self, file_id: usize, line: usize, column: usize) -> Option<usize> {
         let line = line.saturating_sub(1);
         let column = column.saturating_sub(1);

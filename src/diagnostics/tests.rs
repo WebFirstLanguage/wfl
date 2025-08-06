@@ -38,6 +38,20 @@ fn test_type_error_conversion() {
 }
 
 #[test]
+fn test_offset_to_line_col() {
+    let mut reporter = DiagnosticReporter::new();
+    let source = "line 1\nline 2\nline 3";
+    let file_id = reporter.add_file("test.wfl", source);
+
+    assert_eq!(reporter.offset_to_line_col(file_id, 0), Some((1, 1)));
+    assert_eq!(reporter.offset_to_line_col(file_id, 1), Some((1, 2)));
+    assert_eq!(reporter.offset_to_line_col(file_id, 6), Some((1, 7)));
+    assert_eq!(reporter.offset_to_line_col(file_id, 7), Some((2, 1)));
+    assert_eq!(reporter.offset_to_line_col(file_id, 14), Some((3, 1)));
+    assert_eq!(reporter.offset_to_line_col(file_id, 20), Some((3, 7)));
+}
+
+#[test]
 fn test_line_col_to_offset() {
     let mut reporter = DiagnosticReporter::new();
     let source = "line 1\nline 2\nline 3";
