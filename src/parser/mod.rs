@@ -4617,6 +4617,12 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
+            // Skip "then" as it's just natural language syntax for sequencing
+            if let Token::KeywordThen = tokens[*i].token {
+                *i += 1;
+                continue;
+            }
+
             // Skip "followed by" as it's just natural language syntax
             if *i < tokens.len() {
                 if let Token::Identifier(s) = &tokens[*i].token {
@@ -4721,6 +4727,12 @@ impl<'a> Parser<'a> {
                     // This is "one or more" which should be handled as a quantifier
                     // We need to parse the following element and then apply the quantifier
                     *i += 3; // Skip "one or more"
+
+                    // Optionally consume "of" keyword
+                    if *i < tokens.len() && tokens[*i].token == Token::KeywordOf {
+                        *i += 1; // Skip "of"
+                    }
+
                     let base_element = Self::parse_pattern_element(tokens, i)?;
                     PatternExpression::Quantified {
                         pattern: Box::new(base_element),
@@ -4742,6 +4754,12 @@ impl<'a> Parser<'a> {
                 {
                     // This is "zero or more" which should be handled as a quantifier
                     *i += 3; // Skip "zero or more"
+
+                    // Optionally consume "of" keyword
+                    if *i < tokens.len() && tokens[*i].token == Token::KeywordOf {
+                        *i += 1; // Skip "of"
+                    }
+
                     let base_element = Self::parse_pattern_element(tokens, i)?;
                     PatternExpression::Quantified {
                         pattern: Box::new(base_element),
@@ -4778,6 +4796,16 @@ impl<'a> Parser<'a> {
             Token::KeywordWhitespace => {
                 *i += 1;
                 PatternExpression::CharacterClass(CharClass::Whitespace)
+            }
+
+            // Handle plural forms of character classes
+            Token::Identifier(s) if s == "letters" => {
+                *i += 1;
+                PatternExpression::CharacterClass(CharClass::Letter)
+            }
+            Token::Identifier(s) if s == "digits" => {
+                *i += 1;
+                PatternExpression::CharacterClass(CharClass::Digit)
             }
 
             // Unicode patterns
@@ -5172,6 +5200,86 @@ impl<'a> Parser<'a> {
                     token.line,
                     token.column,
                 ));
+            }
+
+            // Integer literals for range quantifiers (e.g., "2 to 6 letters")
+            Token::IntLiteral(min) => {
+                let min_val = *min;
+                *i += 1; // Skip the number
+
+                // Check if this is a range quantifier pattern
+                if *i + 1 < tokens.len() && tokens[*i].token == Token::KeywordTo {
+                    if let Token::IntLiteral(max) = &tokens[*i + 1].token {
+                        let max_val = *max;
+                        *i += 2; // Skip "to" and the second number
+
+                        // Now parse the element that follows
+                        let base_element = Self::parse_pattern_element(tokens, i)?;
+
+                        PatternExpression::Quantified {
+                            pattern: Box::new(base_element),
+                            quantifier: Quantifier::Between(min_val as u32, max_val as u32),
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected number after 'to' in range quantifier".to_string(),
+                            token.line,
+                            token.column,
+                        ));
+                    }
+                } else {
+                    // Single number quantifier (e.g., "3 digits")
+                    let base_element = Self::parse_pattern_element(tokens, i)?;
+                    PatternExpression::Quantified {
+                        pattern: Box::new(base_element),
+                        quantifier: Quantifier::Exactly(min_val as u32),
+                    }
+                }
+            }
+
+            // Parentheses for grouping
+            Token::LeftParen => {
+                *i += 1; // Skip '('
+
+                // Find the matching right parenthesis
+                let pattern_start = *i;
+                let mut paren_count = 1;
+                let mut pattern_end = *i;
+
+                while pattern_end < tokens.len() && paren_count > 0 {
+                    match &tokens[pattern_end].token {
+                        Token::LeftParen => paren_count += 1,
+                        Token::RightParen => paren_count -= 1,
+                        _ => {}
+                    }
+                    if paren_count > 0 {
+                        pattern_end += 1;
+                    }
+                }
+
+                if paren_count != 0 {
+                    return Err(ParseError::new(
+                        "Unmatched '(' in pattern".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+
+                // Parse the pattern inside parentheses
+                let inner_tokens = &tokens[pattern_start..pattern_end];
+                *i = pattern_end + 1; // Skip past ')'
+
+                if inner_tokens.is_empty() {
+                    return Err(ParseError::new(
+                        "Empty parentheses in pattern".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+
+                // Parse the inner pattern as a sequence
+                let mut inner_i = 0;
+                Self::parse_pattern_sequence(inner_tokens, &mut inner_i)?
             }
 
             _ => {

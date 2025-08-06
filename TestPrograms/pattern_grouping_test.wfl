@@ -1,0 +1,18 @@
+// Test pattern grouping with parentheses and "of" keyword
+create pattern test1:
+    one or more of (any letter or digit)
+end pattern
+
+create pattern test2:
+    zero or more of (any letter or digit or "._-")
+end pattern
+
+create pattern test3:
+    ("http" or "https") then "://"
+end pattern
+
+create pattern test4:
+    2 to 6 letters
+end pattern
+
+display "All pattern grouping tests passed!"

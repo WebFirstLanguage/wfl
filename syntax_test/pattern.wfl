@@ -1,8 +1,52 @@
+store email3 as "ke5crz@hamplex.com"
+
+
+// Define named patterns
+create pattern emailme:
+    one or more of (any letter or digit or "._-")
+    then "@"
+    then one or more of (any letter or digit or "-")
+    then "."
+    then 2 to 6 letters
+end pattern
 
 
 // Simple string matching
-check if "hello@example.com" matches pattern "email":
-    display "Valid email!"
+check if email3 matches pattern emailme:
+    display email3 + " is a Valid email!"
 otherwise:
-    display "Invalid email"
+    display email3 + " is a Invalid email"
 end check
+
+
+// Custom pattern definition
+create pattern greeting:
+    "hello" or "hi" or "hey"
+end pattern
+
+check if "hello world" matches greeting:
+    display "Found greeting!"
+end check
+
+//create a a pattern for phone numbers
+create pattern phone_number:
+    one or more of (digit)
+    then "-"
+    then one or more of (digit)
+    then "-"
+    then one or more of (digit)
+end pattern
+
+store phone1 as "123-456-7890"
+
+check if phone1 matches phone_number:
+    display phone1 + " is a Valid phone number!"
+otherwise:
+    display phone1 + " is a Invalid phone number"
+end check
+
+// Compile patterns for performance (future feature)
+// compile pattern "email" as email_validator
+
+// Test that the pattern was parsed successfully  
+display "Pattern definition parsed successfully!"
