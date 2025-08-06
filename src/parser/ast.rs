@@ -150,6 +150,11 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    MainLoop {
+        body: Vec<Statement>,
+        line: usize,
+        column: usize,
+    },
     DisplayStatement {
         value: Expression,
         line: usize,

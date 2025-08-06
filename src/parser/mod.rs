@@ -1129,6 +1129,20 @@ impl<'a> Parser<'a> {
                 Token::KeywordWrite => self.parse_write_to_statement(),
                 Token::KeywordWait => self.parse_wait_for_statement(),
                 Token::KeywordGive | Token::KeywordReturn => self.parse_return_statement(),
+                Token::Identifier(id) if id == "main" => {
+                    // Check if next token is "loop"
+                    let mut tokens_clone = self.tokens.clone();
+                    tokens_clone.next(); // Skip "main"
+                    if let Some(next_token) = tokens_clone.peek() {
+                        if matches!(next_token.token, Token::KeywordLoop) {
+                            self.parse_main_loop()
+                        } else {
+                            self.parse_expression_statement()
+                        }
+                    } else {
+                        self.parse_expression_statement()
+                    }
+                }
                 _ => self.parse_expression_statement(),
             }
         } else {
@@ -4179,6 +4193,29 @@ impl<'a> Parser<'a> {
             otherwise_block,
             line: try_token.line,
             column: try_token.column,
+        })
+    }
+
+    fn parse_main_loop(&mut self) -> Result<Statement, ParseError> {
+        let main_token = self.tokens.next().unwrap(); // Consume "main"
+        self.expect_token(Token::KeywordLoop, "Expected 'loop' after 'main'")?;
+        self.expect_token(Token::Colon, "Expected ':' after 'main loop'")?;
+
+        let mut body = Vec::new();
+        while let Some(token) = self.tokens.peek().cloned() {
+            if matches!(token.token, Token::KeywordEnd) {
+                break;
+            }
+            body.push(self.parse_statement()?);
+        }
+
+        self.expect_token(Token::KeywordEnd, "Expected 'end' after main loop body")?;
+        self.expect_token(Token::KeywordLoop, "Expected 'loop' after 'end'")?;
+
+        Ok(Statement::MainLoop {
+            body,
+            line: main_token.line,
+            column: main_token.column,
         })
     }
 

@@ -598,6 +598,11 @@ impl TypeChecker {
                     self.check_statement_types(stmt);
                 }
             }
+            Statement::MainLoop { body, .. } => {
+                for stmt in body {
+                    self.check_statement_types(stmt);
+                }
+            }
             Statement::DisplayStatement { value, .. } => {
                 self.infer_expression_type(value);
             }
@@ -2056,7 +2061,8 @@ impl TypeChecker {
                 | Statement::CountLoop { body, .. }
                 | Statement::WhileLoop { body, .. }
                 | Statement::RepeatUntilLoop { body, .. }
-                | Statement::ForeverLoop { body, .. } => {
+                | Statement::ForeverLoop { body, .. }
+                | Statement::MainLoop { body, .. } => {
                     self.check_return_statements(body, expected_type, line, column);
                 }
                 _ => {}

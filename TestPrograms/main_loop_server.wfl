@@ -1,0 +1,37 @@
+// Example of a server-like application using main loop
+// This demonstrates how main loop is perfect for long-running services
+
+// Server state
+store server_running as true
+store requests_processed as 0
+store max_requests as 5
+
+display "Starting WFL server simulation..."
+display "Server will process " with max_requests with " requests"
+
+// Main server loop - runs without timeout
+main loop:
+    // Simulate request processing
+    store requests_processed as requests_processed plus 1
+    display "[Server] Processing request #" with requests_processed
+    
+    // Simulate some processing work
+    store processing_result as requests_processed times 100
+    display "[Server] Result: " with processing_result
+    
+    // Check if we should shut down
+    check if requests_processed is equal to max_requests:
+        display "[Server] Maximum requests reached, shutting down..."
+        store server_running as false
+    end check
+    
+    // Exit if server is no longer running
+    check if server_running is false:
+        break
+    end check
+    
+end loop
+
+display "[Server] Shutdown complete"
+display "Total requests processed: " with requests_processed
+display "Server terminated gracefully"

@@ -63,6 +63,7 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::RepeatUntilLoop { .. } => "RepeatUntilLoop".to_string(),
         Statement::RepeatWhileLoop { .. } => "RepeatWhileLoop".to_string(),
         Statement::ForeverLoop { .. } => "ForeverLoop".to_string(),
+        Statement::MainLoop { .. } => "MainLoop".to_string(),
         Statement::BreakStatement { .. } => "BreakStatement".to_string(),
         Statement::ContinueStatement { .. } => "ContinueStatement".to_string(),
         Statement::ExitStatement { .. } => "ExitStatement".to_string(),
@@ -162,6 +163,7 @@ pub struct Interpreter {
     global_env: Rc<RefCell<Environment>>,
     current_count: RefCell<Option<f64>>,
     in_count_loop: RefCell<bool>,
+    in_main_loop: RefCell<bool>, // Track if we're in a main loop (disables timeout)
     started: Instant,
     max_duration: Duration,
     call_stack: RefCell<Vec<CallFrame>>,
@@ -457,6 +459,7 @@ impl Interpreter {
             global_env,
             current_count: RefCell::new(None),
             in_count_loop: RefCell::new(false),
+            in_main_loop: RefCell::new(false),
             started: Instant::now(),
             max_duration: Duration::from_secs(u64::MAX), // Effectively no timeout by default
             call_stack: RefCell::new(Vec::new()),
@@ -563,6 +566,11 @@ impl Interpreter {
     }
 
     fn check_time(&self) -> Result<(), RuntimeError> {
+        // Skip timeout check if we're in a main loop
+        if *self.in_main_loop.borrow() {
+            return Ok(());
+        }
+
         if self.started.elapsed() > self.max_duration {
             if *self.in_count_loop.borrow() {
                 *self.in_count_loop.borrow_mut() = false;
@@ -829,6 +837,7 @@ impl Interpreter {
             Statement::RepeatUntilLoop { line, column, .. } => (*line, *column),
             Statement::RepeatWhileLoop { line, column, .. } => (*line, *column),
             Statement::ForeverLoop { line, column, .. } => (*line, *column),
+            Statement::MainLoop { line, column, .. } => (*line, *column),
             Statement::BreakStatement { line, column, .. } => (*line, *column),
             Statement::ContinueStatement { line, column, .. } => (*line, *column),
             Statement::ExitStatement { line, column, .. } => (*line, *column),
@@ -1395,6 +1404,57 @@ impl Interpreter {
                         ControlFlow::None => {}
                     }
                 }
+
+                Ok((_last_value, ControlFlow::None))
+            }
+
+            Statement::MainLoop {
+                body,
+                line: _line,
+                column: _column,
+            } => {
+                #[cfg(debug_assertions)]
+                exec_trace!("Executing main loop (timeout disabled)");
+
+                // Set the main loop flag to disable timeout
+                *self.in_main_loop.borrow_mut() = true;
+
+                let mut _last_value = Value::Null;
+                loop {
+                    // Note: check_time() will skip timeout check when in_main_loop is true
+                    self.check_time()?;
+                    let result = self.execute_block(body, Rc::clone(&env)).await?;
+                    _last_value = result.0;
+
+                    match result.1 {
+                        ControlFlow::Break => {
+                            #[cfg(debug_assertions)]
+                            exec_trace!("Breaking out of main loop");
+                            break;
+                        }
+                        ControlFlow::Continue => {
+                            #[cfg(debug_assertions)]
+                            exec_trace!("Continuing main loop");
+                            continue;
+                        }
+                        ControlFlow::Exit => {
+                            #[cfg(debug_assertions)]
+                            exec_trace!("Exiting from main loop");
+                            *self.in_main_loop.borrow_mut() = false;
+                            return Ok((_last_value, ControlFlow::Exit));
+                        }
+                        ControlFlow::Return(val) => {
+                            #[cfg(debug_assertions)]
+                            exec_trace!("Returning from main loop with value: {:?}", val);
+                            *self.in_main_loop.borrow_mut() = false;
+                            return Ok((val.clone(), ControlFlow::Return(val)));
+                        }
+                        ControlFlow::None => {}
+                    }
+                }
+
+                // Reset the main loop flag when exiting normally
+                *self.in_main_loop.borrow_mut() = false;
 
                 Ok((_last_value, ControlFlow::None))
             }

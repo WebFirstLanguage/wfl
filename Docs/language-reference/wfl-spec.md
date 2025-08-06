@@ -199,6 +199,8 @@ will keep increasing the heater **until** the temperature exceeds 100 ([wfl-vars
 
 For an endless loop, you can literally write **`repeat forever:`** ... **`end repeat`**, which will loop indefinitely until you break out of it ([wfl-vars.md](file://file-MSrTCHF2wFfKpJ1Xxem8Tg#:~:text=repeat%20forever%3A%20check%20system%20status,end%20repeat)). (Use this with caution, and typically with a break condition inside.)
 
+For long-running applications like servers or event processors, WFL provides **`main loop:`** ... **`end loop`**, which runs indefinitely without triggering timeout errors. Unlike `repeat forever`, the main loop automatically disables execution timeouts, making it perfect for server applications that need to run continuously.
+
 **Loop Control:** Inside any loop, you can control the flow with natural commands. WFL provides a way to **break out** of a loop early or **skip** to the next iteration. For example, you might use **`break`** to exit a loop if a certain condition is met in the middle, or **`continue`** (or **`skip`**) to jump to the next iteration without finishing the rest of the loop body. These work like in other languages but are expressed as words. A concrete example:
 
 ```wfl
