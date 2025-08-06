@@ -50,7 +50,7 @@ impl WflLanguageServer {
                         let wfl_diag = diagnostic_reporter.convert_semantic_error(file_id, &error);
                         diagnostics.push(self.convert_to_lsp_diagnostic(
                             &wfl_diag,
-                            &diagnostic_reporter,
+                            &mut diagnostic_reporter,
                             file_id,
                         ));
                     }
@@ -62,7 +62,7 @@ impl WflLanguageServer {
                         let wfl_diag = diagnostic_reporter.convert_type_error(file_id, &error);
                         diagnostics.push(self.convert_to_lsp_diagnostic(
                             &wfl_diag,
-                            &diagnostic_reporter,
+                            &mut diagnostic_reporter,
                             file_id,
                         ));
                     }
@@ -73,7 +73,7 @@ impl WflLanguageServer {
                     let wfl_diag = diagnostic_reporter.convert_parse_error(file_id, &error);
                     diagnostics.push(self.convert_to_lsp_diagnostic(
                         &wfl_diag,
-                        &diagnostic_reporter,
+                        &mut diagnostic_reporter,
                         file_id,
                     ));
                 }
@@ -86,7 +86,7 @@ impl WflLanguageServer {
     fn convert_to_lsp_diagnostic(
         &self,
         wfl_diag: &WflDiagnostic,
-        diagnostic_reporter: &DiagnosticReporter,
+        diagnostic_reporter: &mut DiagnosticReporter,
         file_id: usize,
     ) -> Diagnostic {
         let severity = match wfl_diag.severity {
