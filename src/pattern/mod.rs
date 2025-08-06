@@ -25,17 +25,20 @@
 //! use wfl::pattern::{CompiledPattern, PatternError};
 //! use wfl::parser::ast::PatternExpression;
 //!
-//! // Compile a pattern from AST
-//! let pattern = PatternExpression::Literal("hello".to_string());
-//! let compiled = CompiledPattern::compile(&pattern)?;
+//! fn example() -> Result<(), PatternError> {
+//!     // Compile a pattern from AST
+//!     let pattern = PatternExpression::Literal("hello".to_string());
+//!     let compiled = CompiledPattern::compile(&pattern)?;
 //!
-//! // Execute pattern matching
-//! assert!(compiled.matches("hello world"));
-//! assert!(!compiled.matches("goodbye world"));
+//!     // Execute pattern matching
+//!     assert!(compiled.matches("hello world"));
+//!     assert!(!compiled.matches("goodbye world"));
 //!
-//! // Find matches with positions
-//! if let Some(result) = compiled.find("say hello") {
-//!     println!("Found match at {}-{}", result.start, result.end);
+//!     // Find matches with positions
+//!     if let Some(result) = compiled.find("say hello") {
+//!         println!("Found match at {}-{}", result.start, result.end);
+//!     }
+//!     Ok(())
 //! }
 //! ```
 
@@ -131,8 +134,11 @@ impl CompiledPattern {
     /// use wfl::parser::ast::PatternExpression;
     /// use wfl::pattern::CompiledPattern;
     ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let pattern = PatternExpression::Literal("hello".to_string());
     /// let compiled = CompiledPattern::compile(&pattern)?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn compile(pattern: &PatternExpression) -> Result<Self, PatternError> {
         let mut compiler = PatternCompiler::new();
@@ -155,6 +161,10 @@ impl CompiledPattern {
     ///
     /// # Examples
     /// ```rust
+    /// # use wfl::parser::ast::PatternExpression;
+    /// # use wfl::pattern::CompiledPattern;
+    /// # let pattern = PatternExpression::Literal("hello".to_string());
+    /// # let pattern = CompiledPattern::compile(&pattern).unwrap();
     /// assert!(pattern.matches("hello world"));
     /// assert!(!pattern.matches("goodbye"));
     /// ```
@@ -181,7 +191,12 @@ impl CompiledPattern {
     ///
     /// # Examples
     /// ```rust
-    /// if let Some(m) = pattern.find("say hello world") {
+    /// # use wfl::parser::ast::PatternExpression;
+    /// # use wfl::pattern::CompiledPattern;
+    /// # let pattern = PatternExpression::Literal("hello".to_string());
+    /// # let pattern = CompiledPattern::compile(&pattern).unwrap();
+    /// let text = "say hello world";
+    /// if let Some(m) = pattern.find(text) {
     ///     println!("Match: '{}' at {}-{}", &text[m.start..m.end], m.start, m.end);
     /// }
     /// ```
@@ -203,6 +218,10 @@ impl CompiledPattern {
     ///
     /// # Examples
     /// ```rust
+    /// # use wfl::parser::ast::PatternExpression;
+    /// # use wfl::pattern::CompiledPattern;
+    /// # let pattern = PatternExpression::Literal("hello".to_string());
+    /// # let pattern = CompiledPattern::compile(&pattern).unwrap();
     /// let matches = pattern.find_all("hello world, hello universe");
     /// println!("Found {} matches", matches.len());
     /// ```

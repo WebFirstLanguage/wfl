@@ -44,9 +44,12 @@ use std::collections::HashMap;
 /// use wfl::pattern::compiler::PatternCompiler;
 /// use wfl::parser::ast::PatternExpression;
 ///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut compiler = PatternCompiler::new();
 /// let ast = PatternExpression::Literal("hello".to_string());
 /// let program = compiler.compile(&ast)?;
+/// # Ok(())
+/// # }
 /// ```
 pub struct PatternCompiler {
     /// The bytecode program being built
@@ -94,10 +97,15 @@ impl PatternCompiler {
     ///
     /// # Examples
     /// ```rust
+    /// # use wfl::pattern::PatternCompiler;
+    /// # use wfl::parser::ast::PatternExpression;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut compiler = PatternCompiler::new();
     /// let ast = PatternExpression::Literal("test".to_string());
     /// let program = compiler.compile(&ast)?;
     /// assert!(program.instructions.len() > 0);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn compile(&mut self, pattern: &PatternExpression) -> Result<Program, PatternError> {
         self.compile_expression(pattern)?;
