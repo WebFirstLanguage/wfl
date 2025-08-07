@@ -1,7 +1,7 @@
 # WFL (WebFirst Language)
 
 <div align="center">
-  <img src="https://img.shields.io/badge/version-25.8.3-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-25.8.11-blue" alt="Version">
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="Status">
   <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License">
   <img src="https://img.shields.io/badge/rust-1.75+-brown" alt="Rust Version">
