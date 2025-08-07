@@ -8,7 +8,7 @@ use wfl::Interpreter;
 use wfl::analyzer::{Analyzer, StaticAnalyzer};
 use wfl::config;
 use wfl::debug_report;
-use wfl::diagnostics::DiagnosticReporter;
+use wfl::diagnostics::{DiagnosticReporter, Severity};
 use wfl::fixer::{CodeFixer, FixerOutputMode};
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::linter::Linter;
@@ -650,11 +650,23 @@ async fn main() -> io::Result<()> {
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
                 let sema_diags = analyzer.analyze_static(&program, file_id);
+                let mut has_fatal_errors = false;
                 if !sema_diags.is_empty() {
                     for d in &sema_diags {
                         reporter.report_diagnostic(file_id, d)?;
+                        // Check if this is a fatal error that should prevent execution
+                        if d.severity == Severity::Error {
+                            has_fatal_errors = true;
+                        }
                     }
                 }
+
+                // Exit if we found fatal semantic errors
+                if has_fatal_errors {
+                    exec_trace!("Semantic analysis found fatal errors. Execution aborted.");
+                    process::exit(3);
+                }
+
                 exec_trace!("Semantic analysis passed.");
 
                 // Create TypeChecker with the same analyzer to share action parameters
