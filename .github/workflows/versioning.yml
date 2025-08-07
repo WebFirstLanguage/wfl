@@ -23,7 +23,7 @@ jobs:
           python-version: '3.x'
 
       - name: Bump version
-        run: python scripts/bump_version.py
+        run: python scripts/bump_version.py --update-all
 
       - name: Push changes
         if: ${{ success() }}
