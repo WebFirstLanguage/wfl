@@ -137,6 +137,14 @@ pub enum Token {
     // KeywordOtherwise,
     #[token("error")]
     KeywordError,
+    #[token("add")]
+    KeywordAdd, // arithmetic operation keywords
+    #[token("subtract")]
+    KeywordSubtract,
+    #[token("multiply")]
+    KeywordMultiply,
+    #[token("divide")]
+    KeywordDivide,
     #[token("plus")]
     KeywordPlus, // arithmetic operators in word form
     #[token("minus")]
@@ -257,6 +265,8 @@ pub enum Token {
     KeywordParent,
     #[token("new")]
     KeywordNew,
+    #[token("constant")]
+    KeywordConstant,
     #[token("must")]
     KeywordMust,
     #[token("defaults")]
@@ -410,6 +420,7 @@ impl Token {
                 | Token::KeywordPrivate
                 | Token::KeywordParent
                 | Token::KeywordNew
+                | Token::KeywordConstant
                 | Token::KeywordMust
                 | Token::KeywordDefaults
         )

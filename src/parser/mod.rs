@@ -387,6 +387,28 @@ impl<'a> Parser<'a> {
 
         self.expect_token(Token::KeywordNew, "Expected 'new' after 'create'")?;
 
+        // Check for deprecated "create new constant" syntax
+        if let Some(token) = self.tokens.peek() {
+            if matches!(token.token, Token::KeywordConstant) {
+                // This is the deprecated "create new constant" syntax
+                eprintln!("Warning: 'create new constant' syntax is deprecated and will be removed in a future version. Please use 'store new constant' instead.");
+                
+                self.tokens.next(); // Consume "constant"
+                
+                let name = self.parse_variable_name_list()?;
+                self.expect_token(Token::KeywordAs, "Expected 'as' after constant name")?;
+                let value = self.parse_expression()?;
+                
+                return Ok(Statement::VariableDeclaration {
+                    name,
+                    value,
+                    is_constant: true,
+                    line,
+                    column,
+                });
+            }
+        }
+
         // Parse container type
         let container_type = if let Some(token) = self.tokens.peek() {
             if let Token::Identifier(id) = &token.token {
@@ -1047,6 +1069,10 @@ impl<'a> Parser<'a> {
                 Token::KeywordFor => self.parse_for_each_loop(),
                 Token::KeywordDefine => self.parse_action_definition(),
                 Token::KeywordChange => self.parse_assignment(),
+                Token::KeywordAdd => self.parse_arithmetic_operation(),
+                Token::KeywordSubtract => self.parse_arithmetic_operation(),
+                Token::KeywordMultiply => self.parse_arithmetic_operation(),
+                Token::KeywordDivide => self.parse_arithmetic_operation(),
                 Token::KeywordTry => self.parse_try_statement(),
                 Token::KeywordRepeat => self.parse_repeat_statement(),
                 Token::KeywordExit => self.parse_exit_statement(),
@@ -1155,6 +1181,34 @@ impl<'a> Parser<'a> {
         let is_store = matches!(token_pos.token, Token::KeywordStore);
         let _keyword = if is_store { "store" } else { "create" };
 
+        // Check for "store new constant" syntax
+        let mut is_constant = false;
+        if is_store {
+            if let Some(next_token) = self.tokens.peek() {
+                if matches!(next_token.token, Token::KeywordNew) {
+                    self.tokens.next(); // Consume "new"
+                    if let Some(const_token) = self.tokens.peek() {
+                        if matches!(const_token.token, Token::KeywordConstant) {
+                            self.tokens.next(); // Consume "constant"
+                            is_constant = true;
+                        } else {
+                            return Err(ParseError::new(
+                                format!("Expected 'constant' after 'new', found {:?}", const_token.token),
+                                const_token.line,
+                                const_token.column,
+                            ));
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected 'constant' after 'new'".to_string(),
+                            token_pos.line,
+                            token_pos.column,
+                        ));
+                    }
+                }
+            }
+        }
+
         let name = self.parse_variable_name_list()?;
 
         // Handle special case: "create list as name"
@@ -1186,6 +1240,7 @@ impl<'a> Parser<'a> {
             return Ok(Statement::VariableDeclaration {
                 name: list_name,
                 value: empty_list,
+                is_constant: false,
                 line: token_pos.line,
                 column: token_pos.column,
             });
@@ -1217,6 +1272,7 @@ impl<'a> Parser<'a> {
         Ok(Statement::VariableDeclaration {
             name,
             value,
+            is_constant,
             line: token_pos.line,
             column: token_pos.column,
         })
@@ -3379,6 +3435,97 @@ impl<'a> Parser<'a> {
             line: token_pos.line,
             column: token_pos.column,
         })
+    }
+
+    fn parse_arithmetic_operation(&mut self) -> Result<Statement, ParseError> {
+        let op_token = self.tokens.next().unwrap(); // Consume "add", "subtract", "multiply", or "divide"
+
+        // For multiply and divide: variable comes first, then "by", then value
+        // For add: value comes first, then "to", then variable
+        // For subtract: value comes first, then "from", then variable
+
+        let (name, value) = match op_token.token {
+            Token::KeywordAdd => {
+                // add 5 to cn1
+                let value = self.parse_expression()?;
+                self.expect_token(Token::KeywordTo, "Expected 'to' after value in add")?;
+                let name = self.parse_variable_name_simple()?;
+                (name, value)
+            }
+            Token::KeywordSubtract => {
+                // subtract 2 from cn1
+                let value = self.parse_expression()?;
+                self.expect_token(
+                    Token::KeywordFrom,
+                    "Expected 'from' after value in subtract",
+                )?;
+                let name = self.parse_variable_name_simple()?;
+                (name, value)
+            }
+            Token::KeywordMultiply | Token::KeywordDivide => {
+                // multiply cn1 by 3 or divide cn1 by 2
+                let name = self.parse_variable_name_simple()?;
+                self.expect_token(Token::KeywordBy, "Expected 'by' after variable name")?;
+                let value = self.parse_expression()?;
+                (name, value)
+            }
+            _ => unreachable!(),
+        };
+
+        // Create the appropriate operation
+        let operator = match op_token.token {
+            Token::KeywordAdd => Operator::Plus,
+            Token::KeywordSubtract => Operator::Minus,
+            Token::KeywordMultiply => Operator::Multiply,
+            Token::KeywordDivide => Operator::Divide,
+            _ => unreachable!(),
+        };
+
+        // Create a binary operation expression
+        let var_expr = Expression::Variable(name.clone(), op_token.line, op_token.column);
+        let binary_expr = Expression::BinaryOperation {
+            left: Box::new(var_expr),
+            operator,
+            right: Box::new(value),
+            line: op_token.line,
+            column: op_token.column,
+        };
+
+        // Return an assignment statement
+        Ok(Statement::Assignment {
+            name,
+            value: binary_expr,
+            line: op_token.line,
+            column: op_token.column,
+        })
+    }
+
+    fn parse_variable_name_simple(&mut self) -> Result<String, ParseError> {
+        let mut name = String::new();
+        let mut has_identifier = false;
+
+        while let Some(token) = self.tokens.peek().cloned() {
+            if let Token::Identifier(id) = &token.token {
+                has_identifier = true;
+                if !name.is_empty() {
+                    name.push(' ');
+                }
+                name.push_str(id);
+                self.tokens.next();
+            } else {
+                break;
+            }
+        }
+
+        if !has_identifier {
+            return Err(ParseError::new(
+                "Expected variable name".to_string(),
+                self.tokens.peek().map_or(0, |t| t.line),
+                self.tokens.peek().map_or(0, |t| t.column),
+            ));
+        }
+
+        Ok(name)
     }
 
     fn parse_return_statement(&mut self) -> Result<Statement, ParseError> {

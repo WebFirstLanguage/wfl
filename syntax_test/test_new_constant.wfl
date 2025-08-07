@@ -1,0 +1,10 @@
+// Test new constant syntax
+store new constant PI as 3.14159
+store new constant E as 2.71828
+
+display "PI value is: " + PI
+display "E value is: " + E
+
+// Test that arithmetic works with constants
+store result as PI + E
+display "PI + E = " + result

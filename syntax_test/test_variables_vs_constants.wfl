@@ -1,0 +1,18 @@
+// Test that regular variables can be modified but constants cannot
+store regular_var as 10
+store new constant MY_CONSTANT as 20
+
+display "Initial values:"
+display "regular_var = " + regular_var
+display "MY_CONSTANT = " + MY_CONSTANT
+
+// These should work fine
+change regular_var to 15
+add 5 to regular_var
+subtract 2 from regular_var
+multiply regular_var by 2
+divide regular_var by 2
+
+display "After modifications:"
+display "regular_var = " + regular_var
+display "MY_CONSTANT = " + MY_CONSTANT

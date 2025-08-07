@@ -87,6 +87,7 @@ pub enum Statement {
     VariableDeclaration {
         name: String,
         value: Expression,
+        is_constant: bool,
         line: usize,
         column: usize,
     },

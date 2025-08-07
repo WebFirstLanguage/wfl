@@ -1,19 +1,19 @@
 === WFL Debug Report ===
-Script: pattern.wfl
-Time: 2025-08-06 10:28:01
+Script: syntax_test/pattern.wfl
+Time: 2025-08-07 11:27:29
 
 === Error Summary ===
-Runtime error at line 12, column 30: Pattern match requires pattern as second argument
+Runtime error at line 92, column 30: Variable 'count' can only be used inside count loops. Use 'count from X to Y:' to create a count loop.
 
 === Stack Trace ===
-In main script at line 12, column 30
+In main script at line 92, column 30
 
 === Source Code ===
-   10: 
-   11: // Simple string matching
->> 12: check if "hello@example.com" matches pattern "email":
-   13:     display "Valid email!"
-   14: otherwise:
+   90: divide cn1 by 2
+   91: 
+>> 92: display "Final count is: " + count
+   93: 
+   94: // Compile patterns for performance (future feature)
 
 === Local Variables ===
 (No local variables in global scope)

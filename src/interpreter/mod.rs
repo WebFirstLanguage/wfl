@@ -870,6 +870,7 @@ impl Interpreter {
             Statement::VariableDeclaration {
                 name,
                 value,
+                is_constant,
                 line: _line,
                 column: _column,
             } => {
@@ -883,7 +884,12 @@ impl Interpreter {
 
                 #[cfg(debug_assertions)]
                 exec_var_declare!(name, &evaluated_value);
-                env.borrow_mut().define(name, evaluated_value.clone());
+                
+                if *is_constant {
+                    env.borrow_mut().define_constant(name, evaluated_value.clone());
+                } else {
+                    env.borrow_mut().define(name, evaluated_value.clone());
+                }
                 Ok((Value::Null, ControlFlow::None))
             }
 

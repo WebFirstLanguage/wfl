@@ -39,10 +39,12 @@ A couple more examples of different value types:
 Sometimes you have a value that never changes (like π = 3.14159). You can mark it as a **constant**. In WFL, that's as easy as saying:
 
 ```wfl
-create new constant PI as 3.14159
+store new constant PI as 3.14159
 ```
 
 This works like a variable, except WFL knows you don't intend to change it later. Naming constants in all caps (like `PI`) is a common convention, but not required.
+
+**Note:** The older syntax `create new constant PI as 3.14159` is deprecated and will be removed in a future version. Please use `store new constant` instead.
 
 ### A Note on "Let" Syntax
 

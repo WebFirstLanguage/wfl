@@ -287,6 +287,7 @@ impl TypeChecker {
             Statement::VariableDeclaration {
                 name,
                 value,
+                is_constant: _,
                 line: _line,
                 column: _column,
             } => {
@@ -1047,14 +1048,38 @@ impl TypeChecker {
                 }
 
                 match operator {
-                    Operator::Plus | Operator::Minus | Operator::Multiply | Operator::Divide => {
+                    Operator::Plus => {
+                        // Plus operation allows:
+                        // - Number + Number = Number
+                        // - Text + Text = Text
+                        // - Text + Number = Text (automatic conversion)
+                        // - Number + Text = Text (automatic conversion)
                         if left_type == Type::Number && right_type == Type::Number {
                             Type::Number
-                        } else if *operator == Operator::Plus
-                            && left_type == Type::Text
-                            && right_type == Type::Text
-                        {
+                        } else if left_type == Type::Text || right_type == Type::Text {
+                            // If either operand is Text, the result is Text (automatic conversion)
                             Type::Text
+                        } else {
+                            self.type_error(
+                                format!(
+                                    "Cannot perform {operator:?} operation on {left_type} and {right_type}"
+                                ),
+                                Some(Type::Text),
+                                Some(if left_type != Type::Text {
+                                    left_type
+                                } else {
+                                    right_type
+                                }),
+                                *line,
+                                *column,
+                            );
+                            Type::Error
+                        }
+                    }
+                    Operator::Minus | Operator::Multiply | Operator::Divide => {
+                        // These operations require both operands to be numbers
+                        if left_type == Type::Number && right_type == Type::Number {
+                            Type::Number
                         } else {
                             self.type_error(
                                 format!(

@@ -1,0 +1,13 @@
+// Test that constants cannot be modified
+store new constant MAX_SIZE as 100
+
+display "MAX_SIZE is: " + MAX_SIZE
+
+// These should all produce errors
+change MAX_SIZE to 200
+add 10 to MAX_SIZE
+subtract 5 from MAX_SIZE
+multiply MAX_SIZE by 2
+divide MAX_SIZE by 2
+
+display "This shouldn't be reached"

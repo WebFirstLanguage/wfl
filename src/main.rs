@@ -708,8 +708,16 @@ async fn main() -> io::Result<()> {
 
                     if !filtered_errors.is_empty() {
                         eprintln!("Type checking warnings:");
-                        for e in &filtered_errors {
-                            eprintln!("{e}");
+
+                        let mut reporter = DiagnosticReporter::new();
+                        let file_id = reporter.add_file(&file_path, &input);
+
+                        for error in &filtered_errors {
+                            let diagnostic = reporter.convert_type_error(file_id, error);
+                            if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
+                                eprintln!("Error displaying diagnostic: {e}");
+                                eprintln!("{error}"); // Fallback to simple error display
+                            }
                         }
                     }
                 }

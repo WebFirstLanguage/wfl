@@ -265,6 +265,7 @@ impl Analyzer {
             Statement::VariableDeclaration {
                 name,
                 value,
+                is_constant,
                 line,
                 column,
             } => {
@@ -307,26 +308,30 @@ impl Analyzer {
 
                 let symbol = Symbol {
                     name: name.clone(),
-                    kind: SymbolKind::Variable { mutable: true }, // All variables are mutable by default
+                    kind: SymbolKind::Variable { mutable: !is_constant }, // Constants are immutable
                     symbol_type: None,                            // Type will be inferred later
-                    line: 0, // We need to add location info to AST nodes
-                    column: 0,
+                    line: *line,
+                    column: *column,
                 };
 
                 if let Err(error) = self.current_scope.define(symbol) {
                     self.errors.push(error);
                 }
             }
-            Statement::Assignment { name, value, .. } => {
+            Statement::Assignment { name, value, line, column } => {
+                let mut skip_value_analysis = false;
+                
                 if let Some(symbol) = self.current_scope.resolve(name) {
                     match &symbol.kind {
                         SymbolKind::Variable { mutable } => {
                             if !mutable {
                                 self.errors.push(SemanticError::new(
-                                    format!("Cannot assign to immutable variable '{name}'"),
-                                    0, // Need location info
-                                    0,
+                                    format!("Cannot modify constant '{name}' - constants are immutable once defined"),
+                                    *line,
+                                    *column,
                                 ));
+                                // Skip analyzing the value expression since the assignment itself is invalid
+                                skip_value_analysis = true;
                             }
                         }
                         _ => {
@@ -345,7 +350,10 @@ impl Analyzer {
                     ));
                 }
 
-                self.analyze_expression(value);
+                // Only analyze the value expression if the assignment is potentially valid
+                if !skip_value_analysis {
+                    self.analyze_expression(value);
+                }
             }
             Statement::ActionDefinition {
                 name,

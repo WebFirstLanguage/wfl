@@ -70,14 +70,32 @@ create pattern phone:
     then exactly 4 digits
 end pattern
 
-store phone1 as "(123)500-7890"
+store phone2 as "(123)500-7890"
 
-check if phone1 matches phone:
-    display phone1 + " is a Valid phone number!"
+check if phone2 matches phone:
+    display phone2 + " is a Valid phone number!"
 otherwise:
-    display phone1 + " is a Invalid phone number"
+    display phone2 + " is a Invalid phone number"
 end check
 
+
+// var Test
+
+store cn1 as 0
+
+store new constant cn2 as 3.14159
+
+display cn2
+
+change cn2 to azusa
+
+change cn1 to 1
+add 5 to cn1
+subtract 2 from cn1
+multiply cn1 by 3
+divide cn1 by 2
+
+display "Final count is: " + cn1
 
 // Compile patterns for performance (future feature)
 // compile pattern "email" as email_validator

@@ -1,11 +1,12 @@
 use super::value::Value;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
 
 #[derive(Debug)]
 pub struct Environment {
     pub values: HashMap<String, Value>,
+    pub constants: HashSet<String>,
     pub parent: Option<Weak<RefCell<Environment>>>,
 }
 
@@ -16,6 +17,7 @@ impl Environment {
 
         Rc::new(RefCell::new(Environment {
             values: HashMap::new(),
+            constants: HashSet::new(),
             parent: None,
         }))
     }
@@ -26,6 +28,7 @@ impl Environment {
 
         Rc::new(RefCell::new(Environment {
             values: HashMap::new(),
+            constants: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
         }))
     }
@@ -37,6 +40,7 @@ impl Environment {
 
         Rc::new(RefCell::new(Self {
             values: HashMap::new(),
+            constants: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
         }))
     }
@@ -45,7 +49,31 @@ impl Environment {
         self.values.insert(name.to_string(), value);
     }
 
+    pub fn define_constant(&mut self, name: &str, value: Value) {
+        self.values.insert(name.to_string(), value);
+        self.constants.insert(name.to_string());
+    }
+
+    pub fn is_constant(&self, name: &str) -> bool {
+        if self.constants.contains(name) {
+            true
+        } else if let Some(parent_weak) = &self.parent {
+            if let Some(parent) = parent_weak.upgrade() {
+                parent.borrow().is_constant(name)
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
     pub fn assign(&mut self, name: &str, value: Value) -> Result<(), String> {
+        // Check if it's a constant in current scope
+        if self.constants.contains(name) {
+            return Err(format!("Cannot modify constant '{name}'"));
+        }
+        
         if self.values.contains_key(name) {
             self.values.insert(name.to_string(), value);
             Ok(())

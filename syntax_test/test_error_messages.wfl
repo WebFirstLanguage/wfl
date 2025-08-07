@@ -1,0 +1,14 @@
+// Test various error scenarios
+
+// 1. Modifying a constant with undefined value (should only show constant error)
+store new constant PI as 3.14159
+change PI to undefined_value
+
+// 2. Using undefined variable in regular assignment (should show undefined error)
+store regular_var as 10
+change regular_var to another_undefined
+
+// 3. Arithmetic on constant with undefined value (should only show constant error)
+add unknown_number to PI
+
+display "This won't be reached"

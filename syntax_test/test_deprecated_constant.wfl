@@ -1,0 +1,4 @@
+// Test deprecated constant syntax
+create new constant PI as 3.14159
+
+display "PI value is: " + PI
