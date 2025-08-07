@@ -391,14 +391,16 @@ impl<'a> Parser<'a> {
         if let Some(token) = self.tokens.peek() {
             if matches!(token.token, Token::KeywordConstant) {
                 // This is the deprecated "create new constant" syntax
-                eprintln!("Warning: 'create new constant' syntax is deprecated and will be removed in a future version. Please use 'store new constant' instead.");
-                
+                eprintln!(
+                    "Warning: 'create new constant' syntax is deprecated and will be removed in a future version. Please use 'store new constant' instead."
+                );
+
                 self.tokens.next(); // Consume "constant"
-                
+
                 let name = self.parse_variable_name_list()?;
                 self.expect_token(Token::KeywordAs, "Expected 'as' after constant name")?;
                 let value = self.parse_expression()?;
-                
+
                 return Ok(Statement::VariableDeclaration {
                     name,
                     value,
@@ -1193,7 +1195,10 @@ impl<'a> Parser<'a> {
                             is_constant = true;
                         } else {
                             return Err(ParseError::new(
-                                format!("Expected 'constant' after 'new', found {:?}", const_token.token),
+                                format!(
+                                    "Expected 'constant' after 'new', found {:?}",
+                                    const_token.token
+                                ),
                                 const_token.line,
                                 const_token.column,
                             ));

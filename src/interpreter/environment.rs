@@ -73,7 +73,7 @@ impl Environment {
         if self.constants.contains(name) {
             return Err(format!("Cannot modify constant '{name}'"));
         }
-        
+
         if self.values.contains_key(name) {
             self.values.insert(name.to_string(), value);
             Ok(())

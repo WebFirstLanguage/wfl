@@ -2166,6 +2166,7 @@ mod tests {
                 Statement::VariableDeclaration {
                     name: "x".to_string(),
                     value: Expression::Literal(Literal::Integer(10), 1, 1),
+                    is_constant: false,
                     line: 1,
                     column: 1,
                 },
@@ -2189,6 +2190,7 @@ mod tests {
                 Statement::VariableDeclaration {
                     name: "x".to_string(),
                     value: Expression::Literal(Literal::Integer(10), 1, 1),
+                    is_constant: false,
                     line: 1,
                     column: 1,
                 },
@@ -2218,6 +2220,7 @@ mod tests {
         let program = Program {
             statements: vec![Statement::VariableDeclaration {
                 name: "x".to_string(),
+                is_constant: false,
                 value: Expression::BinaryOperation {
                     left: Box::new(Expression::Literal(
                         Literal::String("hello".to_string()),
@@ -2248,6 +2251,7 @@ mod tests {
         let program = Program {
             statements: vec![Statement::VariableDeclaration {
                 name: "x".to_string(),
+                is_constant: false,
                 value: Expression::BinaryOperation {
                     left: Box::new(Expression::Literal(Literal::Integer(10), 1, 5)),
                     operator: crate::parser::ast::Operator::Minus,

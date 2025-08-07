@@ -1288,12 +1288,14 @@ mod tests {
                 Statement::VariableDeclaration {
                     name: "unused".to_string(),
                     value: Expression::Literal(Literal::Integer(10), 1, 1),
+                    is_constant: false,
                     line: 1,
                     column: 1,
                 },
                 Statement::VariableDeclaration {
                     name: "used".to_string(),
                     value: Expression::Literal(Literal::Integer(20), 2, 1),
+                    is_constant: false,
                     line: 2,
                     column: 1,
                 },
@@ -1361,6 +1363,7 @@ mod tests {
                 Statement::VariableDeclaration {
                     name: "counter".to_string(),
                     value: Expression::Literal(Literal::Integer(1), 1, 1),
+                    is_constant: false,
                     line: 1,
                     column: 1,
                 },
@@ -1398,6 +1401,7 @@ mod tests {
                 Statement::VariableDeclaration {
                     name: "counter".to_string(),
                     value: Expression::Literal(Literal::Integer(1), 1, 1),
+                    is_constant: false,
                     line: 1,
                     column: 1,
                 },

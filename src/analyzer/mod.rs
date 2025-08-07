@@ -308,8 +308,10 @@ impl Analyzer {
 
                 let symbol = Symbol {
                     name: name.clone(),
-                    kind: SymbolKind::Variable { mutable: !is_constant }, // Constants are immutable
-                    symbol_type: None,                            // Type will be inferred later
+                    kind: SymbolKind::Variable {
+                        mutable: !is_constant,
+                    }, // Constants are immutable
+                    symbol_type: None, // Type will be inferred later
                     line: *line,
                     column: *column,
                 };
@@ -318,9 +320,14 @@ impl Analyzer {
                     self.errors.push(error);
                 }
             }
-            Statement::Assignment { name, value, line, column } => {
+            Statement::Assignment {
+                name,
+                value,
+                line,
+                column,
+            } => {
                 let mut skip_value_analysis = false;
-                
+
                 if let Some(symbol) = self.current_scope.resolve(name) {
                     match &symbol.kind {
                         SymbolKind::Variable { mutable } => {
@@ -1363,6 +1370,7 @@ mod tests {
                 Statement::VariableDeclaration {
                     name: "x".to_string(),
                     value: Expression::Literal(Literal::Integer(10), 1, 1),
+                    is_constant: false,
                     line: 1,
                     column: 1,
                 },

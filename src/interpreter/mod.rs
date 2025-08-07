@@ -884,9 +884,10 @@ impl Interpreter {
 
                 #[cfg(debug_assertions)]
                 exec_var_declare!(name, &evaluated_value);
-                
+
                 if *is_constant {
-                    env.borrow_mut().define_constant(name, evaluated_value.clone());
+                    env.borrow_mut()
+                        .define_constant(name, evaluated_value.clone());
                 } else {
                     env.borrow_mut().define(name, evaluated_value.clone());
                 }
