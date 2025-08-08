@@ -293,7 +293,7 @@ impl DiagnosticReporter {
     pub fn convert_parse_error(
         &mut self,
         file_id: usize,
-        error: &crate::parser::ast::ParseError,
+        error: &crate::parser::error::ParseError,
     ) -> WflDiagnostic {
         let message = error.message.clone();
 
