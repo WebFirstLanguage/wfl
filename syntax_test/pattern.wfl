@@ -85,9 +85,10 @@ store cn1 as 0
 
 store new constant cn2 as 3.14159
 
-display cn2
+store new constant cn3 as "azusa"
 
-change cn2 to azusa
+display cn2
+display cn3
 
 change cn1 to 1
 add 5 to cn1

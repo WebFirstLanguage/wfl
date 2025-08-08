@@ -256,6 +256,27 @@ jobs:
             exit 1
           }
 
+          # Copy binaries to standard release directory for WiX
+          Write-Host "Copying binaries to standard release directory for WiX..."
+          New-Item -ItemType Directory -Force -Path target/release | Out-Null
+          Copy-Item "target/${{ env.TARGET }}/release/wfl.exe" -Destination "target/release/wfl.exe" -Force
+          Copy-Item "target/${{ env.TARGET }}/release/wfl-lsp.exe" -Destination "target/release/wfl-lsp.exe" -Force
+          
+          # Verify copies
+          if (Test-Path "target/release/wfl.exe") {
+            Write-Host "✓ wfl.exe copied to target/release/"
+          } else {
+            Write-Host "::error::Failed to copy wfl.exe to target/release/"
+            exit 1
+          }
+          
+          if (Test-Path "target/release/wfl-lsp.exe") {
+            Write-Host "✓ wfl-lsp.exe copied to target/release/"
+          } else {
+            Write-Host "::error::Failed to copy wfl-lsp.exe to target/release/"
+            exit 1
+          }
+
           # Build MSI with cargo-wix (no --define parameter needed as version is in wix.toml)
           Write-Host "Building MSI installer..."
           cargo wix --no-build --nocapture `
