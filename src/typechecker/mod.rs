@@ -1618,16 +1618,15 @@ impl TypeChecker {
                     {
                         // It's an action parameter or a special function name, so don't report an error
                         return Type::Unknown;
-                    } else {
-                        self.type_error(
-                            format!("Undefined action '{name}'"),
-                            None,
-                            None,
-                            *_line,
-                            *_column,
-                        );
-                        return Type::Error;
                     }
+                    self.type_error(
+                        format!("Undefined action '{name}'"),
+                        None,
+                        None,
+                        *_line,
+                        *_column,
+                    );
+                    return Type::Error;
                 }
 
                 let symbol = symbol_opt.unwrap();

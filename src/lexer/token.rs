@@ -334,7 +334,7 @@ pub enum Token {
 fn parse_string(lex: &mut logos::Lexer<Token>) -> String {
     let quoted = lex.slice(); // e.g. "\"Alice\""
     let inner = &quoted[1..quoted.len() - 1]; // strip the surrounding quotes
-    inner.replace(r#"\""#, "\"")
+    inner.replace("\\\"", "\"")
 }
 
 #[derive(Debug, Clone, PartialEq)]

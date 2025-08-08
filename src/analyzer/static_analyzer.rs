@@ -1102,8 +1102,6 @@ impl Analyzer {
                             cfg.add_edge(node_idx, 1);
                         }
                     }
-
-                    continue;
                 }
                 _ => {
                     if i < stmt_nodes.len() - 1 {

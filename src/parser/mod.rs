@@ -146,15 +146,14 @@ impl<'a> Parser<'a> {
                                 continue;
                             }
                         }
-                    } else {
-                        // "end" at end of file
-                        exec_trace!(
-                            "Found standalone 'end' at end of file, line {}",
-                            first_token.line
-                        );
-                        self.tokens.next();
-                        break;
                     }
+                    // "end" at end of file
+                    exec_trace!(
+                        "Found standalone 'end' at end of file, line {}",
+                        first_token.line
+                    );
+                    self.tokens.next();
+                    break;
                 }
             }
 
@@ -671,12 +670,10 @@ impl<'a> Parser<'a> {
 
                             // Check for comma to continue or break
                             if let Some(next_token) = self.tokens.peek() {
-                                if next_token.token == Token::Comma {
-                                    self.tokens.next(); // Consume comma
-                                    continue;
-                                } else {
+                                if next_token.token != Token::Comma {
                                     break;
                                 }
+                                self.tokens.next(); // Consume comma
                             } else {
                                 break;
                             }
@@ -965,12 +962,10 @@ impl<'a> Parser<'a> {
 
                 // Check for comma to continue or break
                 if let Some(next_token) = self.tokens.peek() {
-                    if next_token.token == Token::Comma {
-                        self.tokens.next(); // Consume comma
-                        continue;
-                    } else {
+                    if next_token.token != Token::Comma {
                         break;
                     }
+                    self.tokens.next(); // Consume comma
                 } else {
                     break;
                 }
@@ -1897,20 +1892,18 @@ impl<'a> Parser<'a> {
                         if token.token == Token::RightParen {
                             self.tokens.next(); // Consume ')'
                             return Ok(expr);
-                        } else {
-                            return Err(ParseError::new(
-                                format!("Expected closing parenthesis, found {:?}", token.token),
-                                token.line,
-                                token.column,
-                            ));
                         }
-                    } else {
                         return Err(ParseError::new(
-                            "Expected closing parenthesis, found end of input".into(),
+                            format!("Expected closing parenthesis, found {:?}", token.token),
                             token.line,
                             token.column,
                         ));
                     }
+                    return Err(ParseError::new(
+                        "Expected closing parenthesis, found end of input".into(),
+                        token.line,
+                        token.column,
+                    ));
                 }
                 Token::StringLiteral(s) => {
                     let token_pos = self.tokens.next().unwrap();
@@ -2025,20 +2018,18 @@ impl<'a> Parser<'a> {
                                         line: token.line,
                                         column: token.column,
                                     });
-                                } else {
-                                    return Err(ParseError::new(
-                                        "Expected property name after '.'".to_string(),
-                                        property_token.line,
-                                        property_token.column,
-                                    ));
                                 }
-                            } else {
                                 return Err(ParseError::new(
                                     "Expected property name after '.'".to_string(),
-                                    token.line,
-                                    token.column,
+                                    property_token.line,
+                                    property_token.column,
                                 ));
                             }
+                            return Err(ParseError::new(
+                                "Expected property name after '.'".to_string(),
+                                token.line,
+                                token.column,
+                            ));
                         } else if let Token::Identifier(id) = &next_token.token {
                             if id.to_lowercase() == "with" {
                                 self.tokens.next(); // Consume "with"
@@ -2115,23 +2106,21 @@ impl<'a> Parser<'a> {
                                 token_pos.line,
                                 token_pos.column,
                             ));
-                        } else {
-                            return Err(ParseError::new(
-                                format!(
-                                    "Expected string literal after 'pattern', found {:?}",
-                                    pattern_token.token
-                                ),
-                                pattern_token.line,
-                                pattern_token.column,
-                            ));
                         }
-                    } else {
                         return Err(ParseError::new(
-                            "Unexpected end of input after 'pattern'".to_string(),
-                            token.line,
-                            token.column,
+                            format!(
+                                "Expected string literal after 'pattern', found {:?}",
+                                pattern_token.token
+                            ),
+                            pattern_token.line,
+                            pattern_token.column,
                         ));
                     }
+                    return Err(ParseError::new(
+                        "Unexpected end of input after 'pattern'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
                 }
                 Token::KeywordLoop => {
                     self.tokens.next(); // Consume "loop"
@@ -3408,13 +3397,12 @@ impl<'a> Parser<'a> {
                         token.line,
                         token.column,
                     ));
-                } else {
-                    return Err(ParseError::new(
-                        format!("Expected identifier or 'to', found {:?}", token.token),
-                        token.line,
-                        token.column,
-                    ));
                 }
+                return Err(ParseError::new(
+                    format!("Expected identifier or 'to', found {:?}", token.token),
+                    token.line,
+                    token.column,
+                ));
             }
         }
 
@@ -3662,16 +3650,15 @@ impl<'a> Parser<'a> {
                                         line: open_token.line,
                                         column: open_token.column,
                                     });
-                                } else {
-                                    return Err(ParseError::new(
-                                        format!(
-                                            "Expected 'and' or 'as' after URL, found {:?}",
-                                            next_token.token
-                                        ),
-                                        next_token.line,
-                                        next_token.column,
-                                    ));
                                 }
+                                return Err(ParseError::new(
+                                    format!(
+                                        "Expected 'and' or 'as' after URL, found {:?}",
+                                        next_token.token
+                                    ),
+                                    next_token.line,
+                                    next_token.column,
+                                ));
                             }
                         }
                     }
@@ -3819,23 +3806,21 @@ impl<'a> Parser<'a> {
                             line: open_token.line,
                             column: open_token.column,
                         });
-                    } else {
-                        return Err(ParseError::new(
-                            format!(
-                                "Expected 'and' or 'as' after file path, found {:?}",
-                                next_token.token
-                            ),
-                            next_token.line,
-                            next_token.column,
-                        ));
                     }
-                } else {
                     return Err(ParseError::new(
-                        "Unexpected end of input after file path".to_string(),
-                        0,
-                        0,
+                        format!(
+                            "Expected 'and' or 'as' after file path, found {:?}",
+                            next_token.token
+                        ),
+                        next_token.line,
+                        next_token.column,
                     ));
                 }
+                return Err(ParseError::new(
+                    "Unexpected end of input after file path".to_string(),
+                    0,
+                    0,
+                ));
             }
         }
 
@@ -4188,12 +4173,11 @@ impl<'a> Parser<'a> {
             });
 
             if let Some(token) = self.tokens.peek().cloned() {
-                if matches!(token.token, Token::KeywordAnd) {
-                    self.tokens.next(); // Consume "and"
-                    continue; // Continue parsing next argument
-                } else {
+                if !matches!(token.token, Token::KeywordAnd) {
                     break;
                 }
+                self.tokens.next(); // Consume "and"
+            // Continue parsing next argument
             } else {
                 break;
             }

@@ -570,18 +570,20 @@ impl DiagnosticReporter {
                     error.column,
                     Some(span),
                 );
-            } else {
-                return WflDiagnostic::new(
-                    Severity::Error,
-                    message,
-                    Some("Check pattern syntax for errors in quantifiers, groups, or character classes".to_string()),
-                    "PATTERN-SYNTAX-ERROR".to_string(),
-                    file_id,
-                    error.line,
-                    error.column,
-                    Some(span),
-                );
             }
+            return WflDiagnostic::new(
+                Severity::Error,
+                message,
+                Some(
+                    "Check pattern syntax for errors in quantifiers, groups, or character classes"
+                        .to_string(),
+                ),
+                "PATTERN-SYNTAX-ERROR".to_string(),
+                file_id,
+                error.line,
+                error.column,
+                Some(span),
+            );
         } else if error
             .message
             .contains("Pattern execution depth limit exceeded")

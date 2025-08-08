@@ -1095,10 +1095,10 @@ impl Interpreter {
                     Box::new(|count, end_num| count <= end_num)
                 };
 
-                let max_iterations = if end_num > 1000000.0 {
+                let max_iterations = if end_num > 1_000_000.0 {
                     u64::MAX // Effectively no limit for large end values, rely on timeout instead
                 } else {
-                    10000 // Reasonable limit for normal loops
+                    10_000 // Reasonable limit for normal loops
                 };
                 let mut iterations = 0;
 

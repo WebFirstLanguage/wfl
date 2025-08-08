@@ -248,9 +248,8 @@ async fn main() -> io::Result<()> {
                     i += 1;
                     // All remaining arguments after the file path are script arguments
                     break;
-                } else {
-                    i += 1;
                 }
+                i += 1;
             }
         }
     }

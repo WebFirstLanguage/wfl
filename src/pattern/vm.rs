@@ -566,12 +566,12 @@ impl PatternVM {
                     'outer: while depth > 0 && !current_states.is_empty() {
                         let mut next_states = Vec::new();
 
-                        for lookahead_state in current_states.drain(..) {
-                            if lookahead_state.pc >= program.instructions.len() {
+                        for current_state in current_states.drain(..) {
+                            if current_state.pc >= program.instructions.len() {
                                 continue;
                             }
 
-                            match &program.instructions[lookahead_state.pc] {
+                            match &program.instructions[current_state.pc] {
                                 Instruction::BeginNegativeLookahead => depth += 1,
                                 Instruction::EndNegativeLookahead => {
                                     depth -= 1;
@@ -579,14 +579,14 @@ impl PatternVM {
                                         // We reached the end without matching - success!
                                         any_matched = true;
                                         state.pos = saved_pos;
-                                        state.pc = lookahead_state.pc + 1;
+                                        state.pc = current_state.pc + 1;
                                         break 'outer;
                                     }
                                 }
                                 _ => {}
                             }
 
-                            match self.step(program, text, lookahead_state)? {
+                            match self.step(program, text, current_state)? {
                                 StepResult::Fail => {
                                     // Good - this path failed
                                 }
