@@ -280,6 +280,24 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    MapCreation {
+        name: String,
+        entries: Vec<(String, Expression)>,
+        line: usize,
+        column: usize,
+    },
+    CreateDateStatement {
+        name: String,
+        value: Option<Expression>, // None means "today"
+        line: usize,
+        column: usize,
+    },
+    CreateTimeStatement {
+        name: String,
+        value: Option<Expression>, // None means "now"
+        line: usize,
+        column: usize,
+    },
     AddToListStatement {
         value: Expression,
         list_name: String,

@@ -296,7 +296,10 @@ jobs:
       - name: Smoke test installer
         run: |
           try {
-            Start-Process msiexec.exe -Wait -ArgumentList "/i target/${{ env.TARGET }}/release/wfl-${{ needs.check-for-changes.outputs.version }}.msi /qn"
+            $msiPath = "target\${{ env.TARGET }}\release\wfl-${{ needs.check-for-changes.outputs.version }}.msi"
+            Write-Host "Installing MSI from: $msiPath"
+            
+            Start-Process msiexec.exe -Wait -ArgumentList "/i", $msiPath, "/qn"
             
             if ($LASTEXITCODE -ne 0) {
               Write-Host "::error::MSI installation failed with exit code $LASTEXITCODE"

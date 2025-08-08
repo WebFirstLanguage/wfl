@@ -105,6 +105,26 @@ create list shopping:
     add "eggs"
 end list
 
+add "butter" to shopping 
+remove "eggs" from shopping
+
+display "Shopping list contains: " + shopping
+
+clear shopping list
+
+// create map
+create map settings:
+    theme is "dark"
+    volume is 75
+    notifications is true
+end map
+
+
+// create date and time
+create date today
+create time now
+display "Date and time created successfully!"
+
 // Compile patterns for performance (future feature)
 // compile pattern "email" as email_validator
 

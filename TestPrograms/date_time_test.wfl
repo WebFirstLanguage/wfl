@@ -1,0 +1,15 @@
+// Test date and time creation syntax
+create date today
+display "Created today's date"
+
+create time now
+display "Created current time"
+
+// Test with explicit values
+create date birthday as "1990-01-15"
+display "Created birthday date"
+
+create time meeting as "14:30:00"
+display "Created meeting time"
+
+display "All date/time creation tests passed!"

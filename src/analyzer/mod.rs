@@ -1043,7 +1043,7 @@ impl Analyzer {
                 for value in initial_values {
                     self.analyze_expression(value);
                 }
-                
+
                 // Define the list variable
                 let symbol = Symbol {
                     name: name.clone(),
@@ -1056,7 +1056,7 @@ impl Analyzer {
                     self.errors.push(e);
                 }
             }
-            
+
             Statement::AddToListStatement {
                 value,
                 list_name,
@@ -1072,7 +1072,7 @@ impl Analyzer {
                     ));
                 }
             }
-            
+
             Statement::RemoveFromListStatement {
                 value,
                 list_name,
@@ -1088,7 +1088,7 @@ impl Analyzer {
                     ));
                 }
             }
-            
+
             Statement::ClearListStatement {
                 list_name,
                 line,
@@ -1102,7 +1102,7 @@ impl Analyzer {
                     ));
                 }
             }
-            
+
             Statement::PatternDefinition {
                 name,
                 pattern: _,

@@ -110,6 +110,15 @@ impl<'a> Parser<'a> {
                             self.tokens.next(); // Consume "loop"
                             continue;
                         }
+                        Token::KeywordMap => {
+                            exec_trace!(
+                                "Consuming orphaned 'end map' at line {}",
+                                first_token.line
+                            );
+                            self.tokens.next(); // Consume "end"
+                            self.tokens.next(); // Consume "map"
+                            continue;
+                        }
                         Token::KeywordWhile => {
                             exec_trace!(
                                 "Consuming orphaned 'end while' at line {}",
@@ -1057,6 +1066,9 @@ impl<'a> Parser<'a> {
                             Token::KeywordDirectory => self.parse_create_directory_statement(),
                             Token::KeywordFile => self.parse_create_file_statement(),
                             Token::KeywordList => self.parse_create_list_statement(),
+                            Token::KeywordMap => self.parse_map_creation(),
+                            Token::KeywordDate => self.parse_create_date_statement(),
+                            Token::KeywordTime => self.parse_create_time_statement(),
                             _ => self.parse_variable_declaration(), // Default to variable declaration
                         }
                     } else {
@@ -5612,7 +5624,7 @@ impl<'a> Parser<'a> {
     fn parse_create_list_statement(&mut self) -> Result<Statement, ParseError> {
         let create_token = self.tokens.next().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordList, "Expected 'list' after 'create'")?;
-        
+
         // Parse list name
         let name = if let Some(token) = self.tokens.peek() {
             match &token.token {
@@ -5621,11 +5633,13 @@ impl<'a> Parser<'a> {
                     self.tokens.next(); // Consume the identifier
                     name
                 }
-                _ => return Err(ParseError::new(
-                    format!("Expected identifier for list name, found {:?}", token.token),
-                    token.line,
-                    token.column,
-                ))
+                _ => {
+                    return Err(ParseError::new(
+                        format!("Expected identifier for list name, found {:?}", token.token),
+                        token.line,
+                        token.column,
+                    ));
+                }
             }
         } else {
             return Err(ParseError::new(
@@ -5634,13 +5648,13 @@ impl<'a> Parser<'a> {
                 create_token.column,
             ));
         };
-        
+
         // Expect colon
         self.expect_token(Token::Colon, "Expected ':' after list name")?;
-        
+
         // Parse list items
         let mut initial_values = Vec::new();
-        
+
         while let Some(token) = self.tokens.peek().cloned() {
             match token.token {
                 Token::KeywordEnd => {
@@ -5655,17 +5669,148 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     return Err(ParseError::new(
-                        format!("Expected 'add' or 'end list' in list creation, found {:?}", token.token),
+                        format!(
+                            "Expected 'add' or 'end list' in list creation, found {:?}",
+                            token.token
+                        ),
                         token.line,
                         token.column,
                     ));
                 }
             }
         }
-        
+
         Ok(Statement::CreateListStatement {
             name,
             initial_values,
+            line: create_token.line,
+            column: create_token.column,
+        })
+    }
+
+    fn parse_create_date_statement(&mut self) -> Result<Statement, ParseError> {
+        let create_token = self.tokens.next().unwrap(); // Consume "create"
+        self.expect_token(Token::KeywordDate, "Expected 'date' after 'create'")?;
+        
+        // Parse the date variable name
+        let name = self.parse_variable_name_simple()?;
+        
+        // Check if there's an "as" clause for a custom date value
+        let value = if let Some(token) = self.tokens.peek() {
+            if token.token == Token::KeywordAs {
+                self.tokens.next(); // Consume "as"
+                Some(self.parse_expression()?)
+            } else {
+                None // Default to "today"
+            }
+        } else {
+            None
+        };
+        
+        Ok(Statement::CreateDateStatement {
+            name,
+            value,
+            line: create_token.line,
+            column: create_token.column,
+        })
+    }
+    
+    fn parse_create_time_statement(&mut self) -> Result<Statement, ParseError> {
+        let create_token = self.tokens.next().unwrap(); // Consume "create"
+        self.expect_token(Token::KeywordTime, "Expected 'time' after 'create'")?;
+        
+        // Parse the time variable name
+        let name = self.parse_variable_name_simple()?;
+        
+        // Check if there's an "as" clause for a custom time value
+        let value = if let Some(token) = self.tokens.peek() {
+            if token.token == Token::KeywordAs {
+                self.tokens.next(); // Consume "as"
+                Some(self.parse_expression()?)
+            } else {
+                None // Default to "now"
+            }
+        } else {
+            None
+        };
+        
+        Ok(Statement::CreateTimeStatement {
+            name,
+            value,
+            line: create_token.line,
+            column: create_token.column,
+        })
+    }
+
+    fn parse_map_creation(&mut self) -> Result<Statement, ParseError> {
+        let create_token = self.tokens.next().unwrap(); // Consume "create"
+        self.expect_token(Token::KeywordMap, "Expected 'map' after 'create'")?;
+
+        // Parse map name
+        let name = if let Some(token) = self.tokens.peek() {
+            match &token.token {
+                Token::Identifier(n) => {
+                    let name = n.clone();
+                    self.tokens.next(); // Consume the identifier
+                    name
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        format!("Expected identifier for map name, found {:?}", token.token),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+        } else {
+            return Err(ParseError::new(
+                "Expected map name after 'create map'".to_string(),
+                create_token.line,
+                create_token.column,
+            ));
+        };
+
+        // Expect colon
+        self.expect_token(Token::Colon, "Expected ':' after map name")?;
+
+        // Parse map entries
+        let mut entries = Vec::new();
+
+        while let Some(token) = self.tokens.peek().cloned() {
+            match &token.token {
+                Token::KeywordEnd => {
+                    self.tokens.next(); // Consume "end"
+                    self.expect_token(Token::KeywordMap, "Expected 'map' after 'end'")?;
+                    break;
+                }
+                Token::Identifier(key) => {
+                    let key = key.clone();
+                    self.tokens.next(); // Consume the key
+
+                    // Expect "is"
+                    self.expect_token(Token::KeywordIs, "Expected 'is' after map key")?;
+
+                    // Parse the value expression
+                    let value = self.parse_expression()?;
+
+                    entries.push((key, value));
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        format!(
+                            "Expected map key (identifier) or 'end map', found {:?}",
+                            token.token
+                        ),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+        }
+
+        Ok(Statement::MapCreation {
+            name,
+            entries,
             line: create_token.line,
             column: create_token.column,
         })
@@ -5675,34 +5820,38 @@ impl<'a> Parser<'a> {
         // We need to determine if this is:
         // 1. Arithmetic: "add 5 to variable" (adds 5 to a numeric variable)
         // 2. List operation: "add "item" to list" (appends to a list)
-        
+
         // Save the position to potentially backtrack
         let _saved_position = self.tokens.clone();
         let add_token = self.tokens.next().unwrap(); // Consume "add"
-        
+
         // Parse the value to add
         let value = self.parse_expression()?;
-        
+
         // Check for "to" keyword
         if let Some(token) = self.tokens.peek() {
             if token.token == Token::KeywordTo {
                 self.tokens.next(); // Consume "to"
-                
+
                 // Parse the target name
                 let target_name = self.parse_variable_name_simple()?;
-                
+
                 // Try to determine the operation type
                 // For now, we'll check if the value is numeric to decide
                 // The interpreter will handle the actual type checking
                 match &value {
-                    Expression::Literal(Literal::Integer(_), _, _) | 
-                    Expression::Literal(Literal::Float(_), _, _) => {
+                    Expression::Literal(Literal::Integer(_), _, _)
+                    | Expression::Literal(Literal::Float(_), _, _) => {
                         // Likely arithmetic operation
                         let operator = Operator::Plus;
                         Ok(Statement::Assignment {
                             name: target_name.clone(),
                             value: Expression::BinaryOperation {
-                                left: Box::new(Expression::Variable(target_name, add_token.line, add_token.column)),
+                                left: Box::new(Expression::Variable(
+                                    target_name,
+                                    add_token.line,
+                                    add_token.column,
+                                )),
                                 operator,
                                 right: Box::new(value),
                                 line: add_token.line,
@@ -5741,16 +5890,16 @@ impl<'a> Parser<'a> {
 
     fn parse_remove_from_list_statement(&mut self) -> Result<Statement, ParseError> {
         let remove_token = self.tokens.next().unwrap(); // Consume "remove"
-        
+
         // Parse the value to remove
         let value = self.parse_expression()?;
-        
+
         // Expect "from"
         self.expect_token(Token::KeywordFrom, "Expected 'from' after value in remove")?;
-        
+
         // Parse the list name
         let list_name = self.parse_variable_name_simple()?;
-        
+
         Ok(Statement::RemoveFromListStatement {
             value,
             list_name,
@@ -5761,17 +5910,17 @@ impl<'a> Parser<'a> {
 
     fn parse_clear_list_statement(&mut self) -> Result<Statement, ParseError> {
         let clear_token = self.tokens.next().unwrap(); // Consume "clear"
-        
+
         // Parse the list name
         let list_name = self.parse_variable_name_simple()?;
-        
+
         // Optionally consume "list" keyword if present
-        if let Some(token) = self.tokens.peek() {
-            if token.token == Token::KeywordList {
-                self.tokens.next(); // Consume "list"
-            }
+        if let Some(token) = self.tokens.peek()
+            && token.token == Token::KeywordList
+        {
+            self.tokens.next(); // Consume "list"
         }
-        
+
         Ok(Statement::ClearListStatement {
             list_name,
             line: clear_token.line,

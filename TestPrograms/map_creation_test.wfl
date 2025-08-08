@@ -1,0 +1,31 @@
+// Test map creation syntax
+create map settings:
+    theme is "dark"
+    volume is 75
+    notifications is true
+end map
+
+display "Map created successfully!"
+
+// Access map values (when accessor syntax is implemented)
+// display "Theme: " with settings["theme"]
+// display "Volume: " with settings["volume"]
+// display "Notifications: " with settings["notifications"]
+
+// Create another map with different data types
+create map person:
+    name is "Alice"
+    age is 30
+    height is 5.6
+    active is true
+end map
+
+display "Person map created successfully!"
+
+// Create an empty map (should work but has no entries)
+create map empty:
+end map
+
+display "Empty map created successfully!"
+
+display "All map creation tests passed!"

@@ -263,7 +263,11 @@ impl fmt::Display for Value {
             Value::Text(s) => write!(f, "{s}"),
             Value::Bool(b) => write!(f, "{}", if *b { "yes" } else { "no" }),
             Value::Nothing => write!(f, "nothing"),
-            Value::List(_) => write!(f, "[List]"),
+            Value::List(list) => {
+                let items = list.borrow();
+                let item_strings: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+                write!(f, "[{}]", item_strings.join(", "))
+            }
             Value::Object(o) => {
                 let map = o.borrow();
                 if map.len() == 1 {

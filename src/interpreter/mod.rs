@@ -90,9 +90,18 @@ fn stmt_type(stmt: &Statement) -> String {
         }
         Statement::PushStatement { .. } => "PushStatement to list".to_string(),
         Statement::CreateListStatement { name, .. } => format!("CreateListStatement '{name}'"),
-        Statement::AddToListStatement { list_name, .. } => format!("AddToListStatement to '{list_name}'"),
-        Statement::RemoveFromListStatement { list_name, .. } => format!("RemoveFromListStatement from '{list_name}'"),
-        Statement::ClearListStatement { list_name, .. } => format!("ClearListStatement '{list_name}'"),
+        Statement::MapCreation { name, .. } => format!("MapCreation '{name}'"),
+        Statement::CreateDateStatement { name, .. } => format!("CreateDateStatement '{name}'"),
+        Statement::CreateTimeStatement { name, .. } => format!("CreateTimeStatement '{name}'"),
+        Statement::AddToListStatement { list_name, .. } => {
+            format!("AddToListStatement to '{list_name}'")
+        }
+        Statement::RemoveFromListStatement { list_name, .. } => {
+            format!("RemoveFromListStatement from '{list_name}'")
+        }
+        Statement::ClearListStatement { list_name, .. } => {
+            format!("ClearListStatement '{list_name}'")
+        }
         // Container-related statements
         Statement::ContainerDefinition { name, .. } => format!("ContainerDefinition '{name}'"),
         Statement::ContainerInstantiation {
@@ -860,6 +869,9 @@ impl Interpreter {
             Statement::HttpPostStatement { line, column, .. } => (*line, *column),
             Statement::PushStatement { line, column, .. } => (*line, *column),
             Statement::CreateListStatement { line, column, .. } => (*line, *column),
+            Statement::MapCreation { line, column, .. } => (*line, *column),
+            Statement::CreateDateStatement { line, column, .. } => (*line, *column),
+            Statement::CreateTimeStatement { line, column, .. } => (*line, *column),
             Statement::AddToListStatement { line, column, .. } => (*line, *column),
             Statement::RemoveFromListStatement { line, column, .. } => (*line, *column),
             Statement::ClearListStatement { line, column, .. } => (*line, *column),
@@ -2070,13 +2082,71 @@ impl Interpreter {
                 // Create a new list with initial values
                 let mut list_items = Vec::new();
                 for value_expr in initial_values {
-                    let value = self.evaluate_expression(value_expr, Rc::clone(&env)).await?;
+                    let value = self
+                        .evaluate_expression(value_expr, Rc::clone(&env))
+                        .await?;
                     list_items.push(value);
                 }
-                
+
                 let list_value = Value::List(Rc::new(RefCell::new(list_items)));
                 env.borrow_mut().define(name, list_value);
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::MapCreation {
+                name,
+                entries,
+                line: _,
+                column: _,
+            } => {
+                // Create a new map/object with initial entries
+                let mut map = std::collections::HashMap::new();
+                for (key, value_expr) in entries {
+                    let value = self
+                        .evaluate_expression(value_expr, Rc::clone(&env))
+                        .await?;
+                    map.insert(key.clone(), value);
+                }
+
+                let map_value = Value::Object(Rc::new(RefCell::new(map)));
+                env.borrow_mut().define(name, map_value);
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::CreateDateStatement {
+                name,
+                value,
+                line: _,
+                column: _,
+            } => {
+                let date_value = if let Some(expr) = value {
+                    // Evaluate the expression to get the date
+                    self.evaluate_expression(expr, Rc::clone(&env)).await?
+                } else {
+                    // Default to today's date
+                    let today = chrono::Local::now().date_naive();
+                    Value::Date(Rc::new(today))
+                };
                 
+                env.borrow_mut().define(name, date_value);
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::CreateTimeStatement {
+                name,
+                value,
+                line: _,
+                column: _,
+            } => {
+                let time_value = if let Some(expr) = value {
+                    // Evaluate the expression to get the time
+                    self.evaluate_expression(expr, Rc::clone(&env)).await?
+                } else {
+                    // Default to current time
+                    let now = chrono::Local::now().time();
+                    Value::Time(Rc::new(now))
+                };
+                
+                env.borrow_mut().define(name, time_value);
                 Ok((Value::Null, ControlFlow::None))
             }
             Statement::AddToListStatement {
@@ -2087,17 +2157,12 @@ impl Interpreter {
             } => {
                 // Evaluate the value to add
                 let value_to_add = self.evaluate_expression(value, Rc::clone(&env)).await?;
-                
+
                 // Get the list from the environment
-                let list_val = env
-                    .borrow()
-                    .get(list_name)
-                    .ok_or_else(|| RuntimeError::new(
-                        format!("Undefined variable: {}", list_name),
-                        *line,
-                        *column,
-                    ))?;
-                
+                let list_val = env.borrow().get(list_name).ok_or_else(|| {
+                    RuntimeError::new(format!("Undefined variable: {}", list_name), *line, *column)
+                })?;
+
                 match list_val {
                     Value::List(list_rc) => {
                         list_rc.borrow_mut().push(value_to_add);
@@ -2109,11 +2174,13 @@ impl Interpreter {
                         let current = list_val;
                         if let (Value::Number(n1), Value::Number(n2)) = (&current, &value_to_add) {
                             let result = Value::Number(n1 + n2);
-                            env.borrow_mut().assign(list_name, result).map_err(|e| RuntimeError::new(e, *line, *column))?;
+                            env.borrow_mut()
+                                .assign(list_name, result)
+                                .map_err(|e| RuntimeError::new(e, *line, *column))?;
                             Ok((Value::Null, ControlFlow::None))
                         } else {
                             Err(RuntimeError::new(
-                                format!("Cannot add non-numeric value to number"),
+                                "Cannot add non-numeric value to number".to_string(),
                                 *line,
                                 *column,
                             ))
@@ -2134,17 +2201,12 @@ impl Interpreter {
             } => {
                 // Evaluate the value to remove
                 let value_to_remove = self.evaluate_expression(value, Rc::clone(&env)).await?;
-                
+
                 // Get the list from the environment
-                let list_val = env
-                    .borrow()
-                    .get(list_name)
-                    .ok_or_else(|| RuntimeError::new(
-                        format!("Undefined variable: {}", list_name),
-                        *line,
-                        *column,
-                    ))?;
-                
+                let list_val = env.borrow().get(list_name).ok_or_else(|| {
+                    RuntimeError::new(format!("Undefined variable: {}", list_name), *line, *column)
+                })?;
+
                 match list_val {
                     Value::List(list_rc) => {
                         let mut list = list_rc.borrow_mut();
@@ -2167,15 +2229,10 @@ impl Interpreter {
                 column,
             } => {
                 // Get the list from the environment
-                let list_val = env
-                    .borrow()
-                    .get(list_name)
-                    .ok_or_else(|| RuntimeError::new(
-                        format!("Undefined variable: {}", list_name),
-                        *line,
-                        *column,
-                    ))?;
-                
+                let list_val = env.borrow().get(list_name).ok_or_else(|| {
+                    RuntimeError::new(format!("Undefined variable: {}", list_name), *line, *column)
+                })?;
+
                 match list_val {
                     Value::List(list_rc) => {
                         list_rc.borrow_mut().clear();

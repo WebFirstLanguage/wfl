@@ -91,6 +91,8 @@ pub enum Token {
     KeywordExists,
     #[token("list")]
     KeywordList,
+    #[token("map")]
+    KeywordMap,
     #[token("remove")]
     KeywordRemove,
     #[token("clear")]
@@ -137,6 +139,10 @@ pub enum Token {
     KeywordWhen,
     #[token("data")]
     KeywordData,
+    #[token("date")]
+    KeywordDate,
+    #[token("time")]
+    KeywordTime,
     // #[token("otherwise")]
     // KeywordOtherwise,
     #[token("error")]

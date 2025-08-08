@@ -836,7 +836,7 @@ impl TypeChecker {
                         );
                     }
                 }
-                
+
                 // If empty list, element type remains Unknown
                 let list_type = Type::List(Box::new(element_type));
                 if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
@@ -850,13 +850,18 @@ impl TypeChecker {
                 column,
             } => {
                 let value_type = self.infer_expression_type(value);
-                
+
                 if let Some(symbol) = self.analyzer.get_symbol(list_name) {
                     match &symbol.symbol_type {
                         Some(Type::List(element_type)) => {
-                            if **element_type != Type::Unknown && **element_type != value_type && value_type != Type::Unknown {
+                            if **element_type != Type::Unknown
+                                && **element_type != value_type
+                                && value_type != Type::Unknown
+                            {
                                 self.type_error(
-                                    format!("Cannot add {value_type:?} to list of {element_type:?}"),
+                                    format!(
+                                        "Cannot add {value_type:?} to list of {element_type:?}"
+                                    ),
                                     Some((**element_type).clone()),
                                     Some(value_type),
                                     *line,
@@ -898,17 +903,20 @@ impl TypeChecker {
                 column,
             } => {
                 let _value_type = self.infer_expression_type(value);
-                
-                if let Some(symbol) = self.analyzer.get_symbol(list_name) {
-                    if !matches!(symbol.symbol_type, Some(Type::List(_)) | Some(Type::Unknown)) {
-                        self.type_error(
-                            format!("Cannot remove from non-list variable '{list_name}'"),
-                            Some(Type::List(Box::new(Type::Any))),
-                            symbol.symbol_type.clone(),
-                            *line,
-                            *column,
-                        );
-                    }
+
+                if let Some(symbol) = self.analyzer.get_symbol(list_name)
+                    && !matches!(
+                        symbol.symbol_type,
+                        Some(Type::List(_)) | Some(Type::Unknown)
+                    )
+                {
+                    self.type_error(
+                        format!("Cannot remove from non-list variable '{list_name}'"),
+                        Some(Type::List(Box::new(Type::Any))),
+                        symbol.symbol_type.clone(),
+                        *line,
+                        *column,
+                    );
                 }
             }
             Statement::ClearListStatement {
@@ -916,16 +924,19 @@ impl TypeChecker {
                 line,
                 column,
             } => {
-                if let Some(symbol) = self.analyzer.get_symbol(list_name) {
-                    if !matches!(symbol.symbol_type, Some(Type::List(_)) | Some(Type::Unknown)) {
-                        self.type_error(
-                            format!("Cannot clear non-list variable '{list_name}'"),
-                            Some(Type::List(Box::new(Type::Any))),
-                            symbol.symbol_type.clone(),
-                            *line,
-                            *column,
-                        );
-                    }
+                if let Some(symbol) = self.analyzer.get_symbol(list_name)
+                    && !matches!(
+                        symbol.symbol_type,
+                        Some(Type::List(_)) | Some(Type::Unknown)
+                    )
+                {
+                    self.type_error(
+                        format!("Cannot clear non-list variable '{list_name}'"),
+                        Some(Type::List(Box::new(Type::Any))),
+                        symbol.symbol_type.clone(),
+                        *line,
+                        *column,
+                    );
                 }
             }
             // Container-related statements
@@ -1090,6 +1101,42 @@ impl TypeChecker {
             Statement::PatternDefinition { .. } => {
                 // TODO: Add type checking for pattern definitions
                 // For now, patterns are valid without additional type checking
+            }
+            Statement::MapCreation {
+                name: _name,
+                entries,
+                line: _line,
+                column: _column,
+            } => {
+                // Check each entry value type
+                for (_key, value) in entries {
+                    self.infer_expression_type(value);
+                }
+                // The map will be added to the environment at runtime
+            }
+            Statement::CreateDateStatement {
+                name: _name,
+                value,
+                line: _line,
+                column: _column,
+            } => {
+                // Check the value expression if provided
+                if let Some(expr) = value {
+                    self.infer_expression_type(expr);
+                }
+                // The date will be added to the environment at runtime
+            }
+            Statement::CreateTimeStatement {
+                name: _name,
+                value,
+                line: _line,
+                column: _column,
+            } => {
+                // Check the value expression if provided
+                if let Some(expr) = value {
+                    self.infer_expression_type(expr);
+                }
+                // The time will be added to the environment at runtime
             }
         }
     }
