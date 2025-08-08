@@ -1,5 +1,5 @@
 use super::*;
-use crate::parser::ast::ParseError;
+use crate::parser::error::ParseError;
 use crate::typechecker::TypeError;
 
 #[test]

@@ -1,10 +1,14 @@
 pub mod ast;
+mod container_parser;
+pub mod error;
 #[cfg(test)]
 mod tests;
+mod util;
 
 use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use ast::*;
+use error::ParseError;
 use std::iter::Peekable;
 use std::slice::Iter;
 
@@ -239,53 +243,6 @@ impl<'a> Parser<'a> {
         )
     }
 
-    #[allow(dead_code)]
-    fn synchronize(&mut self) {
-        while let Some(token) = self.tokens.peek().cloned() {
-            match &token.token {
-                Token::KeywordStore
-                | Token::KeywordCreate
-                | Token::KeywordDisplay
-                | Token::KeywordCheck
-                | Token::KeywordCount
-                | Token::KeywordFor
-                | Token::KeywordDefine
-                | Token::KeywordIf
-                | Token::KeywordPush => {
-                    break;
-                }
-                Token::KeywordEnd => {
-                    // Handle orphaned "end" tokens during error recovery
-                    exec_trace!("Synchronizing: found 'end' token at line {}", token.line);
-                    self.tokens.next(); // Consume "end"
-                    if let Some(next_token) = self.tokens.peek() {
-                        match &next_token.token {
-                            Token::KeywordAction
-                            | Token::KeywordCheck
-                            | Token::KeywordFor
-                            | Token::KeywordCount
-                            | Token::KeywordRepeat
-                            | Token::KeywordTry
-                            | Token::KeywordLoop
-                            | Token::KeywordWhile => {
-                                exec_trace!(
-                                    "Synchronizing: consuming {:?} after 'end'",
-                                    next_token.token
-                                );
-                                self.tokens.next(); // Consume the keyword after "end"
-                            }
-                            _ => {} // Just consumed "end", continue
-                        }
-                    }
-                    break; // After handling orphaned end, continue with recovery
-                }
-                _ => {
-                    self.tokens.next(); // Skip the token
-                }
-            }
-        }
-    }
-
     // Container-related parsing methods
     pub fn parse_container_definition(&mut self) -> Result<Statement, ParseError> {
         let start_token = self.tokens.next().unwrap(); // Consume 'create'
@@ -321,7 +278,7 @@ impl<'a> Parser<'a> {
         };
 
         // Parse inheritance and interfaces
-        let (extends, implements) = self.parse_inheritance()?;
+        let (extends, implements) = self.parse_inheritance2()?;
 
         // Expect colon after container declaration
         self.expect_token(Token::Colon, "Expected ':' after container name")?;
@@ -634,79 +591,6 @@ impl<'a> Parser<'a> {
     }
 
     // Helper methods for parsing container-related constructs
-    fn parse_inheritance(&mut self) -> Result<(Option<String>, Vec<String>), ParseError> {
-        let mut extends = None;
-        let mut implements = Vec::new();
-
-        // Check for 'extends' keyword
-        if let Some(token) = self.tokens.peek()
-            && token.token == Token::KeywordExtends
-        {
-            self.tokens.next(); // Consume 'extends'
-
-            if let Some(token) = self.tokens.peek() {
-                if let Token::Identifier(id) = &token.token {
-                    extends = Some(id.clone());
-                    self.tokens.next(); // Consume the identifier
-                } else {
-                    return Err(ParseError::new(
-                        "Expected identifier after 'extends'".to_string(),
-                        token.line,
-                        token.column,
-                    ));
-                }
-            } else {
-                return Err(ParseError::new(
-                    "Expected identifier after 'extends'".to_string(),
-                    0,
-                    0,
-                ));
-            }
-        }
-
-        // Check for 'implements' keyword
-        if let Some(token) = self.tokens.peek()
-            && token.token == Token::KeywordImplements
-        {
-            self.tokens.next(); // Consume 'implements'
-
-            // Parse interface list
-            loop {
-                if let Some(token) = self.tokens.peek() {
-                    if let Token::Identifier(id) = &token.token {
-                        implements.push(id.clone());
-                        self.tokens.next(); // Consume the identifier
-
-                        // Check for comma to continue or break
-                        if let Some(next_token) = self.tokens.peek() {
-                            if next_token.token == Token::Comma {
-                                self.tokens.next(); // Consume comma
-                                continue;
-                            } else {
-                                break;
-                            }
-                        } else {
-                            break;
-                        }
-                    } else {
-                        return Err(ParseError::new(
-                            "Expected identifier in implements list".to_string(),
-                            token.line,
-                            token.column,
-                        ));
-                    }
-                } else {
-                    return Err(ParseError::new(
-                        "Expected identifier in implements list".to_string(),
-                        0,
-                        0,
-                    ));
-                }
-            }
-        }
-
-        Ok((extends, implements))
-    }
 
     #[allow(clippy::type_complexity)]
     fn parse_container_body(
@@ -1360,30 +1244,6 @@ impl<'a> Parser<'a> {
         }
 
         Ok(name_parts.join(" "))
-    }
-
-    fn expect_token(&mut self, expected: Token, error_message: &str) -> Result<(), ParseError> {
-        if let Some(token) = self.tokens.peek().cloned() {
-            if token.token == expected {
-                self.tokens.next();
-                Ok(())
-            } else {
-                Err(ParseError::new(
-                    format!(
-                        "{}: expected {:?}, found {:?}",
-                        error_message, expected, token.token
-                    ),
-                    token.line,
-                    token.column,
-                ))
-            }
-        } else {
-            Err(ParseError::new(
-                format!("{error_message}: unexpected end of input"),
-                0,
-                0,
-            ))
-        }
     }
 
     fn parse_expression(&mut self) -> Result<Expression, ParseError> {
@@ -5691,10 +5551,10 @@ impl<'a> Parser<'a> {
     fn parse_create_date_statement(&mut self) -> Result<Statement, ParseError> {
         let create_token = self.tokens.next().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordDate, "Expected 'date' after 'create'")?;
-        
+
         // Parse the date variable name
         let name = self.parse_variable_name_simple()?;
-        
+
         // Check if there's an "as" clause for a custom date value
         let value = if let Some(token) = self.tokens.peek() {
             if token.token == Token::KeywordAs {
@@ -5706,7 +5566,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        
+
         Ok(Statement::CreateDateStatement {
             name,
             value,
@@ -5714,14 +5574,14 @@ impl<'a> Parser<'a> {
             column: create_token.column,
         })
     }
-    
+
     fn parse_create_time_statement(&mut self) -> Result<Statement, ParseError> {
         let create_token = self.tokens.next().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordTime, "Expected 'time' after 'create'")?;
-        
+
         // Parse the time variable name
         let name = self.parse_variable_name_simple()?;
-        
+
         // Check if there's an "as" clause for a custom time value
         let value = if let Some(token) = self.tokens.peek() {
             if token.token == Token::KeywordAs {
@@ -5733,7 +5593,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        
+
         Ok(Statement::CreateTimeStatement {
             name,
             value,
