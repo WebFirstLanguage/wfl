@@ -89,6 +89,10 @@ fn stmt_type(stmt: &Statement) -> String {
             format!("HttpPostStatement '{variable_name}'")
         }
         Statement::PushStatement { .. } => "PushStatement to list".to_string(),
+        Statement::CreateListStatement { name, .. } => format!("CreateListStatement '{name}'"),
+        Statement::AddToListStatement { list_name, .. } => format!("AddToListStatement to '{list_name}'"),
+        Statement::RemoveFromListStatement { list_name, .. } => format!("RemoveFromListStatement from '{list_name}'"),
+        Statement::ClearListStatement { list_name, .. } => format!("ClearListStatement '{list_name}'"),
         // Container-related statements
         Statement::ContainerDefinition { name, .. } => format!("ContainerDefinition '{name}'"),
         Statement::ContainerInstantiation {
@@ -855,6 +859,10 @@ impl Interpreter {
             Statement::HttpGetStatement { line, column, .. } => (*line, *column),
             Statement::HttpPostStatement { line, column, .. } => (*line, *column),
             Statement::PushStatement { line, column, .. } => (*line, *column),
+            Statement::CreateListStatement { line, column, .. } => (*line, *column),
+            Statement::AddToListStatement { line, column, .. } => (*line, *column),
+            Statement::RemoveFromListStatement { line, column, .. } => (*line, *column),
+            Statement::ClearListStatement { line, column, .. } => (*line, *column),
             // Container-related statements
             Statement::ContainerDefinition { line, column, .. } => (*line, *column),
             Statement::ContainerInstantiation { line, column, .. } => (*line, *column),
@@ -2048,6 +2056,133 @@ impl Interpreter {
                     }
                     _ => Err(RuntimeError::new(
                         format!("Cannot push to non-list value: {list_val:?}"),
+                        *line,
+                        *column,
+                    )),
+                }
+            }
+            Statement::CreateListStatement {
+                name,
+                initial_values,
+                line: _,
+                column: _,
+            } => {
+                // Create a new list with initial values
+                let mut list_items = Vec::new();
+                for value_expr in initial_values {
+                    let value = self.evaluate_expression(value_expr, Rc::clone(&env)).await?;
+                    list_items.push(value);
+                }
+                
+                let list_value = Value::List(Rc::new(RefCell::new(list_items)));
+                env.borrow_mut().define(name, list_value);
+                
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::AddToListStatement {
+                value,
+                list_name,
+                line,
+                column,
+            } => {
+                // Evaluate the value to add
+                let value_to_add = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                
+                // Get the list from the environment
+                let list_val = env
+                    .borrow()
+                    .get(list_name)
+                    .ok_or_else(|| RuntimeError::new(
+                        format!("Undefined variable: {}", list_name),
+                        *line,
+                        *column,
+                    ))?;
+                
+                match list_val {
+                    Value::List(list_rc) => {
+                        list_rc.borrow_mut().push(value_to_add);
+                        Ok((Value::Null, ControlFlow::None))
+                    }
+                    Value::Number(_) => {
+                        // This is actually arithmetic add
+                        // Convert to arithmetic operation
+                        let current = list_val;
+                        if let (Value::Number(n1), Value::Number(n2)) = (&current, &value_to_add) {
+                            let result = Value::Number(n1 + n2);
+                            env.borrow_mut().assign(list_name, result).map_err(|e| RuntimeError::new(e, *line, *column))?;
+                            Ok((Value::Null, ControlFlow::None))
+                        } else {
+                            Err(RuntimeError::new(
+                                format!("Cannot add non-numeric value to number"),
+                                *line,
+                                *column,
+                            ))
+                        }
+                    }
+                    _ => Err(RuntimeError::new(
+                        format!("Cannot add to non-list value: {list_val:?}"),
+                        *line,
+                        *column,
+                    )),
+                }
+            }
+            Statement::RemoveFromListStatement {
+                value,
+                list_name,
+                line,
+                column,
+            } => {
+                // Evaluate the value to remove
+                let value_to_remove = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                
+                // Get the list from the environment
+                let list_val = env
+                    .borrow()
+                    .get(list_name)
+                    .ok_or_else(|| RuntimeError::new(
+                        format!("Undefined variable: {}", list_name),
+                        *line,
+                        *column,
+                    ))?;
+                
+                match list_val {
+                    Value::List(list_rc) => {
+                        let mut list = list_rc.borrow_mut();
+                        // Remove the first occurrence of the value
+                        if let Some(pos) = list.iter().position(|v| v == &value_to_remove) {
+                            list.remove(pos);
+                        }
+                        Ok((Value::Null, ControlFlow::None))
+                    }
+                    _ => Err(RuntimeError::new(
+                        format!("Cannot remove from non-list value: {list_val:?}"),
+                        *line,
+                        *column,
+                    )),
+                }
+            }
+            Statement::ClearListStatement {
+                list_name,
+                line,
+                column,
+            } => {
+                // Get the list from the environment
+                let list_val = env
+                    .borrow()
+                    .get(list_name)
+                    .ok_or_else(|| RuntimeError::new(
+                        format!("Undefined variable: {}", list_name),
+                        *line,
+                        *column,
+                    ))?;
+                
+                match list_val {
+                    Value::List(list_rc) => {
+                        list_rc.borrow_mut().clear();
+                        Ok((Value::Null, ControlFlow::None))
+                    }
+                    _ => Err(RuntimeError::new(
+                        format!("Cannot clear non-list value: {list_val:?}"),
                         *line,
                         *column,
                     )),

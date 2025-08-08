@@ -1056,6 +1056,7 @@ impl<'a> Parser<'a> {
                             Token::KeywordPattern => self.parse_create_pattern_statement(),
                             Token::KeywordDirectory => self.parse_create_directory_statement(),
                             Token::KeywordFile => self.parse_create_file_statement(),
+                            Token::KeywordList => self.parse_create_list_statement(),
                             _ => self.parse_variable_declaration(), // Default to variable declaration
                         }
                     } else {
@@ -1069,10 +1070,18 @@ impl<'a> Parser<'a> {
                 Token::KeywordFor => self.parse_for_each_loop(),
                 Token::KeywordDefine => self.parse_action_definition(),
                 Token::KeywordChange => self.parse_assignment(),
-                Token::KeywordAdd => self.parse_arithmetic_operation(),
+                Token::KeywordAdd => {
+                    // Peek ahead to determine if this is arithmetic or list operation
+                    // For arithmetic: "add 5 to variable" (number comes first)
+                    // For list: "add "item" to list" (any value to a list)
+                    // We'll try to parse as list operation first, fall back to arithmetic
+                    self.parse_add_operation()
+                }
                 Token::KeywordSubtract => self.parse_arithmetic_operation(),
                 Token::KeywordMultiply => self.parse_arithmetic_operation(),
                 Token::KeywordDivide => self.parse_arithmetic_operation(),
+                Token::KeywordRemove => self.parse_remove_from_list_statement(),
+                Token::KeywordClear => self.parse_clear_list_statement(),
                 Token::KeywordTry => self.parse_try_statement(),
                 Token::KeywordRepeat => self.parse_repeat_statement(),
                 Token::KeywordExit => self.parse_exit_statement(),
@@ -5598,5 +5607,175 @@ impl<'a> Parser<'a> {
             }
             _ => Ok(base_pattern),
         }
+    }
+
+    fn parse_create_list_statement(&mut self) -> Result<Statement, ParseError> {
+        let create_token = self.tokens.next().unwrap(); // Consume "create"
+        self.expect_token(Token::KeywordList, "Expected 'list' after 'create'")?;
+        
+        // Parse list name
+        let name = if let Some(token) = self.tokens.peek() {
+            match &token.token {
+                Token::Identifier(n) => {
+                    let name = n.clone();
+                    self.tokens.next(); // Consume the identifier
+                    name
+                }
+                _ => return Err(ParseError::new(
+                    format!("Expected identifier for list name, found {:?}", token.token),
+                    token.line,
+                    token.column,
+                ))
+            }
+        } else {
+            return Err(ParseError::new(
+                "Expected list name after 'create list'".to_string(),
+                create_token.line,
+                create_token.column,
+            ));
+        };
+        
+        // Expect colon
+        self.expect_token(Token::Colon, "Expected ':' after list name")?;
+        
+        // Parse list items
+        let mut initial_values = Vec::new();
+        
+        while let Some(token) = self.tokens.peek().cloned() {
+            match token.token {
+                Token::KeywordEnd => {
+                    self.tokens.next(); // Consume "end"
+                    self.expect_token(Token::KeywordList, "Expected 'list' after 'end'")?;
+                    break;
+                }
+                Token::KeywordAdd => {
+                    self.tokens.next(); // Consume "add"
+                    let value = self.parse_expression()?;
+                    initial_values.push(value);
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        format!("Expected 'add' or 'end list' in list creation, found {:?}", token.token),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            }
+        }
+        
+        Ok(Statement::CreateListStatement {
+            name,
+            initial_values,
+            line: create_token.line,
+            column: create_token.column,
+        })
+    }
+
+    fn parse_add_operation(&mut self) -> Result<Statement, ParseError> {
+        // We need to determine if this is:
+        // 1. Arithmetic: "add 5 to variable" (adds 5 to a numeric variable)
+        // 2. List operation: "add "item" to list" (appends to a list)
+        
+        // Save the position to potentially backtrack
+        let _saved_position = self.tokens.clone();
+        let add_token = self.tokens.next().unwrap(); // Consume "add"
+        
+        // Parse the value to add
+        let value = self.parse_expression()?;
+        
+        // Check for "to" keyword
+        if let Some(token) = self.tokens.peek() {
+            if token.token == Token::KeywordTo {
+                self.tokens.next(); // Consume "to"
+                
+                // Parse the target name
+                let target_name = self.parse_variable_name_simple()?;
+                
+                // Try to determine the operation type
+                // For now, we'll check if the value is numeric to decide
+                // The interpreter will handle the actual type checking
+                match &value {
+                    Expression::Literal(Literal::Integer(_), _, _) | 
+                    Expression::Literal(Literal::Float(_), _, _) => {
+                        // Likely arithmetic operation
+                        let operator = Operator::Plus;
+                        Ok(Statement::Assignment {
+                            name: target_name.clone(),
+                            value: Expression::BinaryOperation {
+                                left: Box::new(Expression::Variable(target_name, add_token.line, add_token.column)),
+                                operator,
+                                right: Box::new(value),
+                                line: add_token.line,
+                                column: add_token.column,
+                            },
+                            line: add_token.line,
+                            column: add_token.column,
+                        })
+                    }
+                    _ => {
+                        // Treat as list operation
+                        Ok(Statement::AddToListStatement {
+                            value,
+                            list_name: target_name,
+                            line: add_token.line,
+                            column: add_token.column,
+                        })
+                    }
+                }
+            } else {
+                // No "to" keyword, this is an error
+                Err(ParseError::new(
+                    "Expected 'to' after value in add statement".to_string(),
+                    add_token.line,
+                    add_token.column,
+                ))
+            }
+        } else {
+            Err(ParseError::new(
+                "Unexpected end of input after add value".to_string(),
+                add_token.line,
+                add_token.column,
+            ))
+        }
+    }
+
+    fn parse_remove_from_list_statement(&mut self) -> Result<Statement, ParseError> {
+        let remove_token = self.tokens.next().unwrap(); // Consume "remove"
+        
+        // Parse the value to remove
+        let value = self.parse_expression()?;
+        
+        // Expect "from"
+        self.expect_token(Token::KeywordFrom, "Expected 'from' after value in remove")?;
+        
+        // Parse the list name
+        let list_name = self.parse_variable_name_simple()?;
+        
+        Ok(Statement::RemoveFromListStatement {
+            value,
+            list_name,
+            line: remove_token.line,
+            column: remove_token.column,
+        })
+    }
+
+    fn parse_clear_list_statement(&mut self) -> Result<Statement, ParseError> {
+        let clear_token = self.tokens.next().unwrap(); // Consume "clear"
+        
+        // Parse the list name
+        let list_name = self.parse_variable_name_simple()?;
+        
+        // Optionally consume "list" keyword if present
+        if let Some(token) = self.tokens.peek() {
+            if token.token == Token::KeywordList {
+                self.tokens.next(); // Consume "list"
+            }
+        }
+        
+        Ok(Statement::ClearListStatement {
+            list_name,
+            line: clear_token.line,
+            column: clear_token.column,
+        })
     }
 }

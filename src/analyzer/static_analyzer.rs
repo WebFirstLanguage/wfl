@@ -801,6 +801,10 @@ impl Analyzer {
                             Statement::DeleteFileStatement { line, .. } => *line,
                             Statement::DeleteDirectoryStatement { line, .. } => *line,
                             Statement::PatternDefinition { line, .. } => *line,
+                            Statement::CreateListStatement { line, .. } => *line,
+                            Statement::AddToListStatement { line, .. } => *line,
+                            Statement::RemoveFromListStatement { line, .. } => *line,
+                            Statement::ClearListStatement { line, .. } => *line,
                         },
                         column: match statement {
                             Statement::VariableDeclaration { column, .. } => *column,
@@ -844,6 +848,10 @@ impl Analyzer {
                             Statement::DeleteFileStatement { column, .. } => *column,
                             Statement::DeleteDirectoryStatement { column, .. } => *column,
                             Statement::PatternDefinition { column, .. } => *column,
+                            Statement::CreateListStatement { column, .. } => *column,
+                            Statement::AddToListStatement { column, .. } => *column,
+                            Statement::RemoveFromListStatement { column, .. } => *column,
+                            Statement::ClearListStatement { column, .. } => *column,
                         },
                     });
                     stmt_nodes.push(node_idx);
@@ -915,6 +923,10 @@ impl Analyzer {
                                 Statement::DeleteFileStatement { line, .. } => *line,
                                 Statement::DeleteDirectoryStatement { line, .. } => *line,
                                 Statement::PatternDefinition { line, .. } => *line,
+                                Statement::CreateListStatement { line, .. } => *line,
+                                Statement::AddToListStatement { line, .. } => *line,
+                                Statement::RemoveFromListStatement { line, .. } => *line,
+                                Statement::ClearListStatement { line, .. } => *line,
                             },
                             column: match stmt {
                                 Statement::VariableDeclaration { column, .. } => *column,
@@ -958,6 +970,10 @@ impl Analyzer {
                                 Statement::DeleteFileStatement { column, .. } => *column,
                                 Statement::DeleteDirectoryStatement { column, .. } => *column,
                                 Statement::PatternDefinition { column, .. } => *column,
+                                Statement::CreateListStatement { column, .. } => *column,
+                                Statement::AddToListStatement { column, .. } => *column,
+                                Statement::RemoveFromListStatement { column, .. } => *column,
+                                Statement::ClearListStatement { column, .. } => *column,
                             },
                         });
                         then_nodes.push(then_node_idx);
@@ -1017,6 +1033,10 @@ impl Analyzer {
                                     Statement::DeleteFileStatement { line, .. } => *line,
                                     Statement::DeleteDirectoryStatement { line, .. } => *line,
                                     Statement::PatternDefinition { line, .. } => *line,
+                                Statement::CreateListStatement { line, .. } => *line,
+                                Statement::AddToListStatement { line, .. } => *line,
+                                Statement::RemoveFromListStatement { line, .. } => *line,
+                                Statement::ClearListStatement { line, .. } => *line,
                                 },
                                 column: match stmt {
                                     Statement::VariableDeclaration { column, .. } => *column,
@@ -1060,6 +1080,10 @@ impl Analyzer {
                                     Statement::DeleteFileStatement { column, .. } => *column,
                                     Statement::DeleteDirectoryStatement { column, .. } => *column,
                                     Statement::PatternDefinition { column, .. } => *column,
+                                Statement::CreateListStatement { column, .. } => *column,
+                                Statement::AddToListStatement { column, .. } => *column,
+                                Statement::RemoveFromListStatement { column, .. } => *column,
+                                Statement::ClearListStatement { column, .. } => *column,
                                 },
                             });
                             else_nodes.push(else_node_idx);

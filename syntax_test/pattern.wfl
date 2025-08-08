@@ -98,6 +98,13 @@ divide cn1 by 2
 
 display "Final count is: " + cn1
 
+
+create list shopping:
+    add "milk"
+    add "bread"
+    add "eggs"
+end list
+
 // Compile patterns for performance (future feature)
 // compile pattern "email" as email_validator
 

@@ -1,0 +1,15 @@
+// Simple test for create list syntax
+
+create list items:
+    add "apple"
+    add "banana"
+end list
+
+display "List created"
+
+// Test if list exists
+for each item in items:
+    display item
+end for
+
+display "Done"

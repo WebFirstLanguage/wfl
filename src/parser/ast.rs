@@ -274,6 +274,29 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    CreateListStatement {
+        name: String,
+        initial_values: Vec<Expression>,
+        line: usize,
+        column: usize,
+    },
+    AddToListStatement {
+        value: Expression,
+        list_name: String,
+        line: usize,
+        column: usize,
+    },
+    RemoveFromListStatement {
+        value: Expression,
+        list_name: String,
+        line: usize,
+        column: usize,
+    },
+    ClearListStatement {
+        list_name: String,
+        line: usize,
+        column: usize,
+    },
     // Container-related statements
     ContainerDefinition {
         name: String,

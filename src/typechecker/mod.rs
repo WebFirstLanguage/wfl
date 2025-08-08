@@ -814,6 +814,120 @@ impl TypeChecker {
                     );
                 }
             }
+            Statement::CreateListStatement {
+                name,
+                initial_values,
+                line,
+                column,
+            } => {
+                // Infer the element type from initial values
+                let mut element_type = Type::Unknown;
+                for value in initial_values {
+                    let value_type = self.infer_expression_type(value);
+                    if element_type == Type::Unknown {
+                        element_type = value_type;
+                    } else if element_type != value_type && value_type != Type::Unknown {
+                        self.type_error(
+                            format!("Mixed types in list initialization. Expected {element_type:?}, got {value_type:?}"),
+                            Some(element_type.clone()),
+                            Some(value_type),
+                            *line,
+                            *column,
+                        );
+                    }
+                }
+                
+                // If empty list, element type remains Unknown
+                let list_type = Type::List(Box::new(element_type));
+                if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
+                    symbol.symbol_type = Some(list_type);
+                }
+            }
+            Statement::AddToListStatement {
+                value,
+                list_name,
+                line,
+                column,
+            } => {
+                let value_type = self.infer_expression_type(value);
+                
+                if let Some(symbol) = self.analyzer.get_symbol(list_name) {
+                    match &symbol.symbol_type {
+                        Some(Type::List(element_type)) => {
+                            if **element_type != Type::Unknown && **element_type != value_type && value_type != Type::Unknown {
+                                self.type_error(
+                                    format!("Cannot add {value_type:?} to list of {element_type:?}"),
+                                    Some((**element_type).clone()),
+                                    Some(value_type),
+                                    *line,
+                                    *column,
+                                );
+                            }
+                        }
+                        Some(Type::Number) => {
+                            // This is arithmetic add
+                            if value_type != Type::Number && value_type != Type::Unknown {
+                                self.type_error(
+                                    "Cannot add non-numeric value to number".to_string(),
+                                    Some(Type::Number),
+                                    Some(value_type),
+                                    *line,
+                                    *column,
+                                );
+                            }
+                        }
+                        _ => {
+                            // Variable might not be a list
+                            if symbol.symbol_type != Some(Type::Unknown) {
+                                self.type_error(
+                                    format!("Cannot add to non-list variable '{list_name}'"),
+                                    Some(Type::List(Box::new(Type::Any))),
+                                    symbol.symbol_type.clone(),
+                                    *line,
+                                    *column,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            Statement::RemoveFromListStatement {
+                value,
+                list_name,
+                line,
+                column,
+            } => {
+                let _value_type = self.infer_expression_type(value);
+                
+                if let Some(symbol) = self.analyzer.get_symbol(list_name) {
+                    if !matches!(symbol.symbol_type, Some(Type::List(_)) | Some(Type::Unknown)) {
+                        self.type_error(
+                            format!("Cannot remove from non-list variable '{list_name}'"),
+                            Some(Type::List(Box::new(Type::Any))),
+                            symbol.symbol_type.clone(),
+                            *line,
+                            *column,
+                        );
+                    }
+                }
+            }
+            Statement::ClearListStatement {
+                list_name,
+                line,
+                column,
+            } => {
+                if let Some(symbol) = self.analyzer.get_symbol(list_name) {
+                    if !matches!(symbol.symbol_type, Some(Type::List(_)) | Some(Type::Unknown)) {
+                        self.type_error(
+                            format!("Cannot clear non-list variable '{list_name}'"),
+                            Some(Type::List(Box::new(Type::Any))),
+                            symbol.symbol_type.clone(),
+                            *line,
+                            *column,
+                        );
+                    }
+                }
+            }
             // Container-related statements
             Statement::ContainerDefinition {
                 name: _name,

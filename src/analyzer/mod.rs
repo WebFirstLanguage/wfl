@@ -1033,6 +1033,76 @@ impl Analyzer {
                 }
             }
 
+            Statement::CreateListStatement {
+                name,
+                initial_values,
+                line,
+                column,
+            } => {
+                // Analyze initial values
+                for value in initial_values {
+                    self.analyze_expression(value);
+                }
+                
+                // Define the list variable
+                let symbol = Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::List(Box::new(Type::Unknown))),
+                    line: *line,
+                    column: *column,
+                };
+                if let Err(e) = self.current_scope.define(symbol) {
+                    self.errors.push(e);
+                }
+            }
+            
+            Statement::AddToListStatement {
+                value,
+                list_name,
+                line,
+                column,
+            } => {
+                self.analyze_expression(value);
+                if self.get_symbol(list_name).is_none() {
+                    self.errors.push(SemanticError::new(
+                        format!("Variable '{}' is not defined", list_name),
+                        *line,
+                        *column,
+                    ));
+                }
+            }
+            
+            Statement::RemoveFromListStatement {
+                value,
+                list_name,
+                line,
+                column,
+            } => {
+                self.analyze_expression(value);
+                if self.get_symbol(list_name).is_none() {
+                    self.errors.push(SemanticError::new(
+                        format!("Variable '{}' is not defined", list_name),
+                        *line,
+                        *column,
+                    ));
+                }
+            }
+            
+            Statement::ClearListStatement {
+                list_name,
+                line,
+                column,
+            } => {
+                if self.get_symbol(list_name).is_none() {
+                    self.errors.push(SemanticError::new(
+                        format!("Variable '{}' is not defined", list_name),
+                        *line,
+                        *column,
+                    ));
+                }
+            }
+            
             Statement::PatternDefinition {
                 name,
                 pattern: _,

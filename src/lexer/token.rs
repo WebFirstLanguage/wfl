@@ -91,6 +91,10 @@ pub enum Token {
     KeywordExists,
     #[token("list")]
     KeywordList,
+    #[token("remove")]
+    KeywordRemove,
+    #[token("clear")]
+    KeywordClear,
     #[token("files")]
     KeywordFiles,
     #[token("found")]
