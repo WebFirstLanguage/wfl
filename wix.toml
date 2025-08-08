@@ -30,11 +30,11 @@ PATH = { value = "[INSTALLDIR]bin", action = "set", permanent = "yes" }
 
 # Files to include
 [[package.files]]
-source = "target/release/wfl.exe"
+source = "target/x86_64-pc-windows-msvc/release/wfl.exe"
 destination = "bin/wfl.exe"
 
 [[package.files]]
-source = "target/release/wfl-lsp.exe"
+source = "target/x86_64-pc-windows-msvc/release/wfl-lsp.exe"
 destination = "bin/wfl-lsp.exe"
 
 [[package.files]]
