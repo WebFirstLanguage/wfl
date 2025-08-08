@@ -280,6 +280,44 @@ After making changes:
 - HTTP requests via Reqwest (v0.11.24)
 - Database support via SQLx (v0.8.1)
 
+## Git Sync - Handling Diverged Branches
+
+When branches diverge (common with CI/CD version bumps), use the sync scripts:
+
+### Quick Usage
+```bash
+# Sync current branch with origin (bash)
+./scripts/sync-branch.sh -f
+
+# Or use git alias
+git sync-sh
+
+# For PowerShell (needs fixing)
+git sync       # or git sync-force
+```
+
+### What the Sync Script Does
+1. **Detects divergence** - Checks if local and remote have different commits
+2. **Stashes changes** - Temporarily saves uncommitted work (with -f flag)
+3. **Rebases commits** - Puts your local commits on top of remote changes
+4. **Restores work** - Re-applies stashed changes after sync
+
+### Common Scenarios
+- **CI version bump conflicts**: Script rebases your work on top of version bumps
+- **Parallel development**: Cleanly integrates remote changes
+- **Linear history**: Maintains clean git history through rebasing
+
+### Manual Steps if Conflicts Occur
+```bash
+# Fix conflicts in marked files
+# Stage resolved files
+git add <resolved-files>
+# Continue rebase
+git rebase --continue
+# Or abort if needed
+git rebase --abort
+```
+
 ## Common Workflows
 
 ### Adding a New Feature
