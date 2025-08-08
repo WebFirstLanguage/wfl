@@ -230,10 +230,10 @@ impl StaticAnalyzer for Analyzer {
                 // Also mark all arguments as used
                 for arg in arguments {
                     // Mark the variable directly if it's a variable expression
-                    if let Expression::Variable(var_name, ..) = &arg.value {
-                        if let Some(usage) = variable_usages.get_mut(var_name) {
-                            usage.used = true;
-                        }
+                    if let Expression::Variable(var_name, ..) = &arg.value
+                        && let Some(usage) = variable_usages.get_mut(var_name)
+                    {
+                        usage.used = true;
                     }
 
                     // Also mark any variables used within more complex expressions
@@ -338,25 +338,23 @@ impl StaticAnalyzer for Analyzer {
                 column,
                 ..
             } = statement
+                && let Some(ret_type) = return_type
+                && *ret_type != Type::Nothing
             {
-                if let Some(ret_type) = return_type {
-                    if *ret_type != Type::Nothing {
-                        let mut has_return = false;
-                        let all_paths_return = self.check_all_paths_return(body, &mut has_return);
+                let mut has_return = false;
+                let all_paths_return = self.check_all_paths_return(body, &mut has_return);
 
-                        if has_return && !all_paths_return {
-                            diagnostics.push(WflDiagnostic::new(
-                                Severity::Warning,
-                                format!("Action '{name}' has inconsistent return paths"),
-                                Some("Ensure all code paths return a value".to_string()),
-                                "ANALYZE-RETURN".to_string(),
-                                file_id,
-                                *line,
-                                *column,
-                                None,
-                            ));
-                        }
-                    }
+                if has_return && !all_paths_return {
+                    diagnostics.push(WflDiagnostic::new(
+                        Severity::Warning,
+                        format!("Action '{name}' has inconsistent return paths"),
+                        Some("Ensure all code paths return a value".to_string()),
+                        "ANALYZE-RETURN".to_string(),
+                        file_id,
+                        *line,
+                        *column,
+                        None,
+                    ));
                 }
             }
         }
@@ -676,10 +674,10 @@ impl Analyzer {
                 // Mark all arguments as used
                 for arg in arguments {
                     // If the argument has a name, mark it as used
-                    if let Some(arg_name) = &arg.name {
-                        if let Some(usage) = usages.get_mut(arg_name) {
-                            usage.used = true;
-                        }
+                    if let Some(arg_name) = &arg.name
+                        && let Some(usage) = usages.get_mut(arg_name)
+                    {
+                        usage.used = true;
                     }
 
                     // Mark variables used in the argument value
@@ -687,10 +685,10 @@ impl Analyzer {
 
                     // Special case: If the argument is a variable, mark it as used
                     // This handles cases like `the_action` in `assert_throws`
-                    if let Expression::Variable(var_name, ..) = &arg.value {
-                        if let Some(usage) = usages.get_mut(var_name) {
-                            usage.used = true;
-                        }
+                    if let Expression::Variable(var_name, ..) = &arg.value
+                        && let Some(usage) = usages.get_mut(var_name)
+                    {
+                        usage.used = true;
                     }
                 }
             }
@@ -709,16 +707,16 @@ impl Analyzer {
 
                 // Special handling for variables in concatenation expressions
                 // This handles cases like "store updatedLog as currentLog with message_text with "\n""
-                if let Expression::Variable(var_name, ..) = &**left {
-                    if let Some(usage) = usages.get_mut(var_name) {
-                        usage.used = true;
-                    }
+                if let Expression::Variable(var_name, ..) = &**left
+                    && let Some(usage) = usages.get_mut(var_name)
+                {
+                    usage.used = true;
                 }
 
-                if let Expression::Variable(var_name, ..) = &**right {
-                    if let Some(usage) = usages.get_mut(var_name) {
-                        usage.used = true;
-                    }
+                if let Expression::Variable(var_name, ..) = &**right
+                    && let Some(usage) = usages.get_mut(var_name)
+                {
+                    usage.used = true;
                 }
             }
             Expression::PatternMatch { text, pattern, .. }

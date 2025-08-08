@@ -36,10 +36,10 @@ impl fmt::Display for TypeError {
             self.line, self.column, self.message
         );
 
-        if let Some(expected) = &self.expected {
-            if let Some(found) = &self.found {
-                message.push_str(&format!(" - Expected {expected} but found {found}"));
-            }
+        if let Some(expected) = &self.expected
+            && let Some(found) = &self.found
+        {
+            message.push_str(&format!(" - Expected {expected} but found {found}"));
         }
 
         write!(f, "{message}")
@@ -127,19 +127,19 @@ impl TypeChecker {
         // Only run the analyzer if it hasn't been run already
         // When created with with_analyzer(), the analyzer has already been run,
         // so we don't need to analyze again. This prevents duplicate symbol registration.
-        if !self.analyzer_already_run {
-            if let Err(semantic_errors) = self.analyzer.analyze(program) {
-                for error in semantic_errors {
-                    self.errors.push(TypeError::new(
-                        error.message,
-                        None,
-                        None,
-                        error.line,
-                        error.column,
-                    ));
-                }
-                return Err(self.errors.clone());
+        if !self.analyzer_already_run
+            && let Err(semantic_errors) = self.analyzer.analyze(program)
+        {
+            for error in semantic_errors {
+                self.errors.push(TypeError::new(
+                    error.message,
+                    None,
+                    None,
+                    error.line,
+                    error.column,
+                ));
             }
+            return Err(self.errors.clone());
         }
 
         for statement in &program.statements {
@@ -252,10 +252,10 @@ impl TypeChecker {
                     );
                 }
 
-                if !variable_name.is_empty() {
-                    if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
-                        symbol.symbol_type = Some(Type::Text);
-                    }
+                if !variable_name.is_empty()
+                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
+                {
+                    symbol.symbol_type = Some(Type::Text);
                 }
             }
             Statement::HttpPostStatement {
@@ -278,10 +278,10 @@ impl TypeChecker {
 
                 self.infer_expression_type(data);
 
-                if !variable_name.is_empty() {
-                    if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
-                        symbol.symbol_type = Some(Type::Text);
-                    }
+                if !variable_name.is_empty()
+                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
+                {
+                    symbol.symbol_type = Some(Type::Text);
                 }
             }
             Statement::VariableDeclaration {
@@ -331,12 +331,12 @@ impl TypeChecker {
                     );
                 }
 
-                if inferred_type != Type::Error && inferred_type != Type::Unknown {
-                    if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
-                        if symbol.symbol_type.is_none() {
-                            symbol.symbol_type = Some(inferred_type);
-                        }
-                    }
+                if inferred_type != Type::Error
+                    && inferred_type != Type::Unknown
+                    && let Some(symbol) = self.analyzer.get_symbol_mut(name)
+                    && symbol.symbol_type.is_none()
+                {
+                    symbol.symbol_type = Some(inferred_type);
                 }
             }
             Statement::Assignment {
@@ -360,10 +360,11 @@ impl TypeChecker {
                                 *column,
                             );
                         }
-                    } else if inferred_type != Type::Error && inferred_type != Type::Unknown {
-                        if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
-                            symbol.symbol_type = Some(inferred_type);
-                        }
+                    } else if inferred_type != Type::Error
+                        && inferred_type != Type::Unknown
+                        && let Some(symbol) = self.analyzer.get_symbol_mut(name)
+                    {
+                        symbol.symbol_type = Some(inferred_type);
                     }
                 }
             }
@@ -875,9 +876,10 @@ impl TypeChecker {
                 for property in properties {
                     if let Some(default_expr) = &property.default_value {
                         let default_type = self.infer_expression_type(default_expr);
-                        if let Some(declared_type) = &property.property_type {
-                            if !self.are_types_compatible(&default_type, declared_type) {
-                                self.type_error(
+                        if let Some(declared_type) = &property.property_type
+                            && !self.are_types_compatible(&default_type, declared_type)
+                        {
+                            self.type_error(
                                     format!(
                                         "Default value type {default_type:?} incompatible with declared type {declared_type:?}"
                                     ),
@@ -886,7 +888,6 @@ impl TypeChecker {
                                     property.line,
                                     property.column,
                                 );
-                            }
                         }
                     }
                 }

@@ -1,0 +1,2328 @@
+warning: this `if` statement can be collapsed
+   --> src\analyzer\mod.rs:471:21
+    |
+471 | /                     if defined_in_else.iter().any(|(n, _)| n == name) || else_block.is_none() {
+472 | |                         if let Err(error) = self.current_scope.define(symbol.clone()) {
+473 | |                             self.errors.push(error);
+474 | |                         }
+475 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+    = note: `#[warn(clippy::collapsible_if)]` on by default
+help: collapse nested if block
+    |
+471 ~                     if (defined_in_else.iter().any(|(n, _)| n == name) || else_block.is_none()) {
+472 ~                         && let Err(error) = self.current_scope.define(symbol.clone()) {
+473 |                             self.errors.push(error);
+474 ~                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\mod.rs:479:21
+    |
+479 | /                     if !defined_in_then.iter().any(|(n, _)| n == name) {
+480 | |                         if let Err(error) = self.current_scope.define(symbol.clone()) {
+481 | |                             self.errors.push(error);
+482 | |                         }
+483 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+479 ~                     if !defined_in_then.iter().any(|(n, _)| n == name)
+480 ~                         && let Err(error) = self.current_scope.define(symbol.clone()) {
+481 |                             self.errors.push(error);
+482 ~                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\mod.rs:609:17
+    |
+609 | /                 if let Expression::FunctionCall {
+610 | |                     function,
+611 | |                     arguments,
+612 | |                     ..
+...   |
+635 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+613 ~                 } = expression
+614 ~                     && let Expression::Variable(func_name, _, _) = &**function {
+615 |                         if func_name == "push" && arguments.len() >= 2 {
+...
+632 |                         }
+633 ~                     }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\mod.rs:615:21
+    |
+615 | /                     if let Expression::Variable(func_name, _, _) = &**function {
+616 | |                         if func_name == "push" && arguments.len() >= 2 {
+617 | |                             if let Expression::Variable(list_name, line, column) =
+618 | |                                 &arguments[0].value
+...   |
+634 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+615 ~                     if let Expression::Variable(func_name, _, _) = &**function
+616 ~                         && func_name == "push" && arguments.len() >= 2 {
+617 |                             if let Expression::Variable(list_name, line, column) =
+...
+632 |                             }
+633 ~                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\mod.rs:616:25
+    |
+616 | /                         if func_name == "push" && arguments.len() >= 2 {
+617 | |                             if let Expression::Variable(list_name, line, column) =
+618 | |                                 &arguments[0].value
+...   |
+633 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+616 ~                         if func_name == "push" && arguments.len() >= 2
+617 ~                             && let Expression::Variable(list_name, line, column) =
+618 |                                 &arguments[0].value
+...
+631 |                                 }
+632 ~                             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\mod.rs:617:29
+    |
+617 | / ...                   if let Expression::Variable(list_name, line, column) =
+618 | | ...                       &arguments[0].value
+619 | | ...                   {
+620 | | ...                       if self.current_scope.resolve(list_name).is_none() {
+...   |
+632 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+618 ~                                 &arguments[0].value
+619 ~                                 && self.current_scope.resolve(list_name).is_none() {
+620 |                                     let list_symbol = Symbol {
+...
+629 |                                     }
+630 ~                                 }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\static_analyzer.rs:233:21
+    |
+233 | /                     if let Expression::Variable(var_name, ..) = &arg.value {
+234 | |                         if let Some(usage) = variable_usages.get_mut(var_name) {
+235 | |                             usage.used = true;
+236 | |                         }
+237 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+233 ~                     if let Expression::Variable(var_name, ..) = &arg.value
+234 ~                         && let Some(usage) = variable_usages.get_mut(var_name) {
+235 |                             usage.used = true;
+236 ~                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\static_analyzer.rs:333:13
+    |
+333 | /             if let Statement::ActionDefinition {
+334 | |                 name,
+335 | |                 body,
+336 | |                 return_type,
+...   |
+361 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+340 ~             } = statement
+341 ~                 && let Some(ret_type) = return_type {
+342 |                     if *ret_type != Type::Nothing {
+...
+358 |                     }
+359 ~                 }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\static_analyzer.rs:342:17
+    |
+342 | /                 if let Some(ret_type) = return_type {
+343 | |                     if *ret_type != Type::Nothing {
+344 | |                         let mut has_return = false;
+345 | |                         let all_paths_return = self.check_all_paths_return(body, &mut has_return);
+...   |
+360 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+342 ~                 if let Some(ret_type) = return_type
+343 ~                     && *ret_type != Type::Nothing {
+344 |                         let mut has_return = false;
+...
+358 |                         }
+359 ~                     }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\static_analyzer.rs:679:21
+    |
+679 | /                     if let Some(arg_name) = &arg.name {
+680 | |                         if let Some(usage) = usages.get_mut(arg_name) {
+681 | |                             usage.used = true;
+682 | |                         }
+683 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+679 ~                     if let Some(arg_name) = &arg.name
+680 ~                         && let Some(usage) = usages.get_mut(arg_name) {
+681 |                             usage.used = true;
+682 ~                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\static_analyzer.rs:690:21
+    |
+690 | /                     if let Expression::Variable(var_name, ..) = &arg.value {
+691 | |                         if let Some(usage) = usages.get_mut(var_name) {
+692 | |                             usage.used = true;
+693 | |                         }
+694 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+690 ~                     if let Expression::Variable(var_name, ..) = &arg.value
+691 ~                         && let Some(usage) = usages.get_mut(var_name) {
+692 |                             usage.used = true;
+693 ~                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\static_analyzer.rs:712:17
+    |
+712 | /                 if let Expression::Variable(var_name, ..) = &**left {
+713 | |                     if let Some(usage) = usages.get_mut(var_name) {
+714 | |                         usage.used = true;
+715 | |                     }
+716 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+712 ~                 if let Expression::Variable(var_name, ..) = &**left
+713 ~                     && let Some(usage) = usages.get_mut(var_name) {
+714 |                         usage.used = true;
+715 ~                     }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\analyzer\static_analyzer.rs:718:17
+    |
+718 | /                 if let Expression::Variable(var_name, ..) = &**right {
+719 | |                     if let Some(usage) = usages.get_mut(var_name) {
+720 | |                         usage.used = true;
+721 | |                     }
+722 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+718 ~                 if let Expression::Variable(var_name, ..) = &**right
+719 ~                     && let Some(usage) = usages.get_mut(var_name) {
+720 |                         usage.used = true;
+721 ~                     }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\config.rs:398:5
+    |
+398 | /     if global_config.exists() {
+399 | |         if let Ok(text) = std::fs::read_to_string(global_config) {
+400 | |             loaded_global = true;
+401 | |             log::debug!(
+...   |
+407 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+398 ~     if global_config.exists()
+399 ~         && let Ok(text) = std::fs::read_to_string(global_config) {
+400 |             loaded_global = true;
+...
+405 |             parse_config_text(&mut config, &text, global_config);
+406 ~         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\config.rs:411:9
+    |
+411 | /         if old_system_config.exists() {
+412 | |             if let Ok(text) = std::fs::read_to_string(old_system_config) {
+413 | |                 log::debug!(
+414 | |                     "Loading global configuration from {} (legacy path)",
+...   |
+419 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+411 ~         if old_system_config.exists()
+412 ~             && let Ok(text) = std::fs::read_to_string(old_system_config) {
+413 |                 log::debug!(
+...
+417 |                 parse_config_text(&mut config, &text, old_system_config);
+418 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\config.rs:423:5
+    |
+423 | /     if local_config.exists() {
+424 | |         if let Ok(text) = std::fs::read_to_string(&local_config) {
+425 | |             log::debug!(
+426 | |                 "Loading local configuration from {}",
+...   |
+431 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+423 ~     if local_config.exists()
+424 ~         && let Ok(text) = std::fs::read_to_string(&local_config) {
+425 |             log::debug!(
+...
+429 |             parse_config_text(&mut config, &text, &local_config);
+430 ~         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\config.rs:444:5
+    |
+444 | /     if global_config.exists() {
+445 | |         if let Ok(text) = std::fs::read_to_string(global_config) {
+446 | |             loaded_global = true;
+447 | |             log::debug!(
+...   |
+453 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+444 ~     if global_config.exists()
+445 ~         && let Ok(text) = std::fs::read_to_string(global_config) {
+446 |             loaded_global = true;
+...
+451 |             parse_config_text(&mut config, &text, global_config);
+452 ~         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\config.rs:457:9
+    |
+457 | /         if old_system_config.exists() {
+458 | |             if let Ok(text) = std::fs::read_to_string(old_system_config) {
+459 | |                 log::debug!(
+460 | |                     "Loading global configuration from {} (legacy path)",
+...   |
+465 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+457 ~         if old_system_config.exists()
+458 ~             && let Ok(text) = std::fs::read_to_string(old_system_config) {
+459 |                 log::debug!(
+...
+463 |                 parse_config_text(&mut config, &text, old_system_config);
+464 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\config.rs:470:5
+    |
+470 | /     if local_config.exists() {
+471 | |         if let Ok(text) = std::fs::read_to_string(&local_config) {
+472 | |             log::debug!(
+473 | |                 "Loading local configuration from {}",
+...   |
+478 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+470 ~     if local_config.exists()
+471 ~         && let Ok(text) = std::fs::read_to_string(&local_config) {
+472 |             log::debug!(
+...
+476 |             parse_config_text(&mut config, &text, &local_config);
+477 ~         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\interpreter\mod.rs:879:17
+    |
+879 | /                 if let Value::Text(text) = &evaluated_value {
+880 | |                     if text.as_ref() == "[]" {
+881 | |                         evaluated_value = Value::List(Rc::new(RefCell::new(Vec::new())));
+882 | |                     }
+883 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+879 ~                 if let Value::Text(text) = &evaluated_value
+880 ~                     && text.as_ref() == "[]" {
+881 |                         evaluated_value = Value::List(Rc::new(RefCell::new(Vec::new())));
+882 ~                     }
+    |
+
+warning: this `if` statement can be collapsed
+    --> src\interpreter\mod.rs:1754:29
+     |
+1754 | / ...                   if let Some(value) = env.borrow().get(var_name) {
+1755 | | ...                       if !matches!(value, Value::Null) {
+1756 | | ...                           return Ok((Value::Null, ControlFlow::None));
+1757 | | ...                       }
+1758 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1754 ~                             if let Some(value) = env.borrow().get(var_name)
+1755 ~                                 && !matches!(value, Value::Null) {
+1756 |                                     return Ok((Value::Null, ControlFlow::None));
+1757 ~                                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\interpreter\mod.rs:3883:25
+     |
+3883 | /                         if let Some(ext) = file_ext {
+3884 | |                             if exts.iter().any(|e| e == &ext) {
+3885 | |                                 files.push(Value::Text(path_str.into()));
+3886 | |                             }
+3887 | |                         }
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+3883 ~                         if let Some(ext) = file_ext
+3884 ~                             && exts.iter().any(|e| e == &ext) {
+3885 |                                 files.push(Value::Text(path_str.into()));
+3886 ~                             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\interpreter\mod.rs:3920:17
+     |
+3920 | /                 if let Some(ext) = file_ext {
+3921 | |                     if extensions.iter().any(|e| e == &ext) {
+3922 | |                         files.push(Value::Text(path_str.into()));
+3923 | |                     }
+3924 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+3920 ~                 if let Some(ext) = file_ext
+3921 ~                     && extensions.iter().any(|e| e == &ext) {
+3922 |                         files.push(Value::Text(path_str.into()));
+3923 ~                     }
+     |
+
+warning: this `if` statement can be collapsed
+   --> src\parser\mod.rs:45:13
+    |
+45  | /             if let Some(first_token) = tokens_clone.next() {
+46  | |                 if first_token.token == Token::KeywordEnd {
+47  | |                     if let Some(second_token) = tokens_clone.next() {
+48  | |                         match &second_token.token {
+...   |
+159 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+45  ~             if let Some(first_token) = tokens_clone.next()
+46  ~                 && first_token.token == Token::KeywordEnd {
+47  |                     if let Some(second_token) = tokens_clone.next() {
+...
+157 |                     }
+158 ~                 }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\parser\mod.rs:186:13
+    |
+186 | /             if let Some(token) = self.tokens.peek() {
+187 | |                 if token.token == Token::KeywordEnd && start_len <= 2 {
+188 | |                     // If we're at the end with just 1-2 tokens left, consume them and break
+189 | |                     while self.tokens.next().is_some() {}
+...   |
+192 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+186 ~             if let Some(token) = self.tokens.peek()
+187 ~                 && token.token == Token::KeywordEnd && start_len <= 2 {
+188 |                     // If we're at the end with just 1-2 tokens left, consume them and break
+189 |                     while self.tokens.next().is_some() {}
+190 |                     break;
+191 ~                 }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\parser\mod.rs:391:9
+    |
+391 | /         if let Some(token) = self.tokens.peek() {
+392 | |             if matches!(token.token, Token::KeywordConstant) {
+393 | |                 // This is the deprecated "create new constant" syntax
+394 | |                 eprintln!(
+...   |
+412 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+391 ~         if let Some(token) = self.tokens.peek()
+392 ~             && matches!(token.token, Token::KeywordConstant) {
+393 |                 // This is the deprecated "create new constant" syntax
+...
+410 |                 });
+411 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\parser\mod.rs:635:9
+    |
+635 | /         if let Some(token) = self.tokens.peek() {
+636 | |             if token.token == Token::KeywordExtends {
+637 | |                 self.tokens.next(); // Consume 'extends'
+...   |
+658 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+635 ~         if let Some(token) = self.tokens.peek()
+636 ~             && token.token == Token::KeywordExtends {
+637 |                 self.tokens.next(); // Consume 'extends'
+...
+656 |                 }
+657 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\parser\mod.rs:661:9
+    |
+661 | /         if let Some(token) = self.tokens.peek() {
+662 | |             if token.token == Token::KeywordImplements {
+663 | |                 self.tokens.next(); // Consume 'implements'
+...   |
+699 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+661 ~         if let Some(token) = self.tokens.peek()
+662 ~             && token.token == Token::KeywordImplements {
+663 |                 self.tokens.next(); // Consume 'implements'
+...
+697 |                 }
+698 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\parser\mod.rs:904:9
+    |
+904 | /         if let Some(token) = self.tokens.peek() {
+905 | |             if token.token == Token::KeywordNeeds {
+906 | |                 self.tokens.next(); // Consume 'needs'
+907 | |                 parameters = self.parse_parameter_list()?;
+908 | |             }
+909 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+904 ~         if let Some(token) = self.tokens.peek()
+905 ~             && token.token == Token::KeywordNeeds {
+906 |                 self.tokens.next(); // Consume 'needs'
+907 |                 parameters = self.parse_parameter_list()?;
+908 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1106:21
+     |
+1106 | /                     if let Some(token) = tokens_clone.next() {
+1107 | |                         if token.token == Token::KeywordFile {
+1108 | |                             if let Some(token) = tokens_clone.next() {
+1109 | |                                 if token.token == Token::KeywordAt {
+...    |
+1147 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1106 ~                     if let Some(token) = tokens_clone.next()
+1107 ~                         && token.token == Token::KeywordFile {
+1108 |                             if let Some(token) = tokens_clone.next() {
+ ...
+1145 |                             }
+1146 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1107:25
+     |
+1107 | /                         if token.token == Token::KeywordFile {
+1108 | |                             if let Some(token) = tokens_clone.next() {
+1109 | |                                 if token.token == Token::KeywordAt {
+1110 | |                                     if let Some(token) = tokens_clone.next() {
+...    |
+1146 | |                         }
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1107 ~                         if token.token == Token::KeywordFile
+1108 ~                             && let Some(token) = tokens_clone.next() {
+1109 |                                 if token.token == Token::KeywordAt {
+ ...
+1144 |                                 }
+1145 ~                             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1108:29
+     |
+1108 | / ...                   if let Some(token) = tokens_clone.next() {
+1109 | | ...                       if token.token == Token::KeywordAt {
+1110 | | ...                           if let Some(token) = tokens_clone.next() {
+1111 | | ...                               if let Token::StringLiteral(_) = token.token {
+...    |
+1145 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1108 ~                             if let Some(token) = tokens_clone.next()
+1109 ~                                 && token.token == Token::KeywordAt {
+1110 |                                     if let Some(token) = tokens_clone.next() {
+ ...
+1143 |                                     }
+1144 ~                                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1109:33
+     |
+1109 | / ...                   if token.token == Token::KeywordAt {
+1110 | | ...                       if let Some(token) = tokens_clone.next() {
+1111 | | ...                           if let Token::StringLiteral(_) = token.token {
+1112 | | ...                               if let Some(token) = tokens_clone.next() {
+...    |
+1144 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1109 ~                                 if token.token == Token::KeywordAt
+1110 ~                                     && let Some(token) = tokens_clone.next() {
+1111 |                                         if let Token::StringLiteral(_) = token.token {
+ ...
+1142 |                                         }
+1143 ~                                     }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1110:37
+     |
+1110 | / ...                   if let Some(token) = tokens_clone.next() {
+1111 | | ...                       if let Token::StringLiteral(_) = token.token {
+1112 | | ...                           if let Some(token) = tokens_clone.next() {
+1113 | | ...                               if token.token == Token::KeywordAnd {
+...    |
+1143 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1110 ~                                     if let Some(token) = tokens_clone.next()
+1111 ~                                         && let Token::StringLiteral(_) = token.token {
+1112 |                                             if let Some(token) = tokens_clone.next() {
+ ...
+1141 |                                             }
+1142 ~                                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1111:41
+     |
+1111 | / ...                   if let Token::StringLiteral(_) = token.token {
+1112 | | ...                       if let Some(token) = tokens_clone.next() {
+1113 | | ...                           if token.token == Token::KeywordAnd {
+1114 | | ...                               if let Some(token) = tokens_clone.next() {
+...    |
+1142 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1111 ~                                         if let Token::StringLiteral(_) = token.token
+1112 ~                                             && let Some(token) = tokens_clone.next() {
+1113 |                                                 if token.token == Token::KeywordAnd {
+ ...
+1140 |                                                 }
+1141 ~                                             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1112:45
+     |
+1112 | / ...                   if let Some(token) = tokens_clone.next() {
+1113 | | ...                       if token.token == Token::KeywordAnd {
+1114 | | ...                           if let Some(token) = tokens_clone.next() {
+1115 | | ...                               if token.token == Token::KeywordRead {
+...    |
+1141 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1112 ~                                             if let Some(token) = tokens_clone.next()
+1113 ~                                                 && token.token == Token::KeywordAnd {
+1114 |                                                     if let Some(token) = tokens_clone.next() {
+ ...
+1139 |                                                     }
+1140 ~                                                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1113:49
+     |
+1113 | / ...                   if token.token == Token::KeywordAnd {
+1114 | | ...                       if let Some(token) = tokens_clone.next() {
+1115 | | ...                           if token.token == Token::KeywordRead {
+1116 | | ...                               if let Some(token) = tokens_clone.next()
+...    |
+1140 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1113 ~                                                 if token.token == Token::KeywordAnd
+1114 ~                                                     && let Some(token) = tokens_clone.next() {
+1115 |                                                         if token.token == Token::KeywordRead {
+ ...
+1138 |                                                         }
+1139 ~                                                     }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1114:53
+     |
+1114 | / ...                   if let Some(token) = tokens_clone.next() {
+1115 | | ...                       if token.token == Token::KeywordRead {
+1116 | | ...                           if let Some(token) = tokens_clone.next()
+...    |
+1139 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1114 ~                                                     if let Some(token) = tokens_clone.next()
+1115 ~                                                         && token.token == Token::KeywordRead {
+1116 |                                                             if let Some(token) = tokens_clone.next()
+ ...
+1137 |                                                             }
+1138 ~                                                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1115:57
+     |
+1115 | / ...                   if token.token == Token::KeywordRead {
+1116 | | ...                       if let Some(token) = tokens_clone.next()
+1117 | | ...                       {
+1118 | | ...                           if token.token
+...    |
+1138 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1115 ~                                                         if token.token == Token::KeywordRead
+1116 ~                                                             && let Some(token) = tokens_clone.next()
+1117 |                                                             {
+ ...
+1136 |                                                                 }
+1137 ~                                                             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1116:61
+     |
+1116 | / ...                   if let Some(token) = tokens_clone.next()
+1117 | | ...                   {
+1118 | | ...                       if token.token
+1119 | | ...                           == Token::KeywordContent
+...    |
+1137 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1116 ~                                                             if let Some(token) = tokens_clone.next()
+1117 ~                                                                 && token.token
+1118 |                                                                     == Token::KeywordContent
+ ...
+1134 |                                                                     }
+1135 ~                                                                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1118:65
+     |
+1118 | / ...                   if token.token
+1119 | | ...                       == Token::KeywordContent
+1120 | | ...                   {
+1121 | | ...                       if let Some(token) =
+...    |
+1136 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1119 ~                                                                     == Token::KeywordContent
+1120 ~                                                                     && let Some(token) =
+1121 |                                                                         tokens_clone.next()
+ ...
+1133 |                                                                         }
+1134 ~                                                                     }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1121:69
+     |
+1121 | / ...                   if let Some(token) =
+1122 | | ...                       tokens_clone.next()
+1123 | | ...                   {
+1124 | | ...                       if token.token
+...    |
+1135 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1122 ~                                                                         tokens_clone.next()
+1123 ~                                                                         && token.token
+1124 |                                                                             == Token::KeywordAs
+ ...
+1132 |                                                                             }
+1133 ~                                                                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1124:73
+     |
+1124 | / ...                   if token.token
+1125 | | ...                       == Token::KeywordAs
+1126 | | ...                   {
+1127 | | ...                       if let Some(token) =
+...    |
+1134 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1125 ~                                                                             == Token::KeywordAs
+1126 ~                                                                             && let Some(token) =
+1127 |                                                                                 tokens_clone.next()
+ ...
+1131 |                                                                                 }
+1132 ~                                                                             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1127:77
+     |
+1127 | / ...                   if let Some(token) =
+1128 | | ...                       tokens_clone.next()
+1129 | | ...                   {
+1130 | | ...                       if let Token::Identifier(_) = token.token {
+...    |
+1133 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1128 ~                                                                                 tokens_clone.next()
+1129 ~                                                                                 && let Token::Identifier(_) = token.token {
+1130 |                                                                                     has_read_pattern = true;
+1131 ~                                                                                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1188:9
+     |
+1188 | /         if is_store {
+1189 | |             if let Some(next_token) = self.tokens.peek() {
+1190 | |                 if matches!(next_token.token, Token::KeywordNew) {
+1191 | |                     self.tokens.next(); // Consume "new"
+...    |
+1215 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1188 ~         if is_store
+1189 ~             && let Some(next_token) = self.tokens.peek() {
+1190 |                 if matches!(next_token.token, Token::KeywordNew) {
+ ...
+1213 |                 }
+1214 ~             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1189:13
+     |
+1189 | /             if let Some(next_token) = self.tokens.peek() {
+1190 | |                 if matches!(next_token.token, Token::KeywordNew) {
+1191 | |                     self.tokens.next(); // Consume "new"
+1192 | |                     if let Some(const_token) = self.tokens.peek() {
+...    |
+1214 | |             }
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1189 ~             if let Some(next_token) = self.tokens.peek()
+1190 ~                 && matches!(next_token.token, Token::KeywordNew) {
+1191 |                     self.tokens.next(); // Consume "new"
+ ...
+1212 |                     }
+1213 ~                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1567:21
+     |
+1567 | /                     if let Expression::Variable(ref name, var_line, var_column) = left {
+1568 | |                         if self.known_actions.contains(name) {
+1569 | |                             // This is a known action, treat it as an action call
+1570 | |                             self.tokens.next(); // Consume "with"
+...    |
+1581 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1567 ~                     if let Expression::Variable(ref name, var_line, var_column) = left
+1568 ~                         && self.known_actions.contains(name) {
+1569 |                             // This is a known action, treat it as an action call
+ ...
+1579 |                             continue; // Skip the rest of the loop since we've already updated left
+1580 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1602:21
+     |
+1602 | /                     if let Some(equal_token) = self.tokens.peek().cloned() {
+1603 | |                         if matches!(equal_token.token, Token::KeywordEqual) {
+1604 | |                             self.tokens.next(); // Consume "equal"
+...    |
+1641 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1602 ~                     if let Some(equal_token) = self.tokens.peek().cloned()
+1603 ~                         && matches!(equal_token.token, Token::KeywordEqual) {
+1604 |                             self.tokens.next(); // Consume "equal"
+ ...
+1639 |                             }
+1640 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1606:29
+     |
+1606 | / ...                   if let Some(to_token) = self.tokens.peek().cloned() {
+1607 | | ...                       if matches!(to_token.token, Token::KeywordTo) {
+1608 | | ...                           self.tokens.next(); // Consume "to"
+...    |
+1639 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1606 ~                             if let Some(to_token) = self.tokens.peek().cloned()
+1607 ~                                 && matches!(to_token.token, Token::KeywordTo) {
+1608 |                                     self.tokens.next(); // Consume "to"
+ ...
+1637 |                                     }
+1638 ~                                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1649:21
+     |
+1649 | /                     if let Some(pattern_token) = self.tokens.peek().cloned() {
+1650 | |                         if matches!(pattern_token.token, Token::KeywordPattern) {
+1651 | |                             self.tokens.next(); // Consume "pattern"
+1652 | |                         }
+1653 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1649 ~                     if let Some(pattern_token) = self.tokens.peek().cloned()
+1650 ~                         && matches!(pattern_token.token, Token::KeywordPattern) {
+1651 |                             self.tokens.next(); // Consume "pattern"
+1652 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1669:21
+     |
+1669 | /                     if let Some(pattern_token) = self.tokens.peek().cloned() {
+1670 | |                         if matches!(pattern_token.token, Token::KeywordPattern) {
+1671 | |                             self.tokens.next(); // Consume "pattern"
+1672 | |                         }
+1673 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1669 ~                     if let Some(pattern_token) = self.tokens.peek().cloned()
+1670 ~                         && matches!(pattern_token.token, Token::KeywordPattern) {
+1671 |                             self.tokens.next(); // Consume "pattern"
+1672 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1677:21
+     |
+1677 | /                     if let Some(in_token) = self.tokens.peek().cloned() {
+1678 | |                         if matches!(in_token.token, Token::KeywordIn) {
+1679 | |                             self.tokens.next(); // Consume "in"
+...    |
+1691 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1677 ~                     if let Some(in_token) = self.tokens.peek().cloned()
+1678 ~                         && matches!(in_token.token, Token::KeywordIn) {
+1679 |                             self.tokens.next(); // Consume "in"
+ ...
+1689 |                             continue; // Skip the rest of the loop since we've already updated left
+1690 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1705:21
+     |
+1705 | /                     if let Some(pattern_token) = self.tokens.peek().cloned() {
+1706 | |                         if matches!(pattern_token.token, Token::KeywordPattern) {
+1707 | |                             self.tokens.next(); // Consume "pattern"
+1708 | |                         }
+1709 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1705 ~                     if let Some(pattern_token) = self.tokens.peek().cloned()
+1706 ~                         && matches!(pattern_token.token, Token::KeywordPattern) {
+1707 |                             self.tokens.next(); // Consume "pattern"
+1708 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1713:21
+     |
+1713 | /                     if let Some(with_token) = self.tokens.peek().cloned() {
+1714 | |                         if matches!(with_token.token, Token::KeywordWith) {
+1715 | |                             self.tokens.next(); // Consume "with"
+...    |
+1745 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1713 ~                     if let Some(with_token) = self.tokens.peek().cloned()
+1714 ~                         && matches!(with_token.token, Token::KeywordWith) {
+1715 |                             self.tokens.next(); // Consume "with"
+ ...
+1743 |                             continue; // Skip the rest of the loop since we've already updated left
+1744 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1719:29
+     |
+1719 | / ...                   if let Some(in_token) = self.tokens.peek().cloned() {
+1720 | | ...                       if matches!(in_token.token, Token::KeywordIn) {
+1721 | | ...                           self.tokens.next(); // Consume "in"
+...    |
+1734 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1719 ~                             if let Some(in_token) = self.tokens.peek().cloned()
+1720 ~                                 && matches!(in_token.token, Token::KeywordIn) {
+1721 |                                     self.tokens.next(); // Consume "in"
+ ...
+1732 |                                     continue; // Skip the rest of the loop since we've already updated left
+1733 ~                                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1759:21
+     |
+1759 | /                     if let Some(on_token) = self.tokens.peek().cloned() {
+1760 | |                         if matches!(on_token.token, Token::KeywordOn) {
+1761 | |                             self.tokens.next(); // Consume "on"
+...    |
+1780 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1759 ~                     if let Some(on_token) = self.tokens.peek().cloned()
+1760 ~                         && matches!(on_token.token, Token::KeywordOn) {
+1761 |                             self.tokens.next(); // Consume "on"
+ ...
+1778 |                             continue; // Skip the rest of the loop since we've already updated left
+1779 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1764:29
+     |
+1764 | / ...                   if let Some(pattern_token) = self.tokens.peek().cloned() {
+1765 | | ...                       if matches!(pattern_token.token, Token::KeywordPattern) {
+1766 | | ...                           self.tokens.next(); // Consume "pattern"
+1767 | | ...                       }
+1768 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1764 ~                             if let Some(pattern_token) = self.tokens.peek().cloned()
+1765 ~                                 && matches!(pattern_token.token, Token::KeywordPattern) {
+1766 |                                     self.tokens.next(); // Consume "pattern"
+1767 ~                                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1791:21
+     |
+1791 | /                     if let Some(pattern_token) = self.tokens.peek().cloned() {
+1792 | |                         if matches!(pattern_token.token, Token::KeywordPattern) {
+1793 | |                             self.tokens.next(); // Consume "pattern"
+...    |
+1805 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1791 ~                     if let Some(pattern_token) = self.tokens.peek().cloned()
+1792 ~                         && matches!(pattern_token.token, Token::KeywordPattern) {
+1793 |                             self.tokens.next(); // Consume "pattern"
+ ...
+1803 |                             continue; // Skip the rest of the loop since we've already updated left
+1804 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1845:21
+     |
+1845 | /                     if let Some(next_token) = self.tokens.peek() {
+1846 | |                         if next_token.token == Token::RightBracket {
+1847 | |                             self.tokens.next(); // Consume ']'
+1848 | |                             return Ok(Expression::Literal(
+...    |
+1854 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1845 ~                     if let Some(next_token) = self.tokens.peek()
+1846 ~                         && next_token.token == Token::RightBracket {
+1847 |                             self.tokens.next(); // Consume ']'
+ ...
+1852 |                             ));
+1853 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1968:37
+     |
+1968 | / ...                   if let Some(paren_token) = self.tokens.peek().cloned() {
+1969 | | ...                       if paren_token.token == Token::LeftParen {
+1970 | | ...                           self.tokens.next(); // Consume '('
+...    |
+2015 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1968 ~                                     if let Some(paren_token) = self.tokens.peek().cloned()
+1969 ~                                         && paren_token.token == Token::LeftParen {
+1970 |                                             self.tokens.next(); // Consume '('
+ ...
+2013 |                                             });
+2014 ~                                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:1974:45
+     |
+1974 | / ...                   if let Some(next_token) = self.tokens.peek() {
+1975 | | ...                       if next_token.token != Token::RightParen {
+1976 | | ...                           let expr = self.parse_expression()?;
+1977 | | ...                           arguments.push(Argument {
+...    |
+1996 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+1974 ~                                             if let Some(next_token) = self.tokens.peek()
+1975 ~                                                 && next_token.token != Token::RightParen {
+1976 |                                                     let expr = self.parse_expression()?;
+ ...
+1994 |                                                     }
+1995 ~                                                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:2042:32
+     |
+2042 |                           } else if let Token::Identifier(id) = &next_token.token {
+     |  ________________________________^
+2043 | |                             if id.to_lowercase() == "with" {
+2044 | |                                 self.tokens.next(); // Consume "with"
+...    |
+2057 | |                         }
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+2042 ~                         } else if let Token::Identifier(id) = &next_token.token
+2043 ~                             && id.to_lowercase() == "with" {
+2044 |                                 self.tokens.next(); // Consume "with"
+ ...
+2055 |                                 });
+2056 ~                             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:2212:21
+     |
+2212 | /                     if let Some(next_token) = self.tokens.peek() {
+2213 | |                         if next_token.token == Token::KeywordExists {
+2214 | |                             self.tokens.next(); // Consume "exists"
+2215 | |                             self.expect_token(
+...    |
+2226 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+2212 ~                     if let Some(next_token) = self.tokens.peek()
+2213 ~                         && next_token.token == Token::KeywordExists {
+2214 |                             self.tokens.next(); // Consume "exists"
+ ...
+2224 |                             });
+2225 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:2241:21
+     |
+2241 | /                     if let Some(next_token) = self.tokens.peek() {
+2242 | |                         if next_token.token == Token::KeywordExists {
+2243 | |                             self.tokens.next(); // Consume "exists"
+2244 | |                             self.expect_token(
+...    |
+2255 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+2241 ~                     if let Some(next_token) = self.tokens.peek()
+2242 ~                         && next_token.token == Token::KeywordExists {
+2243 |                             self.tokens.next(); // Consume "exists"
+ ...
+2253 |                             });
+2254 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:2270:21
+     |
+2270 | /                     if let Some(next_token) = self.tokens.peek() {
+2271 | |                         if next_token.token == Token::KeywordFiles {
+2272 | |                             self.tokens.next(); // Consume "files"
+2273 | |                             self.expect_token(
+...    |
+2328 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+2270 ~                     if let Some(next_token) = self.tokens.peek()
+2271 ~                         && next_token.token == Token::KeywordFiles {
+2272 |                             self.tokens.next(); // Consume "files"
+ ...
+2326 |                             });
+2327 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:2286:41
+     |
+2286 | / ...                   if let Some(with_token) = self.tokens.peek() {
+2287 | | ...                       if with_token.token == Token::KeywordWith {
+2288 | | ...                           self.tokens.next(); // Consume "with"
+2289 | | ...                           let extensions = self.parse_extension_filter()?;
+...    |
+2297 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+2286 ~                                         if let Some(with_token) = self.tokens.peek()
+2287 ~                                             && with_token.token == Token::KeywordWith {
+2288 |                                                 self.tokens.next(); // Consume "with"
+ ...
+2295 |                                                 });
+2296 ~                                             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:2343:21
+     |
+2343 | /                     if let Some(next_token) = self.tokens.peek() {
+2344 | |                         if next_token.token == Token::KeywordContent {
+2345 | |                             self.tokens.next(); // Consume "content"
+2346 | |                             self.expect_token(
+...    |
+2357 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+2343 ~                     if let Some(next_token) = self.tokens.peek()
+2344 ~                         && next_token.token == Token::KeywordContent {
+2345 |                             self.tokens.next(); // Consume "content"
+ ...
+2355 |                             });
+2356 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:2713:9
+     |
+2713 | /         if let Some(token) = self.tokens.peek() {
+2714 | |             if matches!(token.token, Token::Colon) {
+2715 | |                 self.tokens.next(); // Consume the colon if present
+2716 | |             }
+2717 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+2713 ~         if let Some(token) = self.tokens.peek()
+2714 ~             && matches!(token.token, Token::Colon) {
+2715 |                 self.tokens.next(); // Consume the colon if present
+2716 ~             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:2738:17
+     |
+2738 | /                 if let Some(token) = self.tokens.peek() {
+2739 | |                     if matches!(token.token, Token::Colon) {
+2740 | |                         self.tokens.next(); // Consume the colon if present
+2741 | |                     }
+2742 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+2738 ~                 if let Some(token) = self.tokens.peek()
+2739 ~                     && matches!(token.token, Token::Colon) {
+2740 |                         self.tokens.next(); // Consume the colon if present
+2741 ~                     }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:2963:9
+     |
+2963 | /         if let Some(token) = self.tokens.peek() {
+2964 | |             if matches!(token.token, Token::Colon) {
+2965 | |                 self.tokens.next(); // Consume the colon if present
+2966 | |             }
+2967 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+2963 ~         if let Some(token) = self.tokens.peek()
+2964 ~             && matches!(token.token, Token::Colon) {
+2965 |                 self.tokens.next(); // Consume the colon if present
+2966 ~             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:3058:9
+     |
+3058 | /         if let Some(token) = self.tokens.peek() {
+3059 | |             if matches!(token.token, Token::Colon) {
+3060 | |                 self.tokens.next(); // Consume the colon if present
+3061 | |             }
+3062 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+3058 ~         if let Some(token) = self.tokens.peek()
+3059 ~             && matches!(token.token, Token::Colon) {
+3060 |                 self.tokens.next(); // Consume the colon if present
+3061 ~             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:3142:9
+     |
+3142 | /         if let Some(token) = self.tokens.peek().cloned() {
+3143 | |             if matches!(token.token, Token::KeywordNeeds)
+3144 | |                 || matches!(token.token, Token::KeywordWith)
+...    |
+3247 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+3142 ~         if let Some(token) = self.tokens.peek().cloned()
+3143 ~             && (matches!(token.token, Token::KeywordNeeds)
+3144 ~                 || matches!(token.token, Token::KeywordWith))
+3145 |             {
+ ...
+3245 |                 }
+3246 ~             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:3295:9
+     |
+3295 | /         if let Some(token) = self.tokens.peek().cloned() {
+3296 | |             if let Token::Identifier(id) = &token.token {
+3297 | |                 if id == "and" {
+3298 | |                     self.tokens.next(); // Consume the extra "and"
+...    |
+3301 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+3295 ~         if let Some(token) = self.tokens.peek().cloned()
+3296 ~             && let Token::Identifier(id) = &token.token {
+3297 |                 if id == "and" {
+3298 |                     self.tokens.next(); // Consume the extra "and"
+3299 |                 }
+3300 ~             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:3296:13
+     |
+3296 | /             if let Token::Identifier(id) = &token.token {
+3297 | |                 if id == "and" {
+3298 | |                     self.tokens.next(); // Consume the extra "and"
+3299 | |                 }
+3300 | |             }
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+3296 ~             if let Token::Identifier(id) = &token.token
+3297 ~                 && id == "and" {
+3298 |                     self.tokens.next(); // Consume the extra "and"
+3299 ~                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:3576:21
+     |
+3576 | /                     if let Some(token) = self.tokens.peek().cloned() {
+3577 | |                         if token.token == Token::KeywordAt {
+3578 | |                             self.tokens.next(); // Consume "at"
+...    |
+3677 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+3576 ~                     if let Some(token) = self.tokens.peek().cloned()
+3577 ~                         && token.token == Token::KeywordAt {
+3578 |                             self.tokens.next(); // Consume "at"
+ ...
+3675 |                             }
+3676 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:3704:9
+     |
+3704 | /         if let Some(token) = self.tokens.peek().cloned() {
+3705 | |             if token.token == Token::KeywordAt {
+3706 | |                 self.tokens.next(); // Consume "at"
+...    |
+3840 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+3704 ~         if let Some(token) = self.tokens.peek().cloned()
+3705 ~             && token.token == Token::KeywordAt {
+3706 |                 self.tokens.next(); // Consume "at"
+ ...
+3838 |                 }
+3839 ~             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4040:9
+     |
+4040 | /         if let Some(next_token) = self.tokens.peek() {
+4041 | |             if next_token.token == Token::KeywordFile {
+4042 | |                 self.tokens.next(); // Consume "file"
+4043 | |             }
+4044 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4040 ~         if let Some(next_token) = self.tokens.peek()
+4041 ~             && next_token.token == Token::KeywordFile {
+4042 |                 self.tokens.next(); // Consume "file"
+4043 ~             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4382:21
+     |
+4382 | /                     if let Some(token) = self.tokens.peek() {
+4383 | |                         if matches!(token.token, Token::Colon) {
+4384 | |                             self.tokens.next(); // Consume the colon if present
+4385 | |                         }
+4386 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4382 ~                     if let Some(token) = self.tokens.peek()
+4383 ~                         && matches!(token.token, Token::Colon) {
+4384 |                             self.tokens.next(); // Consume the colon if present
+4385 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4409:21
+     |
+4409 | /                     if let Some(token) = self.tokens.peek() {
+4410 | |                         if matches!(token.token, Token::Colon) {
+4411 | |                             self.tokens.next(); // Consume the colon if present
+4412 | |                         }
+4413 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4409 ~                     if let Some(token) = self.tokens.peek()
+4410 ~                         && matches!(token.token, Token::Colon) {
+4411 |                             self.tokens.next(); // Consume the colon if present
+4412 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4497:9
+     |
+4497 | /         if let Some(token) = self.tokens.peek().cloned() {
+4498 | |             if let Token::Identifier(id) = &token.token {
+4499 | |                 if id.to_lowercase() == "loop" {
+4500 | |                     self.tokens.next(); // Consume "loop"
+...    |
+4503 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4497 ~         if let Some(token) = self.tokens.peek().cloned()
+4498 ~             && let Token::Identifier(id) = &token.token {
+4499 |                 if id.to_lowercase() == "loop" {
+4500 |                     self.tokens.next(); // Consume "loop"
+4501 |                 }
+4502 ~             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4498:13
+     |
+4498 | /             if let Token::Identifier(id) = &token.token {
+4499 | |                 if id.to_lowercase() == "loop" {
+4500 | |                     self.tokens.next(); // Consume "loop"
+4501 | |                 }
+4502 | |             }
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4498 ~             if let Token::Identifier(id) = &token.token
+4499 ~                 && id.to_lowercase() == "loop" {
+4500 |                     self.tokens.next(); // Consume "loop"
+4501 ~                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4529:9
+     |
+4529 | /         if let Some(token) = self.tokens.peek() {
+4530 | |             if token.line == start_line && !Parser::is_statement_starter(&token.token) {
+4531 | |                 // so we can continue parsing the expression
+4532 | |                 value_expr = self.parse_binary_expression(0)?;
+4533 | |             }
+4534 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4529 ~         if let Some(token) = self.tokens.peek()
+4530 ~             && token.line == start_line && !Parser::is_statement_starter(&token.token) {
+4531 |                 // so we can continue parsing the expression
+4532 |                 value_expr = self.parse_binary_expression(0)?;
+4533 ~             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4574:9
+     |
+4574 | /         if let Some(token) = self.tokens.peek().cloned() {
+4575 | |             if matches!(token.token, Token::KeywordNeeds) {
+4576 | |                 self.tokens.next(); // Consume "needs"
+4577 | |                 parameters = self.parse_parameter_list()?;
+4578 | |             }
+4579 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4574 ~         if let Some(token) = self.tokens.peek().cloned()
+4575 ~             && matches!(token.token, Token::KeywordNeeds) {
+4576 |                 self.tokens.next(); // Consume "needs"
+4577 |                 parameters = self.parse_parameter_list()?;
+4578 ~             }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4647:21
+     |
+4647 | /                     if let Some(next_token) = tokens_clone.next() {
+4648 | |                         if next_token.token == Token::KeywordPattern {
+4649 | |                             depth -= 1;
+4650 | |                             if depth == 0 {
+...    |
+4656 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4647 ~                     if let Some(next_token) = tokens_clone.next()
+4648 ~                         && next_token.token == Token::KeywordPattern {
+4649 |                             depth -= 1;
+ ...
+4654 |                             }
+4655 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4663:21
+     |
+4663 | /                     if let Some(next_token) = tokens_clone.next() {
+4664 | |                         if next_token.token == Token::KeywordPattern {
+4665 | |                             depth += 1;
+4666 | |                         }
+4667 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4663 ~                     if let Some(next_token) = tokens_clone.next()
+4664 ~                         && next_token.token == Token::KeywordPattern {
+4665 |                             depth += 1;
+4666 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4816:13
+     |
+4816 | /             if *i < tokens.len() {
+4817 | |                 if let Token::Identifier(s) = &tokens[*i].token {
+4818 | |                     if s == "followed" && *i + 1 < tokens.len() {
+4819 | |                         if let Token::KeywordBy = tokens[*i + 1].token {
+...    |
+4825 | |             }
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4816 ~             if *i < tokens.len()
+4817 ~                 && let Token::Identifier(s) = &tokens[*i].token {
+4818 |                     if s == "followed" && *i + 1 < tokens.len() {
+ ...
+4823 |                     }
+4824 ~                 }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4817:17
+     |
+4817 | /                 if let Token::Identifier(s) = &tokens[*i].token {
+4818 | |                     if s == "followed" && *i + 1 < tokens.len() {
+4819 | |                         if let Token::KeywordBy = tokens[*i + 1].token {
+4820 | |                             *i += 2; // Skip "followed by"
+...    |
+4824 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4817 ~                 if let Token::Identifier(s) = &tokens[*i].token
+4818 ~                     && s == "followed" && *i + 1 < tokens.len() {
+4819 |                         if let Token::KeywordBy = tokens[*i + 1].token {
+ ...
+4822 |                         }
+4823 ~                     }
+     |
+
+warning: this `if` statement can be collapsed
+    --> src\parser\mod.rs:4818:21
+     |
+4818 | /                     if s == "followed" && *i + 1 < tokens.len() {
+4819 | |                         if let Token::KeywordBy = tokens[*i + 1].token {
+4820 | |                             *i += 2; // Skip "followed by"
+4821 | |                             continue;
+4822 | |                         }
+4823 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+     |
+4818 ~                     if s == "followed" && *i + 1 < tokens.len()
+4819 ~                         && let Token::KeywordBy = tokens[*i + 1].token {
+4820 |                             *i += 2; // Skip "followed by"
+4821 |                             continue;
+4822 ~                         }
+     |
+
+warning: this `if` statement can be collapsed
+   --> src\pattern\vm.rs:671:29
+    |
+671 | / ...                   if let Ok(result) =
+672 | | ...                       lookbehind_vm.execute(lookbehind_program, &text_slice)
+673 | | ...                   {
+674 | | ...                       if result {
+...   |
+690 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+672 ~                                 lookbehind_vm.execute(lookbehind_program, &text_slice)
+673 ~                                 && result {
+674 |                                     // Check if the match uses the entire slice
+...
+687 |                                     }
+688 ~                                 }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\pattern\vm.rs:681:37
+    |
+681 | / ...                   if let Some(first_match) = matches.first() {
+682 | | ...                       if first_match.start == 0
+683 | | ...                           && first_match.end == text_slice.len()
+...   |
+688 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+681 ~                                     if let Some(first_match) = matches.first()
+682 ~                                         && first_match.start == 0
+683 |                                             && first_match.end == text_slice.len()
+...
+686 |                                             break;
+687 ~                                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\pattern\vm.rs:721:29
+    |
+721 | / ...                   if let Ok(result) =
+722 | | ...                       lookbehind_vm.execute(lookbehind_program, &text_slice)
+723 | | ...                   {
+724 | | ...                       if result {
+...   |
+740 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+722 ~                                 lookbehind_vm.execute(lookbehind_program, &text_slice)
+723 ~                                 && result {
+724 |                                     // Check if the match uses the entire slice
+...
+737 |                                     }
+738 ~                                 }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\pattern\vm.rs:731:37
+    |
+731 | / ...                   if let Some(first_match) = matches.first() {
+732 | | ...                       if first_match.start == 0
+733 | | ...                           && first_match.end == text_slice.len()
+...   |
+738 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+731 ~                                     if let Some(first_match) = matches.first()
+732 ~                                         && first_match.start == 0
+733 |                                             && first_match.end == text_slice.len()
+...
+736 |                                             break;
+737 ~                                         }
+    |
+
+warning: this `if` statement can be collapsed
+  --> src\typechecker\mod.rs:39:9
+   |
+39 | /         if let Some(expected) = &self.expected {
+40 | |             if let Some(found) = &self.found {
+41 | |                 message.push_str(&format!(" - Expected {expected} but found {found}"));
+42 | |             }
+43 | |         }
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+   |
+39 ~         if let Some(expected) = &self.expected
+40 ~             && let Some(found) = &self.found {
+41 |                 message.push_str(&format!(" - Expected {expected} but found {found}"));
+42 ~             }
+   |
+
+warning: this `if` statement can be collapsed
+   --> src\typechecker\mod.rs:130:9
+    |
+130 | /         if !self.analyzer_already_run {
+131 | |             if let Err(semantic_errors) = self.analyzer.analyze(program) {
+132 | |                 for error in semantic_errors {
+133 | |                     self.errors.push(TypeError::new(
+...   |
+143 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+130 ~         if !self.analyzer_already_run
+131 ~             && let Err(semantic_errors) = self.analyzer.analyze(program) {
+132 |                 for error in semantic_errors {
+...
+141 |                 return Err(self.errors.clone());
+142 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\typechecker\mod.rs:255:17
+    |
+255 | /                 if !variable_name.is_empty() {
+256 | |                     if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
+257 | |                         symbol.symbol_type = Some(Type::Text);
+258 | |                     }
+259 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+255 ~                 if !variable_name.is_empty()
+256 ~                     && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
+257 |                         symbol.symbol_type = Some(Type::Text);
+258 ~                     }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\typechecker\mod.rs:281:17
+    |
+281 | /                 if !variable_name.is_empty() {
+282 | |                     if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
+283 | |                         symbol.symbol_type = Some(Type::Text);
+284 | |                     }
+285 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+281 ~                 if !variable_name.is_empty()
+282 ~                     && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
+283 |                         symbol.symbol_type = Some(Type::Text);
+284 ~                     }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\typechecker\mod.rs:334:17
+    |
+334 | /                 if inferred_type != Type::Error && inferred_type != Type::Unknown {
+335 | |                     if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
+336 | |                         if symbol.symbol_type.is_none() {
+337 | |                             symbol.symbol_type = Some(inferred_type);
+...   |
+340 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+334 ~                 if inferred_type != Type::Error && inferred_type != Type::Unknown
+335 ~                     && let Some(symbol) = self.analyzer.get_symbol_mut(name) {
+336 |                         if symbol.symbol_type.is_none() {
+337 |                             symbol.symbol_type = Some(inferred_type);
+338 |                         }
+339 ~                     }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\typechecker\mod.rs:335:21
+    |
+335 | /                     if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
+336 | |                         if symbol.symbol_type.is_none() {
+337 | |                             symbol.symbol_type = Some(inferred_type);
+338 | |                         }
+339 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+335 ~                     if let Some(symbol) = self.analyzer.get_symbol_mut(name)
+336 ~                         && symbol.symbol_type.is_none() {
+337 |                             symbol.symbol_type = Some(inferred_type);
+338 ~                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\typechecker\mod.rs:363:28
+    |
+363 |                       } else if inferred_type != Type::Error && inferred_type != Type::Unknown {
+    |  ____________________________^
+364 | |                         if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
+365 | |                             symbol.symbol_type = Some(inferred_type);
+366 | |                         }
+367 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+363 ~                     } else if inferred_type != Type::Error && inferred_type != Type::Unknown
+364 ~                         && let Some(symbol) = self.analyzer.get_symbol_mut(name) {
+365 |                             symbol.symbol_type = Some(inferred_type);
+366 ~                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\typechecker\mod.rs:878:25
+    |
+878 | /                         if let Some(declared_type) = &property.property_type {
+879 | |                             if !self.are_types_compatible(&default_type, declared_type) {
+880 | |                                 self.type_error(
+881 | |                                     format!(
+...   |
+890 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+878 ~                         if let Some(declared_type) = &property.property_type
+879 ~                             && !self.are_types_compatible(&default_type, declared_type) {
+880 |                                 self.type_error(
+...
+888 |                                 );
+889 ~                             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\wfl_config\checker.rs:349:25
+    |
+349 | /                         if let Some(valid_values) = &setting.valid_values {
+350 | |                             if !valid_values.contains(&value.to_string()) {
+351 | |                                 issues.push(ConfigIssue {
+352 | |                                     file_path: file_path.to_path_buf(),
+...   |
+365 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+349 ~                         if let Some(valid_values) = &setting.valid_values
+350 ~                             && !valid_values.contains(&value.to_string()) {
+351 |                                 issues.push(ConfigIssue {
+...
+363 |                                 });
+364 ~                             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\wfl_config\checker.rs:368:25
+    |
+368 | /                         if let Some(valid_values) = &setting.valid_values {
+369 | |                             if !valid_values.contains(&value.to_string()) {
+370 | |                                 issues.push(ConfigIssue {
+371 | |                                     file_path: file_path.to_path_buf(),
+...   |
+384 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+368 ~                         if let Some(valid_values) = &setting.valid_values
+369 ~                             && !valid_values.contains(&value.to_string()) {
+370 |                                 issues.push(ConfigIssue {
+...
+382 |                                 });
+383 ~                             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\wfl_config\checker.rs:474:21
+    |
+474 | /                     if let Some(line_number) = issue.line_number {
+475 | |                         if line_number <= lines.len() {
+476 | |                             lines[line_number - 1] =
+477 | |                                 format!("# {} (unknown key)", lines[line_number - 1]);
+...   |
+480 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+474 ~                     if let Some(line_number) = issue.line_number
+475 ~                         && line_number <= lines.len() {
+476 |                             lines[line_number - 1] =
+477 |                                 format!("# {} (unknown key)", lines[line_number - 1]);
+478 |                             println!("✅ Commented out unknown key at line {line_number}");
+479 ~                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\wfl_config\checker.rs:483:21
+    |
+483 | /                     if let (Some(line_number), Some(setting_name)) =
+484 | |                         (issue.line_number, &issue.setting_name)
+485 | |                     {
+486 | |                         if line_number <= lines.len() {
+...   |
+497 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+484 ~                         (issue.line_number, &issue.setting_name)
+485 ~                         && line_number <= lines.len() {
+486 |                             if let Some(setting) = self.expected_settings.get(setting_name) {
+...
+494 |                             }
+495 ~                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\wfl_config\checker.rs:486:25
+    |
+486 | /                         if line_number <= lines.len() {
+487 | |                             if let Some(setting) = self.expected_settings.get(setting_name) {
+488 | |                                 if let Some(default_value) = &setting.default_value {
+489 | |                                     lines[line_number - 1] =
+...   |
+496 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+486 ~                         if line_number <= lines.len()
+487 ~                             && let Some(setting) = self.expected_settings.get(setting_name) {
+488 |                                 if let Some(default_value) = &setting.default_value {
+...
+494 |                                 }
+495 ~                             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\wfl_config\checker.rs:487:29
+    |
+487 | / ...                   if let Some(setting) = self.expected_settings.get(setting_name) {
+488 | | ...                       if let Some(default_value) = &setting.default_value {
+489 | | ...                           lines[line_number - 1] =
+490 | | ...                               format!("{setting_name} = {default_value}");
+...   |
+495 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+487 ~                             if let Some(setting) = self.expected_settings.get(setting_name)
+488 ~                                 && let Some(default_value) = &setting.default_value {
+489 |                                     lines[line_number - 1] =
+...
+493 |                                     );
+494 ~                                 }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\wfl_config\checker.rs:500:21
+    |
+500 | /                     if let Some(setting_name) = &issue.setting_name {
+501 | |                         if let Some(setting) = self.expected_settings.get(setting_name) {
+502 | |                             if let Some(default_value) = &setting.default_value {
+503 | |                                 if !added_settings.contains_key(setting_name) {
+...   |
+512 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+500 ~                     if let Some(setting_name) = &issue.setting_name
+501 ~                         && let Some(setting) = self.expected_settings.get(setting_name) {
+502 |                             if let Some(default_value) = &setting.default_value {
+...
+510 |                             }
+511 ~                         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\wfl_config\checker.rs:501:25
+    |
+501 | /                         if let Some(setting) = self.expected_settings.get(setting_name) {
+502 | |                             if let Some(default_value) = &setting.default_value {
+503 | |                                 if !added_settings.contains_key(setting_name) {
+504 | |                                     lines.push(String::new());
+...   |
+511 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+501 ~                         if let Some(setting) = self.expected_settings.get(setting_name)
+502 ~                             && let Some(default_value) = &setting.default_value {
+503 |                                 if !added_settings.contains_key(setting_name) {
+...
+509 |                                 }
+510 ~                             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\wfl_config\checker.rs:502:29
+    |
+502 | / ...                   if let Some(default_value) = &setting.default_value {
+503 | | ...                       if !added_settings.contains_key(setting_name) {
+504 | | ...                           lines.push(String::new());
+505 | | ...                           lines.push(format!("# {}", setting.description));
+...   |
+510 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+    |
+502 ~                             if let Some(default_value) = &setting.default_value
+503 ~                                 && !added_settings.contains_key(setting_name) {
+504 |                                     lines.push(String::new());
+...
+508 |                                     println!("✅ Added missing setting: {setting_name}");
+509 ~                                 }
+    |
+
+warning: this `if` statement can be collapsed
+  --> src\lib.rs:39:5
+   |
+39 | /     if config.logging_enabled {
+40 | |         if let Err(e) = logging::init_logger(config.log_level, log_path) {
+41 | |             eprintln!("Failed to initialize logger: {e}");
+42 | |         }
+43 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+   |
+39 ~     if config.logging_enabled
+40 ~         && let Err(e) = logging::init_logger(config.log_level, log_path) {
+41 |             eprintln!("Failed to initialize logger: {e}");
+42 ~         }
+   |
+
+warning: this `if` statement can be collapsed
+  --> src\lib.rs:46:5
+   |
+46 | /     if config.execution_logging {
+47 | |         if let Err(e) = logging::init_execution_logger(&config, log_path) {
+48 | |             eprintln!("Failed to initialize execution logger: {e}");
+49 | |         }
+50 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+help: collapse nested if block
+   |
+46 ~     if config.execution_logging
+47 ~         && let Err(e) = logging::init_execution_logger(&config, log_path) {
+48 |             eprintln!("Failed to initialize execution logger: {e}");
+49 ~         }
+   |
+
+warning: `wfl` (lib) generated 111 warnings (run `cargo clippy --fix --lib -p wfl` to apply 111 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s

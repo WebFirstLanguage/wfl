@@ -346,9 +346,10 @@ impl ConfigChecker {
                         }
                     }
                     ConfigType::LogLevel => {
-                        if let Some(valid_values) = &setting.valid_values {
-                            if !valid_values.contains(&value.to_string()) {
-                                issues.push(ConfigIssue {
+                        if let Some(valid_values) = &setting.valid_values
+                            && !valid_values.contains(&value.to_string())
+                        {
+                            issues.push(ConfigIssue {
                                     file_path: file_path.to_path_buf(),
                                     kind: ConfigIssueKind::InvalidValue,
                                     issue_type: ConfigIssueType::Error,
@@ -361,13 +362,13 @@ impl ConfigChecker {
                                         format!("Set to default value: {default}")
                                     }),
                                 });
-                            }
                         }
                     }
                     ConfigType::String => {
-                        if let Some(valid_values) = &setting.valid_values {
-                            if !valid_values.contains(&value.to_string()) {
-                                issues.push(ConfigIssue {
+                        if let Some(valid_values) = &setting.valid_values
+                            && !valid_values.contains(&value.to_string())
+                        {
+                            issues.push(ConfigIssue {
                                     file_path: file_path.to_path_buf(),
                                     kind: ConfigIssueKind::InvalidValue,
                                     issue_type: ConfigIssueType::Error,
@@ -380,7 +381,6 @@ impl ConfigChecker {
                                         format!("Set to default value: {default}")
                                     }),
                                 });
-                            }
                         }
                     }
                 }
@@ -471,44 +471,36 @@ impl ConfigChecker {
         for issue in &issues {
             match issue.kind {
                 ConfigIssueKind::UnknownKey => {
-                    if let Some(line_number) = issue.line_number {
-                        if line_number <= lines.len() {
-                            lines[line_number - 1] =
-                                format!("# {} (unknown key)", lines[line_number - 1]);
-                            println!("✅ Commented out unknown key at line {line_number}");
-                        }
+                    if let Some(line_number) = issue.line_number
+                        && line_number <= lines.len()
+                    {
+                        lines[line_number - 1] =
+                            format!("# {} (unknown key)", lines[line_number - 1]);
+                        println!("✅ Commented out unknown key at line {line_number}");
                     }
                 }
                 ConfigIssueKind::InvalidType | ConfigIssueKind::InvalidValue => {
                     if let (Some(line_number), Some(setting_name)) =
                         (issue.line_number, &issue.setting_name)
+                        && line_number <= lines.len()
+                        && let Some(setting) = self.expected_settings.get(setting_name)
+                        && let Some(default_value) = &setting.default_value
                     {
-                        if line_number <= lines.len() {
-                            if let Some(setting) = self.expected_settings.get(setting_name) {
-                                if let Some(default_value) = &setting.default_value {
-                                    lines[line_number - 1] =
-                                        format!("{setting_name} = {default_value}");
-                                    println!(
-                                        "✅ Fixed value for '{setting_name}' at line {line_number}"
-                                    );
-                                }
-                            }
-                        }
+                        lines[line_number - 1] = format!("{setting_name} = {default_value}");
+                        println!("✅ Fixed value for '{setting_name}' at line {line_number}");
                     }
                 }
                 ConfigIssueKind::MissingSetting => {
-                    if let Some(setting_name) = &issue.setting_name {
-                        if let Some(setting) = self.expected_settings.get(setting_name) {
-                            if let Some(default_value) = &setting.default_value {
-                                if !added_settings.contains_key(setting_name) {
-                                    lines.push(String::new());
-                                    lines.push(format!("# {}", setting.description));
-                                    lines.push(format!("{setting_name} = {default_value}"));
-                                    added_settings.insert(setting_name.clone(), true);
-                                    println!("✅ Added missing setting: {setting_name}");
-                                }
-                            }
-                        }
+                    if let Some(setting_name) = &issue.setting_name
+                        && let Some(setting) = self.expected_settings.get(setting_name)
+                        && let Some(default_value) = &setting.default_value
+                        && !added_settings.contains_key(setting_name)
+                    {
+                        lines.push(String::new());
+                        lines.push(format!("# {}", setting.description));
+                        lines.push(format!("{setting_name} = {default_value}"));
+                        added_settings.insert(setting_name.clone(), true);
+                        println!("✅ Added missing setting: {setting_name}");
                     }
                 }
                 _ => {} // Other issues handled elsewhere

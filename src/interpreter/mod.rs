@@ -876,10 +876,10 @@ impl Interpreter {
             } => {
                 let mut evaluated_value = self.evaluate_expression(value, Rc::clone(&env)).await?;
 
-                if let Value::Text(text) = &evaluated_value {
-                    if text.as_ref() == "[]" {
-                        evaluated_value = Value::List(Rc::new(RefCell::new(Vec::new())));
-                    }
+                if let Value::Text(text) = &evaluated_value
+                    && text.as_ref() == "[]"
+                {
+                    evaluated_value = Value::List(Rc::new(RefCell::new(Vec::new())));
                 }
 
                 #[cfg(debug_assertions)]
@@ -1751,10 +1751,10 @@ impl Interpreter {
                     } => {
                         let max_attempts = 1000; // Prevent infinite waiting
                         for _ in 0..max_attempts {
-                            if let Some(value) = env.borrow().get(var_name) {
-                                if !matches!(value, Value::Null) {
-                                    return Ok((Value::Null, ControlFlow::None));
-                                }
+                            if let Some(value) = env.borrow().get(var_name)
+                                && !matches!(value, Value::Null)
+                            {
+                                return Ok((Value::Null, ControlFlow::None));
                             }
 
                             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -3880,10 +3880,10 @@ impl Interpreter {
                             .and_then(|ext| ext.to_str())
                             .map(|ext| format!(".{ext}"));
 
-                        if let Some(ext) = file_ext {
-                            if exts.iter().any(|e| e == &ext) {
-                                files.push(Value::Text(path_str.into()));
-                            }
+                        if let Some(ext) = file_ext
+                            && exts.iter().any(|e| e == &ext)
+                        {
+                            files.push(Value::Text(path_str.into()));
                         }
                     } else {
                         files.push(Value::Text(path_str.into()));
@@ -3917,10 +3917,10 @@ impl Interpreter {
                     .and_then(|ext| ext.to_str())
                     .map(|ext| format!(".{ext}"));
 
-                if let Some(ext) = file_ext {
-                    if extensions.iter().any(|e| e == &ext) {
-                        files.push(Value::Text(path_str.into()));
-                    }
+                if let Some(ext) = file_ext
+                    && extensions.iter().any(|e| e == &ext)
+                {
+                    files.push(Value::Text(path_str.into()));
                 }
             }
         }

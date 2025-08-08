@@ -25,7 +25,9 @@
       "Bash(mkdir:*)",
       "Bash(target/release/wfl.exe:*)",
       "Bash(VM_DEBUG=1 cargo test test_positive_lookahead -- --nocapture)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(powershell:*)",
+      "Bash(rustc --version)"
     ],
     "deny": []
   }

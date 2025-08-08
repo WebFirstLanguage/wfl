@@ -395,39 +395,39 @@ pub fn load_config(dir: &Path) -> WflConfig {
     let global_config = Path::new(get_global_config_path());
     let mut loaded_global = false;
 
-    if global_config.exists() {
-        if let Ok(text) = std::fs::read_to_string(global_config) {
-            loaded_global = true;
-            log::debug!(
-                "Loading global configuration from {}",
-                global_config.display()
-            );
-            parse_config_text(&mut config, &text, global_config);
-        }
+    if global_config.exists()
+        && let Ok(text) = std::fs::read_to_string(global_config)
+    {
+        loaded_global = true;
+        log::debug!(
+            "Loading global configuration from {}",
+            global_config.display()
+        );
+        parse_config_text(&mut config, &text, global_config);
     }
 
     if !loaded_global {
         let old_system_config = Path::new("/etc/wfl/.wflcfg");
-        if old_system_config.exists() {
-            if let Ok(text) = std::fs::read_to_string(old_system_config) {
-                log::debug!(
-                    "Loading global configuration from {} (legacy path)",
-                    old_system_config.display()
-                );
-                parse_config_text(&mut config, &text, old_system_config);
-            }
+        if old_system_config.exists()
+            && let Ok(text) = std::fs::read_to_string(old_system_config)
+        {
+            log::debug!(
+                "Loading global configuration from {} (legacy path)",
+                old_system_config.display()
+            );
+            parse_config_text(&mut config, &text, old_system_config);
         }
     }
 
     let local_config = dir.join(".wflcfg");
-    if local_config.exists() {
-        if let Ok(text) = std::fs::read_to_string(&local_config) {
-            log::debug!(
-                "Loading local configuration from {}",
-                local_config.display()
-            );
-            parse_config_text(&mut config, &text, &local_config);
-        }
+    if local_config.exists()
+        && let Ok(text) = std::fs::read_to_string(&local_config)
+    {
+        log::debug!(
+            "Loading local configuration from {}",
+            local_config.display()
+        );
+        parse_config_text(&mut config, &text, &local_config);
     }
 
     config
@@ -441,40 +441,40 @@ pub fn load_config_with_global(script_dir: &Path) -> WflConfig {
     let global_config = Path::new(get_global_config_path());
     let mut loaded_global = false;
 
-    if global_config.exists() {
-        if let Ok(text) = std::fs::read_to_string(global_config) {
-            loaded_global = true;
-            log::debug!(
-                "Loading global configuration from {}",
-                global_config.display()
-            );
-            parse_config_text(&mut config, &text, global_config);
-        }
+    if global_config.exists()
+        && let Ok(text) = std::fs::read_to_string(global_config)
+    {
+        loaded_global = true;
+        log::debug!(
+            "Loading global configuration from {}",
+            global_config.display()
+        );
+        parse_config_text(&mut config, &text, global_config);
     }
 
     if !loaded_global {
         let old_system_config = Path::new("/etc/wfl/.wflcfg");
-        if old_system_config.exists() {
-            if let Ok(text) = std::fs::read_to_string(old_system_config) {
-                log::debug!(
-                    "Loading global configuration from {} (legacy path)",
-                    old_system_config.display()
-                );
-                parse_config_text(&mut config, &text, old_system_config);
-            }
+        if old_system_config.exists()
+            && let Ok(text) = std::fs::read_to_string(old_system_config)
+        {
+            log::debug!(
+                "Loading global configuration from {} (legacy path)",
+                old_system_config.display()
+            );
+            parse_config_text(&mut config, &text, old_system_config);
         }
     }
 
     // Load local configuration
     let local_config = script_dir.join(".wflcfg");
-    if local_config.exists() {
-        if let Ok(text) = std::fs::read_to_string(&local_config) {
-            log::debug!(
-                "Loading local configuration from {}",
-                local_config.display()
-            );
-            parse_config_text(&mut config, &text, &local_config);
-        }
+    if local_config.exists()
+        && let Ok(text) = std::fs::read_to_string(&local_config)
+    {
+        log::debug!(
+            "Loading local configuration from {}",
+            local_config.display()
+        );
+        parse_config_text(&mut config, &text, &local_config);
     }
 
     config

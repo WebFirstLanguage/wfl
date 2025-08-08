@@ -42,119 +42,116 @@ impl<'a> Parser<'a> {
             // Comprehensive handling of "end" tokens that might be left unconsumed
             // Check first two tokens to avoid borrow checker issues
             let mut tokens_clone = self.tokens.clone();
-            if let Some(first_token) = tokens_clone.next() {
-                if first_token.token == Token::KeywordEnd {
-                    if let Some(second_token) = tokens_clone.next() {
-                        match &second_token.token {
-                            Token::KeywordAction => {
-                                exec_trace!(
-                                    "Consuming orphaned 'end action' at line {}",
-                                    first_token.line
-                                );
-                                self.tokens.next(); // Consume "end"
-                                self.tokens.next(); // Consume "action"
-                                continue;
-                            }
-                            Token::KeywordCheck => {
-                                exec_trace!(
-                                    "Consuming orphaned 'end check' at line {}",
-                                    first_token.line
-                                );
-                                self.tokens.next(); // Consume "end"
-                                self.tokens.next(); // Consume "check"
-                                continue;
-                            }
-                            Token::KeywordFor => {
-                                exec_trace!(
-                                    "Consuming orphaned 'end for' at line {}",
-                                    first_token.line
-                                );
-                                self.tokens.next(); // Consume "end"
-                                self.tokens.next(); // Consume "for"
-                                continue;
-                            }
-                            Token::KeywordCount => {
-                                exec_trace!(
-                                    "Consuming orphaned 'end count' at line {}",
-                                    first_token.line
-                                );
-                                self.tokens.next(); // Consume "end"
-                                self.tokens.next(); // Consume "count"
-                                continue;
-                            }
-                            Token::KeywordRepeat => {
-                                exec_trace!(
-                                    "Consuming orphaned 'end repeat' at line {}",
-                                    first_token.line
-                                );
-                                self.tokens.next(); // Consume "end"
-                                self.tokens.next(); // Consume "repeat"
-                                continue;
-                            }
-                            Token::KeywordTry => {
-                                exec_trace!(
-                                    "Consuming orphaned 'end try' at line {}",
-                                    first_token.line
-                                );
-                                self.tokens.next(); // Consume "end"
-                                self.tokens.next(); // Consume "try"
-                                continue;
-                            }
-                            Token::KeywordLoop => {
-                                exec_trace!(
-                                    "Consuming orphaned 'end loop' at line {}",
-                                    first_token.line
-                                );
-                                self.tokens.next(); // Consume "end"
-                                self.tokens.next(); // Consume "loop"
-                                continue;
-                            }
-                            Token::KeywordWhile => {
-                                exec_trace!(
-                                    "Consuming orphaned 'end while' at line {}",
-                                    first_token.line
-                                );
-                                self.tokens.next(); // Consume "end"
-                                self.tokens.next(); // Consume "while"
-                                continue;
-                            }
-                            Token::KeywordPattern => {
-                                exec_trace!(
-                                    "Consuming orphaned 'end pattern' at line {}",
-                                    first_token.line
-                                );
-                                self.tokens.next(); // Consume "end"
-                                self.tokens.next(); // Consume "pattern"
-                                continue;
-                            }
-                            _ => {
-                                // Standalone "end" or unexpected pattern - consume and log error
-                                exec_trace!(
-                                    "Found unexpected 'end' followed by {:?} at line {}",
-                                    second_token.token,
-                                    first_token.line
-                                );
-                                self.tokens.next(); // Consume "end"
-                                self.errors.push(ParseError::new(
-                                    format!(
-                                        "Unexpected 'end' followed by {:?}",
-                                        second_token.token
-                                    ),
-                                    first_token.line,
-                                    first_token.column,
-                                ));
-                                continue;
-                            }
+            if let Some(first_token) = tokens_clone.next()
+                && first_token.token == Token::KeywordEnd
+            {
+                if let Some(second_token) = tokens_clone.next() {
+                    match &second_token.token {
+                        Token::KeywordAction => {
+                            exec_trace!(
+                                "Consuming orphaned 'end action' at line {}",
+                                first_token.line
+                            );
+                            self.tokens.next(); // Consume "end"
+                            self.tokens.next(); // Consume "action"
+                            continue;
                         }
-                    } else {
-                        // "end" at end of file
-                        exec_trace!(
-                            "Found standalone 'end' at end of file, line {}",
-                            first_token.line
-                        );
-                        self.tokens.next();
-                        break;
+                        Token::KeywordCheck => {
+                            exec_trace!(
+                                "Consuming orphaned 'end check' at line {}",
+                                first_token.line
+                            );
+                            self.tokens.next(); // Consume "end"
+                            self.tokens.next(); // Consume "check"
+                            continue;
+                        }
+                        Token::KeywordFor => {
+                            exec_trace!(
+                                "Consuming orphaned 'end for' at line {}",
+                                first_token.line
+                            );
+                            self.tokens.next(); // Consume "end"
+                            self.tokens.next(); // Consume "for"
+                            continue;
+                        }
+                        Token::KeywordCount => {
+                            exec_trace!(
+                                "Consuming orphaned 'end count' at line {}",
+                                first_token.line
+                            );
+                            self.tokens.next(); // Consume "end"
+                            self.tokens.next(); // Consume "count"
+                            continue;
+                        }
+                        Token::KeywordRepeat => {
+                            exec_trace!(
+                                "Consuming orphaned 'end repeat' at line {}",
+                                first_token.line
+                            );
+                            self.tokens.next(); // Consume "end"
+                            self.tokens.next(); // Consume "repeat"
+                            continue;
+                        }
+                        Token::KeywordTry => {
+                            exec_trace!(
+                                "Consuming orphaned 'end try' at line {}",
+                                first_token.line
+                            );
+                            self.tokens.next(); // Consume "end"
+                            self.tokens.next(); // Consume "try"
+                            continue;
+                        }
+                        Token::KeywordLoop => {
+                            exec_trace!(
+                                "Consuming orphaned 'end loop' at line {}",
+                                first_token.line
+                            );
+                            self.tokens.next(); // Consume "end"
+                            self.tokens.next(); // Consume "loop"
+                            continue;
+                        }
+                        Token::KeywordWhile => {
+                            exec_trace!(
+                                "Consuming orphaned 'end while' at line {}",
+                                first_token.line
+                            );
+                            self.tokens.next(); // Consume "end"
+                            self.tokens.next(); // Consume "while"
+                            continue;
+                        }
+                        Token::KeywordPattern => {
+                            exec_trace!(
+                                "Consuming orphaned 'end pattern' at line {}",
+                                first_token.line
+                            );
+                            self.tokens.next(); // Consume "end"
+                            self.tokens.next(); // Consume "pattern"
+                            continue;
+                        }
+                        _ => {
+                            // Standalone "end" or unexpected pattern - consume and log error
+                            exec_trace!(
+                                "Found unexpected 'end' followed by {:?} at line {}",
+                                second_token.token,
+                                first_token.line
+                            );
+                            self.tokens.next(); // Consume "end"
+                            self.errors.push(ParseError::new(
+                                format!("Unexpected 'end' followed by {:?}", second_token.token),
+                                first_token.line,
+                                first_token.column,
+                            ));
+                            continue;
+                        }
                     }
+                } else {
+                    // "end" at end of file
+                    exec_trace!(
+                        "Found standalone 'end' at end of file, line {}",
+                        first_token.line
+                    );
+                    self.tokens.next();
+                    break;
                 }
             }
 
@@ -183,12 +180,13 @@ impl<'a> Parser<'a> {
 
             // Special case for end of file - if we have processed all meaningful tokens,
             // and only trailing tokens remain (if any), just break
-            if let Some(token) = self.tokens.peek() {
-                if token.token == Token::KeywordEnd && start_len <= 2 {
-                    // If we're at the end with just 1-2 tokens left, consume them and break
-                    while self.tokens.next().is_some() {}
-                    break;
-                }
+            if let Some(token) = self.tokens.peek()
+                && token.token == Token::KeywordEnd
+                && start_len <= 2
+            {
+                // If we're at the end with just 1-2 tokens left, consume them and break
+                while self.tokens.next().is_some() {}
+                break;
             }
 
             assert!(
@@ -388,27 +386,27 @@ impl<'a> Parser<'a> {
         self.expect_token(Token::KeywordNew, "Expected 'new' after 'create'")?;
 
         // Check for deprecated "create new constant" syntax
-        if let Some(token) = self.tokens.peek() {
-            if matches!(token.token, Token::KeywordConstant) {
-                // This is the deprecated "create new constant" syntax
-                eprintln!(
-                    "Warning: 'create new constant' syntax is deprecated and will be removed in a future version. Please use 'store new constant' instead."
-                );
+        if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::KeywordConstant)
+        {
+            // This is the deprecated "create new constant" syntax
+            eprintln!(
+                "Warning: 'create new constant' syntax is deprecated and will be removed in a future version. Please use 'store new constant' instead."
+            );
 
-                self.tokens.next(); // Consume "constant"
+            self.tokens.next(); // Consume "constant"
 
-                let name = self.parse_variable_name_list()?;
-                self.expect_token(Token::KeywordAs, "Expected 'as' after constant name")?;
-                let value = self.parse_expression()?;
+            let name = self.parse_variable_name_list()?;
+            self.expect_token(Token::KeywordAs, "Expected 'as' after constant name")?;
+            let value = self.parse_expression()?;
 
-                return Ok(Statement::VariableDeclaration {
-                    name,
-                    value,
-                    is_constant: true,
-                    line,
-                    column,
-                });
-            }
+            return Ok(Statement::VariableDeclaration {
+                name,
+                value,
+                is_constant: true,
+                line,
+                column,
+            });
         }
 
         // Parse container type
@@ -632,68 +630,68 @@ impl<'a> Parser<'a> {
         let mut implements = Vec::new();
 
         // Check for 'extends' keyword
-        if let Some(token) = self.tokens.peek() {
-            if token.token == Token::KeywordExtends {
-                self.tokens.next(); // Consume 'extends'
+        if let Some(token) = self.tokens.peek()
+            && token.token == Token::KeywordExtends
+        {
+            self.tokens.next(); // Consume 'extends'
 
+            if let Some(token) = self.tokens.peek() {
+                if let Token::Identifier(id) = &token.token {
+                    extends = Some(id.clone());
+                    self.tokens.next(); // Consume the identifier
+                } else {
+                    return Err(ParseError::new(
+                        "Expected identifier after 'extends'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            } else {
+                return Err(ParseError::new(
+                    "Expected identifier after 'extends'".to_string(),
+                    0,
+                    0,
+                ));
+            }
+        }
+
+        // Check for 'implements' keyword
+        if let Some(token) = self.tokens.peek()
+            && token.token == Token::KeywordImplements
+        {
+            self.tokens.next(); // Consume 'implements'
+
+            // Parse interface list
+            loop {
                 if let Some(token) = self.tokens.peek() {
                     if let Token::Identifier(id) = &token.token {
-                        extends = Some(id.clone());
+                        implements.push(id.clone());
                         self.tokens.next(); // Consume the identifier
+
+                        // Check for comma to continue or break
+                        if let Some(next_token) = self.tokens.peek() {
+                            if next_token.token == Token::Comma {
+                                self.tokens.next(); // Consume comma
+                                continue;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
                     } else {
                         return Err(ParseError::new(
-                            "Expected identifier after 'extends'".to_string(),
+                            "Expected identifier in implements list".to_string(),
                             token.line,
                             token.column,
                         ));
                     }
                 } else {
                     return Err(ParseError::new(
-                        "Expected identifier after 'extends'".to_string(),
+                        "Expected identifier in implements list".to_string(),
                         0,
                         0,
                     ));
-                }
-            }
-        }
-
-        // Check for 'implements' keyword
-        if let Some(token) = self.tokens.peek() {
-            if token.token == Token::KeywordImplements {
-                self.tokens.next(); // Consume 'implements'
-
-                // Parse interface list
-                loop {
-                    if let Some(token) = self.tokens.peek() {
-                        if let Token::Identifier(id) = &token.token {
-                            implements.push(id.clone());
-                            self.tokens.next(); // Consume the identifier
-
-                            // Check for comma to continue or break
-                            if let Some(next_token) = self.tokens.peek() {
-                                if next_token.token == Token::Comma {
-                                    self.tokens.next(); // Consume comma
-                                    continue;
-                                } else {
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
-                        } else {
-                            return Err(ParseError::new(
-                                "Expected identifier in implements list".to_string(),
-                                token.line,
-                                token.column,
-                            ));
-                        }
-                    } else {
-                        return Err(ParseError::new(
-                            "Expected identifier in implements list".to_string(),
-                            0,
-                            0,
-                        ));
-                    }
                 }
             }
         }
@@ -901,11 +899,11 @@ impl<'a> Parser<'a> {
         };
 
         let mut parameters = Vec::new();
-        if let Some(token) = self.tokens.peek() {
-            if token.token == Token::KeywordNeeds {
-                self.tokens.next(); // Consume 'needs'
-                parameters = self.parse_parameter_list()?;
-            }
+        if let Some(token) = self.tokens.peek()
+            && token.token == Token::KeywordNeeds
+        {
+            self.tokens.next(); // Consume 'needs'
+            parameters = self.parse_parameter_list()?;
         }
 
         Ok(EventDefinition {
@@ -1103,47 +1101,24 @@ impl<'a> Parser<'a> {
 
                     tokens_clone.next();
 
-                    if let Some(token) = tokens_clone.next() {
-                        if token.token == Token::KeywordFile {
-                            if let Some(token) = tokens_clone.next() {
-                                if token.token == Token::KeywordAt {
-                                    if let Some(token) = tokens_clone.next() {
-                                        if let Token::StringLiteral(_) = token.token {
-                                            if let Some(token) = tokens_clone.next() {
-                                                if token.token == Token::KeywordAnd {
-                                                    if let Some(token) = tokens_clone.next() {
-                                                        if token.token == Token::KeywordRead {
-                                                            if let Some(token) = tokens_clone.next()
-                                                            {
-                                                                if token.token
-                                                                    == Token::KeywordContent
-                                                                {
-                                                                    if let Some(token) =
-                                                                        tokens_clone.next()
-                                                                    {
-                                                                        if token.token
-                                                                            == Token::KeywordAs
-                                                                        {
-                                                                            if let Some(token) =
-                                                                                tokens_clone.next()
-                                                                            {
-                                                                                if let Token::Identifier(_) = token.token {
-                                                                                    has_read_pattern = true;
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    if let Some(token) = tokens_clone.next()
+                        && token.token == Token::KeywordFile
+                        && let Some(token) = tokens_clone.next()
+                        && token.token == Token::KeywordAt
+                        && let Some(token) = tokens_clone.next()
+                        && let Token::StringLiteral(_) = token.token
+                        && let Some(token) = tokens_clone.next()
+                        && token.token == Token::KeywordAnd
+                        && let Some(token) = tokens_clone.next()
+                        && token.token == Token::KeywordRead
+                        && let Some(token) = tokens_clone.next()
+                        && token.token == Token::KeywordContent
+                        && let Some(token) = tokens_clone.next()
+                        && token.token == Token::KeywordAs
+                        && let Some(token) = tokens_clone.next()
+                        && let Token::Identifier(_) = token.token
+                    {
+                        has_read_pattern = true;
                     }
 
                     if has_read_pattern {
@@ -1185,32 +1160,31 @@ impl<'a> Parser<'a> {
 
         // Check for "store new constant" syntax
         let mut is_constant = false;
-        if is_store {
-            if let Some(next_token) = self.tokens.peek() {
-                if matches!(next_token.token, Token::KeywordNew) {
-                    self.tokens.next(); // Consume "new"
-                    if let Some(const_token) = self.tokens.peek() {
-                        if matches!(const_token.token, Token::KeywordConstant) {
-                            self.tokens.next(); // Consume "constant"
-                            is_constant = true;
-                        } else {
-                            return Err(ParseError::new(
-                                format!(
-                                    "Expected 'constant' after 'new', found {:?}",
-                                    const_token.token
-                                ),
-                                const_token.line,
-                                const_token.column,
-                            ));
-                        }
-                    } else {
-                        return Err(ParseError::new(
-                            "Expected 'constant' after 'new'".to_string(),
-                            token_pos.line,
-                            token_pos.column,
-                        ));
-                    }
+        if is_store
+            && let Some(next_token) = self.tokens.peek()
+            && matches!(next_token.token, Token::KeywordNew)
+        {
+            self.tokens.next(); // Consume "new"
+            if let Some(const_token) = self.tokens.peek() {
+                if matches!(const_token.token, Token::KeywordConstant) {
+                    self.tokens.next(); // Consume "constant"
+                    is_constant = true;
+                } else {
+                    return Err(ParseError::new(
+                        format!(
+                            "Expected 'constant' after 'new', found {:?}",
+                            const_token.token
+                        ),
+                        const_token.line,
+                        const_token.column,
+                    ));
                 }
+            } else {
+                return Err(ParseError::new(
+                    "Expected 'constant' after 'new'".to_string(),
+                    token_pos.line,
+                    token_pos.column,
+                ));
             }
         }
 
@@ -1564,20 +1538,20 @@ impl<'a> Parser<'a> {
                 }
                 Token::KeywordWith => {
                     // Only create an ActionCall if this is a known action name
-                    if let Expression::Variable(ref name, var_line, var_column) = left {
-                        if self.known_actions.contains(name) {
-                            // This is a known action, treat it as an action call
-                            self.tokens.next(); // Consume "with"
-                            let arguments = self.parse_argument_list()?;
+                    if let Expression::Variable(ref name, var_line, var_column) = left
+                        && self.known_actions.contains(name)
+                    {
+                        // This is a known action, treat it as an action call
+                        self.tokens.next(); // Consume "with"
+                        let arguments = self.parse_argument_list()?;
 
-                            left = Expression::ActionCall {
-                                name: name.clone(),
-                                arguments,
-                                line: var_line,
-                                column: var_column,
-                            };
-                            continue; // Skip the rest of the loop since we've already updated left
-                        }
+                        left = Expression::ActionCall {
+                            name: name.clone(),
+                            arguments,
+                            line: var_line,
+                            column: var_column,
+                        };
+                        continue; // Skip the rest of the loop since we've already updated left
                     }
 
                     // Default case - treat as concatenation
@@ -1599,42 +1573,42 @@ impl<'a> Parser<'a> {
                     self.tokens.next(); // Consume "or"
 
                     // Handle "or equal to" as a special case
-                    if let Some(equal_token) = self.tokens.peek().cloned() {
-                        if matches!(equal_token.token, Token::KeywordEqual) {
-                            self.tokens.next(); // Consume "equal"
+                    if let Some(equal_token) = self.tokens.peek().cloned()
+                        && matches!(equal_token.token, Token::KeywordEqual)
+                    {
+                        self.tokens.next(); // Consume "equal"
 
-                            if let Some(to_token) = self.tokens.peek().cloned() {
-                                if matches!(to_token.token, Token::KeywordTo) {
-                                    self.tokens.next(); // Consume "to"
+                        if let Some(to_token) = self.tokens.peek().cloned()
+                            && matches!(to_token.token, Token::KeywordTo)
+                        {
+                            self.tokens.next(); // Consume "to"
 
-                                    if let Expression::BinaryOperation {
-                                        operator,
-                                        left: left_expr,
-                                        right: right_expr,
-                                        line: op_line,
-                                        column: op_column,
-                                    } = &left
-                                    {
-                                        if *operator == Operator::LessThan {
-                                            left = Expression::BinaryOperation {
-                                                left: left_expr.clone(),
-                                                operator: Operator::LessThanOrEqual,
-                                                right: right_expr.clone(),
-                                                line: *op_line,
-                                                column: *op_column,
-                                            };
-                                            continue;
-                                        } else if *operator == Operator::GreaterThan {
-                                            left = Expression::BinaryOperation {
-                                                left: left_expr.clone(),
-                                                operator: Operator::GreaterThanOrEqual,
-                                                right: right_expr.clone(),
-                                                line: *op_line,
-                                                column: *op_column,
-                                            };
-                                            continue;
-                                        }
-                                    }
+                            if let Expression::BinaryOperation {
+                                operator,
+                                left: left_expr,
+                                right: right_expr,
+                                line: op_line,
+                                column: op_column,
+                            } = &left
+                            {
+                                if *operator == Operator::LessThan {
+                                    left = Expression::BinaryOperation {
+                                        left: left_expr.clone(),
+                                        operator: Operator::LessThanOrEqual,
+                                        right: right_expr.clone(),
+                                        line: *op_line,
+                                        column: *op_column,
+                                    };
+                                    continue;
+                                } else if *operator == Operator::GreaterThan {
+                                    left = Expression::BinaryOperation {
+                                        left: left_expr.clone(),
+                                        operator: Operator::GreaterThanOrEqual,
+                                        right: right_expr.clone(),
+                                        line: *op_line,
+                                        column: *op_column,
+                                    };
+                                    continue;
                                 }
                             }
                         }
@@ -1646,10 +1620,10 @@ impl<'a> Parser<'a> {
                     self.tokens.next(); // Consume "matches"
 
                     // Check if next token is "pattern" keyword (optional)
-                    if let Some(pattern_token) = self.tokens.peek().cloned() {
-                        if matches!(pattern_token.token, Token::KeywordPattern) {
-                            self.tokens.next(); // Consume "pattern"
-                        }
+                    if let Some(pattern_token) = self.tokens.peek().cloned()
+                        && matches!(pattern_token.token, Token::KeywordPattern)
+                    {
+                        self.tokens.next(); // Consume "pattern"
                     }
 
                     let pattern_expr = self.parse_binary_expression(precedence + 1)?;
@@ -1666,28 +1640,28 @@ impl<'a> Parser<'a> {
                     self.tokens.next(); // Consume "find"
 
                     // Check if next token is "pattern" keyword (optional)
-                    if let Some(pattern_token) = self.tokens.peek().cloned() {
-                        if matches!(pattern_token.token, Token::KeywordPattern) {
-                            self.tokens.next(); // Consume "pattern"
-                        }
+                    if let Some(pattern_token) = self.tokens.peek().cloned()
+                        && matches!(pattern_token.token, Token::KeywordPattern)
+                    {
+                        self.tokens.next(); // Consume "pattern"
                     }
 
                     let pattern_expr = self.parse_binary_expression(precedence + 1)?;
 
-                    if let Some(in_token) = self.tokens.peek().cloned() {
-                        if matches!(in_token.token, Token::KeywordIn) {
-                            self.tokens.next(); // Consume "in"
+                    if let Some(in_token) = self.tokens.peek().cloned()
+                        && matches!(in_token.token, Token::KeywordIn)
+                    {
+                        self.tokens.next(); // Consume "in"
 
-                            let text_expr = self.parse_binary_expression(precedence + 1)?;
+                        let text_expr = self.parse_binary_expression(precedence + 1)?;
 
-                            left = Expression::PatternFind {
-                                text: Box::new(text_expr),
-                                pattern: Box::new(pattern_expr),
-                                line,
-                                column,
-                            };
-                            continue; // Skip the rest of the loop since we've already updated left
-                        }
+                        left = Expression::PatternFind {
+                            text: Box::new(text_expr),
+                            pattern: Box::new(pattern_expr),
+                            line,
+                            column,
+                        };
+                        continue; // Skip the rest of the loop since we've already updated left
                     }
 
                     left = Expression::PatternFind {
@@ -1702,39 +1676,30 @@ impl<'a> Parser<'a> {
                     self.tokens.next(); // Consume "replace"
 
                     // Check if next token is "pattern" keyword (optional)
-                    if let Some(pattern_token) = self.tokens.peek().cloned() {
-                        if matches!(pattern_token.token, Token::KeywordPattern) {
-                            self.tokens.next(); // Consume "pattern"
-                        }
+                    if let Some(pattern_token) = self.tokens.peek().cloned()
+                        && matches!(pattern_token.token, Token::KeywordPattern)
+                    {
+                        self.tokens.next(); // Consume "pattern"
                     }
 
                     let pattern_expr = self.parse_binary_expression(precedence + 1)?;
 
-                    if let Some(with_token) = self.tokens.peek().cloned() {
-                        if matches!(with_token.token, Token::KeywordWith) {
-                            self.tokens.next(); // Consume "with"
+                    if let Some(with_token) = self.tokens.peek().cloned()
+                        && matches!(with_token.token, Token::KeywordWith)
+                    {
+                        self.tokens.next(); // Consume "with"
 
-                            let replacement_expr = self.parse_binary_expression(precedence + 1)?;
+                        let replacement_expr = self.parse_binary_expression(precedence + 1)?;
 
-                            if let Some(in_token) = self.tokens.peek().cloned() {
-                                if matches!(in_token.token, Token::KeywordIn) {
-                                    self.tokens.next(); // Consume "in"
+                        if let Some(in_token) = self.tokens.peek().cloned()
+                            && matches!(in_token.token, Token::KeywordIn)
+                        {
+                            self.tokens.next(); // Consume "in"
 
-                                    let text_expr = self.parse_binary_expression(precedence + 1)?;
-
-                                    left = Expression::PatternReplace {
-                                        text: Box::new(text_expr),
-                                        pattern: Box::new(pattern_expr),
-                                        replacement: Box::new(replacement_expr),
-                                        line,
-                                        column,
-                                    };
-                                    continue; // Skip the rest of the loop since we've already updated left
-                                }
-                            }
+                            let text_expr = self.parse_binary_expression(precedence + 1)?;
 
                             left = Expression::PatternReplace {
-                                text: Box::new(left),
+                                text: Box::new(text_expr),
                                 pattern: Box::new(pattern_expr),
                                 replacement: Box::new(replacement_expr),
                                 line,
@@ -1742,6 +1707,15 @@ impl<'a> Parser<'a> {
                             };
                             continue; // Skip the rest of the loop since we've already updated left
                         }
+
+                        left = Expression::PatternReplace {
+                            text: Box::new(left),
+                            pattern: Box::new(pattern_expr),
+                            replacement: Box::new(replacement_expr),
+                            line,
+                            column,
+                        };
+                        continue; // Skip the rest of the loop since we've already updated left
                     }
 
                     return Err(ParseError::new(
@@ -1756,27 +1730,27 @@ impl<'a> Parser<'a> {
                     // Handle "split text on pattern name" syntax
                     let text_expr = self.parse_binary_expression(precedence + 1)?;
 
-                    if let Some(on_token) = self.tokens.peek().cloned() {
-                        if matches!(on_token.token, Token::KeywordOn) {
-                            self.tokens.next(); // Consume "on"
+                    if let Some(on_token) = self.tokens.peek().cloned()
+                        && matches!(on_token.token, Token::KeywordOn)
+                    {
+                        self.tokens.next(); // Consume "on"
 
-                            // Check if next token is "pattern" keyword (optional)
-                            if let Some(pattern_token) = self.tokens.peek().cloned() {
-                                if matches!(pattern_token.token, Token::KeywordPattern) {
-                                    self.tokens.next(); // Consume "pattern"
-                                }
-                            }
-
-                            let pattern_expr = self.parse_binary_expression(precedence + 1)?;
-
-                            left = Expression::PatternSplit {
-                                text: Box::new(text_expr),
-                                pattern: Box::new(pattern_expr),
-                                line,
-                                column,
-                            };
-                            continue; // Skip the rest of the loop since we've already updated left
+                        // Check if next token is "pattern" keyword (optional)
+                        if let Some(pattern_token) = self.tokens.peek().cloned()
+                            && matches!(pattern_token.token, Token::KeywordPattern)
+                        {
+                            self.tokens.next(); // Consume "pattern"
                         }
+
+                        let pattern_expr = self.parse_binary_expression(precedence + 1)?;
+
+                        left = Expression::PatternSplit {
+                            text: Box::new(text_expr),
+                            pattern: Box::new(pattern_expr),
+                            line,
+                            column,
+                        };
+                        continue; // Skip the rest of the loop since we've already updated left
                     }
 
                     return Err(ParseError::new(
@@ -1788,20 +1762,20 @@ impl<'a> Parser<'a> {
                 Token::KeywordContains => {
                     self.tokens.next(); // Consume "contains"
 
-                    if let Some(pattern_token) = self.tokens.peek().cloned() {
-                        if matches!(pattern_token.token, Token::KeywordPattern) {
-                            self.tokens.next(); // Consume "pattern"
+                    if let Some(pattern_token) = self.tokens.peek().cloned()
+                        && matches!(pattern_token.token, Token::KeywordPattern)
+                    {
+                        self.tokens.next(); // Consume "pattern"
 
-                            let pattern_expr = self.parse_binary_expression(precedence + 1)?;
+                        let pattern_expr = self.parse_binary_expression(precedence + 1)?;
 
-                            left = Expression::PatternMatch {
-                                text: Box::new(left),
-                                pattern: Box::new(pattern_expr),
-                                line,
-                                column,
-                            };
-                            continue; // Skip the rest of the loop since we've already updated left
-                        }
+                        left = Expression::PatternMatch {
+                            text: Box::new(left),
+                            pattern: Box::new(pattern_expr),
+                            line,
+                            column,
+                        };
+                        continue; // Skip the rest of the loop since we've already updated left
                     }
 
                     Some((Operator::Contains, 0))
@@ -1842,15 +1816,15 @@ impl<'a> Parser<'a> {
                     let bracket_token = self.tokens.next().unwrap(); // Consume '['
 
                     // Check for empty list
-                    if let Some(next_token) = self.tokens.peek() {
-                        if next_token.token == Token::RightBracket {
-                            self.tokens.next(); // Consume ']'
-                            return Ok(Expression::Literal(
-                                Literal::List(Vec::new()),
-                                bracket_token.line,
-                                bracket_token.column,
-                            ));
-                        }
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::RightBracket
+                    {
+                        self.tokens.next(); // Consume ']'
+                        return Ok(Expression::Literal(
+                            Literal::List(Vec::new()),
+                            bracket_token.line,
+                            bracket_token.column,
+                        ));
                     }
 
                     let mut elements = Vec::new();
@@ -1965,53 +1939,52 @@ impl<'a> Parser<'a> {
                                     self.tokens.next(); // Consume property name
 
                                     // Check for method call with parentheses
-                                    if let Some(paren_token) = self.tokens.peek().cloned() {
-                                        if paren_token.token == Token::LeftParen {
-                                            self.tokens.next(); // Consume '('
+                                    if let Some(paren_token) = self.tokens.peek().cloned()
+                                        && paren_token.token == Token::LeftParen
+                                    {
+                                        self.tokens.next(); // Consume '('
 
-                                            let mut arguments = Vec::new();
+                                        let mut arguments = Vec::new();
 
-                                            if let Some(next_token) = self.tokens.peek() {
-                                                if next_token.token != Token::RightParen {
+                                        if let Some(next_token) = self.tokens.peek()
+                                            && next_token.token != Token::RightParen
+                                        {
+                                            let expr = self.parse_expression()?;
+                                            arguments.push(Argument {
+                                                name: None,
+                                                value: expr,
+                                            });
+
+                                            while let Some(comma_token) = self.tokens.peek() {
+                                                if comma_token.token == Token::Comma {
+                                                    self.tokens.next(); // Consume ','
                                                     let expr = self.parse_expression()?;
                                                     arguments.push(Argument {
                                                         name: None,
                                                         value: expr,
                                                     });
-
-                                                    while let Some(comma_token) = self.tokens.peek()
-                                                    {
-                                                        if comma_token.token == Token::Comma {
-                                                            self.tokens.next(); // Consume ','
-                                                            let expr = self.parse_expression()?;
-                                                            arguments.push(Argument {
-                                                                name: None,
-                                                                value: expr,
-                                                            });
-                                                        } else {
-                                                            break;
-                                                        }
-                                                    }
+                                                } else {
+                                                    break;
                                                 }
                                             }
-
-                                            self.expect_token(
-                                                Token::RightParen,
-                                                "Expected ')' after method arguments",
-                                            )?;
-
-                                            return Ok(Expression::MethodCall {
-                                                object: Box::new(Expression::Variable(
-                                                    name.clone(),
-                                                    token.line,
-                                                    token.column,
-                                                )),
-                                                method: property_name.clone(),
-                                                arguments,
-                                                line: token.line,
-                                                column: token.column,
-                                            });
                                         }
+
+                                        self.expect_token(
+                                            Token::RightParen,
+                                            "Expected ')' after method arguments",
+                                        )?;
+
+                                        return Ok(Expression::MethodCall {
+                                            object: Box::new(Expression::Variable(
+                                                name.clone(),
+                                                token.line,
+                                                token.column,
+                                            )),
+                                            method: property_name.clone(),
+                                            arguments,
+                                            line: token.line,
+                                            column: token.column,
+                                        });
                                     }
 
                                     // Property access without method call
@@ -2039,21 +2012,21 @@ impl<'a> Parser<'a> {
                                     token.column,
                                 ));
                             }
-                        } else if let Token::Identifier(id) = &next_token.token {
-                            if id.to_lowercase() == "with" {
-                                self.tokens.next(); // Consume "with"
+                        } else if let Token::Identifier(id) = &next_token.token
+                            && id.to_lowercase() == "with"
+                        {
+                            self.tokens.next(); // Consume "with"
 
-                                let arguments = self.parse_argument_list()?;
+                            let arguments = self.parse_argument_list()?;
 
-                                let token_line = token.line;
-                                let token_column = token.column;
-                                return Ok(Expression::ActionCall {
-                                    name: name.clone(),
-                                    arguments,
-                                    line: token_line,
-                                    column: token_column,
-                                });
-                            }
+                            let token_line = token.line;
+                            let token_column = token.column;
+                            return Ok(Expression::ActionCall {
+                                name: name.clone(),
+                                arguments,
+                                line: token_line,
+                                column: token_column,
+                            });
                         }
                     }
 
@@ -2209,20 +2182,17 @@ impl<'a> Parser<'a> {
                     let token_column = token.column;
 
                     // Check if it's "file exists at"
-                    if let Some(next_token) = self.tokens.peek() {
-                        if next_token.token == Token::KeywordExists {
-                            self.tokens.next(); // Consume "exists"
-                            self.expect_token(
-                                Token::KeywordAt,
-                                "Expected 'at' after 'file exists'",
-                            )?;
-                            let path = self.parse_primary_expression()?;
-                            return Ok(Expression::FileExists {
-                                path: Box::new(path),
-                                line: token_line,
-                                column: token_column,
-                            });
-                        }
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::KeywordExists
+                    {
+                        self.tokens.next(); // Consume "exists"
+                        self.expect_token(Token::KeywordAt, "Expected 'at' after 'file exists'")?;
+                        let path = self.parse_primary_expression()?;
+                        return Ok(Expression::FileExists {
+                            path: Box::new(path),
+                            line: token_line,
+                            column: token_column,
+                        });
                     }
 
                     // Otherwise treat "file" as a variable
@@ -2238,20 +2208,20 @@ impl<'a> Parser<'a> {
                     let token_column = token.column;
 
                     // Check if it's "directory exists at"
-                    if let Some(next_token) = self.tokens.peek() {
-                        if next_token.token == Token::KeywordExists {
-                            self.tokens.next(); // Consume "exists"
-                            self.expect_token(
-                                Token::KeywordAt,
-                                "Expected 'at' after 'directory exists'",
-                            )?;
-                            let path = self.parse_primary_expression()?;
-                            return Ok(Expression::DirectoryExists {
-                                path: Box::new(path),
-                                line: token_line,
-                                column: token_column,
-                            });
-                        }
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::KeywordExists
+                    {
+                        self.tokens.next(); // Consume "exists"
+                        self.expect_token(
+                            Token::KeywordAt,
+                            "Expected 'at' after 'directory exists'",
+                        )?;
+                        let path = self.parse_primary_expression()?;
+                        return Ok(Expression::DirectoryExists {
+                            path: Box::new(path),
+                            line: token_line,
+                            column: token_column,
+                        });
                     }
 
                     // Otherwise treat "directory" as a variable
@@ -2267,64 +2237,61 @@ impl<'a> Parser<'a> {
                     let token_column = token.column;
 
                     // Check if it's "list files in"
-                    if let Some(next_token) = self.tokens.peek() {
-                        if next_token.token == Token::KeywordFiles {
-                            self.tokens.next(); // Consume "files"
-                            self.expect_token(
-                                Token::KeywordIn,
-                                "Expected 'in' after 'list files'",
-                            )?;
-                            let path = self.parse_primary_expression()?;
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::KeywordFiles
+                    {
+                        self.tokens.next(); // Consume "files"
+                        self.expect_token(Token::KeywordIn, "Expected 'in' after 'list files'")?;
+                        let path = self.parse_primary_expression()?;
 
-                            // Check for "recursively" or "with"
-                            if let Some(next) = self.tokens.peek() {
-                                match &next.token {
-                                    Token::KeywordRecursively => {
-                                        self.tokens.next(); // Consume "recursively"
+                        // Check for "recursively" or "with"
+                        if let Some(next) = self.tokens.peek() {
+                            match &next.token {
+                                Token::KeywordRecursively => {
+                                    self.tokens.next(); // Consume "recursively"
 
-                                        // Check for "with extension/extensions"
-                                        if let Some(with_token) = self.tokens.peek() {
-                                            if with_token.token == Token::KeywordWith {
-                                                self.tokens.next(); // Consume "with"
-                                                let extensions = self.parse_extension_filter()?;
-                                                return Ok(Expression::ListFilesRecursive {
-                                                    path: Box::new(path),
-                                                    extensions: Some(extensions),
-                                                    line: token_line,
-                                                    column: token_column,
-                                                });
-                                            }
-                                        }
-
-                                        // Just recursively, no filter
-                                        return Ok(Expression::ListFilesRecursive {
-                                            path: Box::new(path),
-                                            extensions: None,
-                                            line: token_line,
-                                            column: token_column,
-                                        });
-                                    }
-                                    Token::KeywordWith => {
+                                    // Check for "with extension/extensions"
+                                    if let Some(with_token) = self.tokens.peek()
+                                        && with_token.token == Token::KeywordWith
+                                    {
                                         self.tokens.next(); // Consume "with"
                                         let extensions = self.parse_extension_filter()?;
-                                        return Ok(Expression::ListFilesFiltered {
+                                        return Ok(Expression::ListFilesRecursive {
                                             path: Box::new(path),
-                                            extensions,
+                                            extensions: Some(extensions),
                                             line: token_line,
                                             column: token_column,
                                         });
                                     }
-                                    _ => {}
-                                }
-                            }
 
-                            // Basic list files
-                            return Ok(Expression::ListFiles {
-                                path: Box::new(path),
-                                line: token_line,
-                                column: token_column,
-                            });
+                                    // Just recursively, no filter
+                                    return Ok(Expression::ListFilesRecursive {
+                                        path: Box::new(path),
+                                        extensions: None,
+                                        line: token_line,
+                                        column: token_column,
+                                    });
+                                }
+                                Token::KeywordWith => {
+                                    self.tokens.next(); // Consume "with"
+                                    let extensions = self.parse_extension_filter()?;
+                                    return Ok(Expression::ListFilesFiltered {
+                                        path: Box::new(path),
+                                        extensions,
+                                        line: token_line,
+                                        column: token_column,
+                                    });
+                                }
+                                _ => {}
+                            }
                         }
+
+                        // Basic list files
+                        return Ok(Expression::ListFiles {
+                            path: Box::new(path),
+                            line: token_line,
+                            column: token_column,
+                        });
                     }
 
                     // Otherwise treat "list" as a variable
@@ -2340,20 +2307,20 @@ impl<'a> Parser<'a> {
                     let token_column = token.column;
 
                     // Check if it's "read content from"
-                    if let Some(next_token) = self.tokens.peek() {
-                        if next_token.token == Token::KeywordContent {
-                            self.tokens.next(); // Consume "content"
-                            self.expect_token(
-                                Token::KeywordFrom,
-                                "Expected 'from' after 'read content'",
-                            )?;
-                            let file_handle = self.parse_primary_expression()?;
-                            return Ok(Expression::ReadContent {
-                                file_handle: Box::new(file_handle),
-                                line: token_line,
-                                column: token_column,
-                            });
-                        }
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::KeywordContent
+                    {
+                        self.tokens.next(); // Consume "content"
+                        self.expect_token(
+                            Token::KeywordFrom,
+                            "Expected 'from' after 'read content'",
+                        )?;
+                        let file_handle = self.parse_primary_expression()?;
+                        return Ok(Expression::ReadContent {
+                            file_handle: Box::new(file_handle),
+                            line: token_line,
+                            column: token_column,
+                        });
                     }
 
                     // Otherwise treat "read" as a variable
@@ -2710,10 +2677,10 @@ impl<'a> Parser<'a> {
 
         let condition = self.parse_expression()?;
 
-        if let Some(token) = self.tokens.peek() {
-            if matches!(token.token, Token::Colon) {
-                self.tokens.next(); // Consume the colon if present
-            }
+        if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::Colon)
+        {
+            self.tokens.next(); // Consume the colon if present
         }
 
         let mut then_block = Vec::with_capacity(8);
@@ -2735,10 +2702,10 @@ impl<'a> Parser<'a> {
             if matches!(token.token, Token::KeywordOtherwise) {
                 self.tokens.next(); // Consume "otherwise"
 
-                if let Some(token) = self.tokens.peek() {
-                    if matches!(token.token, Token::Colon) {
-                        self.tokens.next(); // Consume the colon if present
-                    }
+                if let Some(token) = self.tokens.peek()
+                    && matches!(token.token, Token::Colon)
+                {
+                    self.tokens.next(); // Consume the colon if present
                 }
 
                 let mut else_stmts = Vec::with_capacity(8);
@@ -2960,10 +2927,10 @@ impl<'a> Parser<'a> {
 
         let collection = self.parse_expression()?;
 
-        if let Some(token) = self.tokens.peek() {
-            if matches!(token.token, Token::Colon) {
-                self.tokens.next(); // Consume the colon if present
-            }
+        if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::Colon)
+        {
+            self.tokens.next(); // Consume the colon if present
         }
 
         let mut body = Vec::with_capacity(10);
@@ -3055,10 +3022,10 @@ impl<'a> Parser<'a> {
             None
         };
 
-        if let Some(token) = self.tokens.peek() {
-            if matches!(token.token, Token::Colon) {
-                self.tokens.next(); // Consume the colon if present
-            }
+        if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::Colon)
+        {
+            self.tokens.next(); // Consume the colon if present
         }
 
         let mut body = Vec::with_capacity(10);
@@ -3139,109 +3106,108 @@ impl<'a> Parser<'a> {
         exec_trace!("Action name parsed: {}", name);
         let mut parameters = Vec::with_capacity(4);
 
-        if let Some(token) = self.tokens.peek().cloned() {
-            if matches!(token.token, Token::KeywordNeeds)
-                || matches!(token.token, Token::KeywordWith)
-            {
-                let _keyword = if matches!(token.token, Token::KeywordNeeds) {
-                    "needs"
-                } else {
-                    "with"
-                };
-                exec_trace!("Found '{}' keyword, parsing parameters", _keyword);
-                self.tokens.next(); // Consume "needs" or "with"
+        if let Some(token) = self.tokens.peek().cloned()
+            && (matches!(token.token, Token::KeywordNeeds)
+                || matches!(token.token, Token::KeywordWith))
+        {
+            let _keyword = if matches!(token.token, Token::KeywordNeeds) {
+                "needs"
+            } else {
+                "with"
+            };
+            exec_trace!("Found '{}' keyword, parsing parameters", _keyword);
+            self.tokens.next(); // Consume "needs" or "with"
 
-                while let Some(token) = self.tokens.peek().cloned() {
-                    exec_trace!("Checking token for parameter: {:?}", token.token);
-                    let (param_name, param_line, param_column) =
-                        if let Token::Identifier(id) = &token.token {
-                            exec_trace!("Found parameter: {}", id);
-                            let line = token.line;
-                            let column = token.column;
-                            self.tokens.next();
+            while let Some(token) = self.tokens.peek().cloned() {
+                exec_trace!("Checking token for parameter: {:?}", token.token);
+                let (param_name, param_line, param_column) =
+                    if let Token::Identifier(id) = &token.token {
+                        exec_trace!("Found parameter: {}", id);
+                        let line = token.line;
+                        let column = token.column;
+                        self.tokens.next();
 
-                            (id.clone(), line, column)
-                        } else {
-                            exec_trace!("Not an identifier, breaking parameter parsing");
-                            break;
-                        };
+                        (id.clone(), line, column)
+                    } else {
+                        exec_trace!("Not an identifier, breaking parameter parsing");
+                        break;
+                    };
 
-                    let param_type = if let Some(token) = self.tokens.peek() {
-                        if matches!(token.token, Token::KeywordAs) {
-                            self.tokens.next(); // Consume "as"
+                let param_type = if let Some(token) = self.tokens.peek() {
+                    if matches!(token.token, Token::KeywordAs) {
+                        self.tokens.next(); // Consume "as"
 
-                            if let Some(type_token) = self.tokens.peek() {
-                                if let Token::Identifier(type_name) = &type_token.token {
-                                    self.tokens.next();
+                        if let Some(type_token) = self.tokens.peek() {
+                            if let Token::Identifier(type_name) = &type_token.token {
+                                self.tokens.next();
 
-                                    let typ = match type_name.as_str() {
-                                        "text" => Type::Text,
-                                        "number" => Type::Number,
-                                        "boolean" => Type::Boolean,
-                                        "nothing" => Type::Nothing,
-                                        _ => Type::Custom(type_name.clone()),
-                                    };
+                                let typ = match type_name.as_str() {
+                                    "text" => Type::Text,
+                                    "number" => Type::Number,
+                                    "boolean" => Type::Boolean,
+                                    "nothing" => Type::Nothing,
+                                    _ => Type::Custom(type_name.clone()),
+                                };
 
-                                    Some(typ)
-                                } else {
-                                    return Err(ParseError::new(
-                                        format!(
-                                            "Expected type name after 'as', found {:?}",
-                                            type_token.token
-                                        ),
-                                        type_token.line,
-                                        type_token.column,
-                                    ));
-                                }
+                                Some(typ)
                             } else {
                                 return Err(ParseError::new(
-                                    "Unexpected end of input after 'as'".to_string(),
-                                    0,
-                                    0,
+                                    format!(
+                                        "Expected type name after 'as', found {:?}",
+                                        type_token.token
+                                    ),
+                                    type_token.line,
+                                    type_token.column,
                                 ));
                             }
                         } else {
-                            None
+                            return Err(ParseError::new(
+                                "Unexpected end of input after 'as'".to_string(),
+                                0,
+                                0,
+                            ));
                         }
                     } else {
                         None
-                    };
+                    }
+                } else {
+                    None
+                };
 
-                    let default_value = if let Some(token) = self.tokens.peek() {
-                        if let Token::Identifier(id) = &token.token {
-                            if id.to_lowercase() == "default" {
-                                self.tokens.next(); // Consume "default"
+                let default_value = if let Some(token) = self.tokens.peek() {
+                    if let Token::Identifier(id) = &token.token {
+                        if id.to_lowercase() == "default" {
+                            self.tokens.next(); // Consume "default"
 
-                                Some(self.parse_expression()?)
-                            } else {
-                                None
-                            }
+                            Some(self.parse_expression()?)
                         } else {
                             None
                         }
                     } else {
                         None
-                    };
+                    }
+                } else {
+                    None
+                };
 
-                    parameters.push(Parameter {
-                        name: param_name,
-                        param_type,
-                        default_value,
-                        line: param_line,
-                        column: param_column,
-                    });
+                parameters.push(Parameter {
+                    name: param_name,
+                    param_type,
+                    default_value,
+                    line: param_line,
+                    column: param_column,
+                });
 
-                    if let Some(token) = self.tokens.peek().cloned() {
-                        if matches!(token.token, Token::KeywordAnd)
-                            || matches!(token.token, Token::Identifier(ref id) if id.to_lowercase() == "and")
-                        {
-                            self.tokens.next(); // Consume "and"
-                        } else {
-                            break;
-                        }
+                if let Some(token) = self.tokens.peek().cloned() {
+                    if matches!(token.token, Token::KeywordAnd)
+                        || matches!(token.token, Token::Identifier(ref id) if id.to_lowercase() == "and")
+                    {
+                        self.tokens.next(); // Consume "and"
                     } else {
                         break;
                     }
+                } else {
+                    break;
                 }
             }
         }
@@ -3292,12 +3258,11 @@ impl<'a> Parser<'a> {
         };
 
         // Check for KeywordAnd that might be mistakenly present after the last parameter
-        if let Some(token) = self.tokens.peek().cloned() {
-            if let Token::Identifier(id) = &token.token {
-                if id == "and" {
-                    self.tokens.next(); // Consume the extra "and"
-                }
-            }
+        if let Some(token) = self.tokens.peek().cloned()
+            && let Token::Identifier(id) = &token.token
+            && id == "and"
+        {
+            self.tokens.next(); // Consume the extra "and"
         }
 
         self.expect_token(Token::Colon, "Expected ':' after action definition")?;
@@ -3573,105 +3538,103 @@ impl<'a> Parser<'a> {
                     self.tokens.next(); // Consume "url"
 
                     // Continue with URL-specific parsing
-                    if let Some(token) = self.tokens.peek().cloned() {
-                        if token.token == Token::KeywordAt {
-                            self.tokens.next(); // Consume "at"
+                    if let Some(token) = self.tokens.peek().cloned()
+                        && token.token == Token::KeywordAt
+                    {
+                        self.tokens.next(); // Consume "at"
 
-                            let url_expr = self.parse_primary_expression()?;
+                        let url_expr = self.parse_primary_expression()?;
 
-                            // Check for "and read content as" pattern
-                            if let Some(next_token) = self.tokens.peek().cloned() {
-                                if next_token.token == Token::KeywordAnd {
-                                    self.tokens.next(); // Consume "and"
-                                    self.expect_token(
-                                        Token::KeywordRead,
-                                        "Expected 'read' after 'and'",
-                                    )?;
-                                    self.expect_token(
-                                        Token::KeywordContent,
-                                        "Expected 'content' after 'read'",
-                                    )?;
-                                    self.expect_token(
-                                        Token::KeywordAs,
-                                        "Expected 'as' after 'content'",
-                                    )?;
+                        // Check for "and read content as" pattern
+                        if let Some(next_token) = self.tokens.peek().cloned() {
+                            if next_token.token == Token::KeywordAnd {
+                                self.tokens.next(); // Consume "and"
+                                self.expect_token(
+                                    Token::KeywordRead,
+                                    "Expected 'read' after 'and'",
+                                )?;
+                                self.expect_token(
+                                    Token::KeywordContent,
+                                    "Expected 'content' after 'read'",
+                                )?;
+                                self.expect_token(
+                                    Token::KeywordAs,
+                                    "Expected 'as' after 'content'",
+                                )?;
 
-                                    let variable_name = if let Some(token) =
-                                        self.tokens.peek().cloned()
-                                    {
-                                        if let Token::Identifier(name) = &token.token {
-                                            self.tokens.next(); // Consume the identifier
-                                            name.clone()
-                                        } else {
-                                            return Err(ParseError::new(
-                                                format!(
-                                                    "Expected identifier for variable name, found {:?}",
-                                                    token.token
-                                                ),
-                                                token.line,
-                                                token.column,
-                                            ));
-                                        }
+                                let variable_name = if let Some(token) = self.tokens.peek().cloned()
+                                {
+                                    if let Token::Identifier(name) = &token.token {
+                                        self.tokens.next(); // Consume the identifier
+                                        name.clone()
                                     } else {
                                         return Err(ParseError::new(
-                                            "Unexpected end of input".to_string(),
-                                            0,
-                                            0,
+                                            format!(
+                                                "Expected identifier for variable name, found {:?}",
+                                                token.token
+                                            ),
+                                            token.line,
+                                            token.column,
                                         ));
-                                    };
-
-                                    // Use HttpGetStatement for URL handling
-                                    return Ok(Statement::HttpGetStatement {
-                                        url: url_expr,
-                                        variable_name,
-                                        line: open_token.line,
-                                        column: open_token.column,
-                                    });
-                                } else if next_token.token == Token::KeywordAs {
-                                    // Handle "open url at "..." as variable" syntax
-                                    self.tokens.next(); // Consume "as"
-
-                                    let variable_name = if let Some(token) =
-                                        self.tokens.peek().cloned()
-                                    {
-                                        if let Token::Identifier(name) = &token.token {
-                                            self.tokens.next(); // Consume the identifier
-                                            name.clone()
-                                        } else {
-                                            return Err(ParseError::new(
-                                                format!(
-                                                    "Expected identifier for variable name, found {:?}",
-                                                    token.token
-                                                ),
-                                                token.line,
-                                                token.column,
-                                            ));
-                                        }
-                                    } else {
-                                        return Err(ParseError::new(
-                                            "Unexpected end of input".to_string(),
-                                            0,
-                                            0,
-                                        ));
-                                    };
-
-                                    // Use HttpGetStatement for URL handling with direct "as" syntax
-                                    return Ok(Statement::HttpGetStatement {
-                                        url: url_expr,
-                                        variable_name,
-                                        line: open_token.line,
-                                        column: open_token.column,
-                                    });
+                                    }
                                 } else {
                                     return Err(ParseError::new(
-                                        format!(
-                                            "Expected 'and' or 'as' after URL, found {:?}",
-                                            next_token.token
-                                        ),
-                                        next_token.line,
-                                        next_token.column,
+                                        "Unexpected end of input".to_string(),
+                                        0,
+                                        0,
                                     ));
-                                }
+                                };
+
+                                // Use HttpGetStatement for URL handling
+                                return Ok(Statement::HttpGetStatement {
+                                    url: url_expr,
+                                    variable_name,
+                                    line: open_token.line,
+                                    column: open_token.column,
+                                });
+                            } else if next_token.token == Token::KeywordAs {
+                                // Handle "open url at "..." as variable" syntax
+                                self.tokens.next(); // Consume "as"
+
+                                let variable_name = if let Some(token) = self.tokens.peek().cloned()
+                                {
+                                    if let Token::Identifier(name) = &token.token {
+                                        self.tokens.next(); // Consume the identifier
+                                        name.clone()
+                                    } else {
+                                        return Err(ParseError::new(
+                                            format!(
+                                                "Expected identifier for variable name, found {:?}",
+                                                token.token
+                                            ),
+                                            token.line,
+                                            token.column,
+                                        ));
+                                    }
+                                } else {
+                                    return Err(ParseError::new(
+                                        "Unexpected end of input".to_string(),
+                                        0,
+                                        0,
+                                    ));
+                                };
+
+                                // Use HttpGetStatement for URL handling with direct "as" syntax
+                                return Ok(Statement::HttpGetStatement {
+                                    url: url_expr,
+                                    variable_name,
+                                    line: open_token.line,
+                                    column: open_token.column,
+                                });
+                            } else {
+                                return Err(ParseError::new(
+                                    format!(
+                                        "Expected 'and' or 'as' after URL, found {:?}",
+                                        next_token.token
+                                    ),
+                                    next_token.line,
+                                    next_token.column,
+                                ));
                             }
                         }
                     }
@@ -3701,141 +3664,128 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        if let Some(token) = self.tokens.peek().cloned() {
-            if token.token == Token::KeywordAt {
-                self.tokens.next(); // Consume "at"
+        if let Some(token) = self.tokens.peek().cloned()
+            && token.token == Token::KeywordAt
+        {
+            self.tokens.next(); // Consume "at"
 
-                let path_expr = self.parse_primary_expression()?;
+            let path_expr = self.parse_primary_expression()?;
 
-                // Check for "for append", "and read content as" pattern AND direct "as" pattern
-                if let Some(next_token) = self.tokens.peek().cloned() {
-                    if next_token.token == Token::KeywordFor {
-                        // Check for "for append as" pattern
-                        self.tokens.next(); // Consume "for"
-                        self.expect_token(Token::KeywordAppend, "Expected 'append' after 'for'")?;
-                        self.expect_token(Token::KeywordAs, "Expected 'as' after 'append'")?;
+            // Check for "for append", "and read content as" pattern AND direct "as" pattern
+            if let Some(next_token) = self.tokens.peek().cloned() {
+                if next_token.token == Token::KeywordFor {
+                    // Check for "for append as" pattern
+                    self.tokens.next(); // Consume "for"
+                    self.expect_token(Token::KeywordAppend, "Expected 'append' after 'for'")?;
+                    self.expect_token(Token::KeywordAs, "Expected 'as' after 'append'")?;
 
-                        let variable_name = if let Some(token) = self.tokens.peek().cloned() {
-                            if let Token::Identifier(name) = &token.token {
-                                self.tokens.next(); // Consume the identifier
-                                name.clone()
-                            } else {
-                                return Err(ParseError::new(
-                                    format!(
-                                        "Expected identifier after 'as', found {:?}",
-                                        token.token
-                                    ),
-                                    token.line,
-                                    token.column,
-                                ));
-                            }
+                    let variable_name = if let Some(token) = self.tokens.peek().cloned() {
+                        if let Token::Identifier(name) = &token.token {
+                            self.tokens.next(); // Consume the identifier
+                            name.clone()
                         } else {
                             return Err(ParseError::new(
-                                "Unexpected end of input after 'as'".to_string(),
-                                0,
-                                0,
+                                format!("Expected identifier after 'as', found {:?}", token.token),
+                                token.line,
+                                token.column,
                             ));
-                        };
-
-                        return Ok(Statement::OpenFileStatement {
-                            path: path_expr,
-                            variable_name,
-                            mode: FileOpenMode::Append,
-                            line: open_token.line,
-                            column: open_token.column,
-                        });
-                    } else if next_token.token == Token::KeywordAnd {
-                        // Original pattern: "open file at "path" and read content as variable"
-                        self.tokens.next(); // Consume "and"
-                        self.expect_token(Token::KeywordRead, "Expected 'read' after 'and'")?;
-                        self.expect_token(
-                            Token::KeywordContent,
-                            "Expected 'content' after 'read'",
-                        )?;
-                        self.expect_token(Token::KeywordAs, "Expected 'as' after 'content'")?;
-
-                        let variable_name = if let Some(token) = self.tokens.peek().cloned() {
-                            if let Token::Identifier(name) = &token.token {
-                                self.tokens.next(); // Consume the identifier
-                                name.clone()
-                            } else if let Token::KeywordContent = &token.token {
-                                // Special case for "content" as an identifier
-                                self.tokens.next(); // Consume the "content" keyword
-                                "content".to_string()
-                            } else {
-                                return Err(ParseError::new(
-                                    format!(
-                                        "Expected identifier for variable name, found {:?}",
-                                        token.token
-                                    ),
-                                    token.line,
-                                    token.column,
-                                ));
-                            }
-                        } else {
-                            return Err(ParseError::new(
-                                "Unexpected end of input".to_string(),
-                                0,
-                                0,
-                            ));
-                        };
-
-                        return Ok(Statement::ReadFileStatement {
-                            path: path_expr,
-                            variable_name,
-                            line: open_token.line,
-                            column: open_token.column,
-                        });
-                    } else if next_token.token == Token::KeywordAs {
-                        // NEW pattern: "open file at "path" as variable"
-                        self.tokens.next(); // Consume "as"
-
-                        let variable_name = if let Some(token) = self.tokens.peek().cloned() {
-                            if let Token::Identifier(id) = &token.token {
-                                self.tokens.next();
-                                id.clone()
-                            } else {
-                                return Err(ParseError::new(
-                                    format!(
-                                        "Expected identifier after 'as', found {:?}",
-                                        token.token
-                                    ),
-                                    token.line,
-                                    token.column,
-                                ));
-                            }
-                        } else {
-                            return Err(ParseError::new(
-                                "Unexpected end of input after 'as'".to_string(),
-                                0,
-                                0,
-                            ));
-                        };
-
-                        return Ok(Statement::OpenFileStatement {
-                            path: path_expr,
-                            variable_name,
-                            mode: FileOpenMode::Read,
-                            line: open_token.line,
-                            column: open_token.column,
-                        });
+                        }
                     } else {
                         return Err(ParseError::new(
-                            format!(
-                                "Expected 'and' or 'as' after file path, found {:?}",
-                                next_token.token
-                            ),
-                            next_token.line,
-                            next_token.column,
+                            "Unexpected end of input after 'as'".to_string(),
+                            0,
+                            0,
                         ));
-                    }
+                    };
+
+                    return Ok(Statement::OpenFileStatement {
+                        path: path_expr,
+                        variable_name,
+                        mode: FileOpenMode::Append,
+                        line: open_token.line,
+                        column: open_token.column,
+                    });
+                } else if next_token.token == Token::KeywordAnd {
+                    // Original pattern: "open file at "path" and read content as variable"
+                    self.tokens.next(); // Consume "and"
+                    self.expect_token(Token::KeywordRead, "Expected 'read' after 'and'")?;
+                    self.expect_token(Token::KeywordContent, "Expected 'content' after 'read'")?;
+                    self.expect_token(Token::KeywordAs, "Expected 'as' after 'content'")?;
+
+                    let variable_name = if let Some(token) = self.tokens.peek().cloned() {
+                        if let Token::Identifier(name) = &token.token {
+                            self.tokens.next(); // Consume the identifier
+                            name.clone()
+                        } else if let Token::KeywordContent = &token.token {
+                            // Special case for "content" as an identifier
+                            self.tokens.next(); // Consume the "content" keyword
+                            "content".to_string()
+                        } else {
+                            return Err(ParseError::new(
+                                format!(
+                                    "Expected identifier for variable name, found {:?}",
+                                    token.token
+                                ),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                    } else {
+                        return Err(ParseError::new("Unexpected end of input".to_string(), 0, 0));
+                    };
+
+                    return Ok(Statement::ReadFileStatement {
+                        path: path_expr,
+                        variable_name,
+                        line: open_token.line,
+                        column: open_token.column,
+                    });
+                } else if next_token.token == Token::KeywordAs {
+                    // NEW pattern: "open file at "path" as variable"
+                    self.tokens.next(); // Consume "as"
+
+                    let variable_name = if let Some(token) = self.tokens.peek().cloned() {
+                        if let Token::Identifier(id) = &token.token {
+                            self.tokens.next();
+                            id.clone()
+                        } else {
+                            return Err(ParseError::new(
+                                format!("Expected identifier after 'as', found {:?}", token.token),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Unexpected end of input after 'as'".to_string(),
+                            0,
+                            0,
+                        ));
+                    };
+
+                    return Ok(Statement::OpenFileStatement {
+                        path: path_expr,
+                        variable_name,
+                        mode: FileOpenMode::Read,
+                        line: open_token.line,
+                        column: open_token.column,
+                    });
                 } else {
                     return Err(ParseError::new(
-                        "Unexpected end of input after file path".to_string(),
-                        0,
-                        0,
+                        format!(
+                            "Expected 'and' or 'as' after file path, found {:?}",
+                            next_token.token
+                        ),
+                        next_token.line,
+                        next_token.column,
                     ));
                 }
+            } else {
+                return Err(ParseError::new(
+                    "Unexpected end of input after file path".to_string(),
+                    0,
+                    0,
+                ));
             }
         }
 
@@ -4037,10 +3987,10 @@ impl<'a> Parser<'a> {
 
         // Check if the next token is "file" (for "close file file_handle" syntax)
         // Otherwise, parse the expression directly (for "close file_handle" syntax)
-        if let Some(next_token) = self.tokens.peek() {
-            if next_token.token == Token::KeywordFile {
-                self.tokens.next(); // Consume "file"
-            }
+        if let Some(next_token) = self.tokens.peek()
+            && next_token.token == Token::KeywordFile
+        {
+            self.tokens.next(); // Consume "file"
         }
 
         let file = self.parse_expression()?;
@@ -4379,10 +4329,10 @@ impl<'a> Parser<'a> {
                 Token::KeywordWhile => {
                     self.tokens.next(); // Consume "while"
                     let condition = self.parse_expression()?;
-                    if let Some(token) = self.tokens.peek() {
-                        if matches!(token.token, Token::Colon) {
-                            self.tokens.next(); // Consume the colon if present
-                        }
+                    if let Some(token) = self.tokens.peek()
+                        && matches!(token.token, Token::Colon)
+                    {
+                        self.tokens.next(); // Consume the colon if present
                     }
 
                     let mut body = Vec::new();
@@ -4406,10 +4356,10 @@ impl<'a> Parser<'a> {
                 Token::KeywordUntil => {
                     self.tokens.next(); // Consume "until"
                     let condition = self.parse_expression()?;
-                    if let Some(token) = self.tokens.peek() {
-                        if matches!(token.token, Token::Colon) {
-                            self.tokens.next(); // Consume the colon if present
-                        }
+                    if let Some(token) = self.tokens.peek()
+                        && matches!(token.token, Token::Colon)
+                    {
+                        self.tokens.next(); // Consume the colon if present
                     }
 
                     let mut body = Vec::new();
@@ -4494,12 +4444,11 @@ impl<'a> Parser<'a> {
         let exit_token = self.tokens.next().unwrap(); // Consume "exit"
 
         // Check for "loop" after "exit"
-        if let Some(token) = self.tokens.peek().cloned() {
-            if let Token::Identifier(id) = &token.token {
-                if id.to_lowercase() == "loop" {
-                    self.tokens.next(); // Consume "loop"
-                }
-            }
+        if let Some(token) = self.tokens.peek().cloned()
+            && let Token::Identifier(id) = &token.token
+            && id.to_lowercase() == "loop"
+        {
+            self.tokens.next(); // Consume "loop"
         }
 
         Ok(Statement::ExitStatement {
@@ -4526,11 +4475,12 @@ impl<'a> Parser<'a> {
 
         let mut value_expr = self.parse_primary_expression()?;
 
-        if let Some(token) = self.tokens.peek() {
-            if token.line == start_line && !Parser::is_statement_starter(&token.token) {
-                // so we can continue parsing the expression
-                value_expr = self.parse_binary_expression(0)?;
-            }
+        if let Some(token) = self.tokens.peek()
+            && token.line == start_line
+            && !Parser::is_statement_starter(&token.token)
+        {
+            // so we can continue parsing the expression
+            value_expr = self.parse_binary_expression(0)?;
         }
 
         let stmt = Statement::PushStatement {
@@ -4571,11 +4521,11 @@ impl<'a> Parser<'a> {
         let mut parameters = Vec::new();
 
         // Check for parameters
-        if let Some(token) = self.tokens.peek().cloned() {
-            if matches!(token.token, Token::KeywordNeeds) {
-                self.tokens.next(); // Consume "needs"
-                parameters = self.parse_parameter_list()?;
-            }
+        if let Some(token) = self.tokens.peek().cloned()
+            && matches!(token.token, Token::KeywordNeeds)
+        {
+            self.tokens.next(); // Consume "needs"
+            parameters = self.parse_parameter_list()?;
         }
 
         // For now, container actions don't support explicit return types
@@ -4644,14 +4594,14 @@ impl<'a> Parser<'a> {
                 Token::KeywordEnd => {
                     let mut tokens_clone = self.tokens.clone();
                     tokens_clone.next(); // Skip "end"
-                    if let Some(next_token) = tokens_clone.next() {
-                        if next_token.token == Token::KeywordPattern {
-                            depth -= 1;
-                            if depth == 0 {
-                                self.tokens.next(); // Consume "end"
-                                self.tokens.next(); // Consume "pattern"
-                                break;
-                            }
+                    if let Some(next_token) = tokens_clone.next()
+                        && next_token.token == Token::KeywordPattern
+                    {
+                        depth -= 1;
+                        if depth == 0 {
+                            self.tokens.next(); // Consume "end"
+                            self.tokens.next(); // Consume "pattern"
+                            break;
                         }
                     }
                     pattern_parts.push(self.tokens.next().unwrap().clone());
@@ -4660,10 +4610,10 @@ impl<'a> Parser<'a> {
                     // Check for nested pattern creation
                     let mut tokens_clone = self.tokens.clone();
                     tokens_clone.next(); // Skip "create"
-                    if let Some(next_token) = tokens_clone.next() {
-                        if next_token.token == Token::KeywordPattern {
-                            depth += 1;
-                        }
+                    if let Some(next_token) = tokens_clone.next()
+                        && next_token.token == Token::KeywordPattern
+                    {
+                        depth += 1;
                     }
                     pattern_parts.push(self.tokens.next().unwrap().clone());
                 }
@@ -4813,15 +4763,14 @@ impl<'a> Parser<'a> {
             }
 
             // Skip "followed by" as it's just natural language syntax
-            if *i < tokens.len() {
-                if let Token::Identifier(s) = &tokens[*i].token {
-                    if s == "followed" && *i + 1 < tokens.len() {
-                        if let Token::KeywordBy = tokens[*i + 1].token {
-                            *i += 2; // Skip "followed by"
-                            continue;
-                        }
-                    }
-                }
+            if *i < tokens.len()
+                && let Token::Identifier(s) = &tokens[*i].token
+                && s == "followed"
+                && *i + 1 < tokens.len()
+                && let Token::KeywordBy = tokens[*i + 1].token
+            {
+                *i += 2; // Skip "followed by"
+                continue;
             }
 
             // Debug: Print the current token before parsing

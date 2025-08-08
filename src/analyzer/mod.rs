@@ -468,18 +468,18 @@ impl Analyzer {
 
                 // Variables defined in both branches are definitely defined
                 for (name, symbol) in &defined_in_then {
-                    if defined_in_else.iter().any(|(n, _)| n == name) || else_block.is_none() {
-                        if let Err(error) = self.current_scope.define(symbol.clone()) {
-                            self.errors.push(error);
-                        }
+                    if (defined_in_else.iter().any(|(n, _)| n == name) || else_block.is_none())
+                        && let Err(error) = self.current_scope.define(symbol.clone())
+                    {
+                        self.errors.push(error);
                     }
                 }
 
                 for (name, symbol) in &defined_in_else {
-                    if !defined_in_then.iter().any(|(n, _)| n == name) {
-                        if let Err(error) = self.current_scope.define(symbol.clone()) {
-                            self.errors.push(error);
-                        }
+                    if !defined_in_then.iter().any(|(n, _)| n == name)
+                        && let Err(error) = self.current_scope.define(symbol.clone())
+                    {
+                        self.errors.push(error);
                     }
                 }
             }
@@ -611,26 +611,21 @@ impl Analyzer {
                     arguments,
                     ..
                 } = expression
+                    && let Expression::Variable(func_name, _, _) = &**function
+                    && func_name == "push"
+                    && arguments.len() >= 2
+                    && let Expression::Variable(list_name, line, column) = &arguments[0].value
+                    && self.current_scope.resolve(list_name).is_none()
                 {
-                    if let Expression::Variable(func_name, _, _) = &**function {
-                        if func_name == "push" && arguments.len() >= 2 {
-                            if let Expression::Variable(list_name, line, column) =
-                                &arguments[0].value
-                            {
-                                if self.current_scope.resolve(list_name).is_none() {
-                                    let list_symbol = Symbol {
-                                        name: list_name.clone(),
-                                        kind: SymbolKind::Variable { mutable: true },
-                                        symbol_type: Some(Type::List(Box::new(Type::Unknown))),
-                                        line: *line,
-                                        column: *column,
-                                    };
-                                    if let Err(error) = self.current_scope.define(list_symbol) {
-                                        self.errors.push(error);
-                                    }
-                                }
-                            }
-                        }
+                    let list_symbol = Symbol {
+                        name: list_name.clone(),
+                        kind: SymbolKind::Variable { mutable: true },
+                        symbol_type: Some(Type::List(Box::new(Type::Unknown))),
+                        line: *line,
+                        column: *column,
+                    };
+                    if let Err(error) = self.current_scope.define(list_symbol) {
+                        self.errors.push(error);
                     }
                 }
                 self.analyze_expression(expression);

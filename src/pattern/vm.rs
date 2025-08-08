@@ -670,22 +670,17 @@ impl PatternVM {
                             // Try to match the entire slice
                             if let Ok(result) =
                                 lookbehind_vm.execute(lookbehind_program, &text_slice)
+                                && result
                             {
-                                if result {
-                                    // Check if the match uses the entire slice
-                                    let matches = lookbehind_vm.find_all(
-                                        lookbehind_program,
-                                        &text_slice,
-                                        &[],
-                                    );
-                                    if let Some(first_match) = matches.first() {
-                                        if first_match.start == 0
-                                            && first_match.end == text_slice.len()
-                                        {
-                                            matched = true;
-                                            break;
-                                        }
-                                    }
+                                // Check if the match uses the entire slice
+                                let matches =
+                                    lookbehind_vm.find_all(lookbehind_program, &text_slice, &[]);
+                                if let Some(first_match) = matches.first()
+                                    && first_match.start == 0
+                                    && first_match.end == text_slice.len()
+                                {
+                                    matched = true;
+                                    break;
                                 }
                             }
                         }
@@ -720,22 +715,17 @@ impl PatternVM {
                             // Try to match the entire slice
                             if let Ok(result) =
                                 lookbehind_vm.execute(lookbehind_program, &text_slice)
+                                && result
                             {
-                                if result {
-                                    // Check if the match uses the entire slice
-                                    let matches = lookbehind_vm.find_all(
-                                        lookbehind_program,
-                                        &text_slice,
-                                        &[],
-                                    );
-                                    if let Some(first_match) = matches.first() {
-                                        if first_match.start == 0
-                                            && first_match.end == text_slice.len()
-                                        {
-                                            matched = true;
-                                            break;
-                                        }
-                                    }
+                                // Check if the match uses the entire slice
+                                let matches =
+                                    lookbehind_vm.find_all(lookbehind_program, &text_slice, &[]);
+                                if let Some(first_match) = matches.first()
+                                    && first_match.start == 0
+                                    && first_match.end == text_slice.len()
+                                {
+                                    matched = true;
+                                    break;
                                 }
                             }
                         }

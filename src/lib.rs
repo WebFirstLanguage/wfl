@@ -36,17 +36,17 @@ pub fn init_loggers(log_path: &Path, script_dir: &Path) {
     let config = config::load_config_with_global(script_dir);
 
     // Initialize the main logger
-    if config.logging_enabled {
-        if let Err(e) = logging::init_logger(config.log_level, log_path) {
-            eprintln!("Failed to initialize logger: {e}");
-        }
+    if config.logging_enabled
+        && let Err(e) = logging::init_logger(config.log_level, log_path)
+    {
+        eprintln!("Failed to initialize logger: {e}");
     }
 
     // Initialize the execution logger if enabled
-    if config.execution_logging {
-        if let Err(e) = logging::init_execution_logger(&config, log_path) {
-            eprintln!("Failed to initialize execution logger: {e}");
-        }
+    if config.execution_logging
+        && let Err(e) = logging::init_execution_logger(&config, log_path)
+    {
+        eprintln!("Failed to initialize execution logger: {e}");
     }
 
     // Store config globally
