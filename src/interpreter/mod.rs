@@ -2160,7 +2160,7 @@ impl Interpreter {
 
                 // Get the list from the environment
                 let list_val = env.borrow().get(list_name).ok_or_else(|| {
-                    RuntimeError::new(format!("Undefined variable: {}", list_name), *line, *column)
+                    RuntimeError::new(format!("Undefined variable: {list_name}"), *line, *column)
                 })?;
 
                 match list_val {
@@ -2204,7 +2204,7 @@ impl Interpreter {
 
                 // Get the list from the environment
                 let list_val = env.borrow().get(list_name).ok_or_else(|| {
-                    RuntimeError::new(format!("Undefined variable: {}", list_name), *line, *column)
+                    RuntimeError::new(format!("Undefined variable: {list_name}"), *line, *column)
                 })?;
 
                 match list_val {
@@ -2230,7 +2230,7 @@ impl Interpreter {
             } => {
                 // Get the list from the environment
                 let list_val = env.borrow().get(list_name).ok_or_else(|| {
-                    RuntimeError::new(format!("Undefined variable: {}", list_name), *line, *column)
+                    RuntimeError::new(format!("Undefined variable: {list_name}"), *line, *column)
                 })?;
 
                 match list_val {

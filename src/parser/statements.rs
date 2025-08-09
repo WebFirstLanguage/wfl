@@ -1273,7 +1273,16 @@ impl<'a> Parser<'a> {
         let value = if let Some(token) = self.tokens.peek() {
             if matches!(token.token, Token::KeywordBack) {
                 self.tokens.next();
-                None
+                // After "back", parse the expression if there is one
+                if let Some(next_token) = self.tokens.peek() {
+                    if !matches!(next_token.token, Token::KeywordEnd) {
+                        Some(self.parse_expression()?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             } else {
                 Some(self.parse_expression()?)
             }

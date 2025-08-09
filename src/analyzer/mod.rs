@@ -1066,7 +1066,7 @@ impl Analyzer {
                 self.analyze_expression(value);
                 if self.get_symbol(list_name).is_none() {
                     self.errors.push(SemanticError::new(
-                        format!("Variable '{}' is not defined", list_name),
+                        format!("Variable '{list_name}' is not defined"),
                         *line,
                         *column,
                     ));
@@ -1082,7 +1082,7 @@ impl Analyzer {
                 self.analyze_expression(value);
                 if self.get_symbol(list_name).is_none() {
                     self.errors.push(SemanticError::new(
-                        format!("Variable '{}' is not defined", list_name),
+                        format!("Variable '{list_name}' is not defined"),
                         *line,
                         *column,
                     ));
@@ -1096,7 +1096,7 @@ impl Analyzer {
             } => {
                 if self.get_symbol(list_name).is_none() {
                     self.errors.push(SemanticError::new(
-                        format!("Variable '{}' is not defined", list_name),
+                        format!("Variable '{list_name}' is not defined"),
                         *line,
                         *column,
                     ));
