@@ -1,5 +1,0 @@
-// Simple test to extract content from Google homepage
-wait for open url at "https://www.google.com" and read content as response
-
-// Simple display of success
-display "Response received successfully!"

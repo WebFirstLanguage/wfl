@@ -1,4 +1,0 @@
-// Simple test program for the WFL interpreter
-define action called main:
-    display "Hello from WFL interpreter!"
-end action

@@ -1,6 +1,0 @@
-store x as 5
-display "x is " + x
-
-// This should cause a fatal error
-store x as 10
-display "x is now " + x

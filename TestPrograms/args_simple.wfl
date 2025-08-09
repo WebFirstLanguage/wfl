@@ -1,7 +1,0 @@
-// Simple test to verify arguments are available
-display "Arguments count: " with arg_count
-display ""
-display "All arguments:"
-for each arg in args
-    display "  - " with arg
-end for

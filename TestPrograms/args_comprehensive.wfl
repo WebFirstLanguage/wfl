@@ -1,0 +1,218 @@
+// Comprehensive Command Line Arguments Test - WFL
+// Consolidates: args_*.wfl files (simple, example, test, minimal)
+
+display "=== WFL Command Line Arguments Comprehensive Test ==="
+display ""
+
+// === Basic Argument Information ===
+display "1. Basic Argument Information"
+display "Arguments count: " with arg_count
+display "Program name: " with program_name
+display ""
+
+// === Display All Arguments ===
+display "2. All Arguments List"
+check if arg_count greater than 0:
+    display "Arguments passed to program:"
+    for each arg in args:
+        display "  - " with arg
+    end for
+else:
+    display "No arguments passed to program"
+end check
+display ""
+
+// === Indexed Argument Access ===
+display "3. Indexed Argument Access"
+check if arg_count greater than 0:
+    display "First argument: " with args[0]
+    
+    check if arg_count greater than 1:
+        display "Second argument: " with args[1]
+    else:
+        display "No second argument provided"
+    end check
+    
+    check if arg_count greater than 2:
+        display "Third argument: " with args[2]
+    else:
+        display "No third argument provided"
+    end check
+else:
+    display "No arguments to access by index"
+end check
+display ""
+
+// === Argument Processing ===
+display "4. Argument Processing"
+check if arg_count greater than 0:
+    display "Processing each argument:"
+    store arg_index as 0
+    for each arg in args:
+        store arg_length as length of arg
+        display "  Arg " with arg_index with ": '" with arg with "' (length: " with arg_length with ")"
+        store arg_index as arg_index + 1
+    end for
+else:
+    display "No arguments to process"
+end check
+display ""
+
+// === Argument Validation ===  
+display "5. Argument Validation"
+check if arg_count is 0:
+    display "Usage: program.wfl <arg1> <arg2> [arg3] ..."
+    display "Example: program.wfl hello world 123"
+elif arg_count is 1:
+    display "Single argument mode:"
+    display "  Argument: " with args[0]
+    display "  Length: " with length of args[0]
+    display "  Uppercase: " with touppercase of args[0]
+elif arg_count is 2:
+    display "Two argument mode:"
+    display "  First: " with args[0]  
+    display "  Second: " with args[1]
+    display "  Combined: " with args[0] with " " with args[1]
+elif arg_count greater than 2:
+    display "Multiple argument mode:"
+    display "  Count: " with arg_count
+    display "  First: " with args[0]
+    display "  Last: " with args[arg_count - 1]
+end check
+display ""
+
+// === Argument Type Detection ===
+display "6. Argument Type Detection"
+check if arg_count greater than 0:
+    for each arg in args:
+        // Check if argument is numeric
+        create pattern numeric:
+            one or more digit
+        end pattern
+        
+        create pattern decimal:
+            one or more digit then "." then one or more digit
+        end pattern
+        
+        check if arg matches numeric:
+            display "  '" with arg with "' is an integer"
+        elif arg matches decimal:
+            display "  '" with arg with "' is a decimal number"
+        else:
+            display "  '" with arg with "' is text"
+        end check
+    end for
+else:
+    display "No arguments for type detection"
+end check
+display ""
+
+// === Flag Parsing ===
+display "7. Flag/Option Parsing"
+check if arg_count greater than 0:
+    store has_help as no
+    store has_version as no  
+    store has_verbose as no
+    store non_flag_args as []
+    
+    for each arg in args:
+        check if arg is "--help" or arg is "-h":
+            store has_help as yes
+        elif arg is "--version" or arg is "-v":
+            store has_version as yes
+        elif arg is "--verbose":
+            store has_verbose as yes
+        elif startswith of arg and "-":
+            display "  Unknown flag: " with arg
+        else:
+            push of non_flag_args and arg
+        end check
+    end for
+    
+    display "Flags detected:"
+    display "  Help flag: " with has_help
+    display "  Version flag: " with has_version
+    display "  Verbose flag: " with has_verbose
+    
+    display "Non-flag arguments:"
+    for each non_flag in non_flag_args:
+        display "  - " with non_flag
+    end for
+else:
+    display "No arguments for flag parsing"
+end check
+display ""
+
+// === Environment Integration ===
+display "8. Environment Integration Test"
+// Note: This section tests interaction between args and environment
+display "Program execution context:"
+display "  Program: " with program_name
+display "  Arguments: " with arg_count
+display "  Current directory: " with current_directory
+
+check if arg_count greater than 0:
+    display "  Working with arguments in current environment"
+    store combined_args as ""
+    for each arg in args:
+        store combined_args as combined_args with arg with " "
+    end for
+    display "  Combined arguments: '" with combined_args with "'"
+end check
+display ""
+
+// === Argument Filtering ===
+display "9. Argument Filtering"
+check if arg_count greater than 0:
+    store long_args as []
+    store short_args as []
+    
+    for each arg in args:
+        check if length of arg greater than 5:
+            push of long_args and arg
+        else:
+            push of short_args and arg
+        end check
+    end for
+    
+    display "Long arguments (>5 chars):"
+    for each long_arg in long_args:
+        display "  - " with long_arg
+    end for
+    
+    display "Short arguments (≤5 chars):"
+    for each short_arg in short_args:
+        display "  - " with short_arg
+    end for
+else:
+    display "No arguments for filtering"
+end check
+display ""
+
+// === Argument Summary ===
+display "10. Execution Summary"
+display "Program: " with program_name
+display "Total arguments: " with arg_count
+
+check if arg_count greater than 0:
+    store total_length as 0
+    for each arg in args:
+        store total_length as total_length + length of arg
+    end for
+    display "Total character count: " with total_length
+    display "Average argument length: " with total_length / arg_count
+    
+    display "Shortest argument: " with args[0]  // Simplified - would need proper min logic
+    display "Arguments summary completed"
+else:
+    display "No arguments provided"
+    display "Try running with: program.wfl arg1 arg2 --flag value"
+end check
+display ""
+
+display "=== Command Line Arguments Tests Completed ==="
+display ""
+display "To test this program, run it with various arguments:"
+display "  cargo run -- TestPrograms/args_comprehensive.wfl hello world 123"  
+display "  cargo run -- TestPrograms/args_comprehensive.wfl --help --verbose file.txt"
+display "  cargo run -- TestPrograms/args_comprehensive.wfl"

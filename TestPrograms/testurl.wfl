@@ -1,1 +1,0 @@
-wait for open url at "https://httpbin.org/status/200" and read content as response

@@ -1,0 +1,228 @@
+// Comprehensive Standard Library Test - WFL
+// Consolidates: stdlib_test.wfl, simple_stdlib_test.wfl, function_call_test.wfl
+
+display "=== WFL Standard Library Comprehensive Test ==="
+display ""
+
+// === Core Module Tests ===
+display "1. Core Module Functions"
+display "-------------------------"
+
+// Test print function
+print "Hello from print function!"
+
+// Test typeof function
+store number_value as 42
+store text_value as "Hello World"
+store boolean_value as yes  
+store null_value as nothing
+store list_value as [1, 2, 3]
+
+display "Type of 42: " with typeof of number_value
+display "Type of 'Hello World': " with typeof of text_value  
+display "Type of yes: " with typeof of boolean_value
+display "Type of nothing: " with typeof of null_value
+display "Type of [1, 2, 3]: " with typeof of list_value
+
+// Test isnothing function
+display "Is 42 nothing? " with isnothing of number_value
+display "Is nothing value nothing? " with isnothing of null_value
+display ""
+
+// === Math Module Tests ===
+display "2. Math Module Functions"
+display "-------------------------"
+
+// Test abs function
+store negative_number as 0 - 42
+display "Absolute value of " with negative_number with " is " with abs of negative_number
+
+// Test round, floor, ceil functions
+store decimal_number as 3.7
+display "Original number: " with decimal_number
+display "Rounded: " with round of decimal_number
+display "Floor: " with floor of decimal_number  
+display "Ceiling: " with ceil of decimal_number
+
+// Test min and max
+store a as 10
+store b as 5
+display "Min of " with a with " and " with b with ": " with min of a and b
+display "Max of " with a with " and " with b with ": " with max of a and b
+
+// Test power and sqrt
+display "5 squared: " with power of 5 and 2
+display "Square root of 25: " with sqrt of 25
+
+// Test random function
+display "Random number (0-1): " with random
+display "Random number (1-10): " with random_between of 1 and 10
+
+// Test clamp function
+store value_to_clamp as 15
+display "Clamping " with value_to_clamp with " between 0 and 10: " with clamp of value_to_clamp and 0 and 10
+display "Clamping " with value_to_clamp with " between 20 and 30: " with clamp of value_to_clamp and 20 and 30
+display "Clamping " with value_to_clamp with " between 5 and 25: " with clamp of value_to_clamp and 5 and 25
+display ""
+
+// === Text Module Tests ===  
+display "3. Text Module Functions"
+display "-------------------------"
+
+// Test length function
+store sample_text as "Hello, World!"
+display "Length of '" with sample_text with "': " with length of sample_text
+
+// Test touppercase and tolowercase functions
+display "Uppercase: " with touppercase of sample_text
+display "Lowercase: " with tolowercase of sample_text
+
+// Test contains function
+store search_text as "World"
+display "Does '" with sample_text with "' contain '" with search_text with "'? " with contains of sample_text and search_text
+store not_found_text as "Universe"  
+display "Does '" with sample_text with "' contain '" with not_found_text with "'? " with contains of sample_text and not_found_text
+
+// Test substring function
+display "Substring (0, 5): " with substring of sample_text and 0 and 5
+display "Substring (7, 5): " with substring of sample_text and 7 and 5
+
+// Test startswith and endswith
+display "Starts with 'Hello': " with startswith of sample_text and "Hello"
+display "Ends with 'World!': " with endswith of sample_text and "World!"
+display "Starts with 'Hi': " with startswith of sample_text and "Hi"
+
+// Test replace
+store original as "Hello World Hello"
+display "Original: " with original  
+display "Replace 'Hello' with 'Hi': " with replace of original and "Hello" and "Hi"
+
+// Test trim functions
+store whitespace_text as "  spaced text  "
+display "Original: '" with whitespace_text with "'"
+display "Trimmed: '" with trim of whitespace_text with "'"
+display ""
+
+// === List Module Tests ===
+display "4. List Module Functions" 
+display "-------------------------"
+
+// Create a list
+store my_list as [1, 2, 3, 4, 5]
+display "Original list: " with my_list
+
+// Test length function
+display "List length: " with length of my_list
+
+// Test push function
+push of my_list and 6
+display "After pushing 6: " with my_list
+
+// Test pop function  
+store popped_value as pop of my_list
+display "Popped value: " with popped_value
+display "List after pop: " with my_list
+
+// Test contains function
+display "Does list contain 3? " with contains of my_list and 3
+display "Does list contain 10? " with contains of my_list and 10
+
+// Test indexof function
+display "Index of 4: " with indexof of my_list and 4
+display "Index of 10: " with indexof of my_list and 10
+
+// Test reverse
+store reversed_list as reverse of my_list
+display "Reversed list: " with reversed_list
+display "Original list unchanged: " with my_list
+
+// Test sort (if available)
+store unsorted as [5, 2, 8, 1, 9]
+display "Unsorted: " with unsorted
+store sorted_list as sort of unsorted  
+display "Sorted: " with sorted_list
+
+// Test slice
+display "Slice (1, 3): " with slice of my_list and 1 and 3
+display ""
+
+// === Time Module Tests ===
+display "5. Time Module Functions"
+display "-------------------------"
+
+// Test current date and time
+display "Current date: " with today
+display "Current time: " with now  
+display "Current datetime: " with datetime_now
+
+// Test date creation
+store test_date as create_date of 2025 and 8 and 9
+display "Created date (2025-08-09): " with test_date
+
+// Test time creation  
+store test_time as create_time of 14 and 30 and 0
+display "Created time (14:30:00): " with test_time
+
+// Test date formatting
+display "Date year: " with year of test_date
+display "Date month: " with month of test_date  
+display "Date day: " with day of test_date
+
+// Test time formatting
+display "Time hour: " with hour of test_time
+display "Time minute: " with minute of test_time
+display ""
+
+// === Pattern Module Tests ===
+display "6. Pattern Module Functions"
+display "-------------------------"
+
+// Test pattern matching with stdlib
+store email_text as "test@example.com"
+store phone_text as "555-123-4567"
+store number_text as "12345"
+
+create pattern email_stdlib:
+    one or more letter then "@" then one or more letter then "." then one or more letter
+end pattern
+
+create pattern phone_stdlib:
+    exactly 3 digits then "-" then exactly 3 digits then "-" then exactly 4 digits
+end pattern
+
+check if email_text matches email_stdlib:
+    display "✓ Email validation passed"
+otherwise:
+    display "✗ Email validation failed"
+end check
+
+check if phone_text matches phone_stdlib:
+    display "✓ Phone validation passed"  
+otherwise:
+    display "✗ Phone validation failed"
+end check
+
+// Test pattern groups
+store extracted as extract pattern phone_stdlib from phone_text
+display "Extracted from phone: " with extracted
+display ""
+
+// === Function Call Tests ===
+display "7. Function Call Syntax Tests"
+display "------------------------------"
+
+// Test different function call syntaxes
+store test_string as "Function Test"
+display "Length using 'of': " with length of test_string
+display "Uppercase using 'of': " with touppercase of test_string
+
+// Test chaining (if supported)
+store chain_result as touppercase of substring of test_string and 0 and 8
+display "Chained result: " with chain_result
+
+// Test with multiple parameters
+store multi_param as clamp of 15 and 5 and 10
+display "Multi-param result: " with multi_param
+display ""
+
+display "=== Standard Library Tests Completed ==="

@@ -1,0 +1,214 @@
+// Comprehensive Container System Test - WFL  
+// Consolidates: container_*.wfl files (inheritance, interfaces, events, type checking)
+
+display "=== WFL Container System Comprehensive Test ==="
+display ""
+
+// === Basic Container Definition ===
+display "1. Basic Container Test"
+create container Person:
+    property name: Text
+    property age: Number
+    property email: Text
+    
+    action greet:
+        display "Hello, I am " with name with " and I am " with age with " years old."
+    end
+    
+    action set_email with new_email: Text:
+        store email as new_email
+        display "Email set to: " with email
+    end
+    
+    action get_info: Text
+        return name with " (" with age with " years old)"
+    end
+end
+
+create new Person as alice:
+    name is "Alice"
+    age is 28
+    email is "alice@example.com"
+end
+
+alice.greet()
+alice.set_email("alice.smith@example.com")
+store info as alice.get_info()
+display "Person info: " with info
+display ""
+
+// === Container Inheritance ===
+display "2. Container Inheritance Test"
+create container Employee extends Person:
+    property job_title: Text
+    property salary: Number
+    
+    action greet:
+        display "Hello, I am " with name with ", " with job_title with " at your service."
+    end
+    
+    action get_salary_info: Text
+        return job_title with " earns $" with salary
+    end
+    
+    action give_raise with amount: Number:
+        store salary as salary + amount
+        display name with " received a raise of $" with amount
+    end
+end
+
+create new Employee as bob:
+    name is "Bob"
+    age is 35
+    job_title is "Developer"
+    salary is 75000
+end
+
+bob.greet()
+store salary_info as bob.get_salary_info()
+display salary_info
+bob.give_raise(5000)
+display ""
+
+// === Interface Implementation ===
+display "3. Interface Implementation Test"
+create interface Drawable:
+    action draw
+    action get_area: Number
+end
+
+create container Rectangle implements Drawable:
+    property width: Number
+    property height: Number
+    
+    action draw:
+        display "Drawing rectangle: " with width with " x " with height
+    end
+    
+    action get_area: Number
+        return width * height
+    end
+    
+    action set_dimensions with w: Number and h: Number:
+        store width as w
+        store height as h
+    end
+end
+
+create new Rectangle as rect:
+    width is 10
+    height is 5
+end
+
+rect.draw()
+store area as rect.get_area()
+display "Rectangle area: " with area
+rect.set_dimensions(15, 8)
+rect.draw()
+display "New area: " with rect.get_area()
+display ""
+
+// === Container Events ===  
+display "4. Container Events Test"
+create container Button:
+    property label: Text
+    property clicked: Number
+    
+    event on_click
+    event on_hover
+    
+    action click:
+        store clicked as clicked + 1
+        display "Button '" with label with "' clicked " with clicked with " times"
+        trigger on_click
+    end
+    
+    action hover:
+        display "Hovering over '" with label with "'"
+        trigger on_hover
+    end
+end
+
+create new Button as my_button:
+    label is "Submit"
+    clicked is 0
+end
+
+my_button.click()
+my_button.hover()
+my_button.click()
+display ""
+
+// === Type Checking ===
+display "5. Container Type Checking Test"
+create container TypedContainer:
+    property text_prop: Text
+    property num_prop: Number
+    property bool_prop: Boolean
+    
+    action set_props with t: Text and n: Number and b: Boolean:
+        store text_prop as t
+        store num_prop as n  
+        store bool_prop as b
+    end
+    
+    action display_props:
+        display "Text: " with text_prop with " (type: " with typeof of text_prop with ")"
+        display "Number: " with num_prop with " (type: " with typeof of num_prop with ")"
+        display "Boolean: " with bool_prop with " (type: " with typeof of bool_prop with ")"
+    end
+end
+
+create new TypedContainer as typed_obj:
+    text_prop is "Hello"
+    num_prop is 42
+    bool_prop is yes
+end
+
+typed_obj.display_props()
+typed_obj.set_props("World", 84, no)
+typed_obj.display_props()
+display ""
+
+// === Multiple Inheritance Chain ===
+display "6. Multi-level Inheritance Test"
+create container Animal:
+    property species: Text
+    
+    action make_sound:
+        display "The " with species with " makes a sound"
+    end
+end
+
+create container Mammal extends Animal:
+    property fur_color: Text
+    
+    action shed_fur:
+        display "The " with species with " sheds " with fur_color with " fur"
+    end
+end
+
+create container Dog extends Mammal:
+    property breed: Text
+    
+    action make_sound:
+        display "The " with breed with " dog barks!"
+    end
+    
+    action fetch:
+        display "The " with breed with " fetches the ball"
+    end
+end
+
+create new Dog as buddy:
+    species is "Canis lupus"
+    fur_color is "golden"
+    breed is "Golden Retriever"
+end
+
+buddy.make_sound()
+buddy.shed_fur()
+buddy.fetch()
+display ""
+
+display "=== Container System Tests Completed ==="

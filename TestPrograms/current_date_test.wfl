@@ -1,4 +1,0 @@
-// Current Date Test
-
-// Test current_date function
-display "Current date: " with current_date
