@@ -2,26 +2,58 @@
 
 ## Overview
 
-The WFL parser is a recursive descent parser that transforms a stream of tokens from the lexer into an Abstract Syntax Tree (AST). It implements sophisticated error recovery mechanisms and supports WFL's natural language syntax while maintaining backward compatibility with existing code.
+The WFL parser is a recursive descent parser that transforms a stream of tokens from the lexer into an Abstract Syntax Tree (AST). It implements robust error recovery and supports WFL's natural-language-friendly syntax while maintaining backward compatibility. The parser has been refactored into a modular architecture with `mod.rs` serving as a thin orchestrator under 300 lines. All existing tests pass with no behavior changes.
 
 ## Architecture
 
-### Core Components
+### Core Components (Modular Structure)
 
-1. **Parser Structure** (`src/parser/mod.rs`)
-   - Main parser implementation using recursive descent
-   - Error collection and reporting
-   - Action tracking for function resolution
+1. **Parser Orchestrator** (`src/parser/mod.rs`)
+   - Holds the `Parser` struct, `new()`, `parse()` loop, and `is_statement_starter()`
+   - Delegates to submodules for statements, expressions, patterns, and containers
+   - Under 300 lines by design
 
 2. **AST Definitions** (`src/parser/ast.rs`)
-   - Complete AST node types
-   - Container and OOP support structures
+   - AST node types only; no parsing logic
+   - Includes container and OOP support structures
    - Position information for error reporting
 
-3. **Container Parser** (`src/parser/container_parser.rs`)
-   - Specialized parsing for container definitions
-   - Interface parsing
-   - Property and method parsing
+3. **Error Handling** (`src/parser/error.rs`)
+   - `ParseError` type, constructors, Display/Debug
+   - Centralized utilities for consistent error creation
+
+4. **Parser Utilities** (`src/parser/util.rs`)
+   - Shared helpers such as `expect_token()` and `synchronize()`
+   - Comma-separated and line-boundary list parsing helpers
+
+5. **Statement Parsing** (`src/parser/statements.rs`)
+   - All statement-level parsing:
+     - Variable declarations, assignments
+     - Control flow (if/single-line-if, loops: for-each, count, repeat/main)
+     - I/O (open/close/read/write, file/directory operations)
+     - Action definitions, return/exit/push, try blocks
+   - Delegates to expressions and container/pattern modules as needed
+
+6. **Expression Parsing** (`src/parser/expressions.rs`)
+   - Expression precedence, binary/unary operations, member/index access
+   - Natural language operators and concatenation
+   - Action call resolution and argument parsing
+   - Contains and isolates `known_actions` logic
+
+7. **Pattern Parsing** (`src/parser/pattern_parser.rs`)
+   - Pattern statements and grammar:
+     - Sequences, alternatives, quantifiers, character classes
+     - Token-based grouping and error reporting
+
+8. **Container/Interface/Event Parsing** (`src/parser/container_parser.rs`)
+   - Container/interface definitions, inheritance/implements
+   - Properties, methods (including static), and events
+   - Container instantiation bodies and parameter lists
+
+Notes:
+- Lexer boundary is clean: parser uses only `Token` and `TokenWithPosition`
+- AST remains in `ast.rs` with no parsing logic
+- Behavior preserved; all tests pass
 
 ### Key Design Principles
 
