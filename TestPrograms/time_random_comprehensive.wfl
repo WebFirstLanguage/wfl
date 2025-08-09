@@ -1,0 +1,247 @@
+// Comprehensive Time and Random Test - WFL
+// Consolidates: time_*.wfl, random_*.wfl, date_*.wfl, minimal_time_test.wfl
+
+display "=== WFL Time and Random Comprehensive Test ==="
+display ""
+
+// === Current Date and Time ===
+display "1. Current Date and Time"
+display "Current date: " with today
+display "Current time: " with now
+display "Current datetime: " with datetime_now
+display ""
+
+// === Date Creation and Formatting ===
+display "2. Date Creation and Formatting"
+store test_date as create_date of 2025 and 8 and 9
+display "Created date (2025-08-09): " with test_date
+
+store christmas as create_date of 2025 and 12 and 25  
+display "Christmas 2025: " with christmas
+
+store new_year as create_date of 2026 and 1 and 1
+display "New Year 2026: " with new_year
+
+// Test date components
+display "Test date components:"
+display "  Year: " with year of test_date
+display "  Month: " with month of test_date
+display "  Day: " with day of test_date
+display "  Day of week: " with dayofweek of test_date
+display "  Day of year: " with dayofyear of test_date
+display ""
+
+// === Time Creation and Formatting ===
+display "3. Time Creation and Formatting"
+store morning_time as create_time of 8 and 30 and 0
+display "Morning time (08:30:00): " with morning_time
+
+store afternoon_time as create_time of 14 and 45 and 30
+display "Afternoon time (14:45:30): " with afternoon_time
+
+store evening_time as create_time of 22 and 15 and 45
+display "Evening time (22:15:45): " with evening_time
+
+// Test time components
+display "Morning time components:"
+display "  Hour: " with hour of morning_time
+display "  Minute: " with minute of morning_time
+display "  Second: " with second of morning_time
+display ""
+
+// === DateTime Operations ===
+display "4. DateTime Operations"
+store meeting_datetime as create_datetime of 2025 and 8 and 9 and 10 and 30 and 0
+display "Meeting datetime: " with meeting_datetime
+
+// Test datetime formatting (if available)
+display "Meeting details:"
+display "  Date: " with date_part of meeting_datetime
+display "  Time: " with time_part of meeting_datetime
+display "  Formatted: " with format_datetime of meeting_datetime and "YYYY-MM-DD HH:mm:ss"
+display ""
+
+// === Time Math Operations ===
+display "5. Time Math Operations"
+store base_date as create_date of 2025 and 8 and 1
+display "Base date: " with base_date
+
+// Add days/time (if supported)
+store future_date as add_days of base_date and 30
+display "30 days later: " with future_date
+
+store past_date as subtract_days of base_date and 15
+display "15 days earlier: " with past_date
+
+// Time differences
+store date_diff as days_between of base_date and future_date
+display "Days between: " with date_diff
+
+// Time zone operations (if supported)
+store utc_time as utc_now
+display "UTC time: " with utc_time
+display ""
+
+// === Random Number Generation ===
+display "6. Random Number Tests"
+
+// Basic random
+display "Basic random numbers (0-1):"
+count from 1 to 5:
+    display "  Random " with count with ": " with random
+end count
+
+// Random between ranges
+display "Random numbers in ranges:"
+count from 1 to 5:
+    store rand_10 as random_between of 1 and 10
+    display "  Random 1-10: " with rand_10
+end count
+
+count from 1 to 3:
+    store rand_100 as random_between of 50 and 100
+    display "  Random 50-100: " with rand_100
+end count
+
+// Random integers
+display "Random integers:"
+count from 1 to 5:
+    store rand_int as random_int of 1 and 20
+    display "  Random int 1-20: " with rand_int
+end count
+display ""
+
+// === Random Selections ===
+display "7. Random Selection Tests"
+
+// Random from list
+store colors as ["red", "green", "blue", "yellow", "purple"]
+display "Color list: " with colors
+
+display "Random color selections:"
+count from 1 to 5:
+    store random_color as random_from of colors
+    display "  Selection " with count with ": " with random_color
+end count
+
+// Random boolean
+display "Random boolean values:"
+count from 1 to 5:
+    store random_bool as random_boolean
+    display "  Boolean " with count with ": " with random_bool
+end count
+display ""
+
+// === Seeded Random ===
+display "8. Seeded Random Tests"
+
+// Set seed for reproducible results
+random_seed of 42
+display "Seeded random (seed=42):"
+count from 1 to 3:
+    display "  Seeded " with count with ": " with random
+end count
+
+// Reset seed and generate again
+random_seed of 42
+display "Same seed again (should match above):"
+count from 1 to 3:
+    display "  Seeded " with count with ": " with random
+end count
+
+// Different seed
+random_seed of 123
+display "Different seed (123):"
+count from 1 to 3:
+    display "  Different " with count with ": " with random
+end count
+display ""
+
+// === Time-based Random ===
+display "9. Time-based Random"
+
+// Use current time as seed
+store current_timestamp as timestamp of now
+random_seed of current_timestamp
+display "Time-seeded random:"
+count from 1 to 3:
+    display "  Time-based " with count with ": " with random
+end count
+display ""
+
+// === Performance and Timing ===
+display "10. Performance Timing Tests"
+
+// Time function execution
+store start_time as now
+count from 1 to 1000:
+    store temp as random
+end count
+store end_time as now
+
+store execution_time as time_diff of start_time and end_time
+display "Time to generate 1000 random numbers: " with execution_time with " ms"
+
+// Timestamp operations
+store timestamp as timestamp of now
+display "Current timestamp: " with timestamp
+
+store from_timestamp as datetime_from_timestamp of timestamp
+display "Datetime from timestamp: " with from_timestamp
+display ""
+
+// === Date Comparisons ===
+display "11. Date Comparison Tests"
+store date1 as create_date of 2025 and 8 and 9
+store date2 as create_date of 2025 and 8 and 10
+store date3 as create_date of 2025 and 8 and 9
+
+display "Date comparisons:"
+display "  Date1 (2025-08-09): " with date1
+display "  Date2 (2025-08-10): " with date2
+display "  Date3 (2025-08-09): " with date3
+
+check if date1 is before date2:
+    display "  ✓ Date1 is before Date2"
+else:
+    display "  ✗ Date1 should be before Date2"
+end check
+
+check if date1 is same as date3:
+    display "  ✓ Date1 equals Date3"
+else:
+    display "  ✗ Date1 should equal Date3"
+end check
+
+check if date2 is after date1:
+    display "  ✓ Date2 is after Date1"
+else:
+    display "  ✗ Date2 should be after Date1"
+end check
+display ""
+
+// === Calendar Operations ===
+display "12. Calendar Operations"
+store year_2025 as 2025
+display "Calendar operations for " with year_2025 with ":"
+
+// Is leap year
+store is_leap as is_leap_year of year_2025
+display "  Is leap year: " with is_leap
+
+// Days in month
+store jan_days as days_in_month of year_2025 and 1
+store feb_days as days_in_month of year_2025 and 2
+display "  January days: " with jan_days
+display "  February days: " with feb_days
+
+// Week operations
+store today_date as today
+store week_number as week_of_year of today_date
+display "  Current week of year: " with week_number
+display ""
+
+display "=== Time and Random Tests Completed ==="
+display ""
+display "Note: Some advanced time operations may not be implemented yet."
+display "Random seed has been modified during testing."

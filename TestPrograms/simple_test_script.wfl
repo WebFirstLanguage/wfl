@@ -1,6 +1,0 @@
-// Simple test script for WFL
-define action called main:
-    store number as 5
-    display number
-    display number plus 10
-end action
