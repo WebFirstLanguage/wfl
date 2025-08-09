@@ -936,8 +936,6 @@ impl Analyzer {
                                 Statement::MapCreation { line, .. } => *line,
                                 Statement::CreateDateStatement { line, .. } => *line,
                                 Statement::CreateTimeStatement { line, .. } => *line,
-                            Statement::CreateDateStatement { line, .. } => *line,
-                            Statement::CreateTimeStatement { line, .. } => *line,
                             },
                             column: match stmt {
                                 Statement::VariableDeclaration { column, .. } => *column,
@@ -988,8 +986,6 @@ impl Analyzer {
                                 Statement::MapCreation { column, .. } => *column,
                                 Statement::CreateDateStatement { column, .. } => *column,
                                 Statement::CreateTimeStatement { column, .. } => *column,
-                            Statement::CreateDateStatement { column, .. } => *column,
-                            Statement::CreateTimeStatement { column, .. } => *column,
                             },
                         });
                         then_nodes.push(then_node_idx);
@@ -1056,10 +1052,6 @@ impl Analyzer {
                                     Statement::MapCreation { line, .. } => *line,
                                     Statement::CreateDateStatement { line, .. } => *line,
                                     Statement::CreateTimeStatement { line, .. } => *line,
-                                Statement::CreateDateStatement { line, .. } => *line,
-                                Statement::CreateTimeStatement { line, .. } => *line,
-                            Statement::CreateDateStatement { line, .. } => *line,
-                            Statement::CreateTimeStatement { line, .. } => *line,
                                 },
                                 column: match stmt {
                                     Statement::VariableDeclaration { column, .. } => *column,
@@ -1110,10 +1102,6 @@ impl Analyzer {
                                     Statement::MapCreation { column, .. } => *column,
                                     Statement::CreateDateStatement { column, .. } => *column,
                                     Statement::CreateTimeStatement { column, .. } => *column,
-                                Statement::CreateDateStatement { column, .. } => *column,
-                                Statement::CreateTimeStatement { column, .. } => *column,
-                            Statement::CreateDateStatement { column, .. } => *column,
-                            Statement::CreateTimeStatement { column, .. } => *column,
                                 },
                             });
                             else_nodes.push(else_node_idx);
