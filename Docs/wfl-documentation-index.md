@@ -1,6 +1,6 @@
 # WFL Documentation Index
 
-Welcome to the WebFirst Language documentation! This index provides a comprehensive guide to all available documentation.
+Welcome to the WebFirst Language documentation! This index provides a comprehensive guide to all available documentation, organized for easy navigation according to the natural-language principles outlined in our [Foundation document](guides/wfl-foundation.md).
 
 ## 📚 Language Reference
 
@@ -10,62 +10,78 @@ Core language documentation for learning and using WFL:
 - **[Variables Guide](language-reference/wfl-variables.md)** - Creating and using variables in WFL
 - **[Control Flow](language-reference/wfl-control-flow.md)** - Conditionals, loops, and program flow
 - **[Actions (Functions)](language-reference/wfl-actions.md)** - Defining and using actions
+- **[Pattern Matching](language-reference/wfl-patterns.md)** - Comprehensive pattern matching with natural language syntax
 - **[Async Programming](language-reference/wfl-async.md)** - Asynchronous operations and concurrency
 - **[Container System](language-reference/wfl-containers.md)** - Object-oriented programming in WFL
 - **[Error Handling](language-reference/wfl-errors.md)** - Understanding and handling errors
+- **[I/O Operations](language-reference/wfl-io.md)** - File and network input/output
+- **[Main Loop](language-reference/wfl-main-loop.md)** - Event-driven programming
 
-## 🔧 Technical Documentation
+## 📖 Guides and Tutorials
 
-Internal technical documentation for contributors and advanced users:
+Best practices and learning resources:
 
-- **[Lexer Implementation](technical/wfl-lexer.md)** - Tokenization and lexical analysis
-- **[Lexer Fix Details](technical/lexer_fix_1.md)** - Documentation of lexer improvements
-- **[Interpreter Design](technical/wfl-interpreter.md)** - AST execution and runtime
-- **[Type Checker](technical/wfl-staticTypeChecker.md)** - Static type analysis system
+- **[WFL Foundation](guides/wfl-foundation.md)** - Core principles and design philosophy
+- **[Getting Started](guides/wfl-getting-started.md)** - Installation and first steps
+- **[WFL by Example](guides/wfl-by-example.md)** - Learn through practical examples
+- **[WFL Cookbook](guides/wfl-cookbook.md)** - Recipes for common tasks
+- **[Building WFL](guides/building.md)** - Building from source
+- **[Deployment Guide](guides/wfl-deployment.md)** - Deploying WFL applications
+- **[Pattern Migration Guide](guides/pattern-migration-guide.md)** - Migrating from regex to WFL patterns
+- **[General Migration Guide](guides/wfl-migration-guide.md)** - Migrating from other languages
+- **[Documentation Policy](guides/wfl-documentation-policy.md)** - Guidelines for writing documentation
 
 ## 📦 API Reference
 
 Standard library and built-in functionality:
 
 - **[Standard Library Reference](api/wfl-standard-library.md)** - Complete reference for all built-in functions
-- **[Pattern Module](api/pattern-module.md)** - Regular expression and pattern matching
+- **[Core Module](api/core-module.md)** - Core language functions
+- **[Math Module](api/math-module.md)** - Mathematical operations
+- **[Text Module](api/text-module.md)** - String manipulation
+- **[List Module](api/list-module.md)** - List operations
+- **[Pattern Module](api/pattern-module.md)** - Pattern matching API (legacy)
+- **[Time Module](api/time-module.md)** - Date and time operations
+- **[Filesystem Module](api/filesystem-module.md)** - File system operations
+- **[Container System](api/container-system.md)** - Container/class API
+- **[Async Patterns](api/async-patterns.md)** - Asynchronous programming patterns
 
-## 📖 Guides and Policies
+## 🔧 Technical Documentation
 
-Best practices and development guidelines:
+Internal technical documentation for contributors and advanced users:
 
-- **[WFL Foundation](guides/wfl-foundation.md)** - Core principles and design philosophy
-- **[Documentation Policy](guides/wfl-documentation-policy.md)** - Guidelines for writing documentation
-
-## 🔍 Additional Resources
-
-Other documentation and resources:
+### Core Components
+- **[Lexer Implementation](technical/wfl-lexer.md)** - Tokenization and lexical analysis
+- **[Lexer Fix Details](technical/wfl-lexer-fix-1.md)** - Documentation of lexer improvements
+- **[Parser Design](technical/wfl-parser.md)** - Syntax analysis and AST generation
+- **[Analyzer](technical/wfl-analyzer.md)** - Semantic analysis
+- **[Type Checker](technical/wfl-staticTypeChecker.md)** - Static type analysis system
+- **[Interpreter Design](technical/wfl-interpreter.md)** - AST execution and runtime
+- **[Bytecode System](technical/wfl-bytecode.md)** - Bytecode compilation and VM
 
 ### Development Tools
-- **[Building WFL](BUILDING.md)** - Instructions for building from source
-- **[Deployment Guide](wfl-deployment.md)** - Deploying WFL applications
-- **[Version Management](wfl-version.md)** - Version numbering and releases
+- **[CLI Arguments](technical/wfl-args.md)** - Command-line argument handling
+- **[Linter System](technical/wfl-lint.md)** - Code style and quality checks
+- **[Logging System](technical/wfl-logging.md)** - Structured logging
+- **[Step Debugging](technical/wfl-step.md)** - Step-by-step execution
+- **[Version Management](technical/wfl-version.md)** - Version numbering and releases
+- **[Memory Profiling](technical/memory_profiling.md)** - Performance analysis
+- **[OOP Design](technical/wfl-oop-design.md)** - Object-oriented programming architecture
 
-### Language Features
-- **[I/O Operations](wfl-IO.md)** - File and network I/O
-- **[Pattern Matching](patterns.md)** - Natural language pattern matching system
-- **[Logging System](wfl-logging.md)** - Structured logging
-- **[Linting](wfl-lint.md)** - Code style and quality checks
-- **[OOP Design](wfl-oop-design.md)** - Object-oriented programming concepts
+### Architecture
+- **[Architecture Diagram](technical/wfl-architecture-diagram.md)** - System architecture overview
 
-### Implementation Details
-- **[Arguments Handling](wfl-args.md)** - Command-line arguments
-- **[Integration Notes](wfl-int2.md)** - Integration with other systems
-- **[Step Execution](wfl-step.md)** - Step-by-step execution details
+## 🔬 Development Notes
 
-### Historical and Research
-- **[Devin Integration](wfl-devin.md)** - AI assistant integration notes
-- **[Gemini Research](Gemini Reserch.md)** - Research notes
-- **[Library Recommendations](lib recs.md)** - External library suggestions
-- **[Memory Profiling](memory_profiling.md)** - Performance analysis
-- **[Rust LOC Report](rust_loc_report.md)** - Code metrics
-- **[Rust LOC Counter](rust_loc_counter.md)** - Line counting tool
-- **[TODO List](wfl-todo.md)** - Project task tracking
+Internal development documentation (not for general users):
+
+- **[TODO List](dev-notes/wfl-todo.md)** - Project task tracking
+- **[Devin Integration](dev-notes/wfl-devin.md)** - AI assistant integration notes
+- **[Gemini Research](dev-notes/wfl-gemini-research.md)** - Research notes
+- **[Library Recommendations](dev-notes/wfl-library-recommendations.md)** - External library suggestions
+- **[Integration Notes](dev-notes/wfl-int2.md)** - Integration with other systems
+- **[Rust LOC Report](dev-notes/wfl-rust-loc-report.md)** - Code metrics
+- **[Rust LOC Counter](dev-notes/wfl-rust-loc-counter.md)** - Line counting tool
 
 ## 🚀 Quick Links
 
@@ -78,16 +94,38 @@ Other documentation and resources:
 
 When adding new documentation:
 
-1. Place files in the appropriate subdirectory:
+1. **Choose the right location:**
    - `language-reference/` - User-facing language documentation
-   - `technical/` - Internal technical documentation
+   - `guides/` - Tutorials, how-tos, and best practices
    - `api/` - API and library reference
-   - `guides/` - Best practices and guidelines
+   - `technical/` - Internal technical documentation
+   - `dev-notes/` - Development notes and temporary docs
 
-2. Update this index with a link to your new document
+2. **Follow naming conventions:**
+   - Use clear, descriptive filenames
+   - Prefix with `wfl-` for consistency
+   - Use lowercase with hyphens
 
-3. Follow the documentation policy guidelines
+3. **Update this index** with a link to your new document
 
-4. Use clear, descriptive filenames with the `wfl-` prefix
+4. **Follow the documentation policy** outlined in [guides/wfl-documentation-policy.md](guides/wfl-documentation-policy.md)
 
-5. Include examples and cross-references where appropriate
+5. **Include examples** and cross-references where appropriate
+
+6. **Align with WFL principles** from [guides/wfl-foundation.md](guides/wfl-foundation.md):
+   - Use natural language descriptions
+   - Prioritize clarity over brevity
+   - Make documentation accessible to beginners
+   - Provide clear, actionable information
+
+## 📊 Documentation Statistics
+
+- **Language Reference:** 10 comprehensive guides
+- **User Guides:** 9 tutorials and how-tos
+- **API Documentation:** 10 module references
+- **Technical Docs:** 14 internal documents
+- **Total Documentation:** 40+ organized documents
+
+---
+
+*This documentation is organized according to the principles in [WFL Foundation](guides/wfl-foundation.md), emphasizing natural language, clarity, and accessibility for all developers.*
