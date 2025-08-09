@@ -1411,38 +1411,35 @@ impl<'a> Parser<'a> {
             }
 
             let op = match token {
-                Token::Plus => {
-                    self.tokens.next(); // Consume "+"
-                    Some((Operator::Plus, 1))
-                }
-                Token::KeywordPlus => {
-                    self.tokens.next(); // Consume "plus"
-                    Some((Operator::Plus, 1))
-                }
-                Token::KeywordMinus => {
-                    self.tokens.next(); // Consume "minus"
-                    Some((Operator::Minus, 1))
-                }
-                Token::KeywordTimes => {
-                    self.tokens.next(); // Consume "times"
-                    Some((Operator::Multiply, 2))
-                }
-                Token::KeywordDividedBy => {
-                    self.tokens.next(); // Consume "divided by"
-                    Some((Operator::Divide, 2))
-                }
+                Token::Plus => Some((Operator::Plus, 1)),
+                Token::KeywordPlus => Some((Operator::Plus, 1)),
+                Token::KeywordMinus => Some((Operator::Minus, 1)),
+                Token::KeywordTimes => Some((Operator::Multiply, 2)),
+                Token::KeywordDividedBy => Some((Operator::Divide, 2)),
                 Token::KeywordDivided => {
-                    self.tokens.next(); // Consume "divided"
-
-                    // Still handle the legacy case where "divided" and "by" are separate tokens
-                    self.expect_token(Token::KeywordBy, "Expected 'by' after 'divided'")?;
-                    self.tokens.next(); // Consume "by"
-                    Some((Operator::Divide, 2))
+                    // For the divided by case, we need to check both tokens
+                    // But first check if the next token exists and is "by"
+                    let mut tokens_clone = self.tokens.clone();
+                    tokens_clone.next(); // Skip "divided"
+                    if let Some(by_token) = tokens_clone.next() {
+                        if matches!(by_token.token, Token::KeywordBy) {
+                            Some((Operator::Divide, 2))
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected 'by' after 'divided'".to_string(),
+                                line,
+                                column,
+                            ));
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected 'by' after 'divided'".to_string(),
+                            line,
+                            column,
+                        ));
+                    }
                 }
-                Token::Equals => {
-                    self.tokens.next(); // Consume "="
-                    Some((Operator::Equals, 0))
-                }
+                Token::Equals => Some((Operator::Equals, 0)),
                 Token::KeywordIs => {
                     self.tokens.next(); // Consume "is"
 
@@ -1811,6 +1808,37 @@ impl<'a> Parser<'a> {
             if let Some((operator, op_precedence)) = op {
                 if op_precedence < precedence {
                     break;
+                }
+
+                // Now consume the operator token(s) since the precedence check passed
+                match token {
+                    Token::Plus => {
+                        self.tokens.next(); // Consume "+"
+                    }
+                    Token::KeywordPlus => {
+                        self.tokens.next(); // Consume "plus"
+                    }
+                    Token::KeywordMinus => {
+                        self.tokens.next(); // Consume "minus"
+                    }
+                    Token::KeywordTimes => {
+                        self.tokens.next(); // Consume "times"
+                    }
+                    Token::KeywordDividedBy => {
+                        self.tokens.next(); // Consume "divided by"
+                    }
+                    Token::KeywordDivided => {
+                        self.tokens.next(); // Consume "divided"
+                        self.expect_token(Token::KeywordBy, "Expected 'by' after 'divided'")?;
+                        self.tokens.next(); // Consume "by"
+                    }
+                    Token::Equals => {
+                        self.tokens.next(); // Consume "="
+                    }
+                    _ => {
+                        // For operators like "is" that have already consumed tokens in their detection
+                        // No additional consumption needed
+                    }
                 }
 
                 let right = self.parse_binary_expression(op_precedence + 1)?;
@@ -5691,10 +5719,10 @@ impl<'a> Parser<'a> {
     fn parse_create_date_statement(&mut self) -> Result<Statement, ParseError> {
         let create_token = self.tokens.next().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordDate, "Expected 'date' after 'create'")?;
-        
+
         // Parse the date variable name
         let name = self.parse_variable_name_simple()?;
-        
+
         // Check if there's an "as" clause for a custom date value
         let value = if let Some(token) = self.tokens.peek() {
             if token.token == Token::KeywordAs {
@@ -5706,7 +5734,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        
+
         Ok(Statement::CreateDateStatement {
             name,
             value,
@@ -5714,14 +5742,14 @@ impl<'a> Parser<'a> {
             column: create_token.column,
         })
     }
-    
+
     fn parse_create_time_statement(&mut self) -> Result<Statement, ParseError> {
         let create_token = self.tokens.next().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordTime, "Expected 'time' after 'create'")?;
-        
+
         // Parse the time variable name
         let name = self.parse_variable_name_simple()?;
-        
+
         // Check if there's an "as" clause for a custom time value
         let value = if let Some(token) = self.tokens.peek() {
             if token.token == Token::KeywordAs {
@@ -5733,7 +5761,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        
+
         Ok(Statement::CreateTimeStatement {
             name,
             value,
