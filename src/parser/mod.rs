@@ -5691,10 +5691,10 @@ impl<'a> Parser<'a> {
     fn parse_create_date_statement(&mut self) -> Result<Statement, ParseError> {
         let create_token = self.tokens.next().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordDate, "Expected 'date' after 'create'")?;
-        
+
         // Parse the date variable name
         let name = self.parse_variable_name_simple()?;
-        
+
         // Check if there's an "as" clause for a custom date value
         let value = if let Some(token) = self.tokens.peek() {
             if token.token == Token::KeywordAs {
@@ -5706,7 +5706,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        
+
         Ok(Statement::CreateDateStatement {
             name,
             value,
@@ -5714,14 +5714,14 @@ impl<'a> Parser<'a> {
             column: create_token.column,
         })
     }
-    
+
     fn parse_create_time_statement(&mut self) -> Result<Statement, ParseError> {
         let create_token = self.tokens.next().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordTime, "Expected 'time' after 'create'")?;
-        
+
         // Parse the time variable name
         let name = self.parse_variable_name_simple()?;
-        
+
         // Check if there's an "as" clause for a custom time value
         let value = if let Some(token) = self.tokens.peek() {
             if token.token == Token::KeywordAs {
@@ -5733,7 +5733,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        
+
         Ok(Statement::CreateTimeStatement {
             name,
             value,

@@ -2127,7 +2127,7 @@ impl Interpreter {
                     let today = chrono::Local::now().date_naive();
                     Value::Date(Rc::new(today))
                 };
-                
+
                 env.borrow_mut().define(name, date_value);
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -2145,7 +2145,7 @@ impl Interpreter {
                     let now = chrono::Local::now().time();
                     Value::Time(Rc::new(now))
                 };
-                
+
                 env.borrow_mut().define(name, time_value);
                 Ok((Value::Null, ControlFlow::None))
             }
