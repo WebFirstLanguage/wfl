@@ -1386,6 +1386,17 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Helper method to check if the token after the current "divided" token is "by"
+    /// More efficient implementation using nth(1) instead of multiple next() calls
+    fn peek_divided_by(&mut self) -> bool {
+        // Use nth(1) to directly access the token after "divided" without multiple advances
+        if let Some(next_token_pos) = self.tokens.clone().nth(1) {
+            matches!(next_token_pos.token, Token::KeywordBy)
+        } else {
+            false
+        }
+    }
+
     fn parse_expression(&mut self) -> Result<Expression, ParseError> {
         self.parse_binary_expression(0) // Start with lowest precedence
     }
@@ -1417,20 +1428,9 @@ impl<'a> Parser<'a> {
                 Token::KeywordTimes => Some((Operator::Multiply, 2)),
                 Token::KeywordDividedBy => Some((Operator::Divide, 2)),
                 Token::KeywordDivided => {
-                    // For the divided by case, we need to check both tokens
-                    // But first check if the next token exists and is "by"
-                    let mut tokens_clone = self.tokens.clone();
-                    tokens_clone.next(); // Skip "divided"
-                    if let Some(by_token) = tokens_clone.next() {
-                        if matches!(by_token.token, Token::KeywordBy) {
-                            Some((Operator::Divide, 2))
-                        } else {
-                            return Err(ParseError::new(
-                                "Expected 'by' after 'divided'".to_string(),
-                                line,
-                                column,
-                            ));
-                        }
+                    // Check if next token is "by" more efficiently
+                    if self.peek_divided_by() {
+                        Some((Operator::Divide, 2))
                     } else {
                         return Err(ParseError::new(
                             "Expected 'by' after 'divided'".to_string(),
