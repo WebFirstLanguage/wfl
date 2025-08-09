@@ -140,6 +140,41 @@ As shown:
 - `remove "eggs" from shopping` takes "eggs" out of the list.
 - `clear shopping list` empties the list completely.
 
+#### Accessing List Items
+
+You can access individual items from a list in two ways:
+
+**Method 1: Using index notation (direct access)**
+```wfl
+create list shopping:
+    add "milk"
+    add "bread"
+    add "eggs"
+end list
+
+// Access items directly using index (0-based)
+store first_item as shopping 0   // "milk"
+store second_item as shopping 1  // "bread"
+store third_item as shopping 2   // "eggs"
+
+// You can use this in expressions too
+display "First item: " + shopping 0
+store combined as shopping 0 + " and " + shopping 1
+```
+
+**Method 2: Using the "item at" syntax**
+```wfl
+// Alternative syntax for accessing list items
+store first as item at 0 from shopping
+store second as item at 1 from shopping
+
+display "First item: " + first
+```
+
+Both methods work the same way. The index notation (`shopping 0`) is more concise and works well in expressions, while the "item at" syntax reads more like natural English.
+
+**Important:** List indices start at 0, so the first item is at index 0, the second at index 1, and so on.
+
 ### Sets (Unique Collections)
 
 A set is for when you need to ensure all items are unique. Creating a set is similar to a list:

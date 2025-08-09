@@ -1949,6 +1949,8 @@ impl<'a> Parser<'a> {
                 }
                 Token::Identifier(name) => {
                     self.tokens.next();
+                    let token_line = token.line;
+                    let token_column = token.column;
 
                     // Check for property access (dot notation)
                     if let Some(next_token) = self.tokens.peek().cloned() {
@@ -1998,13 +2000,13 @@ impl<'a> Parser<'a> {
                                         return Ok(Expression::MethodCall {
                                             object: Box::new(Expression::Variable(
                                                 name.clone(),
-                                                token.line,
-                                                token.column,
+                                                token_line,
+                                                token_column,
                                             )),
                                             method: property_name.clone(),
                                             arguments,
-                                            line: token.line,
-                                            column: token.column,
+                                            line: token_line,
+                                            column: token_column,
                                         });
                                     }
 
@@ -2012,12 +2014,12 @@ impl<'a> Parser<'a> {
                                     return Ok(Expression::PropertyAccess {
                                         object: Box::new(Expression::Variable(
                                             name.clone(),
-                                            token.line,
-                                            token.column,
+                                            token_line,
+                                            token_column,
                                         )),
                                         property: property_name.clone(),
-                                        line: token.line,
-                                        column: token.column,
+                                        line: token_line,
+                                        column: token_column,
                                     });
                                 } else {
                                     return Err(ParseError::new(
@@ -2029,8 +2031,8 @@ impl<'a> Parser<'a> {
                             } else {
                                 return Err(ParseError::new(
                                     "Expected property name after '.'".to_string(),
-                                    token.line,
-                                    token.column,
+                                    token_line,
+                                    token_column,
                                 ));
                             }
                         } else if let Token::Identifier(id) = &next_token.token
@@ -2040,8 +2042,6 @@ impl<'a> Parser<'a> {
 
                             let arguments = self.parse_argument_list()?;
 
-                            let token_line = token.line;
-                            let token_column = token.column;
                             return Ok(Expression::ActionCall {
                                 name: name.clone(),
                                 arguments,
@@ -2052,9 +2052,6 @@ impl<'a> Parser<'a> {
                     }
 
                     let is_standalone = false;
-
-                    let token_line = token.line;
-                    let token_column = token.column;
 
                     if is_standalone {
                         exec_trace!(
@@ -2416,6 +2413,27 @@ impl<'a> Parser<'a> {
             if let Ok(mut expr) = result {
                 while let Some(token) = self.tokens.peek().cloned() {
                     match &token.token {
+                        // Support direct index access: listName index (e.g., states 1)
+                        Token::IntLiteral(index) => {
+                            // Check if this could be an index access (for variables and other collections)
+                            // We only treat it as index access if the expression is a variable or another indexable type
+                            if matches!(expr, Expression::Variable(_, _, _) | Expression::IndexAccess { .. } | Expression::FunctionCall { .. }) {
+                                self.tokens.next(); // Consume the number
+                                expr = Expression::IndexAccess {
+                                    collection: Box::new(expr),
+                                    index: Box::new(Expression::Literal(
+                                        Literal::Integer(*index),
+                                        token.line,
+                                        token.column,
+                                    )),
+                                    line: token.line,
+                                    column: token.column,
+                                };
+                            } else {
+                                // Not an index access, stop parsing postfix operators
+                                break;
+                            }
+                        }
                         Token::KeywordOf => {
                             self.tokens.next(); // Consume "of"
 
