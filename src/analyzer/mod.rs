@@ -143,6 +143,7 @@ pub struct Analyzer {
     errors: Vec<SemanticError>,
     action_parameters: std::collections::HashSet<String>,
     containers: HashMap<String, ContainerInfo>,
+    current_container: Option<String>,
 }
 
 impl Default for Analyzer {
@@ -244,6 +245,7 @@ impl Analyzer {
             errors: Vec::new(),
             action_parameters: std::collections::HashSet::new(),
             containers: HashMap::new(),
+            current_container: None,
         }
     }
 
@@ -307,6 +309,16 @@ impl Analyzer {
                     }
 
                     return;
+                }
+
+                // Check if this is an update to an existing property in a container method
+                if let Some(existing_symbol) = self.current_scope.resolve(name) {
+                    // If the variable already exists and is mutable, treat this as an assignment
+                    if let SymbolKind::Variable { mutable: true } = existing_symbol.kind {
+                        // This is effectively an assignment to an existing mutable variable
+                        // (like a container property), so don't report an error
+                        return;
+                    }
                 }
 
                 let symbol = Symbol {
@@ -845,6 +857,9 @@ impl Analyzer {
                 column,
                 ..
             } => {
+                // Set current container context
+                self.current_container = Some(name.clone());
+
                 // Create container info
                 let mut container_info = ContainerInfo {
                     name: name.clone(),
@@ -933,6 +948,35 @@ impl Analyzer {
 
                         // Analyze method body
                         self.push_scope();
+
+                        // Add inherited properties if this container extends another
+                        if let Some(parent_name) = &container_info.extends
+                            && let Some(parent_container) = self.containers.get(parent_name) {
+                                for (prop_name, prop_info) in &parent_container.properties {
+                                    let symbol = Symbol {
+                                        name: prop_name.clone(),
+                                        kind: SymbolKind::Variable { mutable: true },
+                                        symbol_type: Some(prop_info.property_type.clone()),
+                                        line: prop_info.line,
+                                        column: prop_info.column,
+                                    };
+                                    let _ = self.current_scope.define(symbol);
+                                }
+                        }
+
+                        // Add container properties to scope for instance methods
+                        for (prop_name, prop_info) in &container_info.properties {
+                            let symbol = Symbol {
+                                name: prop_name.clone(),
+                                kind: SymbolKind::Variable { mutable: true },
+                                symbol_type: Some(prop_info.property_type.clone()),
+                                line: prop_info.line,
+                                column: prop_info.column,
+                            };
+                            let _ = self.current_scope.define(symbol);
+                        }
+
+                        // Add method parameters to scope
                         for param in parameters {
                             let param_type =
                                 param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
@@ -980,6 +1024,20 @@ impl Analyzer {
 
                         // Analyze method body
                         self.push_scope();
+
+                        // Add static properties to scope for static methods
+                        for (prop_name, prop_info) in &container_info.static_properties {
+                            let symbol = Symbol {
+                                name: prop_name.clone(),
+                                kind: SymbolKind::Variable { mutable: true },
+                                symbol_type: Some(prop_info.property_type.clone()),
+                                line: prop_info.line,
+                                column: prop_info.column,
+                            };
+                            let _ = self.current_scope.define(symbol);
+                        }
+
+                        // Add method parameters to scope
                         for param in parameters {
                             let param_type =
                                 param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
@@ -1002,6 +1060,9 @@ impl Analyzer {
 
                 // Register the container
                 self.register_container(container_info);
+
+                // Clear current container context
+                self.current_container = None;
 
                 // Also register as a type symbol
                 let container_symbol = Symbol {

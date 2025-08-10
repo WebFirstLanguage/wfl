@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: TestPrograms/containers_comprehensive.wfl
+Time: 2025-08-10 13:48:08
+
+=== Error Summary ===
+Runtime error at line 15, column 37: Undefined variable 'name'
+
+=== Stack Trace ===
+In main script at line 15, column 37
+
+=== Source Code ===
+   13:     
+   14:     action greet:
+>> 15:         display "Hello, I am " with name with " and I am " with age with " years old."
+   16:     end
+   17:     
+
+=== Local Variables ===
+(No local variables in global scope)
