@@ -39,7 +39,7 @@ display ""
 display "4. Variable Redefinition Test"
 store test var as "original"
 display "Before: " with test var
-store test var as "modified"
+change test var to "modified"
 display "After: " with test var
 display ""
 

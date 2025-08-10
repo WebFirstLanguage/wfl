@@ -1474,8 +1474,11 @@ impl<'a> Parser<'a> {
             let op = match token {
                 Token::Plus => Some((Operator::Plus, 1)),
                 Token::KeywordPlus => Some((Operator::Plus, 1)),
+                Token::Minus => Some((Operator::Minus, 1)),
                 Token::KeywordMinus => Some((Operator::Minus, 1)),
+                Token::Multiply => Some((Operator::Multiply, 2)),
                 Token::KeywordTimes => Some((Operator::Multiply, 2)),
+                Token::Divide => Some((Operator::Divide, 2)),
                 Token::KeywordDividedBy => Some((Operator::Divide, 2)),
                 Token::KeywordDivided => {
                     // Check if next token is "by" more efficiently
@@ -1868,11 +1871,20 @@ impl<'a> Parser<'a> {
                     Token::KeywordPlus => {
                         self.tokens.next(); // Consume "plus"
                     }
+                    Token::Minus => {
+                        self.tokens.next(); // Consume "-"
+                    }
                     Token::KeywordMinus => {
                         self.tokens.next(); // Consume "minus"
                     }
+                    Token::Multiply => {
+                        self.tokens.next(); // Consume "*"
+                    }
                     Token::KeywordTimes => {
                         self.tokens.next(); // Consume "times"
+                    }
+                    Token::Divide => {
+                        self.tokens.next(); // Consume "/"
                     }
                     Token::KeywordDividedBy => {
                         self.tokens.next(); // Consume "divided by"
@@ -2541,8 +2553,8 @@ impl<'a> Parser<'a> {
                         Token::KeywordOf => {
                             self.tokens.next(); // Consume "of"
 
-                            // Parse the first argument after "of"
-                            let first_arg = self.parse_expression()?;
+                            // Parse the first argument after "of" - use primary expression to avoid consuming "and"
+                            let first_arg = self.parse_primary_expression()?;
 
                             let is_function_call = matches!(
                                 expr,
@@ -2561,7 +2573,7 @@ impl<'a> Parser<'a> {
                                     if let Token::KeywordAnd = &and_token.token {
                                         self.tokens.next(); // Consume "and"
 
-                                        let arg_value = self.parse_expression()?;
+                                        let arg_value = self.parse_primary_expression()?;
 
                                         arguments.push(Argument {
                                             name: None,

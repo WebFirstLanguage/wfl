@@ -291,6 +291,15 @@ pub enum Token {
     #[token("+")]
     Plus,
 
+    #[token("-")]
+    Minus,
+
+    #[token("*")]
+    Multiply,
+
+    #[token("/")]
+    Divide,
+
     #[token(".")]
     Dot,
 

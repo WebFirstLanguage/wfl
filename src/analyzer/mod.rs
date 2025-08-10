@@ -88,7 +88,7 @@ impl Scope {
             Ok(())
         } else {
             Err(SemanticError::new(
-                format!("Symbol '{}' is already defined in this scope", symbol.name),
+                format!("Variable '{}' is already defined. Use 'change {} to <value>' to modify its value", symbol.name, symbol.name),
                 symbol.line,
                 symbol.column,
             ))
