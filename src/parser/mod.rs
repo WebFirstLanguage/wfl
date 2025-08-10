@@ -1626,6 +1626,42 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token::Equals => Some((Operator::Equals, 0)),
+                Token::KeywordGreater => {
+                    self.tokens.next(); // Consume "greater"
+
+                    if let Some(than_token) = self.tokens.peek().cloned() {
+                        if matches!(than_token.token, Token::KeywordThan) {
+                            self.tokens.next(); // Consume "than"
+                            Some((Operator::GreaterThan, 0))
+                        } else {
+                            Some((Operator::GreaterThan, 0)) // "greater" without "than" is valid too
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Unexpected end of input after 'greater'".into(),
+                            line,
+                            column,
+                        ));
+                    }
+                }
+                Token::KeywordLess => {
+                    self.tokens.next(); // Consume "less"
+
+                    if let Some(than_token) = self.tokens.peek().cloned() {
+                        if matches!(than_token.token, Token::KeywordThan) {
+                            self.tokens.next(); // Consume "than"
+                            Some((Operator::LessThan, 0))
+                        } else {
+                            Some((Operator::LessThan, 0)) // "less" without "than" is valid too
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Unexpected end of input after 'less'".into(),
+                            line,
+                            column,
+                        ));
+                    }
+                }
                 Token::KeywordIs => {
                     self.tokens.next(); // Consume "is"
 
@@ -2789,6 +2825,23 @@ impl<'a> Parser<'a> {
                                 ));
                             }
                         }
+                        Token::LeftBracket => {
+                            self.tokens.next(); // Consume '['
+
+                            let index = self.parse_expression()?;
+
+                            self.expect_token(
+                                Token::RightBracket,
+                                "Expected ']' after array index",
+                            )?;
+
+                            expr = Expression::IndexAccess {
+                                collection: Box::new(expr),
+                                index: Box::new(index),
+                                line: token.line,
+                                column: token.column,
+                            };
+                        }
                         _ => break,
                     }
                 }
@@ -2975,7 +3028,10 @@ impl<'a> Parser<'a> {
 
         while let Some(token) = self.tokens.peek().cloned() {
             match &token.token {
-                Token::KeywordOtherwise | Token::KeywordEnd => {
+                Token::KeywordOtherwise
+                | Token::KeywordElif
+                | Token::KeywordElse
+                | Token::KeywordEnd => {
                     break;
                 }
                 _ => match self.parse_statement() {
@@ -2985,9 +3041,47 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Handle the "otherwise" clause (else block)
+        // Handle elif/else clauses
+        let mut elif_branches = Vec::new();
+
+        // Parse elif branches
+        while let Some(token) = self.tokens.peek() {
+            if matches!(token.token, Token::KeywordElif) {
+                self.tokens.next(); // Consume "elif"
+
+                let elif_condition = self.parse_expression()?;
+
+                if let Some(token) = self.tokens.peek()
+                    && matches!(token.token, Token::Colon)
+                {
+                    self.tokens.next(); // Consume the colon if present
+                }
+
+                let mut elif_block = Vec::new();
+                while let Some(token) = self.tokens.peek().cloned() {
+                    match &token.token {
+                        Token::KeywordOtherwise
+                        | Token::KeywordElif
+                        | Token::KeywordElse
+                        | Token::KeywordEnd => {
+                            break;
+                        }
+                        _ => match self.parse_statement() {
+                            Ok(stmt) => elif_block.push(stmt),
+                            Err(e) => return Err(e),
+                        },
+                    }
+                }
+
+                elif_branches.push((elif_condition, elif_block));
+            } else {
+                break;
+            }
+        }
+
+        // Handle the "otherwise"/"else" clause (else block)
         let else_block = if let Some(token) = self.tokens.peek() {
-            if matches!(token.token, Token::KeywordOtherwise) {
+            if matches!(token.token, Token::KeywordOtherwise | Token::KeywordElse) {
                 self.tokens.next(); // Consume "otherwise"
 
                 if let Some(token) = self.tokens.peek()
@@ -3055,10 +3149,31 @@ impl<'a> Parser<'a> {
             ));
         }
 
+        // Convert elif branches into nested if-else structures
+        let final_else_block = if !elif_branches.is_empty() {
+            let mut current_else = else_block;
+
+            // Build nested if-else from the last elif to first
+            for (elif_condition, elif_block) in elif_branches.into_iter().rev() {
+                let nested_if = Statement::IfStatement {
+                    condition: elif_condition,
+                    then_block: elif_block,
+                    else_block: current_else,
+                    line: check_token.line,
+                    column: check_token.column,
+                };
+                current_else = Some(vec![nested_if]);
+            }
+
+            current_else
+        } else {
+            else_block
+        };
+
         Ok(Statement::IfStatement {
             condition,
             then_block,
-            else_block,
+            else_block: final_else_block,
             line: check_token.line,
             column: check_token.column,
         })
@@ -4748,7 +4863,30 @@ impl<'a> Parser<'a> {
     fn parse_push_statement(&mut self) -> Result<Statement, ParseError> {
         let push_token = self.tokens.next().unwrap(); // Consume "push"
 
-        self.expect_token(Token::KeywordWith, "Expected 'with' after 'push'")?;
+        // Support both "push with" and "push of" syntax
+        if let Some(token) = self.tokens.peek() {
+            match &token.token {
+                Token::KeywordWith => {
+                    self.tokens.next(); // Consume "with"
+                }
+                Token::KeywordOf => {
+                    self.tokens.next(); // Consume "of"
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        "Expected 'with' or 'of' after 'push'".to_string(),
+                        push_token.line,
+                        push_token.column,
+                    ));
+                }
+            }
+        } else {
+            return Err(ParseError::new(
+                "Expected 'with' or 'of' after 'push'".to_string(),
+                push_token.line,
+                push_token.column,
+            ));
+        }
 
         // Parse the list expression but limit it to just the primary expression
         let list_expr = self.parse_primary_expression()?;

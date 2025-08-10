@@ -107,6 +107,22 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Text(Rc::from(substring)))
 }
 
+pub fn native_startswith(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("startswith expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let prefix = expect_text(&args[1])?;
+
+    let result = text.starts_with(&*prefix);
+    Ok(Value::Bool(result))
+}
+
 pub fn register_text(env: &mut Environment) {
     env.define("length", Value::NativeFunction("length", native_length));
     env.define(
@@ -124,6 +140,10 @@ pub fn register_text(env: &mut Environment) {
     env.define(
         "substring",
         Value::NativeFunction("substring", native_substring),
+    );
+    env.define(
+        "startswith",
+        Value::NativeFunction("startswith", native_startswith),
     );
 
     env.define(

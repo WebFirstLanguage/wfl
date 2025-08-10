@@ -734,6 +734,7 @@ async fn main() -> io::Result<()> {
                 let mut interpreter = Interpreter::with_timeout(config.timeout_seconds);
                 interpreter.set_step_mode(step_mode); // Set step mode from CLI flag
                 interpreter.set_script_args(script_args); // Pass script arguments
+                interpreter.set_script_path(&file_path); // Set script path for program_name
 
                 if step_mode {
                     println!("Boot phase: Configuration loaded");

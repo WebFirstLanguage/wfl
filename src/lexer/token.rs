@@ -19,6 +19,10 @@ pub enum Token {
     KeywordCheck,
     #[token("otherwise")]
     KeywordOtherwise,
+    #[token("elif")]
+    KeywordElif,
+    #[token("else")]
+    KeywordElse,
     #[token("then")]
     KeywordThen,
     #[token("end")]

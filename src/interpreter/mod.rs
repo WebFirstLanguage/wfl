@@ -184,6 +184,7 @@ pub struct Interpreter {
     io_client: Rc<IoClient>,
     step_mode: bool,          // Controls single-step execution mode
     script_args: Vec<String>, // Command-line arguments passed to the script
+    script_path: String,      // Path to the script being executed
 }
 
 #[allow(dead_code)]
@@ -477,8 +478,9 @@ impl Interpreter {
             max_duration: Duration::from_secs(u64::MAX), // Effectively no timeout by default
             call_stack: RefCell::new(Vec::new()),
             io_client: Rc::new(IoClient::new()),
-            step_mode: false,        // Default to non-step mode
-            script_args: Vec::new(), // Initialize empty, will be set later
+            step_mode: false,           // Default to non-step mode
+            script_args: Vec::new(),    // Initialize empty, will be set later
+            script_path: String::new(), // Initialize empty, will be set later
         }
     }
 
@@ -495,6 +497,10 @@ impl Interpreter {
 
     pub fn set_script_args(&mut self, args: Vec<String>) {
         self.script_args = args;
+    }
+
+    pub fn set_script_path(&mut self, path: &str) {
+        self.script_path = path.to_string();
     }
 
     fn dump_state(
@@ -698,6 +704,27 @@ impl Interpreter {
 
             // Store argument count
             env.define("arg_count", Value::Number(self.script_args.len() as f64));
+
+            // Store program name (use the script filename or "wfl" if not available)
+            let program_name = if !self.script_path.is_empty() {
+                std::path::Path::new(&self.script_path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("wfl")
+                    .to_string()
+            } else {
+                "wfl".to_string()
+            };
+            env.define("program_name", Value::Text(Rc::from(program_name.as_str())));
+
+            // Store current directory
+            let current_dir = std::env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| ".".to_string());
+            env.define(
+                "current_directory",
+                Value::Text(Rc::from(current_dir.as_str())),
+            );
 
             // Store flags as individual variables with flag_ prefix
             for (key, value) in flags_map {
@@ -2345,8 +2372,7 @@ impl Interpreter {
                         if !container_methods.contains_key(action_name) {
                             return Err(RuntimeError::new(
                                 format!(
-                                    "Container '{}' must implement action '{}' from interface '{}'",
-                                    name, action_name, interface_name
+                                    "Container '{name}' must implement action '{action_name}' from interface '{interface_name}'"
                                 ),
                                 *line,
                                 *column,
