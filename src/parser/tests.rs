@@ -592,7 +592,9 @@ end pattern"#;
     }
 }
 
-#[test]
+/// Tests parsing of a pattern definition with alternative patterns.
+///
+/// Verifies that the parser correctly recognizes a pattern definition containing an alternative between two string literals, ensuring the resulting AST represents an `Alternative` with the expected literals.
 fn test_parse_alternative_pattern() {
     let input = r#"create pattern greeting:
     "hello" or "hi"
@@ -631,6 +633,16 @@ end pattern"#;
     }
 }
 
+/// Tests that chained binary operations are parsed as left-associative.
+///
+/// Parses the statement `"store result as 1 plus 2 plus 3"` and asserts that the resulting AST represents the expression as `(1 + 2) + 3`, confirming correct left-associativity of binary operations.
+///
+/// # Examples
+///
+/// ```
+/// test_chained_binary_operations_parsing();
+/// // Should not panic; verifies AST structure for left-associativity.
+/// ```
 #[test]
 fn test_chained_binary_operations_parsing() {
     let input = "store result as 1 plus 2 plus 3";
@@ -696,7 +708,15 @@ fn test_chained_binary_operations_parsing() {
     println!("✅ Parsing test passed - AST structure is correct for left-associativity");
 }
 
-#[test]
+/// Prints the token sequence generated from lexing a sample input string for debugging purposes.
+///
+/// This test lexes the input `"store result as 1 plus 2 plus 3"` and outputs each token with its index to the console.
+///
+/// # Examples
+///
+/// ```
+/// debug_token_sequence(); // Prints the token sequence for inspection
+/// ```
 fn debug_token_sequence() {
     let input = "store result as 1 plus 2 plus 3";
     let tokens = lex_wfl_with_positions(input);
