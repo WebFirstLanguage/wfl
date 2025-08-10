@@ -946,7 +946,16 @@ impl<'a> Parser<'a> {
                 if let Some(type_token) = self.tokens.peek() {
                     if let Token::Identifier(type_name) = &type_token.token {
                         self.tokens.next(); // Consume type name
-                        Some(Type::Custom(type_name.clone()))
+                        let parsed_type = match type_name.to_lowercase().as_str() {
+                            "text" => Type::Text,
+                            "number" => Type::Number,
+                            "boolean" | "bool" => Type::Boolean,
+                            "list" => Type::List(Box::new(Type::Any)),
+                            "any" => Type::Any,
+                            "nothing" | "null" => Type::Nothing,
+                            _ => Type::Custom(type_name.clone()),
+                        };
+                        Some(parsed_type)
                     } else {
                         return Err(ParseError::new(
                             "Expected type name after ':'".to_string(),
@@ -3420,11 +3429,11 @@ impl<'a> Parser<'a> {
                             if let Token::Identifier(type_name) = &type_token.token {
                                 self.tokens.next();
 
-                                let typ = match type_name.as_str() {
+                                let typ = match type_name.to_lowercase().as_str() {
                                     "text" => Type::Text,
                                     "number" => Type::Number,
-                                    "boolean" => Type::Boolean,
-                                    "nothing" => Type::Nothing,
+                                    "boolean" | "bool" => Type::Boolean,
+                                    "nothing" | "null" => Type::Nothing,
                                     _ => Type::Custom(type_name.clone()),
                                 };
 
@@ -3500,11 +3509,11 @@ impl<'a> Parser<'a> {
                         if let Token::Identifier(type_name) = &type_token.token {
                             self.tokens.next();
 
-                            let typ = match type_name.as_str() {
+                            let typ = match type_name.to_lowercase().as_str() {
                                 "text" => Type::Text,
                                 "number" => Type::Number,
-                                "boolean" => Type::Boolean,
-                                "nothing" => Type::Nothing,
+                                "boolean" | "bool" => Type::Boolean,
+                                "nothing" | "null" => Type::Nothing,
                                 _ => Type::Custom(type_name.clone()),
                             };
 

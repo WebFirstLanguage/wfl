@@ -1,6 +1,6 @@
 === WFL Debug Report ===
 Script: containers_comprehensive.wfl
-Time: 2025-08-10 13:56:25
+Time: 2025-08-10 14:12:28
 
 === Error Summary ===
 Runtime error at line 123, column 9: Event 'on_click' not found
