@@ -55,7 +55,7 @@ Internal technical documentation for contributors and advanced users:
 - **[Lexer Fix Details](technical/wfl-lexer-fix-1.md)** - Documentation of lexer improvements
 - **[Parser Design](technical/wfl-parser.md)** - Syntax analysis and AST generation
 - **[Analyzer](technical/wfl-analyzer.md)** - Semantic analysis
-- **[Type Checker](technical/wfl-staticTypeChecker.md)** - Static type analysis system
+- **[Type Checker](technical/wfl-static-type-checker.md)** - Static type analysis system
 - **[Interpreter Design](technical/wfl-interpreter.md)** - AST execution and runtime
 - **[Bytecode System](technical/wfl-bytecode.md)** - Bytecode compilation and VM
 
@@ -65,7 +65,7 @@ Internal technical documentation for contributors and advanced users:
 - **[Logging System](technical/wfl-logging.md)** - Structured logging
 - **[Step Debugging](technical/wfl-step.md)** - Step-by-step execution
 - **[Version Management](technical/wfl-version.md)** - Version numbering and releases
-- **[Memory Profiling](technical/memory_profiling.md)** - Performance analysis
+- **[Memory Profiling](technical/memory-profiling.md)** - Performance analysis
 - **[OOP Design](technical/wfl-oop-design.md)** - Object-oriented programming architecture
 
 ### Architecture
@@ -123,8 +123,11 @@ When adding new documentation:
 - **Language Reference:** 10 comprehensive guides
 - **User Guides:** 9 tutorials and how-tos
 - **API Documentation:** 10 module references
-- **Technical Docs:** 14 internal documents
-- **Total Documentation:** 40+ organized documents
+- **Technical Docs:** 15 internal documents  
+- **Dev Notes:** 7 development documents
+- **Total Documentation:** 51 organized documents
+
+*Last updated: August 2025*
 
 ---
 

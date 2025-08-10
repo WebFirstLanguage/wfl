@@ -2491,9 +2491,36 @@ impl<'a> Parser<'a> {
                     match &token.token {
                         // Support direct index access: listName index (e.g., states 1)
                         Token::IntLiteral(index) => {
-                            // Check if this could be an index access (for variables and other collections)
-                            // We only treat it as index access if the expression is a variable or another indexable type
-                            if matches!(expr, Expression::Variable(_, _, _) | Expression::IndexAccess { .. } | Expression::FunctionCall { .. }) {
+                            // Only treat as index access for specific base kinds and when on the same source line
+                            if matches!(
+                                expr,
+                                Expression::Variable(_, _, _)
+                                    | Expression::IndexAccess { .. }
+                                    | Expression::FunctionCall { .. }
+                                    | Expression::PropertyAccess { .. }
+                                    | Expression::MethodCall { .. }
+                            ) {
+                                // Extract base expr span for anchoring
+                                let (base_line, base_col) = match &expr {
+                                    Expression::Variable(_, line, col)
+                                    | Expression::IndexAccess {
+                                        line, column: col, ..
+                                    }
+                                    | Expression::FunctionCall {
+                                        line, column: col, ..
+                                    }
+                                    | Expression::PropertyAccess {
+                                        line, column: col, ..
+                                    }
+                                    | Expression::MethodCall {
+                                        line, column: col, ..
+                                    } => (*line, *col),
+                                    _ => (token.line, token.column),
+                                };
+                                // Guard: require same line to avoid cross-line capture
+                                if token.line != base_line {
+                                    break;
+                                }
                                 self.tokens.next(); // Consume the number
                                 expr = Expression::IndexAccess {
                                     collection: Box::new(expr),
@@ -2502,12 +2529,11 @@ impl<'a> Parser<'a> {
                                         token.line,
                                         token.column,
                                     )),
-                                    line: token.line,
-                                    column: token.column,
+                                    line: base_line,
+                                    column: base_col,
                                 };
                             } else {
-                                // Not an index access, stop parsing postfix operators
-                                break;
+                                break; // Not an index access; stop parsing postfix operators
                             }
                         }
                         Token::KeywordOf => {

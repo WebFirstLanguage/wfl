@@ -173,6 +173,57 @@ digit not preceded by "$"
 | `replace` | Replace matches | `store new as replace pattern with "X" in text` |
 | `split` | Split by pattern | `store parts as split text on pattern delimiter` |
 
+#### find_all Function
+
+The `find_all` function finds all non-overlapping matches of a pattern in text and returns a list containing all matches with their capture groups.
+
+**Syntax:**
+```wfl
+store results as find_all pattern_name in text_value
+```
+
+**Return Type:** List of match objects, where each match contains:
+- `match`: The full text that matched the pattern
+- `captures`: Map of named capture groups to their values
+- `position`: Starting position of the match in the original text
+
+**Example:**
+```wfl
+create pattern phone_number:
+    capture area: exactly 3 digit
+    "-"
+    capture exchange: exactly 3 digit
+    "-"
+    capture number: exactly 4 digit
+end pattern
+
+store text as "Call 555-123-4567 or 555-987-6543 for help"
+store all_phones as find_all phone_number in text
+
+count from each phone in all_phones:
+    display "Found phone: " with phone.match
+    display "Area code: " with phone.captures.area
+    display "Exchange: " with phone.captures.exchange
+    display "Number: " with phone.captures.number
+end count
+
+// Output:
+// Found phone: 555-123-4567
+// Area code: 555
+// Exchange: 123
+// Number: 4567
+// Found phone: 555-987-6543
+// Area code: 555
+// Exchange: 987
+// Number: 6543
+```
+
+**Behavior:**
+- Returns an empty list if no matches are found
+- Matches do not overlap - after finding a match, search continues after the end of that match
+- Capture groups that don't participate in a match contain `nothing`
+- Matches are returned in the order they appear in the text
+
 ### Standard Library Patterns
 
 WFL includes pre-built patterns for common use cases:
@@ -460,10 +511,10 @@ end pattern
 // Arabic phone number
 create pattern arabic_phone:
     optional "+"
-    optional unicode script "Arabic-Indic"  // ٠-٩
-    exactly 3 (unicode script "Arabic-Indic" or digit)
+    // Allow Arabic-Indic digits (٠١٢٣٤٥٦٧٨٩) or ASCII digits
+    exactly 3 (any of "٠١٢٣٤٥٦٧٨٩" or digit)
     "-"
-    exactly 7 (unicode script "Arabic-Indic" or digit)
+    exactly 7 (any of "٠١٢٣٤٥٦٧٨٩" or digit)
 end pattern
 ```
 

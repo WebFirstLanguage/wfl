@@ -830,7 +830,92 @@ WFL abstracts away manual memory management, providing automatic memory handling
 
 - **Memory Model for Concurrency:** Since WFL supports async and possibly parallel tasks, one might wonder about memory consistency across threads. If WFL is single-threaded (like JavaScript event loop style), there’s no race condition issue. If it allows multi-threading (not explicitly indicated, likely not at the language level beyond async tasks that run concurrently but maybe still on one thread or using worker threads), the memory model would need to ensure thread-safe GC and possibly that shared data is synchronized. However, given the focus is on simplicity, WFL might abstract concurrency as asynchronous tasks in a single thread or cooperative multi-tasking. So we likely don’t have to specify a low-level memory model for threads (no atomic or volatile in WFL at the language level).
 
-In conclusion, WFL uses a **managed memory approach** – either garbage collection or similar automatic reclamation – to handle memory safely. Developers can allocate freely (create lists, records, etc.) and trust the system to clean up. The absence of manual memory chores aligns with WFL’s goal of letting programmers focus on logic and not on pitfalls of memory management.
+In conclusion, WFL uses a **managed memory approach** – either garbage collection or similar automatic reclamation – to handle memory safely. Developers can allocate freely (create lists, records, etc.) and trust the system to clean up. The absence of manual memory chores aligns with WFL's goal of letting programmers focus on logic and not on pitfalls of memory management.
+
+### Pattern Matching System
+
+WFL provides a comprehensive pattern matching system that uses natural language constructs to define text patterns, validate input, and extract data. The pattern matching system is formally specified with the following characteristics:
+
+#### Pattern Creation and Types
+
+Pattern definitions use declarative `create pattern` blocks that compile to efficient bytecode:
+
+```ebnf
+PatternDecl ::= "create pattern" <PatternName> ":" <PatternBody> "end pattern"
+PatternBody ::= <PatternExpression>+
+PatternExpression ::= <Quantifier> | <CharacterClass> | <Anchor> | <Group> | <Literal>
+```
+
+#### Capture Groups and Typing
+
+**Capture Group Semantics:** All capture groups in WFL patterns yield `Option<Text>` types, which represent either a captured text value or `nothing` if the group did not participate in the match:
+
+```wfl
+create pattern phone_pattern:
+    capture area_code: exactly 3 digit
+    "-"
+    capture exchange: exactly 3 digit
+    "-"
+    capture number: exactly 4 digit
+end pattern
+
+// Usage with flow-sensitive typing
+store result as find phone_pattern in user_input
+if result is not nothing:
+    // Within this block, result is known to contain captures
+    store area as result.area_code    // Type: Option<Text>
+    if area is not nothing:
+        // Within this nested block, area is refined to Text
+        display "Area code: " with area
+    end if
+end if
+```
+
+**Flow-Sensitive Type Analysis:** The type checker performs flow-sensitive analysis on pattern match results. Within conditional blocks that test for successful matches, captured values are automatically refined from `Option<Text>` to `Text` when null checks are performed.
+
+#### Unicode Property Support
+
+**Unicode Categories:** WFL supports matching by Unicode categories using the `unicode category` construct:
+
+```wfl
+create pattern international_digits:
+    one or more unicode category "Decimal_Number"
+end pattern
+```
+
+**Unicode Scripts:** Script-based matching uses the `unicode script` construct:
+
+```wfl
+create pattern arabic_text:
+    one or more unicode script "Arabic"
+end pattern
+```
+
+**Property Semantics:** Unicode property matching follows the Unicode Standard specifications. Categories include Letter, Number, Symbol, Punctuation, etc. Scripts include Latin, Arabic, Han, Cyrillic, etc. Invalid property names result in compile-time errors with suggested corrections.
+
+#### Performance Protection Systems
+
+**Backtracking Guards:** WFL's pattern matching engine includes built-in protection against catastrophic backtracking:
+
+1. **Step Counting:** Pattern matching operations are limited to a maximum number of backtracking steps (default: 1,000,000 steps). When exceeded, the pattern fails gracefully with a performance warning.
+
+2. **Recursion Depth Limits:** Nested pattern constructs (groups, alternations, quantifiers) are limited to a maximum depth (default: 100 levels) to prevent stack overflow.
+
+3. **Time Limits:** Pattern matching operations have configurable time limits (default: 5 seconds) to prevent indefinite execution.
+
+**Performance Configuration:** Applications can configure these limits using pattern options:
+
+```wfl
+create pattern complex_pattern with options:
+    max_steps: 500000
+    max_depth: 50
+    timeout: 10 seconds
+    // pattern definition follows
+    ...
+end pattern
+```
+
+**Error Handling:** When performance limits are exceeded, WFL returns a specific error type (`PatternPerformanceError`) that applications can handle gracefully without crashing.
 
 ## Conclusion  
 The WebFirst Language brings together the above syntax and semantic rules to create a programming experience that is both beginner-friendly and powerful. Its formal grammar is defined to enforce consistency (so that tools can parse and compile it), but every rule in the grammar corresponds to a readable English-like construct. From **variables** (“Let X be Y” style declarations) to **control flow** (if/else and loops that read like instructions), **functions** (actions defined and called in descriptive ways), and **error handling** (“try ... when ...” blocks that narrate failure cases), WFL stays true to its guiding philosophy of **natural-language alignment, minimal symbols, clarity, and safety**. 

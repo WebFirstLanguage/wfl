@@ -562,7 +562,7 @@ end pattern
 
 If you encounter migration issues:
 
-1. **Check Documentation:** Review the [Pattern Guide](wfl-pattern-guide.md) and [Unicode Patterns](wfl-unicode-patterns.md)
+1. **Check Documentation:** Review the [Pattern Reference](../language-reference/wfl-patterns.md) and [Standard Library Patterns](../api/wfl-standard-library.md)
 2. **Test Incrementally:** Migrate patterns one at a time
 3. **Use Debug Mode:** Run patterns with `--debug` flag to see execution traces
 4. **Create Minimal Examples:** Isolate problematic patterns for testing
