@@ -1171,13 +1171,21 @@ impl TypeChecker {
                 }
             }
             Statement::InterfaceDefinition {
-                name: _name,
+                name,
                 extends: _extends,
                 required_actions: _required_actions,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
-                // Interface type registration would be handled by analyzer
+                // Register the interface as a symbol (using Variable kind as a workaround)
+                let interface_symbol = crate::analyzer::Symbol {
+                    name: name.clone(),
+                    kind: crate::analyzer::SymbolKind::Variable { mutable: false },
+                    symbol_type: Some(Type::Interface(name.clone())),
+                    line: *line,
+                    column: *column,
+                };
+                let _ = self.analyzer.define_symbol(interface_symbol);
             }
             Statement::EventDefinition {
                 name: _name,

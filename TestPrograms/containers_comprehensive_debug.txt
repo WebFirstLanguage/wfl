@@ -1,19 +1,19 @@
 === WFL Debug Report ===
-Script: containers_comprehensive.wfl
-Time: 2025-08-10 14:12:28
+Script: TestPrograms/containers_comprehensive.wfl
+Time: 2025-08-10 14:22:59
 
 === Error Summary ===
-Runtime error at line 123, column 9: Event 'on_click' not found
+Runtime error at line 210, column 1: Method 'shed_fur' not found in container 'Dog'
 
 === Stack Trace ===
-In main script at line 123, column 9
+In main script at line 210, column 1
 
 === Source Code ===
-   121:         store clicked as clicked + 1
-   122:         display "Button '" with label with "' clicked " with clicked with " times"
->> 123:         trigger on_click
-   124:     end
-   125:     
+   208: 
+   209: buddy.make_sound()
+>> 210: buddy.shed_fur()
+   211: buddy.fetch()
+   212: display ""
 
 === Local Variables ===
 (No local variables in global scope)

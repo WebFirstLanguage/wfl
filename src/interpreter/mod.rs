@@ -2252,7 +2252,7 @@ impl Interpreter {
                 implements,
                 properties,
                 methods,
-                events: _events,
+                events,
                 static_properties: _static_properties,
                 static_methods: _static_methods,
                 line,
@@ -2261,6 +2261,7 @@ impl Interpreter {
                 // Create a new container definition
                 let mut container_properties = HashMap::new();
                 let mut container_methods = HashMap::new();
+                let mut container_events = HashMap::new();
 
                 for prop in properties {
                     let property_type_str = prop
@@ -2313,13 +2314,57 @@ impl Interpreter {
                     }
                 }
 
+                // Process events from the AST
+                for event in events {
+                    let event_value = ContainerEventValue {
+                        name: event.name.clone(),
+                        params: event.parameters.iter().map(|p| p.name.clone()).collect(),
+                        handlers: Vec::new(),
+                        line: event.line,
+                        column: event.column,
+                    };
+                    container_events.insert(event.name.clone(), event_value);
+                }
+
+                // Validate interface implementations
+                for interface_name in implements {
+                    // Look up the interface definition
+                    let interface_def = match env.borrow().get(interface_name) {
+                        Some(Value::InterfaceDefinition(def)) => def.clone(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!("Interface '{interface_name}' not found"),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    };
+
+                    // Check that all required actions are implemented
+                    for action_name in interface_def.required_actions.keys() {
+                        if !container_methods.contains_key(action_name) {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Container '{}' must implement action '{}' from interface '{}'",
+                                    name, action_name, interface_name
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+
+                        // TODO: Also validate that the method signature matches
+                        // This would require comparing parameters and return types
+                    }
+                }
+
                 let container_def = ContainerDefinitionValue {
                     name: name.clone(),
                     extends: extends.clone(),
                     implements: implements.clone(),
                     properties: container_properties,
                     methods: container_methods,
-                    events: HashMap::new(),            // Future feature
+                    events: container_events,
                     static_properties: HashMap::new(), // Future feature
                     static_methods: HashMap::new(),    // Future feature
                     line: *line,
@@ -2862,8 +2907,34 @@ impl Interpreter {
                         }
                     };
 
-                    // Look up the method
-                    if let Some(method_val) = container_def.methods.get(method) {
+                    // Look up the method in the container or its parents
+                    let mut method_val = container_def.methods.get(method).cloned();
+                    let mut current_container_type = container_type.clone();
+
+                    // If not found in immediate container, search up the inheritance chain
+                    while method_val.is_none() {
+                        // Check if this container has a parent
+                        let current_def = match env.borrow().get(&current_container_type) {
+                            Some(Value::ContainerDefinition(def)) => def.clone(),
+                            _ => break,
+                        };
+
+                        if let Some(parent_type) = &current_def.extends {
+                            // Look up the parent container
+                            let parent_def = match env.borrow().get(parent_type) {
+                                Some(Value::ContainerDefinition(def)) => def.clone(),
+                                _ => break,
+                            };
+
+                            // Check if the parent has the method
+                            method_val = parent_def.methods.get(method).cloned();
+                            current_container_type = parent_type.clone();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if let Some(method_val) = method_val {
                         // Create a new environment for the method execution
                         let method_env = Environment::new_child_env(&env);
 
@@ -2875,6 +2946,12 @@ impl Interpreter {
                             method_env
                                 .borrow_mut()
                                 .define(prop_name, prop_value.clone());
+                        }
+
+                        // Add container events to the method environment
+                        for (event_name, event_def) in &container_def.events {
+                            let event_value = Value::ContainerEvent(Rc::new(event_def.clone()));
+                            method_env.borrow_mut().define(event_name, event_value);
                         }
 
                         // Create a function value from the method with the proper environment
