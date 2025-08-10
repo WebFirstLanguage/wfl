@@ -1,0 +1,128 @@
+// Comprehensive Basic Syntax Test - WFL
+// Consolidates: hello.wfl, simple_test.wfl, variable_*.wfl, count_*.wfl, type_test.wfl
+
+define action called main:
+    display "=== WFL Basic Syntax Comprehensive Test ==="
+    display ""
+end action
+
+// === Basic Hello World ===
+display "1. Hello World Test"
+display "Hello, World!"
+display ""
+
+// === Variable Declaration and Usage ===
+display "2. Variable Tests"
+store user name as "Alice"
+store user age as 28
+store is_active as yes
+store balance as 123.45
+store nothing_value as nothing
+
+display "Name: " with user name
+display "Age: " with user age
+display "Active: " with is_active
+display "Balance: " with balance
+display "Nothing value: " with nothing_value
+display ""
+
+// === Type Testing ===
+display "3. Type System Tests"
+display "Type of name: " with typeof of user name
+display "Type of age: " with typeof of user age
+display "Type of is_active: " with typeof of is_active
+display "Type of balance: " with typeof of balance
+display "Type of nothing_value: " with typeof of nothing_value
+display ""
+
+// === Variable Redefinition ===
+display "4. Variable Redefinition Test"
+store test var as "original"
+display "Before: " with test var
+store test var as "modified"
+display "After: " with test var
+display ""
+
+// === Conditional Statements ===
+display "5. Conditional Tests"
+check if user name is "Alice":
+    display "✓ Conditional: Alice detected correctly"
+otherwise:
+    display "✗ Conditional: Failed to detect Alice"
+end check
+
+check if user age is greater than 25:
+    display "✓ Conditional: Age check passed"
+otherwise:
+    display "✗ Conditional: Age check failed"
+end check
+
+check if is_active:
+    display "✓ Conditional: Boolean check passed"
+otherwise:
+    display "✗ Conditional: Boolean check failed"
+end check
+display ""
+
+// === Loop Tests ===
+display "6. Loop Tests"
+
+display "Count loop from 1 to 5:"
+count from 1 to 5:
+    display "  Count: " with count
+end count
+
+display "Count loop with step:"
+count from 0 to 10 by 2:
+    display "  Even: " with count
+end count
+
+display "Loop variable test:"
+count from 1 to 3:
+    store loop_message as "Iteration " with count
+    display "  " with loop_message
+end count
+display ""
+
+// === List Operations ===
+display "7. List Tests"
+create list fruits:
+    add "apple"
+    add "banana"
+    add "orange"
+end list
+
+display "Created list:"
+for each fruit in fruits:
+    display "  - " with fruit
+end for
+
+store my numbers as [1 and 2 and 3 and 4 and 5]
+display "Number list: " with my numbers
+display "List length: " with length of my numbers
+display ""
+
+// === Text Operations ===
+display "8. Text Operations"
+store welcome as "Welcome to WFL"
+display "Original: " with welcome
+display "Uppercase: " with touppercase of welcome
+display "Lowercase: " with tolowercase of welcome
+display "Length: " with length of welcome
+display "Length of welcome: " with length of welcome
+display "Substring (0,7): " with substring of welcome and 0 and 7
+display ""
+
+// === Mathematical Operations ===
+display "9. Mathematical Operations"
+store x as 10
+store y as 3
+display "x = " with x with ", y = " with y
+store negative_number as 0 - 5
+display "abs of negative = " with abs of negative_number
+display "round(3.7) = " with round of 3.7
+display "floor(3.7) = " with floor of 3.7
+display "ceil(3.2) = " with ceil of 3.2
+display ""
+
+display "=== Basic Syntax Tests Completed ==="

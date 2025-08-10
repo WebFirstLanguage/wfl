@@ -1,0 +1,213 @@
+// Comprehensive File I/O Test - WFL
+// Consolidates: fileIO.wfl, fileIO_fixed.wfl, simple_file_test.wfl, file_*.wfl, filesystem_*.wfl, directory_*.wfl
+
+display "=== WFL File I/O Comprehensive Test ==="
+display ""
+
+// === Basic File Operations ===
+display "1. Basic File Write/Read Test"
+open file at "test_output.txt" as test_file
+
+// Write content using wait for syntax
+wait for write content "Hello, World!" into test_file
+wait for append content "Line 2" with "\n" into test_file  
+wait for append content "Line 3 with more text" with "\n" into test_file
+
+// Close the file
+close file test_file
+display "✓ File write operations completed"
+
+// Read the file back
+open file at "test_output.txt" for reading as read_file
+wait for store file_content as read content from read_file
+close file read_file
+
+display "File contents:"
+display file_content
+display ""
+
+// === File CRUD Operations ===
+display "2. File CRUD Test"
+
+// Create a new file
+open file at "crud_test.txt" as crud_file
+wait for write content "Initial content" into crud_file
+close file crud_file
+display "✓ File created"
+
+// Update the file  
+open file at "crud_test.txt" for writing as update_file
+wait for write content "Updated content\nSecond line\nThird line" into update_file
+close file update_file
+display "✓ File updated"
+
+// Read the updated file
+open file at "crud_test.txt" for reading as read_crud
+wait for store updated_content as read content from read_crud
+close file read_crud
+display "Updated file contents:"
+display updated_content
+
+// Delete the file (if delete operation exists)
+// delete file at "crud_test.txt"
+display "✓ File operations completed"
+display ""
+
+// === Directory Operations ===
+display "3. Directory Listing Test"
+
+// List files in current directory  
+wait for store current_files as list files in "."
+display "Files in current directory:"
+for each file in current_files:
+    display "  - " with file
+end for
+display ""
+
+// Test directory listing with pattern (if supported)
+wait for store wfl_files as list files in "." with pattern "*.wfl"
+display "WFL files in current directory:"
+for each wfl_file in wfl_files:
+    display "  - " with wfl_file  
+end for
+display ""
+
+// === Advanced File Operations ===
+display "4. Advanced File Operations"
+
+// Test file existence
+store file_exists as file exists at "test_output.txt"
+display "test_output.txt exists: " with file_exists
+
+store missing_exists as file exists at "nonexistent.txt"
+display "nonexistent.txt exists: " with missing_exists
+
+// Test file size (if available)
+wait for store file_size as size of file at "test_output.txt"
+display "File size: " with file_size with " bytes"
+
+// Test file info (if available)
+wait for store file_info as info of file at "test_output.txt"
+display "File info: " with file_info
+display ""
+
+// === Multiple File Extensions Test ===
+display "5. Multiple Extensions File Test"
+
+// Create files with different extensions
+open file at "test.txt" as txt_file
+wait for write content "Text file content" into txt_file
+close file txt_file
+
+open file at "test.log" as log_file  
+wait for write content "Log file content" into log_file
+close file log_file
+
+open file at "test.dat" as dat_file
+wait for write content "Data file content" into dat_file
+close file dat_file
+
+// List all test files
+wait for store test_files as list files in "." with pattern "test.*"
+display "Test files created:"
+for each test_file_name in test_files:
+    display "  - " with test_file_name
+end for
+display ""
+
+// === Recursive Directory Listing ===
+display "6. Recursive Directory Test"
+
+// Test recursive listing (if supported)
+wait for store all_files as list files recursively in "."
+display "All files (recursive) - first 10:"
+store count as 0
+for each recursive_file in all_files:
+    check if count less than 10:
+        display "  - " with recursive_file
+        store count as count + 1
+    end check
+end for
+display ""
+
+// === File Path Operations ===
+display "7. File Path Tests"
+
+// Test path operations (if available)
+store full_path as absolute path of "test_output.txt"
+display "Absolute path: " with full_path
+
+store dir_name as directory of full_path  
+display "Directory: " with dir_name
+
+store file_name as filename of full_path
+display "Filename: " with file_name
+
+store extension as extension of full_path
+display "Extension: " with extension
+display ""
+
+// === Async File Operations ===
+display "8. Async File Operations Test"
+
+// Test multiple async file operations
+open file at "async1.txt" as async_file1
+open file at "async2.txt" as async_file2
+
+wait for write content "Async file 1 content" into async_file1
+wait for write content "Async file 2 content" into async_file2
+
+close file async_file1  
+close file async_file2
+
+display "✓ Async file operations completed"
+display ""
+
+// === File Stream Operations ===
+display "9. File Stream Test"
+
+// Test streaming file operations (if available)
+open file at "stream_test.txt" as stream_file
+
+count from 1 to 5:
+    wait for append content "Stream line " with count with "\n" into stream_file
+end count
+
+close file stream_file
+
+// Read stream back
+open file at "stream_test.txt" for reading as stream_read
+wait for store stream_content as read content from stream_read
+close file stream_read
+
+display "Stream file content:"
+display stream_content
+display ""
+
+// === Error Handling ===
+display "10. File Error Handling Test"
+
+// Try to open non-existent file
+try:
+    open file at "does_not_exist.txt" for reading as missing_file
+    display "✗ This should not execute"
+catch:
+    display "✓ Correctly caught file not found error"
+end try
+
+// Try to write to read-only file (if applicable)
+try:
+    open file at "test_output.txt" for reading as readonly_file
+    wait for write content "This should fail" into readonly_file
+    display "✗ This should not execute"
+catch:
+    display "✓ Correctly caught write to read-only file error"
+finally:
+    close file readonly_file
+end try
+display ""
+
+display "=== File I/O Tests Completed ==="
+display ""
+display "Note: Some advanced operations may not be implemented yet."
+display "Test files created: test_output.txt, crud_test.txt, test.txt, test.log, test.dat, async1.txt, async2.txt, stream_test.txt"

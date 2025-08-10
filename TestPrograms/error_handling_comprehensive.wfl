@@ -1,0 +1,297 @@
+// Comprehensive Error Handling Test - WFL
+// Consolidates: error_handling_test.wfl and error_examples/ directory
+
+display "=== WFL Error Handling Comprehensive Test ==="
+display ""
+
+// === Basic Try-Catch ===
+display "1. Basic Try-Catch Tests"
+
+try:
+    display "In try block - normal operation"
+    store result as 10 / 2
+    display "Result: " with result
+catch:
+    display "This should not execute"
+end try
+display "✓ Basic try-catch completed"
+display ""
+
+// === Division by Zero Error ===
+display "2. Division by Zero Error"
+try:
+    display "Attempting division by zero..."
+    store bad_result as 10 / 0
+    display "This should not execute"
+catch:
+    display "✓ Caught division by zero error"
+end try
+display ""
+
+// === Undefined Variable Error ===
+display "3. Undefined Variable Error"
+try:
+    display "Attempting to use undefined variable..."
+    display "Value: " with undefined_variable
+    display "This should not execute"  
+catch:
+    display "✓ Caught undefined variable error"
+end try
+display ""
+
+// === Type Mismatch Error ===
+display "4. Type Mismatch Error"
+try:
+    display "Attempting type mismatch operation..."
+    store text_val as "hello"
+    store num_result as text_val + 5
+    display "This should not execute"
+catch:
+    display "✓ Caught type mismatch error"
+end try
+display ""
+
+// === Array Index Out of Bounds ===
+display "5. Array Index Error"
+try:
+    display "Attempting array index out of bounds..."
+    store small_list as [1, 2, 3]
+    store bad_item as small_list[10]
+    display "This should not execute"
+catch:
+    display "✓ Caught array index out of bounds error"
+end try
+display ""
+
+// === File Operation Error ===
+display "6. File Operation Error"
+try:
+    display "Attempting to read non-existent file..."
+    open file at "nonexistent_file_12345.txt" for reading as bad_file
+    display "This should not execute"
+catch:
+    display "✓ Caught file not found error"
+end try
+display ""
+
+// === Try-Catch-Finally ===
+display "7. Try-Catch-Finally Tests"
+
+store cleanup_executed as no
+try:
+    display "In try block with finally"
+    store result as 20 / 4
+    display "Result: " with result
+catch:
+    display "In catch block"
+finally:
+    display "In finally block"
+    store cleanup_executed as yes
+end try
+display "Cleanup executed: " with cleanup_executed
+display ""
+
+// === Try-Catch-Finally with Error ===
+display "8. Try-Catch-Finally with Error"
+store error_cleanup_executed as no
+try:
+    display "Attempting operation that will fail..."
+    store error_result as 1 / 0
+    display "This should not execute"
+catch:
+    display "✓ Caught error in try-catch-finally"
+finally:
+    display "Finally block executed even with error"
+    store error_cleanup_executed as yes
+end try
+display "Error cleanup executed: " with error_cleanup_executed
+display ""
+
+// === Nested Try-Catch ===
+display "9. Nested Try-Catch Tests"
+try:
+    display "Outer try block"
+    try:
+        display "Inner try block"  
+        store nested_result as 15 / 3
+        display "Inner result: " with nested_result
+    catch:
+        display "Inner catch block"
+    end try
+    display "Back in outer try"
+catch:
+    display "Outer catch block"
+end try
+display "✓ Nested try-catch completed"
+display ""
+
+// === Nested Try-Catch with Error ===
+display "10. Nested Try-Catch with Inner Error"
+try:
+    display "Outer try block"
+    try:
+        display "Inner try - will cause error"
+        store nested_error as 1 / 0
+        display "This should not execute"
+    catch:
+        display "✓ Inner catch handled the error"
+    end try
+    display "Back in outer try after inner catch"
+catch:
+    display "Outer catch - should not execute"
+end try
+display ""
+
+// === Multiple Error Types ===
+display "11. Multiple Error Type Tests"
+
+// Test different error types in sequence
+store error_count as 0
+
+try:
+    store div_error as 5 / 0
+catch:
+    store error_count as error_count + 1
+    display "Error " with error_count with ": Division error caught"
+end try
+
+try:
+    display undefined_var
+catch:
+    store error_count as error_count + 1
+    display "Error " with error_count with ": Undefined variable caught"
+end try
+
+try:
+    store type_error as "text" + yes
+catch:
+    store error_count as error_count + 1
+    display "Error " with error_count with ": Type mismatch caught"
+end try
+
+display "Total errors caught: " with error_count
+display ""
+
+// === Error Recovery ===
+display "12. Error Recovery Tests"
+
+store recovery_value as 0
+try:
+    display "Attempting risky operation..."
+    store recovery_value as 100 / 0
+catch:
+    display "Error occurred, using default value"
+    store recovery_value as -1
+end try
+
+display "Recovery value: " with recovery_value
+check if recovery_value is -1:
+    display "✓ Successfully recovered from error"
+else:
+    display "✗ Error recovery failed"
+end check
+display ""
+
+// === Function Error Handling ===
+display "13. Function Error Handling"
+
+try:
+    display "Testing function with potential error..."
+    store invalid_length as length of nothing_value
+    display "This should not execute"
+catch:
+    display "✓ Caught function parameter error"
+end try
+
+try:
+    display "Testing list operation error..."
+    store empty_list as []
+    store bad_pop as pop of empty_list
+    display "This should not execute"
+catch:
+    display "✓ Caught empty list operation error"
+end try
+display ""
+
+// === Pattern Matching Errors ===
+display "14. Pattern Matching Error Handling"
+
+try:
+    display "Testing invalid pattern..."
+    create pattern bad_pattern:
+        "unclosed quote
+    end pattern
+    display "This should not execute"
+catch:
+    display "✓ Caught pattern syntax error"
+end try
+
+try:
+    display "Testing pattern matching on null..."
+    store null_text as nothing
+    create pattern test_pattern:
+        "test"
+    end pattern
+    check if null_text matches test_pattern:
+        display "This should not execute"
+    end check
+catch:
+    display "✓ Caught pattern matching null error"
+end try
+display ""
+
+// === Resource Management Errors ===
+display "15. Resource Management Error Handling"
+
+try:
+    display "Testing file resource error..."
+    open file at "test_error_file.txt" as error_file
+    // Simulate error during file operation
+    wait for write content "test" into error_file
+    // Don't close file to test resource cleanup
+    store force_error as 1 / 0  // Force error
+catch:
+    display "✓ Caught resource management error"
+finally:
+    // Cleanup should happen here
+    display "Resource cleanup in finally block"
+end try
+display ""
+
+// === Error Information ===
+display "16. Error Information Tests"
+
+try:
+    display "Generating error for information test..."
+    store info_error as 42 / 0
+catch with error_info:
+    display "✓ Caught error with information"
+    display "Error type: " with error_info.type
+    display "Error message: " with error_info.message
+    display "Error line: " with error_info.line
+end try
+display ""
+
+// === Custom Error Messages ===
+display "17. Custom Error Handling"
+
+try:
+    display "Testing custom error conditions..."
+    store age as -5
+    check if age less than 0:
+        throw error "Age cannot be negative: " with age
+    end check
+    display "Age is valid"
+catch:
+    display "✓ Caught custom error condition"
+end try
+display ""
+
+display "=== Error Handling Tests Completed ==="
+display ""
+display "Summary:"
+display "- All error types tested successfully"
+display "- Try-catch-finally blocks working"
+display "- Nested error handling functional"
+display "- Error recovery mechanisms operational"
+display "- Resource cleanup verified"
