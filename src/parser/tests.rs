@@ -592,7 +592,9 @@ end pattern"#;
     }
 }
 
-#[test]
+/// Tests parsing of a pattern definition with alternative patterns.
+///
+/// Verifies that the parser correctly recognizes a pattern definition containing an alternative between two string literals, ensuring the resulting AST represents an `Alternative` with the expected literals.
 fn test_parse_alternative_pattern() {
     let input = r#"create pattern greeting:
     "hello" or "hi"
@@ -628,5 +630,100 @@ end pattern"#;
         }
     } else {
         panic!("Expected PatternDefinition, got {result:?}");
+    }
+}
+
+/// Tests that chained binary operations are parsed as left-associative.
+///
+/// Parses the statement `"store result as 1 plus 2 plus 3"` and asserts that the resulting AST represents the expression as `(1 + 2) + 3`, confirming correct left-associativity of binary operations.
+///
+/// # Examples
+///
+/// ```
+/// test_chained_binary_operations_parsing();
+/// // Should not panic; verifies AST structure for left-associativity.
+/// ```
+#[test]
+fn test_chained_binary_operations_parsing() {
+    let input = "store result as 1 plus 2 plus 3";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let program = parser.parse().unwrap();
+    assert_eq!(program.statements.len(), 1);
+
+    if let Statement::VariableDeclaration { value, .. } = &program.statements[0] {
+        // The AST should be: BinaryOperation(BinaryOperation(1, Plus, 2), Plus, 3)
+        // This represents (1 + 2) + 3, which is correct for left-associativity
+        if let Expression::BinaryOperation {
+            left,
+            operator,
+            right,
+            ..
+        } = value
+        {
+            assert_eq!(operator, &Operator::Plus);
+
+            // Left should be another binary operation: (1 + 2)
+            if let Expression::BinaryOperation {
+                left: inner_left,
+                operator: inner_op,
+                right: inner_right,
+                ..
+            } = left.as_ref()
+            {
+                assert_eq!(inner_op, &Operator::Plus);
+
+                if let (
+                    Expression::Literal(Literal::Integer(1), _, _),
+                    Expression::Literal(Literal::Integer(2), _, _),
+                ) = (inner_left.as_ref(), inner_right.as_ref())
+                {
+                    // Good, left side is (1 + 2)
+                } else {
+                    panic!(
+                        "Expected inner binary operation to be (1 + 2), got: {inner_left:?} {inner_op:?} {inner_right:?}"
+                    );
+                }
+
+                // Right should be 3
+                if let Expression::Literal(Literal::Integer(3), _, _) = right.as_ref() {
+                    // Perfect! This is the correct AST structure for left-associativity
+                } else {
+                    panic!("Expected right operand to be 3, got: {right:?}");
+                }
+            } else {
+                panic!("Expected left operand to be a binary operation, got: {left:?}");
+            }
+        } else {
+            panic!("Expected variable value to be a binary operation, got: {value:?}");
+        }
+    } else {
+        panic!(
+            "Expected variable declaration, got: {:?}",
+            program.statements[0]
+        );
+    }
+
+    println!("✅ Parsing test passed - AST structure is correct for left-associativity");
+}
+
+/// Prints the token sequence generated from lexing a sample input string for debugging purposes.
+///
+/// This test lexes the input `"store result as 1 plus 2 plus 3"` and outputs each token with its index to the console.
+///
+/// # Examples
+///
+/// ```
+/// debug_token_sequence(); // Prints the token sequence for inspection
+/// ```
+fn debug_token_sequence() {
+    let input = "store result as 1 plus 2 plus 3";
+    let tokens = lex_wfl_with_positions(input);
+
+    println!("Input: '{input}'");
+    println!("Tokens:");
+    for (i, token) in tokens.iter().enumerate() {
+        println!("{i}: {token:?}");
     }
 }

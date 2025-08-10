@@ -1,8 +1,0 @@
-// Simple test program with a count loop that doesn't use the count keyword in expressions
-define action called main:
-    store i as 0
-    count from 1 to 5:
-        store i as i plus 1
-        display "Iteration: " with i
-    end count
-end action

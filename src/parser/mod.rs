@@ -1362,6 +1362,24 @@ impl<'a> Parser<'a> {
         Ok(name_parts.join(" "))
     }
 
+    /// Consumes the next token if it matches the expected token, or returns a parse error with a custom message.
+    ///
+    /// Returns `Ok(())` if the next token matches `expected`. If the next token does not match or if the input is exhausted, returns a `ParseError` with the provided error message and token position.
+    ///
+    /// # Parameters
+    /// - `expected`: The token that is expected next in the input.
+    /// - `error_message`: The message to include in the error if the expectation is not met.
+    ///
+    /// # Returns
+    /// - `Ok(())` if the expected token is found and consumed.
+    /// - `Err(ParseError)` if the next token does not match or if the input ends unexpectedly.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut parser = Parser::new(&tokens);
+    /// parser.expect_token(Token::Colon, "Expected ':' after name")?;
+    /// ```
     fn expect_token(&mut self, expected: Token, error_message: &str) -> Result<(), ParseError> {
         if let Some(token) = self.tokens.peek().cloned() {
             if token.token == expected {
@@ -1386,10 +1404,51 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Returns true if the token following the current position is the keyword "by".
+    ///
+    /// This method is typically used to detect the "divided by" operator sequence without advancing the main token iterator.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Assuming the parser is positioned at a "divided" token:
+    /// if parser.peek_divided_by() {
+    ///     // The next token is "by"
+    /// }
+    /// ```
+    fn peek_divided_by(&mut self) -> bool {
+        // Use nth(1) to directly access the token after "divided" without multiple advances
+        if let Some(next_token_pos) = self.tokens.clone().nth(1) {
+            matches!(next_token_pos.token, Token::KeywordBy)
+        } else {
+            false
+        }
+    }
+
+    /// Parses an expression, starting with the lowest precedence.
+    ///
+    /// Returns the parsed expression or a parse error if the expression is invalid.
     fn parse_expression(&mut self) -> Result<Expression, ParseError> {
         self.parse_binary_expression(0) // Start with lowest precedence
     }
 
+    /// Parses a binary expression with operator precedence.
+    ///
+    /// This method parses binary operations, handling operator precedence and associativity for a wide range of operators, including arithmetic, logical, comparison, pattern matching, and custom language constructs. It supports multi-token operators (such as "divided by", "is equal to", "is less than or equal to"), action calls, and special pattern-related expressions. The parser ensures correct grouping and evaluation order by recursively parsing sub-expressions with increasing precedence.
+    ///
+    /// # Parameters
+    /// - `precedence`: The minimum precedence level to consider when parsing operators. Operators with lower precedence will not be parsed at this level.
+    ///
+    /// # Returns
+    /// Returns an `Expression` representing the parsed binary expression, or a `ParseError` if the syntax is invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Parses an arithmetic expression with correct precedence
+    /// let expr = parser.parse_binary_expression(0)?;
+    /// // Example: "a plus b times c" parses as a + (b * c)
+    /// ```
     fn parse_binary_expression(&mut self, precedence: u8) -> Result<Expression, ParseError> {
         let mut left = self.parse_primary_expression()?;
 
@@ -1411,38 +1470,24 @@ impl<'a> Parser<'a> {
             }
 
             let op = match token {
-                Token::Plus => {
-                    self.tokens.next(); // Consume "+"
-                    Some((Operator::Plus, 1))
-                }
-                Token::KeywordPlus => {
-                    self.tokens.next(); // Consume "plus"
-                    Some((Operator::Plus, 1))
-                }
-                Token::KeywordMinus => {
-                    self.tokens.next(); // Consume "minus"
-                    Some((Operator::Minus, 1))
-                }
-                Token::KeywordTimes => {
-                    self.tokens.next(); // Consume "times"
-                    Some((Operator::Multiply, 2))
-                }
-                Token::KeywordDividedBy => {
-                    self.tokens.next(); // Consume "divided by"
-                    Some((Operator::Divide, 2))
-                }
+                Token::Plus => Some((Operator::Plus, 1)),
+                Token::KeywordPlus => Some((Operator::Plus, 1)),
+                Token::KeywordMinus => Some((Operator::Minus, 1)),
+                Token::KeywordTimes => Some((Operator::Multiply, 2)),
+                Token::KeywordDividedBy => Some((Operator::Divide, 2)),
                 Token::KeywordDivided => {
-                    self.tokens.next(); // Consume "divided"
-
-                    // Still handle the legacy case where "divided" and "by" are separate tokens
-                    self.expect_token(Token::KeywordBy, "Expected 'by' after 'divided'")?;
-                    self.tokens.next(); // Consume "by"
-                    Some((Operator::Divide, 2))
+                    // Check if next token is "by" more efficiently
+                    if self.peek_divided_by() {
+                        Some((Operator::Divide, 2))
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected 'by' after 'divided'".to_string(),
+                            line,
+                            column,
+                        ));
+                    }
                 }
-                Token::Equals => {
-                    self.tokens.next(); // Consume "="
-                    Some((Operator::Equals, 0))
-                }
+                Token::Equals => Some((Operator::Equals, 0)),
                 Token::KeywordIs => {
                     self.tokens.next(); // Consume "is"
 
@@ -1811,6 +1856,37 @@ impl<'a> Parser<'a> {
             if let Some((operator, op_precedence)) = op {
                 if op_precedence < precedence {
                     break;
+                }
+
+                // Now consume the operator token(s) since the precedence check passed
+                match token {
+                    Token::Plus => {
+                        self.tokens.next(); // Consume "+"
+                    }
+                    Token::KeywordPlus => {
+                        self.tokens.next(); // Consume "plus"
+                    }
+                    Token::KeywordMinus => {
+                        self.tokens.next(); // Consume "minus"
+                    }
+                    Token::KeywordTimes => {
+                        self.tokens.next(); // Consume "times"
+                    }
+                    Token::KeywordDividedBy => {
+                        self.tokens.next(); // Consume "divided by"
+                    }
+                    Token::KeywordDivided => {
+                        self.tokens.next(); // Consume "divided"
+                        self.expect_token(Token::KeywordBy, "Expected 'by' after 'divided'")?;
+                        self.tokens.next(); // Consume "by"
+                    }
+                    Token::Equals => {
+                        self.tokens.next(); // Consume "="
+                    }
+                    _ => {
+                        // For operators like "is" that have already consumed tokens in their detection
+                        // No additional consumption needed
+                    }
                 }
 
                 let right = self.parse_binary_expression(op_precedence + 1)?;
@@ -5706,6 +5782,17 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parses a `create date` statement, optionally with a custom date value.
+    ///
+    /// Returns a `CreateDateStatement` containing the variable name and an optional expression for the date value. If no custom value is provided, the date defaults to "today".
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Parses: create date my_date
+    /// // Parses: create date my_date as some_expression
+    /// let stmt = parser.parse_create_date_statement()?;
+    /// ```
     fn parse_create_date_statement(&mut self) -> Result<Statement, ParseError> {
         let create_token = self.tokens.next().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordDate, "Expected 'date' after 'create'")?;
@@ -5733,6 +5820,23 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parses a `create time` statement, optionally with a custom time value.
+    ///
+    /// Recognizes the syntax `create time <name>` or `create time <name> as <expression>`.
+    /// If the `as` clause is omitted, the time defaults to the current time.
+    ///
+    /// # Returns
+    /// A `Statement::CreateTimeStatement` containing the variable name, optional value expression, and source position.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // Parses: create time start_time
+    /// let stmt = parser.parse_create_time_statement().unwrap();
+    ///
+    /// // Parses: create time deadline as some_expression
+    /// let stmt = parser.parse_create_time_statement().unwrap();
+    /// ```
     fn parse_create_time_statement(&mut self) -> Result<Statement, ParseError> {
         let create_token = self.tokens.next().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordTime, "Expected 'time' after 'create'")?;

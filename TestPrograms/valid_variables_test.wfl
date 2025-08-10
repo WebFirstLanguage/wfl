@@ -1,7 +1,0 @@
-store x as 5
-display "x is " + x
-
-store y as 10
-display "y is " + y
-
-display "Total is " + (x + y)

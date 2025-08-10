@@ -1,4 +1,0 @@
-display "Current dir exists: " with path_exists of "."
-store joined_path as path_join of "home" and "user"
-display "Testing path_join: " with joined_path
-display "Testing list_dir: " with list_dir of "."

@@ -1,0 +1,218 @@
+// Comprehensive Pattern Matching Test - WFL
+// Consolidates: pattern_*.wfl files (simple, lookahead, lookbehind, backreference, unicode, etc.)
+
+display "=== WFL Pattern Matching Comprehensive Test ==="
+display ""
+
+// === Basic Pattern Matching ===
+display "1. Basic Pattern Tests"
+create pattern greeting:
+    "hello"
+end pattern
+
+create pattern digits:
+    one or more digit
+end pattern
+
+create pattern email_basic:
+    one or more letter then "@" then one or more letter then "." then one or more letter
+end pattern
+
+store greeting_text as "hello world"
+check if greeting_text matches greeting:
+    display "✓ Greeting pattern matches"
+otherwise:
+    display "✗ Greeting pattern failed"
+end check
+
+store number_text as "123 abc"  
+check if number_text matches digits:
+    display "✓ Digit pattern matches"
+otherwise:
+    display "✗ Digit pattern failed"
+end check
+
+store email_text as "user@domain.com"
+check if email_text matches email_basic:
+    display "✓ Email pattern matches"
+otherwise:
+    display "✗ Email pattern failed"
+end check
+display ""
+
+// === Lookahead Patterns ===
+display "2. Lookahead Pattern Tests"
+create pattern positive_lookahead:
+    "test" followed by "123"
+end pattern
+
+create pattern negative_lookahead:
+    "test" not followed by "456"  
+end pattern
+
+store lookahead_text1 as "test123"
+check if lookahead_text1 matches positive_lookahead:
+    display "✓ Positive lookahead matches"
+otherwise:
+    display "✗ Positive lookahead failed"
+end check
+
+store lookahead_text2 as "test789"
+check if lookahead_text2 matches negative_lookahead:
+    display "✓ Negative lookahead matches"
+otherwise:
+    display "✗ Negative lookahead failed"
+end check
+
+store lookahead_text3 as "test456"
+check if lookahead_text3 matches negative_lookahead:
+    display "✗ This should not match (negative lookahead)"
+otherwise:
+    display "✓ Negative lookahead correctly rejected"
+end check
+display ""
+
+// === Lookbehind Patterns ===
+display "3. Lookbehind Pattern Tests"
+create pattern positive_lookbehind:
+    preceded by "pre" then "fix"
+end pattern
+
+create pattern negative_lookbehind:
+    not preceded by "bad" then "word"
+end pattern
+
+store lookbehind_text1 as "prefix"
+check if lookbehind_text1 matches positive_lookbehind:
+    display "✓ Positive lookbehind matches"
+otherwise:
+    display "✗ Positive lookbehind failed"
+end check
+
+store lookbehind_text2 as "goodword"
+check if lookbehind_text2 matches negative_lookbehind:
+    display "✓ Negative lookbehind matches"
+otherwise:
+    display "✗ Negative lookbehind failed"
+end check
+display ""
+
+// === Grouping and Backreferences ===
+display "4. Grouping and Backreference Tests"
+create pattern repeated_word:
+    capture one or more letter then " " then same as group 1
+end pattern
+
+create pattern html_tag:
+    "<" then capture one or more letter then ">" then any character then "</" then same as group 1 then ">"
+end pattern
+
+store repeated_text as "hello hello"
+check if repeated_text matches repeated_word:
+    display "✓ Repeated word pattern matches"
+otherwise:
+    display "✗ Repeated word pattern failed"
+end check
+
+store html_text as "<b>bold</b>"
+check if html_text matches html_tag:
+    display "✓ HTML tag pattern matches"
+otherwise:
+    display "✗ HTML tag pattern failed"
+end check
+display ""
+
+// === Unicode and Special Characters ===
+display "5. Unicode Pattern Tests"
+create pattern unicode_text:
+    unicode letter then unicode letter then unicode letter
+end pattern
+
+create pattern special_chars:
+    any of "!@#$%"
+end pattern
+
+store unicode_sample as "café"
+check if unicode_sample matches unicode_text:
+    display "✓ Unicode pattern matches"
+otherwise:
+    display "✗ Unicode pattern failed"
+end check
+
+store special_sample as "hello@world"
+check if special_sample matches special_chars:
+    display "✓ Special character pattern matches"
+otherwise:
+    display "✗ Special character pattern failed"
+end check
+display ""
+
+// === Complex Pattern Expressions ===
+display "6. Complex Pattern Tests"
+create pattern phone_number:
+    optional "(" then exactly 3 digits then optional ")" then optional "-" then exactly 3 digits then optional "-" then exactly 4 digits
+end pattern
+
+create pattern url_pattern:
+    "http" then optional "s" then "://" then one or more letter then "." then one or more letter then optional "/" then any character
+end pattern
+
+store phone1 as "(555)123-4567"
+store phone2 as "555-123-4567"  
+store phone3 as "5551234567"
+
+check if phone1 matches phone_number:
+    display "✓ Phone format 1 matches"
+otherwise:
+    display "✗ Phone format 1 failed"
+end check
+
+check if phone2 matches phone_number:
+    display "✓ Phone format 2 matches"
+otherwise:
+    display "✗ Phone format 2 failed"
+end check
+
+check if phone3 matches phone_number:
+    display "✓ Phone format 3 matches"
+otherwise:
+    display "✗ Phone format 3 failed"
+end check
+
+store url_sample as "https://example.com/path"
+check if url_sample matches url_pattern:
+    display "✓ URL pattern matches"
+otherwise:
+    display "✗ URL pattern failed"
+end check
+display ""
+
+// === Pattern with Standard Library Integration ===
+display "7. Pattern Library Integration"
+
+// Test ID pattern
+store test_id as "ID123456"
+create pattern id_format:
+    "ID" then exactly 6 digits
+end pattern
+
+check if test_id matches id_format:
+    display "✓ ID pattern matches"
+otherwise:
+    display "✗ ID pattern failed"
+end check
+
+// Test date pattern
+store date_string as "2025-08-09"
+create pattern date_format:
+    exactly 4 digits then "-" then exactly 2 digits then "-" then exactly 2 digits
+end pattern
+
+check if date_string matches date_format:
+    display "✓ Date pattern matches"
+otherwise:
+    display "✗ Date pattern failed"
+end check
+
+display ""
+display "=== Pattern Matching Tests Completed ==="

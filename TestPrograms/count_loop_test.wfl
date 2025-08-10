@@ -1,6 +1,0 @@
-// Simple test program with just a count loop
-define action called main:
-    count from 1 to 5:
-        display count
-    end count
-end action
