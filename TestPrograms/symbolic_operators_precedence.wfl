@@ -1,0 +1,171 @@
+// Symbolic Operators Precedence Test - WFL
+// Tests precedence and associativity of new symbolic operators (-, *, /)
+
+display "=== Symbolic Operators Precedence Test ==="
+display ""
+
+// === Basic Arithmetic Operations ===
+display "1. Basic Arithmetic Operations"
+store a as 10
+store b as 5
+store c as 2
+
+display "Variables: a = " with a with ", b = " with b with ", c = " with c
+display "Basic operations:"
+display "a + b = " with (a + b)
+display "a - b = " with (a - b)
+display "a * b = " with (a * b)
+display "a / b = " with (a / b)
+display ""
+
+// === Operator Precedence Tests ===
+display "2. Operator Precedence Tests"
+display "Testing standard mathematical precedence (*, / before +, -):"
+
+store result1 as 2 + 3 * 4
+display "2 + 3 * 4 = " with result1 with " (should be 14, not 20)"
+
+store result2 as 10 - 4 / 2
+display "10 - 4 / 2 = " with result2 with " (should be 8, not 3)"
+
+store result3 as 8 / 2 + 3
+display "8 / 2 + 3 = " with result3 with " (should be 7)"
+
+store result4 as 15 - 3 * 2
+display "15 - 3 * 2 = " with result4 with " (should be 9)"
+
+store result5 as 20 / 4 - 2
+display "20 / 4 - 2 = " with result5 with " (should be 3)"
+display ""
+
+// === Left-to-Right Associativity for Same Precedence ===
+display "3. Same Precedence Associativity Tests"
+display "Testing left-to-right associativity:"
+
+store assoc1 as 12 - 5 - 2
+display "12 - 5 - 2 = " with assoc1 with " (should be 5: (12-5)-2)"
+
+store assoc2 as 20 / 4 / 2
+display "20 / 4 / 2 = " with assoc2 with " (should be 2.5: (20/4)/2)"
+
+store assoc3 as 2 * 3 * 4
+display "2 * 3 * 4 = " with assoc3 with " (should be 24: (2*3)*4)"
+
+store assoc4 as 10 + 5 + 3
+display "10 + 5 + 3 = " with assoc4 with " (should be 18: (10+5)+3)"
+display ""
+
+// === Complex Expressions ===
+display "4. Complex Expression Tests"
+display "Testing complex expressions with multiple operators:"
+
+store complex1 as 2 + 3 * 4 - 1
+display "2 + 3 * 4 - 1 = " with complex1 with " (should be 13: 2 + 12 - 1)"
+
+store complex2 as 10 / 2 + 3 * 4
+display "10 / 2 + 3 * 4 = " with complex2 with " (should be 17: 5 + 12)"
+
+store complex3 as 20 - 4 * 2 + 8 / 2
+display "20 - 4 * 2 + 8 / 2 = " with complex3 with " (should be 16: 20 - 8 + 4)"
+
+store complex4 as 100 / 10 * 2 - 5
+display "100 / 10 * 2 - 5 = " with complex4 with " (should be 15: ((100/10)*2) - 5)"
+display ""
+
+// === Mixed Natural Language and Symbolic Operators ===
+display "5. Mixed Operator Types Test"
+display "Testing combination of natural language and symbolic operators:"
+
+store mixed1 as 5 plus 3 * 2
+display "5 plus 3 * 2 = " with mixed1 with " (should be 11: 5 + (3*2))"
+
+store mixed2 as 10 minus 2 / 1
+display "10 minus 2 / 1 = " with mixed2 with " (should be 8: 10 - (2/1))"
+
+store mixed3 as 4 times 3 + 2
+display "4 times 3 + 2 = " with mixed3 with " (should be 14: (4*3) + 2)"
+
+store mixed4 as 15 divided by 3 - 1
+display "15 divided by 3 - 1 = " with mixed4 with " (should be 4: (15/3) - 1)"
+display ""
+
+// === Parentheses Override Tests ===
+display "6. Parentheses Override Tests"
+display "Testing that parentheses override operator precedence:"
+
+store paren1 as (2 + 3) * 4
+display "(2 + 3) * 4 = " with paren1 with " (should be 20)"
+
+store paren2 as 2 * (3 + 4)
+display "2 * (3 + 4) = " with paren2 with " (should be 14)"
+
+store paren3 as (10 - 4) / 2
+display "(10 - 4) / 2 = " with paren3 with " (should be 3)"
+
+store paren4 as 20 / (4 + 1)
+display "20 / (4 + 1) = " with paren4 with " (should be 4)"
+
+store paren5 as (8 + 2) * (3 - 1)
+display "(8 + 2) * (3 - 1) = " with paren5 with " (should be 20)"
+display ""
+
+// === Nested Expressions ===
+display "7. Nested Expression Tests"
+display "Testing deeply nested expressions:"
+
+store nested1 as 2 + 3 * (4 + 5) / 2 - 1
+display "2 + 3 * (4 + 5) / 2 - 1 = " with nested1 with " (should be 14.5: 2 + ((3*9)/2) - 1)"
+
+store nested2 as (10 + 5) * 2 / (3 + 2)
+display "(10 + 5) * 2 / (3 + 2) = " with nested2 with " (should be 6: (15*2)/(5))"
+
+store nested3 as 100 / (10 - 5) + 2 * 3
+display "100 / (10 - 5) + 2 * 3 = " with nested3 with " (should be 26: (100/5) + 6)"
+display ""
+
+// === Variable Expression Tests ===
+display "8. Variable Expression Tests"
+store x as 8
+store y as 4
+store z as 2
+
+display "Variables: x = " with x with ", y = " with y with ", z = " with z
+display "Variable expressions:"
+
+store var_expr1 as x + y * z
+display "x + y * z = " with var_expr1 with " (should be 16: 8 + (4*2))"
+
+store var_expr2 as x - y / z
+display "x - y / z = " with var_expr2 with " (should be 6: 8 - (4/2))"
+
+store var_expr3 as x * y - z
+display "x * y - z = " with var_expr3 with " (should be 30: (8*4) - 2)"
+
+store var_expr4 as (x + y) / z
+display "(x + y) / z = " with var_expr4 with " (should be 6: (8+4)/2)"
+display ""
+
+// === Edge Cases ===
+display "9. Edge Case Tests"
+display "Testing edge cases and boundary conditions:"
+
+store edge1 as 0 * 5 + 3
+display "0 * 5 + 3 = " with edge1 with " (should be 3)"
+
+store edge2 as 10 / 1 - 0
+display "10 / 1 - 0 = " with edge2 with " (should be 10)"
+
+store edge3 as 1 + 2 * 3 * 4 - 5
+display "1 + 2 * 3 * 4 - 5 = " with edge3 with " (should be 20: 1 + 24 - 5)"
+
+store edge4 as 0 - 5 + 10
+display "0 - 5 + 10 = " with edge4 with " (should be 5: (0-5)+10)"
+display ""
+
+display "=== Symbolic Operators Precedence Tests Completed ==="
+display ""
+display "Expected Results Summary:"
+display "- Multiplication and division should have higher precedence than addition and subtraction"
+display "- Operations of same precedence should be left-associative"
+display "- Parentheses should override default precedence"
+display "- Mixed symbolic and natural language operators should work together"

@@ -1,0 +1,183 @@
+// Simple Event System Test - WFL
+// Tests basic event definitions and triggering
+
+display "=== Simple Event System Test ==="
+display ""
+
+// === Basic Event Test ===
+display "1. Basic Event Definition and Triggering"
+create container SimpleButton:
+    property label: Text
+    property click_count: Number
+    
+    event on_click
+    event on_reset
+    
+    action click:
+        store click_count as click_count + 1
+        display "Button '" with label with "' clicked " with click_count with " times"
+        trigger on_click
+    end
+    
+    action reset:
+        store click_count as 0
+        display "Button '" with label with "' reset"
+        trigger on_reset
+    end
+end
+
+create new SimpleButton as btn:
+    label is "Test Button"
+    click_count is 0
+end
+
+display "Testing basic event triggering:"
+btn.click()
+btn.click()
+btn.click()
+btn.reset()
+btn.click()
+display ""
+
+// === Multiple Event Types ===
+display "2. Multiple Event Types"
+create container SimplePlayer:
+    property title: Text
+    property playing: Boolean
+    
+    event on_play
+    event on_stop
+    
+    action play:
+        check if not playing:
+            store playing as yes
+            display "▶️ Playing: " with title
+            trigger on_play
+        otherwise:
+            display "Already playing: " with title
+        end check
+    end
+    
+    action stop:
+        store playing as no
+        display "⏹️ Stopped: " with title
+        trigger on_stop
+    end
+end
+
+create new SimplePlayer as player:
+    title is "Test Song"
+    playing is no
+end
+
+display "Testing multiple event types:"
+player.play()
+player.play()  // Should show "Already playing"
+player.stop()
+player.play()
+display ""
+
+// === Event Inheritance ===
+display "3. Event Inheritance"
+create container BaseComponent:
+    property visible: Boolean
+    
+    event on_show
+    event on_hide
+    
+    action show:
+        store visible as yes
+        display "Component shown"
+        trigger on_show
+    end
+    
+    action hide:
+        store visible as no
+        display "Component hidden"
+        trigger on_hide
+    end
+end
+
+create container TextComponent extends BaseComponent:
+    property text_data: Text
+    
+    event on_text_data_change
+    
+    action set_text_data with new_text_data: Text:
+        store text_data as new_text_data
+        display "Content changed to: '" with text_data with "'"
+        trigger on_text_data_change
+    end
+    
+    // Override parent method and add event
+    action show:
+        store visible as yes
+        display "TextComponent shown with text_data: '" with text_data with "'"
+        trigger on_show
+    end
+end
+
+create new TextComponent as text_comp:
+    visible is no
+    text_data is "Hello World"
+end
+
+display "Testing event inheritance:"
+text_comp.show()        // Uses overridden method, triggers inherited event
+text_comp.set_text_data("Updated text")
+text_comp.hide()        // Uses inherited method and event
+display ""
+
+// === Conditional Event Triggering ===
+display "4. Conditional Event Triggering"
+create container Counter:
+    property value: Number
+    property max_value: Number
+    
+    event on_increment
+    event on_max_reached
+    event on_reset
+    
+    action increment:
+        check if value is less than max_value:
+            store value as value + 1
+            display "Counter incremented to " with value
+            trigger on_increment
+            
+            check if value is max_value:
+                display "Maximum value reached!"
+                trigger on_max_reached
+            end check
+        otherwise:
+            display "Counter already at maximum value (" with max_value with ")"
+        end check
+    end
+    
+    action reset:
+        store value as 0
+        display "Counter reset to 0"
+        trigger on_reset
+    end
+end
+
+create new Counter as counter:
+    value is 0
+    max_value is 3
+end
+
+display "Testing conditional event triggering:"
+counter.increment()  // Should trigger on_increment
+counter.increment()  // Should trigger on_increment
+counter.increment()  // Should trigger on_increment AND on_max_reached
+counter.increment()  // Should show "already at maximum"
+counter.reset()      // Should trigger on_reset
+counter.increment()  // Should work again
+display ""
+
+display "=== Simple Event System Tests Completed ==="
+display ""
+display "Event System Features Tested:"
+display "✓ Basic event definition and triggering"
+display "✓ Multiple event types in single container"
+display "✓ Event inheritance from parent containers"
+display "✓ Conditional event triggering based on state"

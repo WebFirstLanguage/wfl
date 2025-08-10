@@ -1,0 +1,26 @@
+// Simple inheritance test
+display "Testing simple inheritance"
+
+create container Base:
+    property id: Number
+    
+    action get_id: Number
+        return id
+    end
+end
+
+create container Extended extends Base:
+    property name: Text
+    
+    action get_info: Text
+        return name with " has ID " with id
+    end
+end
+
+create new Extended as obj:
+    id is 1
+    name is "Test"
+end
+
+display "ID: " with obj.get_id()
+display "Info: " with obj.get_info()

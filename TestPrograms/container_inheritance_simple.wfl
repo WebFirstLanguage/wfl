@@ -1,0 +1,141 @@
+// Simple Container Inheritance Test - WFL
+// Tests basic inheritance functionality without deep chains
+
+display "=== Simple Container Inheritance Test ==="
+display ""
+
+// === Two-Level Inheritance ===
+display "1. Two-Level Inheritance Test"
+create container Vehicle:
+    property brand: Text
+    property model: Text
+    
+    action start_engine:
+        display "Starting " with brand with " " with model
+    end
+    
+    action get_info: Text
+        return brand with " " with model
+    end
+end
+
+create container Car extends Vehicle:
+    property doors: Number
+    
+    action honk:
+        display brand with " " with model with " honks!"
+    end
+    
+    action get_car_info: Text
+        return brand with " " with model with " (" with doors with " doors)"
+    end
+end
+
+create new Car as my_car:
+    brand is "Toyota"
+    model is "Camry"
+    doors is 4
+end
+
+display "Testing two-level inheritance:"
+my_car.start_engine()                  // From Vehicle
+my_car.honk()                   // From Car
+display "Info: " with my_car.get_info()      // From Vehicle
+display "Car Info: " with my_car.get_car_info()   // From Car
+display ""
+
+// === Method Override Test ===
+display "2. Method Override Test"
+create container Animal:
+    property species: Text
+    
+    action make_sound:
+        display "The " with species with " makes a generic sound"
+    end
+end
+
+create container Dog extends Animal:
+    property breed: Text
+    
+    action make_sound:
+        display "The " with breed with " dog barks!"
+    end
+    
+    action fetch:
+        display "The " with breed with " fetches a ball"
+    end
+end
+
+create new Dog as my_dog:
+    species is "Canine"
+    breed is "Labrador"
+end
+
+display "Testing method override:"
+my_dog.make_sound()  // Should use Dog's version, not Animal's
+my_dog.fetch()       // Dog-specific method
+display ""
+
+// === Multiple Instances Test ===
+display "3. Multiple Inheritance Instances"
+create new Car as car1:
+    brand is "Honda"
+    model is "Civic"
+    doors is 4
+end
+
+create new Car as car2:
+    brand is "BMW"
+    model is "X5"
+    doors is 5
+end
+
+display "Testing multiple instances with inheritance:"
+car1.start_engine()
+display "Car1: " with car1.get_car_info()
+car2.start_engine() 
+display "Car2: " with car2.get_car_info()
+display ""
+
+// === Property Access Through Inheritance ===
+display "4. Property Access Through Inheritance"
+create container Base:
+    property base_value: Number
+    
+    action get_base: Number
+        return base_value
+    end
+    
+    action set_base with value: Number:
+        store base_value as value
+        display "Base value set to " with base_value
+    end
+end
+
+create container Extended extends Base:
+    property extra_value: Text
+    
+    action get_both: Text
+        return "Base: " with base_value with ", Extra: " with extra_value
+    end
+    
+    action set_extra with value: Text:
+        store extra_value as value
+        display "Extra value set to " with extra_value
+    end
+end
+
+create new Extended as extended_obj:
+    base_value is 100
+    extra_value is "test"
+end
+
+display "Testing property access through inheritance:"
+display "Base value: " with extended_obj.get_base()
+display "Both values: " with extended_obj.get_both()
+extended_obj.set_base(200)
+extended_obj.set_extra("updated")
+display "Updated values: " with extended_obj.get_both()
+display ""
+
+display "=== Simple Container Inheritance Tests Completed ==="

@@ -1,0 +1,208 @@
+// Interface Validation Failure Test - WFL
+// Tests interface implementation validation and error handling
+
+display "=== Interface Validation Failure Test ==="
+display ""
+
+// === Define Test Interfaces ===
+display "1. Defining Test Interfaces"
+create interface Renderable:
+    action render
+    action get_dimensions: Text
+    action set_visibility with visible: Boolean
+end
+
+create interface Serializable:
+    action serialize: Text
+    action deserialize with data: Text
+end
+
+create interface Comparable:
+    action compare with other: Any: Number
+    action equals with other: Any: Boolean
+end
+
+display "Interfaces defined successfully"
+display ""
+
+// === Valid Implementation (Should Work) ===
+display "2. Valid Interface Implementation Test"
+create container ValidWidget implements Renderable:
+    property width: Number
+    property height: Number
+    property visible: Boolean
+    
+    action render:
+        display "Rendering widget " with width with "x" with height
+    end
+    
+    action get_dimensions: Text
+        return width with "x" with height
+    end
+    
+    action set_visibility with visible_param: Boolean:
+        store visible as visible_param
+        check if visible:
+            display "Widget is now visible"
+        otherwise:
+            display "Widget is now hidden"
+        end check
+    end
+end
+
+create new ValidWidget as good_widget:
+    width is 100
+    height is 50
+    visible is yes
+end
+
+display "Testing valid implementation:"
+good_widget.render()
+display "Dimensions: " with good_widget.get_dimensions()
+good_widget.set_visibility(no)
+display ""
+
+// === Invalid Implementation Tests ===
+display "3. Invalid Interface Implementation Tests"
+
+// This should fail - missing required actions
+display "Testing incomplete interface implementation (missing actions):"
+create container IncompleteWidget implements Renderable:
+    property width: Number
+    property height: Number
+    
+    action render:
+        display "Rendering incomplete widget"
+    end
+    
+    // Missing: get_dimensions and set_visibility
+end
+
+// Try to create instance - should show validation error
+display "Attempting to create instance of incomplete implementation..."
+
+// This should fail at runtime when we try to instantiate
+create new IncompleteWidget as bad_widget1:
+    width is 200
+    height is 100
+end
+
+display "If you see this, validation might not be working properly"
+display ""
+
+// === Single Interface Implementation Test ===
+display "4. Single Interface Implementation Test"
+create container DataObject implements Serializable:
+    property id: Number
+    property data_content: Text
+    
+    action serialize: Text
+        return "DataObject{id:" with id with ",data:" with data_content with "}"
+    end
+    
+    action deserialize with json_data: Text:
+        display "Deserializing: " with json_data
+        // Simple mock deserialization
+        store id as 42
+        store data_content as "deserialized"
+    end
+    
+end
+
+create new DataObject as data_obj:
+    id is 1
+    data_content is "test data"
+end
+
+display "Testing single interface implementation:"
+display "Serialized: " with data_obj.serialize()
+data_obj.deserialize("{id:99,data:'test'}")
+display ""
+
+// === Wrong Signature Implementation Test ===
+display "5. Wrong Method Signature Test"
+create container WrongSignatureWidget implements Renderable:
+    property width: Number
+    property height: Number
+    
+    action render:
+        display "Rendering widget with wrong signatures"
+    end
+    
+    // Wrong signature - should return Text but has no return
+    action get_dimensions:
+        display "Getting dimensions without return"
+    end
+    
+    // Wrong parameter signature - should take Boolean but takes Text
+    action set_visibility with visibility_text: Text:
+        display "Setting visibility to " with visibility_text
+    end
+end
+
+display "Testing wrong method signatures:"
+create new WrongSignatureWidget as wrong_widget:
+    width is 150
+    height is 75
+end
+
+wrong_widget.render()
+wrong_widget.get_dimensions()
+wrong_widget.set_visibility("true")
+display ""
+
+// === Extended Interface Test ===
+display "6. Extended Interface Test"
+create interface Advanced:
+    action render
+    action get_dimensions: Text  
+    action set_visibility with visible: Boolean
+    action animate
+    action get_z_index: Number
+end
+
+create container AdvancedWidget implements Advanced:
+    property width: Number
+    property height: Number
+    property visible: Boolean
+    property z_index: Number
+    
+    // Must implement all Renderable methods
+    action render:
+        display "Rendering advanced widget"
+    end
+    
+    action get_dimensions: Text
+        return width with "x" with height
+    end
+    
+    action set_visibility with visible_param: Boolean:
+        store visible as visible_param
+    end
+    
+    // Plus Advanced interface methods
+    action animate:
+        display "Animating advanced widget"
+    end
+    
+    action get_z_index: Number
+        return z_index
+    end
+end
+
+create new AdvancedWidget as adv_widget:
+    width is 300
+    height is 200
+    visible is yes
+    z_index is 10
+end
+
+display "Testing extended interface implementation:"
+adv_widget.render()
+adv_widget.animate()
+display "Z-index: " with adv_widget.get_z_index()
+display ""
+
+display "=== Interface Validation Tests Completed ==="
+display "Note: Some validation errors may not be caught at parse time"
+display "and will only appear when methods are called at runtime."
