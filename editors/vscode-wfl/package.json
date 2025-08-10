@@ -2,7 +2,7 @@
   "name": "vscode-wfl",
   "displayName": "WebFirst Language (WFL)",
   "description": "Language support for the WebFirst Language (WFL)",
-  "version": "25.8.21",
+  "version": "25.8.22",
   "engines": {
     "vscode": "^1.80.0"
   },
