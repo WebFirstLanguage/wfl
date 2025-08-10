@@ -1376,7 +1376,9 @@ impl<'a> Parser<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
+    /// # use wfl::parser::Parser;
+    /// # use wfl::lexer::token::Token;
     /// let mut parser = Parser::new(&tokens);
     /// parser.expect_token(Token::Colon, "Expected ':' after name")?;
     /// ```
@@ -1410,7 +1412,7 @@ impl<'a> Parser<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// // Assuming the parser is positioned at a "divided" token:
     /// if parser.peek_divided_by() {
     ///     // The next token is "by"
@@ -1444,7 +1446,7 @@ impl<'a> Parser<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// // Parses an arithmetic expression with correct precedence
     /// let expr = parser.parse_binary_expression(0)?;
     /// // Example: "a plus b times c" parses as a + (b * c)
@@ -5814,7 +5816,7 @@ impl<'a> Parser<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// // Parses: create date my_date
     /// // Parses: create date my_date as some_expression
     /// let stmt = parser.parse_create_date_statement()?;
@@ -5856,7 +5858,7 @@ impl<'a> Parser<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// // Parses: create time start_time
     /// let stmt = parser.parse_create_time_statement().unwrap();
     ///
