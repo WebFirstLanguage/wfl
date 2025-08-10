@@ -2864,21 +2864,28 @@ impl Interpreter {
 
                     // Look up the method
                     if let Some(method_val) = container_def.methods.get(method) {
-                        // Create a function value from the method
-                        let function = FunctionValue {
-                            name: Some(method_val.name.clone()),
-                            params: method_val.params.clone(),
-                            body: method_val.body.clone(),
-                            env: method_val.env.clone(),
-                            line: method_val.line,
-                            column: method_val.column,
-                        };
-
                         // Create a new environment for the method execution
                         let method_env = Environment::new_child_env(&env);
 
                         // Add 'this' to the environment
                         method_env.borrow_mut().define("this", object_val.clone());
+
+                        // Add container properties to the method environment
+                        for (prop_name, prop_value) in &instance.properties {
+                            method_env
+                                .borrow_mut()
+                                .define(prop_name, prop_value.clone());
+                        }
+
+                        // Create a function value from the method with the proper environment
+                        let function = FunctionValue {
+                            name: Some(method_val.name.clone()),
+                            params: method_val.params.clone(),
+                            body: method_val.body.clone(),
+                            env: Rc::downgrade(&method_env), // Use the method_env with properties
+                            line: method_val.line,
+                            column: method_val.column,
+                        };
 
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());

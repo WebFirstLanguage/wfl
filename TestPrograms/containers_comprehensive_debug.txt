@@ -1,19 +1,19 @@
 === WFL Debug Report ===
-Script: TestPrograms/containers_comprehensive.wfl
-Time: 2025-08-10 13:48:08
+Script: containers_comprehensive.wfl
+Time: 2025-08-10 13:56:25
 
 === Error Summary ===
-Runtime error at line 15, column 37: Undefined variable 'name'
+Runtime error at line 123, column 9: Event 'on_click' not found
 
 === Stack Trace ===
-In main script at line 15, column 37
+In main script at line 123, column 9
 
 === Source Code ===
-   13:     
-   14:     action greet:
->> 15:         display "Hello, I am " with name with " and I am " with age with " years old."
-   16:     end
-   17:     
+   121:         store clicked as clicked + 1
+   122:         display "Button '" with label with "' clicked " with clicked with " times"
+>> 123:         trigger on_click
+   124:     end
+   125:     
 
 === Local Variables ===
 (No local variables in global scope)

@@ -988,7 +988,7 @@ impl TypeChecker {
             }
             // Container-related statements
             Statement::ContainerDefinition {
-                name: _name,
+                name,
                 extends,
                 implements,
                 properties,
@@ -1065,10 +1065,73 @@ impl TypeChecker {
                 }
 
                 for method in methods {
-                    if let Statement::ActionDefinition { body, .. } = method {
+                    if let Statement::ActionDefinition {
+                        parameters, body, ..
+                    } = method
+                    {
+                        // Push a new scope for the method
+                        self.analyzer.push_scope();
+
+                        // Add container properties to scope
+                        // Clone to avoid borrow issues
+                        let container_properties = self
+                            .analyzer
+                            .get_container(name)
+                            .map(|c| c.properties.clone());
+                        let parent_properties = extends
+                            .as_ref()
+                            .and_then(|parent_name| self.analyzer.get_container(parent_name))
+                            .map(|c| c.properties.clone());
+
+                        // Add inherited properties if this container extends another
+                        if let Some(parent_props) = parent_properties {
+                            for (prop_name, prop_info) in parent_props {
+                                let symbol = crate::analyzer::Symbol {
+                                    name: prop_name.clone(),
+                                    kind: crate::analyzer::SymbolKind::Variable { mutable: true },
+                                    symbol_type: Some(prop_info.property_type.clone()),
+                                    line: prop_info.line,
+                                    column: prop_info.column,
+                                };
+                                let _ = self.analyzer.define_symbol(symbol);
+                            }
+                        }
+
+                        // Add this container's properties
+                        if let Some(props) = container_properties {
+                            for (prop_name, prop_info) in props {
+                                let symbol = crate::analyzer::Symbol {
+                                    name: prop_name.clone(),
+                                    kind: crate::analyzer::SymbolKind::Variable { mutable: true },
+                                    symbol_type: Some(prop_info.property_type.clone()),
+                                    line: prop_info.line,
+                                    column: prop_info.column,
+                                };
+                                let _ = self.analyzer.define_symbol(symbol);
+                            }
+                        }
+
+                        // Add method parameters to scope
+                        for param in parameters {
+                            let param_type =
+                                param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
+                            let symbol = crate::analyzer::Symbol {
+                                name: param.name.clone(),
+                                kind: crate::analyzer::SymbolKind::Variable { mutable: false },
+                                symbol_type: Some(param_type),
+                                line: param.line,
+                                column: param.column,
+                            };
+                            let _ = self.analyzer.define_symbol(symbol);
+                        }
+
+                        // Check method body statements
                         for stmt in body {
                             self.check_statement_types(stmt);
                         }
+
+                        // Pop the method scope
+                        self.analyzer.pop_scope();
                     }
                 }
 

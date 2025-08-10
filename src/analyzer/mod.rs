@@ -951,17 +951,18 @@ impl Analyzer {
 
                         // Add inherited properties if this container extends another
                         if let Some(parent_name) = &container_info.extends
-                            && let Some(parent_container) = self.containers.get(parent_name) {
-                                for (prop_name, prop_info) in &parent_container.properties {
-                                    let symbol = Symbol {
-                                        name: prop_name.clone(),
-                                        kind: SymbolKind::Variable { mutable: true },
-                                        symbol_type: Some(prop_info.property_type.clone()),
-                                        line: prop_info.line,
-                                        column: prop_info.column,
-                                    };
-                                    let _ = self.current_scope.define(symbol);
-                                }
+                            && let Some(parent_container) = self.containers.get(parent_name)
+                        {
+                            for (prop_name, prop_info) in &parent_container.properties {
+                                let symbol = Symbol {
+                                    name: prop_name.clone(),
+                                    kind: SymbolKind::Variable { mutable: true },
+                                    symbol_type: Some(prop_info.property_type.clone()),
+                                    line: prop_info.line,
+                                    column: prop_info.column,
+                                };
+                                let _ = self.current_scope.define(symbol);
+                            }
                         }
 
                         // Add container properties to scope for instance methods
