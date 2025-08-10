@@ -123,7 +123,25 @@ end map
 // create date and time
 create date today
 create time now
-display "Date and time created successfully!"
+display "Date and time created successfully!" 
+
+
+//test join command
+create list states:
+    add "Azusa"
+    add "Nakano"
+    add "is"
+    add "cute"
+end list
+
+store output as states 0 + " " + states 1 + " " + states 2 + " " + states 3
+display "Joined states: " + output
+
+display "states: " + states
+
+
+
+
 
 // Compile patterns for performance (future feature)
 // compile pattern "email" as email_validator

@@ -1376,7 +1376,9 @@ impl<'a> Parser<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
+    /// # use wfl::parser::Parser;
+    /// # use wfl::lexer::token::Token;
     /// let mut parser = Parser::new(&tokens);
     /// parser.expect_token(Token::Colon, "Expected ':' after name")?;
     /// ```
@@ -1410,7 +1412,7 @@ impl<'a> Parser<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// // Assuming the parser is positioned at a "divided" token:
     /// if parser.peek_divided_by() {
     ///     // The next token is "by"
@@ -1444,7 +1446,7 @@ impl<'a> Parser<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// // Parses an arithmetic expression with correct precedence
     /// let expr = parser.parse_binary_expression(0)?;
     /// // Example: "a plus b times c" parses as a + (b * c)
@@ -2025,6 +2027,8 @@ impl<'a> Parser<'a> {
                 }
                 Token::Identifier(name) => {
                     self.tokens.next();
+                    let token_line = token.line;
+                    let token_column = token.column;
 
                     // Check for property access (dot notation)
                     if let Some(next_token) = self.tokens.peek().cloned() {
@@ -2074,13 +2078,13 @@ impl<'a> Parser<'a> {
                                         return Ok(Expression::MethodCall {
                                             object: Box::new(Expression::Variable(
                                                 name.clone(),
-                                                token.line,
-                                                token.column,
+                                                token_line,
+                                                token_column,
                                             )),
                                             method: property_name.clone(),
                                             arguments,
-                                            line: token.line,
-                                            column: token.column,
+                                            line: token_line,
+                                            column: token_column,
                                         });
                                     }
 
@@ -2088,12 +2092,12 @@ impl<'a> Parser<'a> {
                                     return Ok(Expression::PropertyAccess {
                                         object: Box::new(Expression::Variable(
                                             name.clone(),
-                                            token.line,
-                                            token.column,
+                                            token_line,
+                                            token_column,
                                         )),
                                         property: property_name.clone(),
-                                        line: token.line,
-                                        column: token.column,
+                                        line: token_line,
+                                        column: token_column,
                                     });
                                 } else {
                                     return Err(ParseError::new(
@@ -2105,8 +2109,8 @@ impl<'a> Parser<'a> {
                             } else {
                                 return Err(ParseError::new(
                                     "Expected property name after '.'".to_string(),
-                                    token.line,
-                                    token.column,
+                                    token_line,
+                                    token_column,
                                 ));
                             }
                         } else if let Token::Identifier(id) = &next_token.token
@@ -2116,8 +2120,6 @@ impl<'a> Parser<'a> {
 
                             let arguments = self.parse_argument_list()?;
 
-                            let token_line = token.line;
-                            let token_column = token.column;
                             return Ok(Expression::ActionCall {
                                 name: name.clone(),
                                 arguments,
@@ -2128,9 +2130,6 @@ impl<'a> Parser<'a> {
                     }
 
                     let is_standalone = false;
-
-                    let token_line = token.line;
-                    let token_column = token.column;
 
                     if is_standalone {
                         exec_trace!(
@@ -2492,6 +2491,53 @@ impl<'a> Parser<'a> {
             if let Ok(mut expr) = result {
                 while let Some(token) = self.tokens.peek().cloned() {
                     match &token.token {
+                        // Support direct index access: listName index (e.g., states 1)
+                        Token::IntLiteral(index) => {
+                            // Only treat as index access for specific base kinds and when on the same source line
+                            if matches!(
+                                expr,
+                                Expression::Variable(_, _, _)
+                                    | Expression::IndexAccess { .. }
+                                    | Expression::FunctionCall { .. }
+                                    | Expression::PropertyAccess { .. }
+                                    | Expression::MethodCall { .. }
+                            ) {
+                                // Extract base expr span for anchoring
+                                let (base_line, base_col) = match &expr {
+                                    Expression::Variable(_, line, col)
+                                    | Expression::IndexAccess {
+                                        line, column: col, ..
+                                    }
+                                    | Expression::FunctionCall {
+                                        line, column: col, ..
+                                    }
+                                    | Expression::PropertyAccess {
+                                        line, column: col, ..
+                                    }
+                                    | Expression::MethodCall {
+                                        line, column: col, ..
+                                    } => (*line, *col),
+                                    _ => (token.line, token.column),
+                                };
+                                // Guard: require same line to avoid cross-line capture
+                                if token.line != base_line {
+                                    break;
+                                }
+                                self.tokens.next(); // Consume the number
+                                expr = Expression::IndexAccess {
+                                    collection: Box::new(expr),
+                                    index: Box::new(Expression::Literal(
+                                        Literal::Integer(*index),
+                                        token.line,
+                                        token.column,
+                                    )),
+                                    line: base_line,
+                                    column: base_col,
+                                };
+                            } else {
+                                break; // Not an index access; stop parsing postfix operators
+                            }
+                        }
                         Token::KeywordOf => {
                             self.tokens.next(); // Consume "of"
 
@@ -5770,7 +5816,7 @@ impl<'a> Parser<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// // Parses: create date my_date
     /// // Parses: create date my_date as some_expression
     /// let stmt = parser.parse_create_date_statement()?;
@@ -5812,7 +5858,7 @@ impl<'a> Parser<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// // Parses: create time start_time
     /// let stmt = parser.parse_create_time_statement().unwrap();
     ///

@@ -2127,7 +2127,7 @@ impl Interpreter {
                     let today = chrono::Local::now().date_naive();
                     Value::Date(Rc::new(today))
                 };
-                
+
                 env.borrow_mut().define(name, date_value);
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -2145,7 +2145,7 @@ impl Interpreter {
                     let now = chrono::Local::now().time();
                     Value::Time(Rc::new(now))
                 };
-                
+
                 env.borrow_mut().define(name, time_value);
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -2160,7 +2160,7 @@ impl Interpreter {
 
                 // Get the list from the environment
                 let list_val = env.borrow().get(list_name).ok_or_else(|| {
-                    RuntimeError::new(format!("Undefined variable: {}", list_name), *line, *column)
+                    RuntimeError::new(format!("Undefined variable: {list_name}"), *line, *column)
                 })?;
 
                 match list_val {
@@ -2204,7 +2204,7 @@ impl Interpreter {
 
                 // Get the list from the environment
                 let list_val = env.borrow().get(list_name).ok_or_else(|| {
-                    RuntimeError::new(format!("Undefined variable: {}", list_name), *line, *column)
+                    RuntimeError::new(format!("Undefined variable: {list_name}"), *line, *column)
                 })?;
 
                 match list_val {
@@ -2230,7 +2230,7 @@ impl Interpreter {
             } => {
                 // Get the list from the environment
                 let list_val = env.borrow().get(list_name).ok_or_else(|| {
-                    RuntimeError::new(format!("Undefined variable: {}", list_name), *line, *column)
+                    RuntimeError::new(format!("Undefined variable: {list_name}"), *line, *column)
                 })?;
 
                 match list_val {

@@ -1,19 +1,19 @@
 === WFL Debug Report ===
 Script: syntax_test/pattern.wfl
-Time: 2025-08-07 11:27:29
+Time: 2025-08-09 11:43:11
 
 === Error Summary ===
-Runtime error at line 92, column 30: Variable 'count' can only be used inside count loops. Use 'count from X to Y:' to create a count loop.
+Runtime error at line 137, column 68: Index 4 out of bounds for list of length 4
 
 === Stack Trace ===
-In main script at line 92, column 30
+In main script at line 137, column 68
 
 === Source Code ===
-   90: divide cn1 by 2
-   91: 
->> 92: display "Final count is: " + count
-   93: 
-   94: // Compile patterns for performance (future feature)
+   135: end list
+   136: 
+>> 137: store output as states 1 + " " + states 2 + " " + states 3 + " " + states 4
+   138: display "Joined states: " + output
+   139: 
 
 === Local Variables ===
 (No local variables in global scope)

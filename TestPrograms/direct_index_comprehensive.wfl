@@ -1,0 +1,114 @@
+// Direct Index Syntax Comprehensive Tests
+// Tests the new direct index syntax (e.g., myList 0) introduced in PR #135
+
+display "=== Direct Index Syntax Tests ==="
+
+// Test 1: Basic Variable Direct Index Access
+display "Test 1: Variable Direct Index"
+create list numbers:
+    add 10
+    add 20
+    add 30
+    add 40
+end list
+
+display "numbers 0 = " with numbers 0  // Should be 10
+display "numbers 1 = " with numbers 1  // Should be 20
+display "numbers 2 = " with numbers 2  // Should be 30
+
+// Test 2: Chained Direct Index Access
+display "Test 2: Chained Index Access"
+create list nested:
+    add numbers  // Add the numbers list
+end list
+
+display "nested 0 0 = " with nested 0 0  // Should be 10 (first element of first element)
+
+// Test 3: Function Call Direct Index (if get_list function exists)
+display "Test 3: Function Call Direct Index"
+create action get_list:
+    store result as create list temp_list:
+        add "a"
+        add "b" 
+        add "c"
+    end list
+    return result
+end action
+
+store func_result as get_list()
+display "get_list() 0 = " with func_result 0  // Should be "a"
+display "get_list() 1 = " with func_result 1  // Should be "b"
+
+// Test 4: Property Access Direct Index
+display "Test 4: Container Property Direct Index"
+create container TestContainer:
+    property items as list of text
+    
+    action initialize:
+        set items as create list temp_items:
+            add "first"
+            add "second" 
+            add "third"
+        end list
+    end action
+end container
+
+create instance test_obj from TestContainer
+test_obj initialize
+display "test_obj.items 0 = " with test_obj.items 0  // Should be "first"
+display "test_obj.items 2 = " with test_obj.items 2  // Should be "third"
+
+// Test 5: Method Call Direct Index
+create container ListProvider:
+    action get_sample_list:
+        store result as create list sample:
+            add "alpha"
+            add "beta"
+            add "gamma"
+        end list
+        return result
+    end action
+end container
+
+create instance provider from ListProvider
+display "provider.get_sample_list() 1 = " with provider.get_sample_list() 1  // Should be "beta"
+
+// Test 6: Mixed with traditional 'at' syntax
+display "Test 6: Mixed Index Syntax"
+display "numbers at 0 = " with numbers at 0        // Traditional syntax
+display "numbers 0 = " with numbers 0              // Direct syntax
+display "Both should be equal: " with (numbers at 0 is equal to numbers 0)
+
+// Test 7: Same-line requirement test (these should work)
+display "Test 7: Same-line Index Access"
+display numbers 0  // Same line - should work
+store val as numbers 1  // Same line - should work
+display "Stored value: " with val
+
+// Test 8: Cross-line test (parser should NOT treat as index)
+display "Test 8: Cross-line handling"
+display numbers
+0  // This should NOT be treated as index access due to line break
+
+// Test 9: Error handling tests
+display "Test 9: Error Handling"
+try:
+    display numbers 10  // Out of bounds - should cause error
+when error occurs:
+    display "Caught expected out-of-bounds error"
+end try
+
+try:
+    display numbers -1  // Negative index - should cause error  
+when error occurs:
+    display "Caught expected negative index error"
+end try
+
+// Test 10: Non-integer index test
+try:
+    display numbers 1.5  // Should not compile or cause error
+when error occurs:
+    display "Caught expected non-integer index error"
+end try
+
+display "=== Direct Index Tests Complete ==="

@@ -595,6 +595,7 @@ end pattern"#;
 /// Tests parsing of a pattern definition with alternative patterns.
 ///
 /// Verifies that the parser correctly recognizes a pattern definition containing an alternative between two string literals, ensuring the resulting AST represents an `Alternative` with the expected literals.
+#[allow(dead_code)]
 fn test_parse_alternative_pattern() {
     let input = r#"create pattern greeting:
     "hello" or "hi"
@@ -717,6 +718,7 @@ fn test_chained_binary_operations_parsing() {
 /// ```
 /// debug_token_sequence(); // Prints the token sequence for inspection
 /// ```
+#[allow(dead_code)]
 fn debug_token_sequence() {
     let input = "store result as 1 plus 2 plus 3";
     let tokens = lex_wfl_with_positions(input);

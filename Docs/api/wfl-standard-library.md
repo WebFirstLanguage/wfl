@@ -323,6 +323,104 @@ Replaces pattern matches in text.
 - **Returns**: Text
 - **Example**: `store cleaned as pattern.replace(pattern, text, "")`
 
+### Pre-built Patterns
+
+WFL provides commonly used patterns in the standard library for validation and parsing tasks:
+
+#### `email_pattern`
+Validates email addresses according to RFC 5322 standards.
+- **Type**: Pattern
+- **Usage**: `if user_email matches email_pattern:`
+- **Example**: 
+  ```wfl
+  store user_input as "user@example.com"
+  if user_input matches email_pattern:
+      display "Valid email address"
+  end if
+  ```
+
+#### `url_pattern` 
+Matches HTTP and HTTPS URLs with optional ports and paths.
+- **Type**: Pattern
+- **Matches**: `http://`, `https://` URLs with domains, ports, and paths
+- **Example**:
+  ```wfl
+  store link as "https://example.com:8080/path?query=value"
+  if link matches url_pattern:
+      display "Valid URL"
+  end if
+  ```
+
+#### `phone_pattern`
+Matches common phone number formats including US/Canada formats.
+- **Type**: Pattern  
+- **Formats**: (XXX) XXX-XXXX, XXX-XXX-XXXX, XXX.XXX.XXXX
+- **Example**:
+  ```wfl
+  store phone as "555-123-4567"
+  store result as find phone_pattern in phone
+  if result is not nothing:
+      display "Phone: " with result.match
+  end if
+  ```
+
+#### `ipv4_pattern`
+Matches IPv4 addresses (0.0.0.0 to 255.255.255.255).
+- **Type**: Pattern
+- **Example**:
+  ```wfl
+  store server_ip as "192.168.1.100"
+  if server_ip matches ipv4_pattern:
+      display "Valid IPv4 address"
+  end if
+  ```
+
+#### `ipv6_pattern`
+Matches IPv6 addresses in standard and compressed formats.
+- **Type**: Pattern
+- **Formats**: Full, compressed (::), and mixed IPv6 formats
+- **Example**:
+  ```wfl
+  store ipv6_addr as "2001:0db8:85a3::8a2e:0370:7334"
+  if ipv6_addr matches ipv6_pattern:
+      display "Valid IPv6 address"
+  end if
+  ```
+
+#### `date_pattern`
+Matches common date formats (YYYY-MM-DD, MM/DD/YYYY, DD-MM-YYYY).
+- **Type**: Pattern
+- **Example**:
+  ```wfl
+  store date_input as "2025-08-10"
+  store result as find date_pattern in date_input
+  if result is not nothing:
+      display "Found date: " with result.match
+  end if
+  ```
+
+#### `time_pattern`
+Matches time formats (HH:MM, HH:MM:SS, 12/24 hour with AM/PM).
+- **Type**: Pattern
+- **Example**:
+  ```wfl
+  store time_input as "14:30:45"
+  if time_input matches time_pattern:
+      display "Valid time format"
+  end if
+  ```
+
+#### `uuid_pattern`
+Matches UUID/GUID formats (8-4-4-4-12 hexadecimal pattern).
+- **Type**: Pattern
+- **Example**:
+  ```wfl
+  store session_id as "550e8400-e29b-41d4-a716-446655440000"
+  if session_id matches uuid_pattern:
+      display "Valid UUID"
+  end if
+  ```
+
 ## Type System Integration
 
 All standard library functions are integrated with WFL's type checker:
