@@ -19,7 +19,7 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_text_contains(analyzer);
     register_substring(analyzer);
 
-    register_list_length(analyzer);
+    // register_list_length(analyzer); // Commented out - length is now registered once for all types
     register_push(analyzer);
     register_pop(analyzer);
     register_list_contains(analyzer);
@@ -100,7 +100,8 @@ fn register_clamp(analyzer: &mut Analyzer) {
 
 fn register_text_length(analyzer: &mut Analyzer) {
     let return_type = Type::Number;
-    let param_types = vec![Type::Text];
+    // Allow length to work on any type (Text, List, etc.)
+    let param_types = vec![Type::Unknown];
 
     analyzer.register_builtin_function("length", param_types, return_type);
 }
@@ -137,12 +138,13 @@ fn register_substring(analyzer: &mut Analyzer) {
     analyzer.register_builtin_function("substring", param_types, return_type);
 }
 
-fn register_list_length(analyzer: &mut Analyzer) {
-    let return_type = Type::Number;
-    let param_types = vec![Type::List(Box::new(Type::Unknown))];
-
-    analyzer.register_builtin_function("length", param_types, return_type);
-}
+// Removed - length is now registered once for all types in register_text_length
+// fn register_list_length(analyzer: &mut Analyzer) {
+//     let return_type = Type::Number;
+//     let param_types = vec![Type::List(Box::new(Type::Unknown))];
+//
+//     analyzer.register_builtin_function("length", param_types, return_type);
+// }
 
 fn register_push(analyzer: &mut Analyzer) {
     let return_type = Type::Nothing;

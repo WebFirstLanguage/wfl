@@ -1,0 +1,10 @@
+store fruits as ["apple" and "banana" and "orange"]
+for each item in fruits:
+    store message as "Found: " with item
+    display message
+end for
+
+count from 1 to 3:
+    store counter_msg as "Count is " with count
+    display counter_msg
+end count

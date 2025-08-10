@@ -1,4 +1,4 @@
-use crate::analyzer::Analyzer;
+use crate::analyzer::{Analyzer, Symbol, SymbolKind};
 use crate::parser::ast::{Expression, Literal, Operator, Program, Statement, Type, UnaryOperator};
 use std::fmt;
 
@@ -287,7 +287,7 @@ impl TypeChecker {
             Statement::VariableDeclaration {
                 name,
                 value,
-                is_constant: _,
+                is_constant,
                 line: _line,
                 column: _column,
             } => {
@@ -307,6 +307,24 @@ impl TypeChecker {
                         *_line,
                         *_column,
                     );
+                }
+
+                // Check if the symbol exists in current scope first
+                if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
+                    // Update existing symbol's type
+                    symbol.symbol_type = Some(inferred_type.clone());
+                } else {
+                    // Define a new symbol if it doesn't exist (e.g., when declared inside a loop)
+                    let new_symbol = Symbol {
+                        name: name.clone(),
+                        kind: SymbolKind::Variable {
+                            mutable: !is_constant,
+                        },
+                        symbol_type: Some(inferred_type.clone()),
+                        line: *_line,
+                        column: *_column,
+                    };
+                    let _ = self.analyzer.define_symbol(new_symbol);
                 }
 
                 let symbol_type_option = if let Some(symbol) = self.analyzer.get_symbol(name) {
@@ -465,18 +483,10 @@ impl TypeChecker {
                 ..
             } => {
                 let collection_type = self.infer_expression_type(collection);
-                match collection_type {
-                    Type::List(item_type) => {
-                        if let Some(symbol) = self.analyzer.get_symbol_mut(item_name) {
-                            symbol.symbol_type = Some(*item_type);
-                        }
-                    }
-                    Type::Map(_, value_type) => {
-                        if let Some(symbol) = self.analyzer.get_symbol_mut(item_name) {
-                            symbol.symbol_type = Some(*value_type);
-                        }
-                    }
-                    Type::Unknown | Type::Error => {}
+                let item_type = match collection_type {
+                    Type::List(item_type) => *item_type,
+                    Type::Map(_, value_type) => *value_type,
+                    Type::Unknown | Type::Error => Type::Unknown,
                     _ => {
                         self.type_error(
                             "Collection in for-each loop must be a list or map".to_string(),
@@ -485,12 +495,31 @@ impl TypeChecker {
                             *_line,
                             *_column,
                         );
+                        Type::Unknown
                     }
-                }
+                };
+
+                // Push a new scope for the loop body
+                self.analyzer.push_scope();
+
+                // Define the loop item variable in the loop scope
+                let item_symbol = Symbol {
+                    name: item_name.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: Some(item_type),
+                    line: 0,
+                    column: 0,
+                };
+
+                // Ignore errors from defining item (it might already be defined by the analyzer)
+                let _ = self.analyzer.define_symbol(item_symbol);
 
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+
+                // Pop the loop scope
+                self.analyzer.pop_scope();
             }
             Statement::CountLoop {
                 start,
@@ -543,9 +572,27 @@ impl TypeChecker {
                     }
                 }
 
+                // Push a new scope for the loop body
+                self.analyzer.push_scope();
+
+                // Define the count variable in the loop scope
+                let count_symbol = Symbol {
+                    name: "count".to_string(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: Some(Type::Number),
+                    line: 0,
+                    column: 0,
+                };
+
+                // Ignore errors from defining count (it might already be defined by the analyzer)
+                let _ = self.analyzer.define_symbol(count_symbol);
+
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+
+                // Pop the loop scope
+                self.analyzer.pop_scope();
             }
             Statement::WhileLoop {
                 condition,
@@ -1604,8 +1651,11 @@ impl TypeChecker {
                     return Type::Error;
                 }
 
-                if (left_type == Type::Text || left_type == Type::Number)
-                    && (right_type == Type::Text || right_type == Type::Number)
+                // When concatenating with text (Plus operator with "with" keyword),
+                // allow any type to be concatenated as the interpreter will convert to string
+                if left_type == Type::Text
+                    || right_type == Type::Text
+                    || (left_type == Type::Number && right_type == Type::Number)
                 {
                     Type::Text
                 } else {

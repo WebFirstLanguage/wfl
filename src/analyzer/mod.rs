@@ -88,7 +88,10 @@ impl Scope {
             Ok(())
         } else {
             Err(SemanticError::new(
-                format!("Variable '{}' is already defined. Use 'change {} to <value>' to modify its value", symbol.name, symbol.name),
+                format!(
+                    "Variable '{}' is already defined. Use 'change {} to <value>' to modify its value",
+                    symbol.name, symbol.name
+                ),
                 symbol.line,
                 symbol.column,
             ))
@@ -1191,6 +1194,10 @@ impl Analyzer {
         if let Some(parent) = self.current_scope.parent.take() {
             self.current_scope = *parent;
         }
+    }
+
+    pub fn define_symbol(&mut self, symbol: Symbol) -> Result<(), SemanticError> {
+        self.current_scope.define(symbol)
     }
 
     fn analyze_expression(&mut self, expression: &Expression) {
