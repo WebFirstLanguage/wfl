@@ -30,10 +30,10 @@
       "Bash(rustc --version)",
       "Bash(git config:*)",
       "Bash(../target/release/wfl.exe pattern.wfl)",
-      "Bash(git fetch:*)",
-      "Bash(git merge:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git fetch --all --prune)",
+      "Bash(git merge --no-ff:*)",
+      "Bash(git add -A)",
+      "Bash(git commit -m \"wfl-ai: *\")"
     ],
     "deny": []
   }
