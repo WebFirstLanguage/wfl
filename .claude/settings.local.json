@@ -29,7 +29,11 @@
       "Bash(powershell:*)",
       "Bash(rustc --version)",
       "Bash(git config:*)",
-      "Bash(../target/release/wfl.exe pattern.wfl)"
+      "Bash(../target/release/wfl.exe pattern.wfl)",
+      "Bash(git fetch:*)",
+      "Bash(git merge:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": []
   }
