@@ -7,9 +7,21 @@ Control flow statements in WFL allow you to direct the execution path of your pr
 WFL provides intuitive control flow constructs that read like natural English:
 - **Conditionals**: Make decisions with `check if`, `otherwise if`, and `otherwise`
 - **Loops**: Repeat actions with `count`, `for each`, `repeat while/until`, and more
-- **Flow Control**: Direct execution with `break`, `continue`, `skip`, and `return`
+- **Flow Control**: Direct execution with `break`, `continue`/`skip`, and `give back` (alias: `return`)
 
 All control flow structures use clear start and end markers, making code blocks easy to identify and understand.
+
+### Control Flow Block Pairs
+
+Each control flow construct has a matching opener and closer pair:
+
+| Construct | Opener | Closer |
+|-----------|--------|--------|
+| Conditional | `check if` | `end check` |
+| Count Loop | `count from` | `end count` |
+| For-Each Loop | `for each` | `end for` |
+| Repeat Loop | `repeat while`/`repeat until`/`repeat forever` | `end repeat` |
+| Main Loop | `main loop` | `end loop` |
 
 ## Conditional Statements
 
@@ -79,7 +91,8 @@ check if temp is at most 30:        // <=
 
 // Boolean conditions
 check if is active:                 // if true
-check if not is active:             // if false
+check if is active is false:        // if false (comparison form)
+check if not (is active):           // if false (grouped negation)
 
 // String operations
 check if email contains "@":       // substring check
@@ -148,6 +161,8 @@ end count
 
 The loop variable `count` is automatically available within the loop body.
 
+**Scoping Note:** The loop variable is always named `count` and is lexically scoped to the loop body. In nested count loops, the inner `count` shadows the outer `count` variable. Currently, there is no syntax to rename or alias the loop variable - it's always `count`.
+
 ### For-Each Loops
 
 Iterate over collections:
@@ -165,12 +180,6 @@ for each fruit in fruits reversed:
     display fruit
 end for
 // Output: orange, banana, apple
-
-// With index (if supported)
-for each fruit at index in fruits:
-    display index with ": " with fruit
-end for
-// Output: 0: apple, 1: banana, 2: orange
 ```
 
 ### Conditional Loops
@@ -301,9 +310,9 @@ display "Both loops exited"
 
 ## Control Flow in Actions
 
-### Return/Give Back
+### Give Back (alias: return)
 
-Return values from actions (functions):
+The `give back` statement is used to return values from actions (functions). You can also use `return` as an alias for `give back`. Using `give back` outside of an action results in a compile-time error.
 
 ```wfl
 define action calculate sum:
@@ -423,15 +432,19 @@ Search in a 2D structure:
 
 ```wfl
 store found as no
+store row_index as 0
 
 for each row in grid:
+    store cell_index as 0
     for each cell in row:
         check if cell is target:
             display "Found at row " with row_index with ", column " with cell_index
             store found as yes
             exit loop  // Exit both loops
         end check
+        store cell_index as cell_index plus 1
     end for
+    store row_index as row_index plus 1
 end for
 
 check if not found:
