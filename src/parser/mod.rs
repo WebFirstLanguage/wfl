@@ -377,11 +377,112 @@ impl<'a> Parser<'a> {
             ));
         };
 
-        // For now, just create a simple interface definition
+        // Expect colon after interface name
+        self.expect_token(Token::Colon, "Expected ':' after interface name")?;
+
+        // Parse interface body (action signatures)
+        let mut required_actions = Vec::new();
+
+        loop {
+            if let Some(token) = self.tokens.peek().cloned() {
+                match &token.token {
+                    Token::KeywordEnd => {
+                        self.tokens.next(); // Consume 'end'
+                        break;
+                    }
+                    Token::KeywordAction => {
+                        let action_line = token.line;
+                        let action_column = token.column;
+                        self.tokens.next(); // Consume 'action'
+
+                        // Parse action name
+                        let action_name = if let Some(token) = self.tokens.peek() {
+                            if let Token::Identifier(id) = &token.token {
+                                let name = id.clone();
+                                self.tokens.next();
+                                name
+                            } else {
+                                return Err(ParseError::new(
+                                    format!("Expected action name, found {:?}", token.token),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected action name".to_string(),
+                                line,
+                                column,
+                            ));
+                        };
+
+                        // Parse parameters if present
+                        let mut parameters = Vec::new();
+                        if let Some(token) = self.tokens.peek()
+                            && matches!(token.token, Token::KeywordWith | Token::KeywordNeeds) {
+                                self.tokens.next(); // Consume 'with' or 'needs'
+                                parameters = self.parse_parameter_list()?;
+                        }
+
+                        // Parse return type if present (: Type)
+                        let return_type = if let Some(token) = self.tokens.peek() {
+                            if token.token == Token::Colon {
+                                self.tokens.next(); // Consume ':'
+
+                                if let Some(type_token) = self.tokens.peek() {
+                                    if let Token::Identifier(type_name) = &type_token.token {
+                                        let type_name = type_name.clone();
+                                        self.tokens.next(); // Consume type name
+
+                                        let parsed_type = match type_name.to_lowercase().as_str() {
+                                            "text" => Type::Text,
+                                            "number" => Type::Number,
+                                            "boolean" | "bool" => Type::Boolean,
+                                            "list" => Type::List(Box::new(Type::Any)),
+                                            "any" => Type::Any,
+                                            "nothing" | "null" => Type::Nothing,
+                                            _ => Type::Custom(type_name),
+                                        };
+                                        Some(parsed_type)
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        required_actions.push(ActionSignature {
+                            name: action_name,
+                            parameters,
+                            return_type,
+                            line: action_line,
+                            column: action_column,
+                        });
+                    }
+                    _ => {
+                        // Skip unexpected tokens in interface body
+                        self.tokens.next();
+                    }
+                }
+            } else {
+                return Err(ParseError::new(
+                    "Unexpected end of input in interface definition".to_string(),
+                    line,
+                    column,
+                ));
+            }
+        }
+
         Ok(Statement::InterfaceDefinition {
             name,
             extends: Vec::new(),
-            required_actions: Vec::new(),
+            required_actions,
             line,
             column,
         })
@@ -733,6 +834,12 @@ impl<'a> Parser<'a> {
                 match &token.token {
                     Token::KeywordEnd => {
                         self.tokens.next(); // Consume 'end'
+
+                        // Optionally consume 'container' if present (for 'end container' syntax)
+                        if let Some(next_token) = self.tokens.peek()
+                            && matches!(next_token.token, Token::KeywordContainer) {
+                                self.tokens.next(); // Consume 'container'
+                        }
                         break;
                     }
                     Token::KeywordProperty => {
@@ -939,8 +1046,20 @@ impl<'a> Parser<'a> {
 
                         if let Some(type_name_token) = self.tokens.peek() {
                             if let Token::Identifier(type_name) = &type_name_token.token {
+                                let type_name = type_name.clone();
                                 self.tokens.next(); // Consume type name
-                                Some(Type::Custom(type_name.clone()))
+
+                                // Map string to Type enum
+                                let parsed_type = match type_name.to_lowercase().as_str() {
+                                    "text" => Type::Text,
+                                    "number" => Type::Number,
+                                    "boolean" | "bool" => Type::Boolean,
+                                    "list" => Type::List(Box::new(Type::Any)),
+                                    "any" => Type::Any,
+                                    "nothing" | "null" => Type::Nothing,
+                                    _ => Type::Custom(type_name),
+                                };
+                                Some(parsed_type)
                             } else {
                                 return Err(ParseError::new(
                                     "Expected type name after ':'".to_string(),
@@ -970,10 +1089,13 @@ impl<'a> Parser<'a> {
                     column: param_column,
                 });
 
-                // Check for comma to continue or break
+                // Check for comma or 'and' to continue or break
                 if let Some(next_token) = self.tokens.peek() {
                     if next_token.token == Token::Comma {
                         self.tokens.next(); // Consume comma
+                        continue;
+                    } else if next_token.token == Token::KeywordAnd {
+                        self.tokens.next(); // Consume 'and'
                         continue;
                     } else {
                         break;
@@ -4675,18 +4797,61 @@ impl<'a> Parser<'a> {
 
         let mut parameters = Vec::new();
 
-        // Check for parameters
+        // Check for parameters (supports both 'with' and 'needs' for backward compatibility)
         if let Some(token) = self.tokens.peek().cloned()
-            && matches!(token.token, Token::KeywordNeeds)
-        {
-            self.tokens.next(); // Consume "needs"
-            parameters = self.parse_parameter_list()?;
+            && matches!(token.token, Token::KeywordWith | Token::KeywordNeeds) {
+                self.tokens.next(); // Consume "with" or "needs"
+                parameters = self.parse_parameter_list()?;
         }
 
-        // For now, container actions don't support explicit return types
-        let return_type = None;
+        // Check for return type or body start (: Type or just :)
+        let mut return_type = None;
 
-        self.expect_token(Token::Colon, "Expected ':' after action declaration")?;
+        if let Some(token) = self.tokens.peek() {
+            if token.token == Token::Colon {
+                self.tokens.next(); // Consume ':'
+
+                // Check if next token is a type identifier or start of body
+                if let Some(type_token) = self.tokens.peek()
+                    && let Token::Identifier(type_name) = &type_token.token {
+                        // This could be a type name - check if it's a known type
+                        let lower = type_name.to_lowercase();
+                        if matches!(
+                            lower.as_str(),
+                            "text"
+                                | "number"
+                                | "boolean"
+                                | "bool"
+                                | "list"
+                                | "any"
+                                | "nothing"
+                                | "null"
+                        ) {
+                            let type_name = type_name.clone();
+                            self.tokens.next(); // Consume type name
+
+                            // Map string to Type enum
+                            let parsed_type = match lower.as_str() {
+                                "text" => Type::Text,
+                                "number" => Type::Number,
+                                "boolean" | "bool" => Type::Boolean,
+                                "list" => Type::List(Box::new(Type::Any)),
+                                "any" => Type::Any,
+                                "nothing" | "null" => Type::Nothing,
+                                _ => Type::Custom(type_name),
+                            };
+                            return_type = Some(parsed_type);
+                        }
+                        // Otherwise, the identifier is part of the body, don't consume it
+                }
+                    // If it's not an identifier, it's the start of the body
+            } else {
+                // No colon means no return type, expect colon for body
+                self.expect_token(Token::Colon, "Expected ':' after action declaration")?;
+            }
+        } else {
+            self.expect_token(Token::Colon, "Expected ':' after action declaration")?;
+        }
 
         let mut body = Vec::new();
 
