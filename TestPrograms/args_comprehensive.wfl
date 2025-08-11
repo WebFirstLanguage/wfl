@@ -12,7 +12,7 @@ display ""
 
 // === Display All Arguments ===
 display "2. All Arguments List"
-check if arg_count greater than 0:
+check if arg_count is greater than 0:
     display "Arguments passed to program:"
     for each arg in args:
         display "  - " with arg
@@ -24,16 +24,16 @@ display ""
 
 // === Indexed Argument Access ===
 display "3. Indexed Argument Access"
-check if arg_count greater than 0:
+check if arg_count is greater than 0:
     display "First argument: " with args[0]
     
-    check if arg_count greater than 1:
+    check if arg_count is greater than 1:
         display "Second argument: " with args[1]
     else:
         display "No second argument provided"
     end check
     
-    check if arg_count greater than 2:
+    check if arg_count is greater than 2:
         display "Third argument: " with args[2]
     else:
         display "No third argument provided"
@@ -45,13 +45,13 @@ display ""
 
 // === Argument Processing ===
 display "4. Argument Processing"
-check if arg_count greater than 0:
+check if arg_count is greater than 0:
     display "Processing each argument:"
     store arg_index as 0
     for each arg in args:
         store arg_length as length of arg
         display "  Arg " with arg_index with ": '" with arg with "' (length: " with arg_length with ")"
-        store arg_index as arg_index + 1
+        change arg_index to arg_index plus 1
     end for
 else:
     display "No arguments to process"
@@ -73,17 +73,18 @@ elif arg_count is 2:
     display "  First: " with args[0]  
     display "  Second: " with args[1]
     display "  Combined: " with args[0] with " " with args[1]
-elif arg_count greater than 2:
+elif arg_count is greater than 2:
     display "Multiple argument mode:"
     display "  Count: " with arg_count
     display "  First: " with args[0]
-    display "  Last: " with args[arg_count - 1]
+    store last_index as arg_count minus 1
+    display "  Last: " with args[last_index]
 end check
 display ""
 
 // === Argument Type Detection ===
 display "6. Argument Type Detection"
-check if arg_count greater than 0:
+check if arg_count is greater than 0:
     for each arg in args:
         // Check if argument is numeric
         create pattern numeric:
@@ -109,7 +110,7 @@ display ""
 
 // === Flag Parsing ===
 display "7. Flag/Option Parsing"
-check if arg_count greater than 0:
+check if arg_count is greater than 0:
     store has_help as no
     store has_version as no  
     store has_verbose as no
@@ -117,15 +118,15 @@ check if arg_count greater than 0:
     
     for each arg in args:
         check if arg is "--help" or arg is "-h":
-            store has_help as yes
+            change has_help to yes
         elif arg is "--version" or arg is "-v":
-            store has_version as yes
+            change has_version to yes
         elif arg is "--verbose":
-            store has_verbose as yes
-        elif startswith of arg and "-":
+            change has_verbose to yes
+        elif substring of arg and 0 and 1 is "-":
             display "  Unknown flag: " with arg
         else:
-            push of non_flag_args and arg
+            push with non_flag_args and arg
         end check
     end for
     
@@ -151,11 +152,11 @@ display "  Program: " with program_name
 display "  Arguments: " with arg_count
 display "  Current directory: " with current_directory
 
-check if arg_count greater than 0:
+check if arg_count is greater than 0:
     display "  Working with arguments in current environment"
     store combined_args as ""
     for each arg in args:
-        store combined_args as combined_args with arg with " "
+        change combined_args to combined_args with arg with " "
     end for
     display "  Combined arguments: '" with combined_args with "'"
 end check
@@ -163,15 +164,15 @@ display ""
 
 // === Argument Filtering ===
 display "9. Argument Filtering"
-check if arg_count greater than 0:
+check if arg_count is greater than 0:
     store long_args as []
     store short_args as []
     
     for each arg in args:
-        check if length of arg greater than 5:
-            push of long_args and arg
+        check if length of arg is greater than 5:
+            push with long_args and arg
         else:
-            push of short_args and arg
+            push with short_args and arg
         end check
     end for
     
@@ -194,13 +195,13 @@ display "10. Execution Summary"
 display "Program: " with program_name
 display "Total arguments: " with arg_count
 
-check if arg_count greater than 0:
+check if arg_count is greater than 0:
     store total_length as 0
     for each arg in args:
-        store total_length as total_length + length of arg
+        change total_length to total_length plus length of arg
     end for
     display "Total character count: " with total_length
-    display "Average argument length: " with total_length / arg_count
+    display "Average argument length: " with total_length divided by arg_count
     
     display "Shortest argument: " with args[0]  // Simplified - would need proper min logic
     display "Arguments summary completed"
