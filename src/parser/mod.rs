@@ -1872,6 +1872,9 @@ impl<'a> Parser<'a> {
                     Token::KeywordMinus => {
                         self.tokens.next(); // Consume "minus"
                     }
+                    Token::Minus => {
+                        self.tokens.next(); // Consume "-"
+                    }
                     Token::KeywordTimes => {
                         self.tokens.next(); // Consume "times"
                     }
