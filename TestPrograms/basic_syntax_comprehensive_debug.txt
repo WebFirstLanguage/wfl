@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: basic_syntax_comprehensive.wfl
+Time: 2025-08-11 03:00:26
+
+=== Error Summary ===
+Runtime error at line 103, column 37: Error in native function: Runtime error at line 0, column 0: Expected text, got List
+
+=== Stack Trace ===
+In main script at line 103, column 37
+
+=== Source Code ===
+   101: store my numbers as [1 and 2 and 3 and 4 and 5]
+   102: display "Number list: " with my numbers
+>> 103: display "List length: " with length of my numbers
+   104: display ""
+   105: 
+
+=== Local Variables ===
+(No local variables in global scope)

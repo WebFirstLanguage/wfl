@@ -1,9 +1,0 @@
-// Test for parameter binding with 'and' between parameter names
-define action called test_binding_with_and needs param1 and param2 and param3:
-    display "param1: " with param1
-    display "param2: " with param2
-    display "param3: " with param3
-end action
-
-// Call the action with a single argument
-test_binding_with_and with "This is a single argument"

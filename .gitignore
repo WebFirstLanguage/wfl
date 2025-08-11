@@ -10,3 +10,7 @@
 combined/
 
 *.log
+
+# Debug output files
+*_debug.txt
+wfl_exec.log

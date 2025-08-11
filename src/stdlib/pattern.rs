@@ -7,15 +7,15 @@ use std::rc::Rc;
 
 pub fn register(env: &mut Environment) {
     // Register new pattern functions that work with our pattern system
-    env.define(
+    let _ = env.define(
         "pattern_matches",
         Value::NativeFunction("pattern_matches", pattern_matches_native),
     );
-    env.define(
+    let _ = env.define(
         "pattern_find",
         Value::NativeFunction("pattern_find", pattern_find_native),
     );
-    env.define(
+    let _ = env.define(
         "pattern_find_all",
         Value::NativeFunction("pattern_find_all", pattern_find_all_native),
     );

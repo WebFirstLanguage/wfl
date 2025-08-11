@@ -1,6 +1,0 @@
-# Broken WFL configuration
-timeout_seconds = potato
-unknown_setting = value
-log_level = extreme
-max_line_length = -10
-trailing_whitespace = maybe

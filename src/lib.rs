@@ -6,6 +6,7 @@
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 pub mod analyzer;
+pub mod builtins;
 pub mod config;
 pub mod debug_report;
 pub mod diagnostics;

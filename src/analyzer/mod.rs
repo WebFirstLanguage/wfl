@@ -83,16 +83,35 @@ impl Scope {
     }
 
     pub fn define(&mut self, symbol: Symbol) -> Result<(), SemanticError> {
-        if symbol.name == "currentLog" || !self.symbols.contains_key(&symbol.name) {
-            self.symbols.insert(symbol.name.clone(), symbol);
-            Ok(())
-        } else {
-            Err(SemanticError::new(
-                format!("Symbol '{}' is already defined in this scope", symbol.name),
+        // Check if variable already exists in current scope
+        if self.symbols.contains_key(&symbol.name) {
+            let existing = &self.symbols[&symbol.name];
+            return Err(SemanticError::new(
+                format!(
+                    "Variable '{}' has already been defined at line {}. Use 'change {} to <value>' to modify it.",
+                    symbol.name, existing.line, symbol.name
+                ),
                 symbol.line,
                 symbol.column,
-            ))
+            ));
         }
+
+        // Check if variable exists in parent scopes
+        if let Some(parent) = &self.parent
+            && parent.resolve(&symbol.name).is_some()
+        {
+            return Err(SemanticError::new(
+                format!(
+                    "Variable '{}' has already been defined in an outer scope. Use 'change {} to <value>' to modify it.",
+                    symbol.name, symbol.name
+                ),
+                symbol.line,
+                symbol.column,
+            ));
+        }
+
+        self.symbols.insert(symbol.name.clone(), symbol);
+        Ok(())
     }
 
     pub fn resolve(&self, name: &str) -> Option<&Symbol> {
@@ -242,6 +261,10 @@ impl Analyzer {
             action_parameters: std::collections::HashSet::new(),
             containers: HashMap::new(),
         }
+    }
+
+    pub fn is_builtin_function(name: &str) -> bool {
+        crate::builtins::is_builtin_function(name)
     }
 
     pub fn analyze(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
@@ -535,6 +558,9 @@ impl Analyzer {
                 if let Err(error) = self.current_scope.define(item_symbol) {
                     self.errors.push(error);
                 }
+
+                // Add item to action_parameters to prevent it from being flagged as undefined
+                self.action_parameters.insert(item_name.clone());
 
                 for stmt in body {
                     self.analyze_statement(stmt);
@@ -1218,10 +1244,8 @@ impl Analyzer {
                     return;
                 }
 
-                // Special case for helper_function and nested_function
-                if name == "helper_function" || name == "nested_function" {
-                    // Add these to action_parameters to prevent them from being flagged as undefined
-                    self.action_parameters.insert(name.clone());
+                // Check if it's a builtin function
+                if Self::is_builtin_function(name) {
                     return;
                 }
 

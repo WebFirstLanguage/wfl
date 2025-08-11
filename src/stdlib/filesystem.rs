@@ -311,38 +311,38 @@ pub fn native_is_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn register_filesystem(env: &mut crate::interpreter::environment::Environment) {
-    env.define(
+    let _ = env.define(
         "list_dir",
         Value::NativeFunction("list_dir", native_list_dir),
     );
-    env.define("glob", Value::NativeFunction("glob", native_glob));
-    env.define("rglob", Value::NativeFunction("rglob", native_rglob));
-    env.define(
+    let _ = env.define("glob", Value::NativeFunction("glob", native_glob));
+    let _ = env.define("rglob", Value::NativeFunction("rglob", native_rglob));
+    let _ = env.define(
         "path_join",
         Value::NativeFunction("path_join", native_path_join),
     );
-    env.define(
+    let _ = env.define(
         "path_basename",
         Value::NativeFunction("path_basename", native_path_basename),
     );
-    env.define(
+    let _ = env.define(
         "path_dirname",
         Value::NativeFunction("path_dirname", native_path_dirname),
     );
-    env.define(
+    let _ = env.define(
         "makedirs",
         Value::NativeFunction("makedirs", native_makedirs),
     );
-    env.define(
+    let _ = env.define(
         "file_mtime",
         Value::NativeFunction("file_mtime", native_file_mtime),
     );
-    env.define(
+    let _ = env.define(
         "path_exists",
         Value::NativeFunction("path_exists", native_path_exists),
     );
-    env.define("is_file", Value::NativeFunction("is_file", native_is_file));
-    env.define("is_dir", Value::NativeFunction("is_dir", native_is_dir));
+    let _ = env.define("is_file", Value::NativeFunction("is_file", native_is_file));
+    let _ = env.define("is_dir", Value::NativeFunction("is_dir", native_is_dir));
 }
 
 #[cfg(test)]

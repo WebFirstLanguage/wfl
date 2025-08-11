@@ -1,8 +1,0 @@
-define action called log_message needs message_text:
-    open file at "test.log" as log_file
-    wait for write content message_text into log_file
-    wait for append content "\n" into log_file
-    close file log_file
-end action
-
-log_message with "Starting Nexus WFL Integration Test Suite..."

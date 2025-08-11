@@ -39,7 +39,7 @@ display ""
 display "4. Variable Redefinition Test"
 store test var as "original"
 display "Before: " with test var
-store test var as "modified"
+change test var to "modified"
 display "After: " with test var
 display ""
 
@@ -78,8 +78,9 @@ count from 0 to 10 by 2:
 end count
 
 display "Loop variable test:"
+store loop_message as ""
 count from 1 to 3:
-    store loop_message as "Iteration " with count
+    change loop_message to "Iteration " with count
     display "  " with loop_message
 end count
 display ""

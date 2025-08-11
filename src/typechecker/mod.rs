@@ -123,6 +123,52 @@ impl TypeChecker {
         self.analyzer.get_action_parameters()
     }
 
+    /// Get the return type for builtin functions
+    fn get_builtin_function_type(&self, name: &str, _arg_count: usize) -> Type {
+        match name {
+            // Type functions
+            "typeof" | "type_of" => Type::Text,
+            "isnothing" | "is_nothing" => Type::Boolean,
+
+            // Math functions
+            "abs" | "round" | "floor" | "ceil" | "random" | "clamp" | "min" | "max" | "power"
+            | "sqrt" | "sin" | "cos" | "tan" => Type::Number,
+
+            // Text functions
+            "length" | "indexof" | "index_of" | "lastindexof" | "last_index_of" => Type::Number,
+            "touppercase" | "tolowercase" | "substring" | "replace" | "trim" | "padleft"
+            | "padright" | "capitalize" | "reverse" => Type::Text,
+            "contains" | "startswith" | "starts_with" | "endswith" | "ends_with" => Type::Boolean,
+            "split" => Type::List(Box::new(Type::Text)),
+            "join" => Type::Text,
+
+            // List functions
+            "push" | "pop" | "shift" | "unshift" | "removeat" | "remove_at" | "insertat"
+            | "insert_at" | "slice" | "concat" | "unique" | "sort" | "reverse_list" | "clear"
+            | "filter" | "map" => Type::List(Box::new(Type::Any)),
+            "find" => Type::Any,
+            "count" | "size" => Type::Number,
+            "includes" => Type::Boolean,
+
+            // Time functions
+            "now" | "today" | "time" | "date" | "year" | "month" | "day" | "hour" | "minute"
+            | "second" | "dayofweek" | "day_of_week" | "adddays" | "add_days" | "addmonths"
+            | "add_months" | "addyears" | "add_years" | "addhours" | "add_hours" | "addminutes"
+            | "add_minutes" | "addseconds" | "add_seconds" => Type::Number,
+            "formatdate" | "format_date" | "formattime" | "format_time" => Type::Text,
+            "parsedate" | "parse_date" | "isleapyear" | "is_leap_year" => Type::Number,
+            "daysbetween" | "days_between" | "monthsbetween" | "months_between"
+            | "yearsbetween" | "years_between" => Type::Number,
+
+            // Pattern functions
+            "pattern" | "match" | "test" | "replace_pattern" | "extract" => Type::Text,
+            "ismatch" | "is_match" => Type::Boolean,
+            "findall" | "find_all" => Type::List(Box::new(Type::Text)),
+
+            _ => Type::Unknown,
+        }
+    }
+
     pub fn check_types(&mut self, program: &Program) -> Result<(), Vec<TypeError>> {
         // Only run the analyzer if it hasn't been run already
         // When created with with_analyzer(), the analyzer has already been run,
@@ -1167,8 +1213,9 @@ impl TypeChecker {
                         Type::Unknown
                     }
                 } else {
-                    // Check if this is an action parameter or a special function name before reporting it as undefined
+                    // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
                     if self.analyzer.get_action_parameters().contains(name)
+                        || Analyzer::is_builtin_function(name)
                         || name == "helper_function"
                         || name == "nested_function"
                     {
@@ -1179,15 +1226,9 @@ impl TypeChecker {
                         }
                         Type::Unknown
                     } else {
-                        // Add an error for undefined variable
-                        self.type_error(
-                            format!("Variable '{name}' is not defined"),
-                            None,
-                            None,
-                            *_line,
-                            *_column,
-                        );
-                        Type::Error
+                        // The analyzer already reports undefined variables, so we don't need to duplicate the error
+                        // Return Unknown type to continue type checking without cascading errors
+                        Type::Unknown
                     }
                 }
             }
@@ -1604,24 +1645,9 @@ impl TypeChecker {
                     return Type::Error;
                 }
 
-                if (left_type == Type::Text || left_type == Type::Number)
-                    && (right_type == Type::Text || right_type == Type::Number)
-                {
-                    Type::Text
-                } else {
-                    self.type_error(
-                        format!("Cannot concatenate {left_type} and {right_type}"),
-                        Some(Type::Text),
-                        Some(if left_type != Type::Text && left_type != Type::Number {
-                            left_type
-                        } else {
-                            right_type
-                        }),
-                        *_line,
-                        *_column,
-                    );
-                    Type::Error
-                }
+                // Allow concatenation of any types - they will be converted to text at runtime
+                // This matches the interpreter's behavior which converts values to strings
+                Type::Text
             }
             Expression::PatternMatch { text, pattern, .. } => {
                 let text_type = self.infer_expression_type(text);
@@ -1773,12 +1799,17 @@ impl TypeChecker {
                 let symbol_opt = self.analyzer.get_symbol(name);
 
                 if symbol_opt.is_none() {
-                    // Check if this is an action parameter or a special function name before reporting it as undefined
+                    // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
                     if self.analyzer.get_action_parameters().contains(name)
+                        || Analyzer::is_builtin_function(name)
                         || name == "helper_function"
                         || name == "nested_function"
                     {
                         // It's an action parameter or a special function name, so don't report an error
+                        // For builtin functions, return their proper type
+                        if Analyzer::is_builtin_function(name) {
+                            return self.get_builtin_function_type(name, arguments.len());
+                        }
                         return Type::Unknown;
                     } else {
                         self.type_error(

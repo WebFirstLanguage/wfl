@@ -16,6 +16,7 @@ Core language documentation for learning and using WFL:
 - **[Error Handling](language-reference/wfl-errors.md)** - Understanding and handling errors
 - **[I/O Operations](language-reference/wfl-io.md)** - File and network input/output
 - **[Main Loop](language-reference/wfl-main-loop.md)** - Event-driven programming
+- **[Loop Scoping](language-reference/loop-scoping.md)** - Loop variable scoping and iteration behavior
 
 ## 📖 Guides and Tutorials
 
@@ -120,12 +121,12 @@ When adding new documentation:
 
 ## 📊 Documentation Statistics
 
-- **Language Reference:** 10 comprehensive guides
+- **Language Reference:** 11 comprehensive guides
 - **User Guides:** 9 tutorials and how-tos
 - **API Documentation:** 10 module references
 - **Technical Docs:** 15 internal documents  
 - **Dev Notes:** 7 development documents
-- **Total Documentation:** 51 organized documents
+- **Total Documentation:** 52 organized documents
 
 *Last updated: August 2025*
 
