@@ -45,6 +45,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+// Constants for location information when actual location is not available
+const UNKNOWN_LOCATION: usize = 0;
+
 // Helper functions for execution logging
 #[cfg(debug_assertions)]
 fn stmt_type(stmt: &Statement) -> String {
