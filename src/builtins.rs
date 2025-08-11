@@ -16,7 +16,6 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "type_of",
     "isnothing",
     "is_nothing",
-    
     // Math functions (implemented in stdlib/math.rs)
     "abs",
     "round",
@@ -32,14 +31,13 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "sin",
     "cos",
     "tan",
-    
     // Text functions (implemented in stdlib/text.rs)
-    "length",  // Also works for lists
+    "length", // Also works for lists
     "touppercase",
     "to_uppercase",
     "tolowercase",
     "to_lowercase",
-    "contains",  // Also works for lists
+    "contains", // Also works for lists
     "substring",
     // Text functions recognized by TypeChecker but not yet implemented
     "indexof",
@@ -58,7 +56,6 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "ends_with",
     "split",
     "join",
-    
     // List functions (implemented in stdlib/list.rs)
     "push",
     "pop",
@@ -87,7 +84,6 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "clear",
     "count",
     "size",
-    
     // Time functions (implemented in stdlib/time.rs)
     "now",
     "today",
@@ -114,7 +110,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "second",
     "dayofweek",
     "day_of_week",
-    "adddays",  // Duplicate of add_days
+    "adddays", // Duplicate of add_days
     "addmonths",
     "add_months",
     "addyears",
@@ -125,17 +121,16 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "add_minutes",
     "addseconds",
     "add_seconds",
-    "formatdate",  // Duplicate of format_date
-    "formattime",  // Duplicate of format_time
+    "formatdate", // Duplicate of format_date
+    "formattime", // Duplicate of format_time
     "parsedate",  // Duplicate of parse_date
     "isleapyear",
     "is_leap_year",
-    "daysbetween",  // Duplicate of days_between
+    "daysbetween", // Duplicate of days_between
     "monthsbetween",
     "months_between",
     "yearsbetween",
     "years_between",
-    
     // Pattern functions (implemented in stdlib/pattern.rs)
     "pattern_matches",
     "pattern_find",
@@ -152,7 +147,6 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "is_match",
     "findall",
     "find_all",
-    
     // File system functions (implemented in stdlib/filesystem.rs)
     "list_dir",
     "glob",
@@ -173,7 +167,6 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "create_directory",
     "list_directory",
     "is_directory",
-    
     // Special test functions (used in test programs)
     "helper_function",
     "nested_function",
