@@ -1,5 +1,8 @@
 use std::fmt;
 
+/// Constant used for line and column numbers when location information is not available
+pub const UNKNOWN_LOCATION: usize = 0;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ErrorKind {
     General,

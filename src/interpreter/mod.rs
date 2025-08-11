@@ -11,7 +11,7 @@ pub mod value;
 use self::control_flow::ControlFlow;
 
 use self::environment::Environment;
-use self::error::{ErrorKind, RuntimeError};
+use self::error::{ErrorKind, RuntimeError, UNKNOWN_LOCATION};
 use self::value::{
     ContainerDefinitionValue, ContainerEventValue, ContainerInstanceValue, ContainerMethodValue,
     EventHandler, FunctionValue, InterfaceDefinitionValue, Value,
@@ -2608,18 +2608,22 @@ impl Interpreter {
                                 .define(param_name, arg_values[i].clone())
                             {
                                 return Err(RuntimeError::new(
-                                    format!("Error defining parameter '{param_name}' in event trigger: {define_err}"),
-                                    0, // No line/column available in this context
-                                    0,
+                                    format!(
+                                        "Error defining parameter '{param_name}' in event trigger: {define_err}"
+                                    ),
+                                    UNKNOWN_LOCATION, // No line/column available in this context
+                                    UNKNOWN_LOCATION,
                                 ));
                             }
                         } else if let Err(define_err) =
                             handler_env.borrow_mut().define(param_name, Value::Null)
                         {
                             return Err(RuntimeError::new(
-                                format!("Error defining parameter '{param_name}' in event trigger: {define_err}"),
-                                0, // No line/column available in this context
-                                0,
+                                format!(
+                                    "Error defining parameter '{param_name}' in event trigger: {define_err}"
+                                ),
+                                UNKNOWN_LOCATION, // No line/column available in this context
+                                UNKNOWN_LOCATION,
                             ));
                         }
                     }
@@ -2764,7 +2768,9 @@ impl Interpreter {
                                 method_env.borrow_mut().define("this", this_val.clone())
                             {
                                 return Err(RuntimeError::new(
-                                    format!("Error defining 'this' in parent method call: {define_err}"),
+                                    format!(
+                                        "Error defining 'this' in parent method call: {define_err}"
+                                    ),
                                     *line,
                                     *column,
                                 ));
