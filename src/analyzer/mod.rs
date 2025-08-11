@@ -264,30 +264,7 @@ impl Analyzer {
     }
 
     pub fn is_builtin_function(name: &str) -> bool {
-        matches!(
-            name,
-            // Core functions
-            "print" | "typeof" | "type_of" | "isnothing" | "is_nothing" |
-            // Math functions
-            "abs" | "round" | "floor" | "ceil" | "random" | "clamp" |
-            // Text functions
-            "length" | "touppercase" | "tolowercase" | "contains" | "substring" |
-            "to_uppercase" | "to_lowercase" |
-            // List functions
-            "push" | "pop" | "shift" | "unshift" | "remove_at" | "insert_at" |
-            "sort" | "reverse" | "filter" | "map" | "reduce" | "foreach" |
-            "find" | "find_index" | "includes" | "index_of" | "last_index_of" |
-            "slice" | "join" | "every" | "some" | "fill" | "concat" |
-            // Time functions
-            "now" | "sleep" | "format_time" | "parse_time" |
-            // Pattern functions
-            "compile_pattern" | "match_pattern" | "replace_pattern" |
-            // File system functions
-            "read_file" | "write_file" | "file_exists" | "delete_file" |
-            "create_directory" | "list_directory" | "is_directory" |
-            // Special test functions
-            "helper_function" | "nested_function"
-        )
+        crate::builtins::is_builtin_function(name)
     }
 
     pub fn analyze(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
