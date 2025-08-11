@@ -1228,7 +1228,10 @@ impl Interpreter {
                         for item in items {
                             // Create a new scope for each iteration
                             let loop_env = Environment::new_child_env(&env);
-                            let _ = loop_env.borrow_mut().define(item_name, item);
+                            match loop_env.borrow_mut().define(item_name, item) {
+                                Ok(_) => {}
+                                Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                            }
                             let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
 
                             match result.1 {
@@ -1268,7 +1271,10 @@ impl Interpreter {
                         for (_, value) in items {
                             // Create a new scope for each iteration
                             let loop_env = Environment::new_child_env(&env);
-                            let _ = loop_env.borrow_mut().define(item_name, value);
+                            match loop_env.borrow_mut().define(item_name, value) {
+                                Ok(_) => {}
+                                Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                            }
                             let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
 
                             match result.1 {
