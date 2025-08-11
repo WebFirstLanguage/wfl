@@ -86,7 +86,7 @@ pub fn native_pop(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(list_ref.pop().unwrap())
 }
 
-pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
+pub fn native_list_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
     if args.len() != 2 {
         return Err(RuntimeError::new(
             format!("contains expects 2 arguments, got {}", args.len()),
@@ -132,10 +132,6 @@ pub fn register_list(env: &mut Environment) {
     env.define("length", Value::NativeFunction("length", native_length));
     env.define("push", Value::NativeFunction("push", native_push));
     env.define("pop", Value::NativeFunction("pop", native_pop));
-    env.define(
-        "contains",
-        Value::NativeFunction("contains", native_contains),
-    );
     env.define("indexof", Value::NativeFunction("indexof", native_indexof));
 
     env.define(

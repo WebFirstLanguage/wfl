@@ -16,14 +16,13 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_text_length(analyzer);
     register_touppercase(analyzer);
     register_tolowercase(analyzer);
-    register_text_contains(analyzer);
+    register_contains(analyzer);
     register_substring(analyzer);
     register_startswith(analyzer);
 
     // register_list_length(analyzer); // Commented out - length is now registered once for all types
     register_push(analyzer);
     register_pop(analyzer);
-    register_list_contains(analyzer);
     register_indexof(analyzer);
 
     register_pattern_matches(analyzer);
@@ -101,10 +100,14 @@ fn register_clamp(analyzer: &mut Analyzer) {
 
 fn register_text_length(analyzer: &mut Analyzer) {
     let return_type = Type::Number;
-    // Allow length to work on any type (Text, List, etc.)
-    let param_types = vec![Type::Unknown];
-
-    analyzer.register_builtin_function("length", param_types, return_type);
+    
+    // Register length for Text
+    let text_param_types = vec![Type::Text];
+    analyzer.register_builtin_function("length", text_param_types, return_type.clone());
+    
+    // Register length for List (any list type)
+    let list_param_types = vec![Type::List(Box::new(Type::Unknown))];
+    analyzer.register_builtin_function("length", list_param_types, return_type);
 }
 
 fn register_touppercase(analyzer: &mut Analyzer) {
@@ -125,11 +128,17 @@ fn register_tolowercase(analyzer: &mut Analyzer) {
     analyzer.register_builtin_function("to_lowercase", param_types, return_type);
 }
 
-fn register_text_contains(analyzer: &mut Analyzer) {
+fn register_contains(analyzer: &mut Analyzer) {
+    // Register contains for both text and list cases
     let return_type = Type::Boolean;
-    let param_types = vec![Type::Text, Type::Text];
-
-    analyzer.register_builtin_function("contains", param_types, return_type);
+    
+    // Text contains text case
+    let text_param_types = vec![Type::Text, Type::Text];
+    analyzer.register_builtin_function("contains", text_param_types, return_type.clone());
+    
+    // List contains any case  
+    let list_param_types = vec![Type::List(Box::new(Type::Unknown)), Type::Unknown];
+    analyzer.register_builtin_function("contains", list_param_types, return_type);
 }
 
 fn register_substring(analyzer: &mut Analyzer) {
@@ -143,7 +152,8 @@ fn register_startswith(analyzer: &mut Analyzer) {
     let return_type = Type::Boolean;
     let param_types = vec![Type::Text, Type::Text];
 
-    analyzer.register_builtin_function("startswith", param_types, return_type);
+    analyzer.register_builtin_function("startswith", param_types.clone(), return_type.clone());
+    analyzer.register_builtin_function("starts_with", param_types, return_type);
 }
 
 // Removed - length is now registered once for all types in register_text_length
@@ -166,13 +176,6 @@ fn register_pop(analyzer: &mut Analyzer) {
     let param_types = vec![Type::List(Box::new(Type::Unknown))];
 
     analyzer.register_builtin_function("pop", param_types, return_type);
-}
-
-fn register_list_contains(analyzer: &mut Analyzer) {
-    let return_type = Type::Boolean;
-    let param_types = vec![Type::List(Box::new(Type::Unknown)), Type::Unknown];
-
-    analyzer.register_builtin_function("contains", param_types, return_type);
 }
 
 fn register_indexof(analyzer: &mut Analyzer) {

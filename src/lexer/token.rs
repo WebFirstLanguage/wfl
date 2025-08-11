@@ -388,6 +388,8 @@ impl Token {
                 | Token::KeywordDisplay
                 | Token::KeywordCheck
                 | Token::KeywordIf
+                | Token::KeywordElif
+                | Token::KeywordElse
                 | Token::KeywordThen
                 | Token::KeywordOtherwise
                 | Token::KeywordEnd

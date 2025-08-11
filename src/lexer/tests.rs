@@ -8,6 +8,8 @@ fn test_keyword_uniqueness() {
         Token::KeywordDisplay,
         Token::KeywordCheck,
         Token::KeywordIf,
+        Token::KeywordElif,
+        Token::KeywordElse,
         Token::KeywordThen,
         Token::KeywordOtherwise,
         Token::KeywordEnd,
@@ -140,6 +142,25 @@ fn test_keyword_case_sensitivity() {
         ("PROPERTY", Token::Identifier("PROPERTY".to_string())),
         ("Property", Token::Identifier("Property".to_string())),
     ];
+
+    for (input, expected) in test_cases {
+        let mut lexer = Token::lexer(input);
+        let token = lexer
+            .next()
+            .unwrap_or_else(|| panic!("Failed to tokenize '{input}'"));
+        assert_eq!(
+            token,
+            Ok(expected.clone()),
+            "Input '{input}' should tokenize to {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn test_elif_else_keywords_lexing() {
+    use logos::Logos;
+
+    let test_cases = vec![("elif", Token::KeywordElif), ("else", Token::KeywordElse)];
 
     for (input, expected) in test_cases {
         let mut lexer = Token::lexer(input);

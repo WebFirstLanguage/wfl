@@ -42,6 +42,43 @@ pub fn native_isnothing(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 }
 
+pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("contains expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    match (&args[0], &args[1]) {
+        // List contains item
+        (Value::List(list_rc), item) => {
+            let list = list_rc.borrow();
+            for value in list.iter() {
+                if format!("{value:?}") == format!("{item:?}") {
+                    return Ok(Value::Bool(true));
+                }
+            }
+            Ok(Value::Bool(false))
+        }
+        // Text contains substring
+        (Value::Text(text), Value::Text(substring)) => {
+            Ok(Value::Bool(text.contains(&**substring)))
+        }
+        // Invalid combination
+        (a, b) => Err(RuntimeError::new(
+            format!(
+                "Cannot check if {} contains {}. Expected (list, item) or (text, text)",
+                a.type_name(),
+                b.type_name()
+            ),
+            0,
+            0,
+        )),
+    }
+}
+
 pub fn register_core(env: &mut Environment) {
     env.define("print", Value::NativeFunction("print", native_print));
 
@@ -55,5 +92,10 @@ pub fn register_core(env: &mut Environment) {
     env.define(
         "is_nothing",
         Value::NativeFunction("is_nothing", native_isnothing),
+    );
+
+    env.define(
+        "contains",
+        Value::NativeFunction("contains", native_contains),
     );
 }

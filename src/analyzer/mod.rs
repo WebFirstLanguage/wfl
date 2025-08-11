@@ -87,14 +87,35 @@ impl Scope {
             self.symbols.insert(symbol.name.clone(), symbol);
             Ok(())
         } else {
-            Err(SemanticError::new(
-                format!(
-                    "Variable '{}' is already defined. Use 'change {} to <value>' to modify its value",
-                    symbol.name, symbol.name
-                ),
-                symbol.line,
-                symbol.column,
-            ))
+            // Check if we're trying to define a function with the same name but different signature
+            if let Some(existing) = self.symbols.get(&symbol.name) {
+                if matches!(existing.kind, SymbolKind::Function { .. })
+                    && matches!(symbol.kind, SymbolKind::Function { .. })
+                {
+                    // For function overloading, we'll allow this for now (basic support)
+                    // In a full implementation, we'd store multiple function signatures
+                    self.symbols.insert(symbol.name.clone(), symbol);
+                    Ok(())
+                } else {
+                    Err(SemanticError::new(
+                        format!(
+                            "Variable '{}' is already defined. Use 'change {} to <value>' to modify its value",
+                            symbol.name, symbol.name
+                        ),
+                        symbol.line,
+                        symbol.column,
+                    ))
+                }
+            } else {
+                Err(SemanticError::new(
+                    format!(
+                        "Variable '{}' is already defined. Use 'change {} to <value>' to modify its value",
+                        symbol.name, symbol.name
+                    ),
+                    symbol.line,
+                    symbol.column,
+                ))
+            }
         }
     }
 
@@ -348,12 +369,21 @@ impl Analyzer {
                     return;
                 }
 
-                // Check if this is an update to an existing property in a container method
+                // Check for redeclaration and provide clear error message
                 if let Some(existing_symbol) = self.current_scope.resolve(name) {
-                    // If the variable already exists and is mutable, treat this as an assignment
-                    if let SymbolKind::Variable { mutable: true } = existing_symbol.kind {
-                        // This is effectively an assignment to an existing mutable variable
-                        // (like a container property), so don't report an error
+                    // Only allow silent redeclaration for container properties within container methods
+                    if self.current_container.is_some()
+                        && matches!(existing_symbol.kind, SymbolKind::Variable { mutable: true })
+                    {
+                        // This is a container property update within a container method
+                        return;
+                    } else {
+                        // Reject all other redeclarations with clear error message
+                        self.errors.push(SemanticError::new(
+                            format!("Variable '{name}' is already defined. Use 'change {name} to <value>' to modify its value"),
+                            *line,
+                            *column,
+                        ));
                         return;
                     }
                 }
@@ -986,19 +1016,24 @@ impl Analyzer {
                         // Analyze method body
                         self.push_scope();
 
-                        // Add inherited properties if this container extends another
-                        if let Some(parent_name) = &container_info.extends
-                            && let Some(parent_container) = self.containers.get(parent_name)
-                        {
-                            for (prop_name, prop_info) in &parent_container.properties {
-                                let symbol = Symbol {
-                                    name: prop_name.clone(),
-                                    kind: SymbolKind::Variable { mutable: true },
-                                    symbol_type: Some(prop_info.property_type.clone()),
-                                    line: prop_info.line,
-                                    column: prop_info.column,
-                                };
-                                let _ = self.current_scope.define(symbol);
+                        // Add inherited properties from the entire inheritance chain
+                        let mut current_parent = container_info.extends.clone();
+                        while let Some(parent_name) = current_parent {
+                            if let Some(parent_container) = self.containers.get(&parent_name) {
+                                for (prop_name, prop_info) in &parent_container.properties {
+                                    let symbol = Symbol {
+                                        name: prop_name.clone(),
+                                        kind: SymbolKind::Variable { mutable: true },
+                                        symbol_type: Some(prop_info.property_type.clone()),
+                                        line: prop_info.line,
+                                        column: prop_info.column,
+                                    };
+                                    let _ = self.current_scope.define(symbol);
+                                }
+                                // Move to the next parent in the inheritance chain
+                                current_parent = parent_container.extends.clone();
+                            } else {
+                                break;
                             }
                         }
 
@@ -1014,7 +1049,10 @@ impl Analyzer {
                             let _ = self.current_scope.define(symbol);
                         }
 
-                        // Add method parameters to scope
+                        // Create nested scope for parameters to allow shadowing
+                        self.push_scope();
+
+                        // Add method parameters to nested scope
                         for param in parameters {
                             let param_type =
                                 param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
@@ -1031,6 +1069,10 @@ impl Analyzer {
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
+
+                        // Pop parameter/local scope
+                        self.pop_scope();
+                        // Pop method scope
                         self.pop_scope();
                     }
                 }
@@ -1063,6 +1105,27 @@ impl Analyzer {
                         // Analyze method body
                         self.push_scope();
 
+                        // Add inherited static properties from the entire inheritance chain
+                        let mut current_parent = container_info.extends.clone();
+                        while let Some(parent_name) = current_parent {
+                            if let Some(parent_container) = self.containers.get(&parent_name) {
+                                for (prop_name, prop_info) in &parent_container.static_properties {
+                                    let symbol = Symbol {
+                                        name: prop_name.clone(),
+                                        kind: SymbolKind::Variable { mutable: true },
+                                        symbol_type: Some(prop_info.property_type.clone()),
+                                        line: prop_info.line,
+                                        column: prop_info.column,
+                                    };
+                                    let _ = self.current_scope.define(symbol);
+                                }
+                                // Move to the next parent in the inheritance chain
+                                current_parent = parent_container.extends.clone();
+                            } else {
+                                break;
+                            }
+                        }
+
                         // Add static properties to scope for static methods
                         for (prop_name, prop_info) in &container_info.static_properties {
                             let symbol = Symbol {
@@ -1075,7 +1138,10 @@ impl Analyzer {
                             let _ = self.current_scope.define(symbol);
                         }
 
-                        // Add method parameters to scope
+                        // Create nested scope for parameters to allow shadowing
+                        self.push_scope();
+
+                        // Add method parameters to nested scope
                         for param in parameters {
                             let param_type =
                                 param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
@@ -1092,6 +1158,10 @@ impl Analyzer {
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
+
+                        // Pop parameter/local scope
+                        self.pop_scope();
+                        // Pop method scope
                         self.pop_scope();
                     }
                 }

@@ -310,8 +310,26 @@ impl TypeChecker {
                 }
 
                 // Check if the symbol exists in current scope first
+                let existing_symbol_type = self.analyzer.get_symbol(name)
+                    .and_then(|s| s.symbol_type.clone());
+                
+                if let Some(existing_type) = existing_symbol_type {
+                    // Check if the existing symbol's type is compatible with the inferred type
+                    if !self.are_types_compatible(&existing_type, &inferred_type) {
+                        self.type_error(
+                            format!("Type mismatch: variable '{name}' was declared as {existing_type:?} but assigned {inferred_type:?}"),
+                            Some(existing_type.clone()),
+                            Some(inferred_type.clone()),
+                            *_line,
+                            *_column,
+                        );
+                        return;
+                    }
+                }
+                
+                // Update or create symbol
                 if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
-                    // Update existing symbol's type
+                    // Update existing symbol's type (only if compatible or untyped)
                     symbol.symbol_type = Some(inferred_type.clone());
                 } else {
                     // Define a new symbol if it doesn't exist (e.g., when declared inside a loop)
@@ -1078,23 +1096,10 @@ impl TypeChecker {
                             .analyzer
                             .get_container(name)
                             .map(|c| c.properties.clone());
-                        let parent_properties = extends
-                            .as_ref()
-                            .and_then(|parent_name| self.analyzer.get_container(parent_name))
-                            .map(|c| c.properties.clone());
-
-                        // Add inherited properties if this container extends another
-                        if let Some(parent_props) = parent_properties {
-                            for (prop_name, prop_info) in parent_props {
-                                let symbol = crate::analyzer::Symbol {
-                                    name: prop_name.clone(),
-                                    kind: crate::analyzer::SymbolKind::Variable { mutable: true },
-                                    symbol_type: Some(prop_info.property_type.clone()),
-                                    line: prop_info.line,
-                                    column: prop_info.column,
-                                };
-                                let _ = self.analyzer.define_symbol(symbol);
-                            }
+                        // Add inherited properties from full inheritance chain
+                        if let Some(parent_name) = extends.as_ref() {
+                            let mut visited = std::collections::HashSet::new();
+                            self.collect_inherited_properties_for_scope(parent_name, &mut visited);
                         }
 
                         // Add this container's properties
@@ -1115,6 +1120,15 @@ impl TypeChecker {
                         for param in parameters {
                             let param_type =
                                 param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
+                            
+                            // Check if parameter shadows an inherited property
+                            if let Some(existing_symbol) = self.analyzer.get_symbol(&param.name) {
+                                if let SymbolKind::Variable { mutable: true } = existing_symbol.kind {
+                                    // This is likely an inherited property being shadowed by a parameter
+                                    // This is generally acceptable but worth noting for clarity
+                                }
+                            }
+                            
                             let symbol = crate::analyzer::Symbol {
                                 name: param.name.clone(),
                                 kind: crate::analyzer::SymbolKind::Variable { mutable: false },
@@ -2433,6 +2447,41 @@ impl TypeChecker {
             }
 
             _ => false,
+        }
+    }
+
+    // Helper method to collect inherited properties from full inheritance chain for scope
+    fn collect_inherited_properties_for_scope(
+        &mut self, 
+        parent_name: &str, 
+        visited: &mut std::collections::HashSet<String>
+    ) {
+        if visited.contains(parent_name) {
+            return; // Prevent infinite recursion due to circular inheritance
+        }
+        visited.insert(parent_name.to_string());
+
+        // Get container info first to avoid borrow conflicts
+        let parent_info = self.analyzer.get_container(parent_name)
+            .map(|c| (c.extends.clone(), c.properties.clone()));
+        
+        if let Some((grandparent, properties)) = parent_info {
+            // First, recursively collect from parent's parent
+            if let Some(grandparent_name) = grandparent {
+                self.collect_inherited_properties_for_scope(&grandparent_name, visited);
+            }
+
+            // Then add this parent's properties
+            for (prop_name, prop_info) in properties {
+                let symbol = crate::analyzer::Symbol {
+                    name: prop_name.clone(),
+                    kind: crate::analyzer::SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(prop_info.property_type.clone()),
+                    line: prop_info.line,
+                    column: prop_info.column,
+                };
+                let _ = self.analyzer.define_symbol(symbol);
+            }
         }
     }
 }

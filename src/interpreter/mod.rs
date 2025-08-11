@@ -2379,8 +2379,35 @@ impl Interpreter {
                             ));
                         }
 
-                        // TODO: Also validate that the method signature matches
-                        // This would require comparing parameters and return types
+                        // Validate that the method signature matches
+                        if let Some(container_method) = container_methods.get(action_name) {
+                            if let Some(required_action) =
+                                interface_def.required_actions.get(action_name)
+                            {
+                                // Check parameter count matches
+                                if container_method.params.len() != required_action.params.len() {
+                                    return Err(RuntimeError::new(
+                                        format!(
+                                            "Container '{}' action '{}' has {} parameters, but interface '{}' requires {} parameters",
+                                            name,
+                                            action_name,
+                                            container_method.params.len(),
+                                            interface_name,
+                                            required_action.params.len()
+                                        ),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
+
+                                // Note: Parameter type checking would require type information to be stored
+                                // in ActionSignature and FunctionValue, which is not currently implemented.
+                                // This is a basic signature validation for parameter count.
+
+                                // Return type compatibility could also be checked here if return type
+                                // information was stored in both structures.
+                            }
+                        }
                     }
                 }
 
@@ -2976,7 +3003,16 @@ impl Interpreter {
 
                         // Add container events to the method environment
                         for (event_name, event_def) in &container_def.events {
-                            let event_value = Value::ContainerEvent(Rc::new(event_def.clone()));
+                            // First check if the instance has events with handlers in the environment
+                            let event_value = if let Some(Value::ContainerEvent(existing_event)) =
+                                env.borrow().get(event_name)
+                            {
+                                // Use the existing event with any attached handlers
+                                Value::ContainerEvent(existing_event.clone())
+                            } else {
+                                // Fall back to using the event definition from the container
+                                Value::ContainerEvent(Rc::new(event_def.clone()))
+                            };
                             method_env.borrow_mut().define(event_name, event_value);
                         }
 

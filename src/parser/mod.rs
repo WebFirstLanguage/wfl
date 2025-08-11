@@ -388,6 +388,12 @@ impl<'a> Parser<'a> {
                 match &token.token {
                     Token::KeywordEnd => {
                         self.tokens.next(); // Consume 'end'
+                        // Optionally consume 'interface' if present (for 'end interface' syntax)
+                        if let Some(next_token) = self.tokens.peek()
+                            && matches!(next_token.token, Token::KeywordInterface)
+                        {
+                            self.tokens.next(); // Consume 'interface'
+                        }
                         break;
                     }
                     Token::KeywordAction => {
@@ -428,6 +434,8 @@ impl<'a> Parser<'a> {
                         // Parse return type if present (: Type)
                         let return_type = if let Some(token) = self.tokens.peek() {
                             if token.token == Token::Colon {
+                                let token_line = token.line;
+                                let token_column = token.column;
                                 self.tokens.next(); // Consume ':'
 
                                 if let Some(type_token) = self.tokens.peek() {
@@ -446,10 +454,20 @@ impl<'a> Parser<'a> {
                                         };
                                         Some(parsed_type)
                                     } else {
-                                        None
+                                        return Err(ParseError::new(
+                                            "Expected type name after ':' in interface action"
+                                                .to_string(),
+                                            type_token.line,
+                                            type_token.column,
+                                        ));
                                     }
                                 } else {
-                                    None
+                                    return Err(ParseError::new(
+                                        "Expected type name after ':' in interface action"
+                                            .to_string(),
+                                        token_line,
+                                        token_column,
+                                    ));
                                 }
                             } else {
                                 None
@@ -2092,6 +2110,19 @@ impl<'a> Parser<'a> {
     fn parse_primary_expression(&mut self) -> Result<Expression, ParseError> {
         if let Some(token) = self.tokens.peek().cloned() {
             let result = match &token.token {
+                // Handle unary minus
+                Token::Minus => {
+                    self.tokens.next(); // Consume '-'
+                    let expr = self.parse_primary_expression()?;
+                    let token_line = token.line;
+                    let token_column = token.column;
+                    Ok(Expression::UnaryOperation {
+                        operator: UnaryOperator::Minus,
+                        expression: Box::new(expr),
+                        line: token_line,
+                        column: token_column,
+                    })
+                }
                 Token::LeftBracket => {
                     let bracket_token = self.tokens.next().unwrap(); // Consume '['
 
@@ -4961,27 +4992,10 @@ impl<'a> Parser<'a> {
             if token.token == Token::Colon {
                 self.tokens.next(); // Consume ':'
 
-                // Check if next token is a type identifier or start of body
-                if let Some(type_token) = self.tokens.peek()
-                    && let Token::Identifier(type_name) = &type_token.token
-                {
-                    // This could be a type name - check if it's a known type
-                    let lower = type_name.to_lowercase();
-                    if matches!(
-                        lower.as_str(),
-                        "text"
-                            | "number"
-                            | "boolean"
-                            | "bool"
-                            | "list"
-                            | "any"
-                            | "nothing"
-                            | "null"
-                    ) {
-                        let type_name = type_name.clone();
-                        self.tokens.next(); // Consume type name
-
-                        // Map string to Type enum
+                // If the next token is an identifier, treat it as a type name (built-in or custom)
+                if let Some(type_token) = self.tokens.peek() {
+                    if let Token::Identifier(type_name) = &type_token.token {
+                        let lower = type_name.to_lowercase();
                         let parsed_type = match lower.as_str() {
                             "text" => Type::Text,
                             "number" => Type::Number,
@@ -4989,11 +5003,12 @@ impl<'a> Parser<'a> {
                             "list" => Type::List(Box::new(Type::Any)),
                             "any" => Type::Any,
                             "nothing" | "null" => Type::Nothing,
-                            _ => Type::Custom(type_name),
+                            _ => Type::Custom(type_name.clone()),
                         };
+                        self.tokens.next(); // Consume type name
                         return_type = Some(parsed_type);
                     }
-                    // Otherwise, the identifier is part of the body, don't consume it
+                    // else: identifier not present -> ':' directly before body; treat as start of body
                 }
                 // If it's not an identifier, it's the start of the body
             } else {
