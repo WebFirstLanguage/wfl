@@ -1,9 +1,0 @@
-// Test for parameter binding with space-separated parameter names
-define action called test_binding needs param1 param2 param3:
-    display "param1: " with param1
-    display "param2: " with param2
-    display "param3: " with param3
-end action
-
-// Call the action with a single argument
-test_binding with "This is a single argument"

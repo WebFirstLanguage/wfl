@@ -1,3 +1,0 @@
-store welcome as "Welcome to WFL"
-store result as substring of welcome and 0 and 7
-display result

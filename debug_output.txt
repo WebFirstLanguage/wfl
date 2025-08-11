@@ -1,6 +1,0 @@
-First: Azusa
-Second: Nakano
-Third: is
-Fourth: cute
-Joined states: Azusa 
-Test variable: Nakano

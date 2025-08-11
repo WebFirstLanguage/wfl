@@ -1,2 +1,0 @@
-store welcome as "Welcome to WFL"
-display "Substring (0,7): " with substring of welcome and 0 and 7
