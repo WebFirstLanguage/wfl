@@ -1980,10 +1980,19 @@ impl Interpreter {
                             };
 
                             if matches {
-                                let _ = child_env.borrow_mut().define(
+                                if let Err(define_err) = child_env.borrow_mut().define(
                                     &when_clause.error_name,
                                     Value::Text(err.message.into()),
-                                );
+                                ) {
+                                    return Err(RuntimeError::new(
+                                        format!(
+                                            "Error defining variable '{}' in try statement: {define_err}",
+                                            when_clause.error_name
+                                        ),
+                                        *_line,
+                                        *_column,
+                                    ));
+                                }
 
                                 result = self
                                     .execute_block(&when_clause.body, Rc::clone(&child_env))
@@ -2594,11 +2603,24 @@ impl Interpreter {
                     // Bind arguments to parameters
                     for (i, param_name) in event.params.iter().enumerate() {
                         if i < arg_values.len() {
-                            let _ = handler_env
+                            if let Err(define_err) = handler_env
                                 .borrow_mut()
-                                .define(param_name, arg_values[i].clone());
-                        } else {
-                            let _ = handler_env.borrow_mut().define(param_name, Value::Null);
+                                .define(param_name, arg_values[i].clone())
+                            {
+                                return Err(RuntimeError::new(
+                                    format!("Error defining parameter '{param_name}' in event trigger: {define_err}"),
+                                    0, // No line/column available in this context
+                                    0,
+                                ));
+                            }
+                        } else if let Err(define_err) =
+                            handler_env.borrow_mut().define(param_name, Value::Null)
+                        {
+                            return Err(RuntimeError::new(
+                                format!("Error defining parameter '{param_name}' in event trigger: {define_err}"),
+                                0, // No line/column available in this context
+                                0,
+                            ));
                         }
                     }
 
@@ -2738,7 +2760,15 @@ impl Interpreter {
                             let method_env = Environment::new_child_env(&env);
 
                             // Add 'this' to the environment (the current instance, not the parent)
-                            let _ = method_env.borrow_mut().define("this", this_val.clone());
+                            if let Err(define_err) =
+                                method_env.borrow_mut().define("this", this_val.clone())
+                            {
+                                return Err(RuntimeError::new(
+                                    format!("Error defining 'this' in parent method call: {define_err}"),
+                                    *line,
+                                    *column,
+                                ));
+                            }
 
                             // Evaluate the arguments
                             let mut arg_values = Vec::with_capacity(arguments.len());
@@ -2968,7 +2998,15 @@ impl Interpreter {
                         let method_env = Environment::new_child_env(&env);
 
                         // Add 'this' to the environment
-                        let _ = method_env.borrow_mut().define("this", object_val.clone());
+                        if let Err(define_err) =
+                            method_env.borrow_mut().define("this", object_val.clone())
+                        {
+                            return Err(RuntimeError::new(
+                                format!("Error defining 'this' in method call: {define_err}"),
+                                line,
+                                column,
+                            ));
+                        }
 
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
