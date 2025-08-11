@@ -17,7 +17,7 @@ check if arg_count is greater than 0:
     for each arg in args:
         display "  - " with arg
     end for
-else:
+otherwise:
     display "No arguments passed to program"
 end check
 display ""
@@ -29,16 +29,16 @@ check if arg_count is greater than 0:
     
     check if arg_count is greater than 1:
         display "Second argument: " with args[1]
-    else:
+    otherwise:
         display "No second argument provided"
     end check
     
     check if arg_count is greater than 2:
         display "Third argument: " with args[2]
-    else:
+    otherwise:
         display "No third argument provided"
     end check
-else:
+otherwise:
     display "No arguments to access by index"
 end check
 display ""
@@ -53,7 +53,7 @@ check if arg_count is greater than 0:
         display "  Arg " with arg_index with ": '" with arg with "' (length: " with arg_length with ")"
         change arg_index to arg_index plus 1
     end for
-else:
+otherwise:
     display "No arguments to process"
 end check
 display ""
@@ -63,22 +63,26 @@ display "5. Argument Validation"
 check if arg_count is 0:
     display "Usage: program.wfl <arg1> <arg2> [arg3] ..."
     display "Example: program.wfl hello world 123"
-elif arg_count is 1:
-    display "Single argument mode:"
-    display "  Argument: " with args[0]
-    display "  Length: " with length of args[0]
-    display "  Uppercase: " with touppercase of args[0]
-elif arg_count is 2:
-    display "Two argument mode:"
-    display "  First: " with args[0]  
-    display "  Second: " with args[1]
-    display "  Combined: " with args[0] with " " with args[1]
-elif arg_count is greater than 2:
-    display "Multiple argument mode:"
-    display "  Count: " with arg_count
-    display "  First: " with args[0]
-    store last_index as arg_count minus 1
-    display "  Last: " with args[last_index]
+otherwise:
+    check if arg_count is 1:
+        display "Single argument mode:"
+        display "  Argument: " with args[0]
+        display "  Length: " with length of args[0]
+        display "  Uppercase: " with touppercase of args[0]
+    otherwise:
+        check if arg_count is 2:
+            display "Two argument mode:"
+            display "  First: " with args[0]  
+            display "  Second: " with args[1]
+            display "  Combined: " with args[0] with " " with args[1]
+        otherwise:
+            display "Multiple argument mode:"
+            display "  Count: " with arg_count
+            display "  First: " with args[0]
+            store last_index as arg_count minus 1
+            display "  Last: " with args[last_index]
+        end check
+    end check
 end check
 display ""
 
@@ -97,13 +101,15 @@ check if arg_count is greater than 0:
         
         check if arg matches numeric:
             display "  '" with arg with "' is an integer"
-        elif arg matches decimal:
-            display "  '" with arg with "' is a decimal number"
-        else:
-            display "  '" with arg with "' is text"
+        otherwise:
+            check if arg matches decimal:
+                display "  '" with arg with "' is a decimal number"
+            otherwise:
+                display "  '" with arg with "' is text"
+            end check
         end check
     end for
-else:
+otherwise:
     display "No arguments for type detection"
 end check
 display ""
@@ -119,14 +125,20 @@ check if arg_count is greater than 0:
     for each arg in args:
         check if arg is "--help" or arg is "-h":
             change has_help to yes
-        elif arg is "--version" or arg is "-v":
-            change has_version to yes
-        elif arg is "--verbose":
-            change has_verbose to yes
-        elif substring of arg and 0 and 1 is "-":
-            display "  Unknown flag: " with arg
-        else:
-            push with non_flag_args and arg
+        otherwise:
+            check if arg is "--version" or arg is "-v":
+                change has_version to yes
+            otherwise:
+                check if arg is "--verbose":
+                    change has_verbose to yes
+                otherwise:
+                    check if substring of arg and 0 and 1 is "-":
+                        display "  Unknown flag: " with arg
+                    otherwise:
+                        push with non_flag_args and arg
+                    end check
+                end check
+            end check
         end check
     end for
     
@@ -139,7 +151,7 @@ check if arg_count is greater than 0:
     for each non_flag in non_flag_args:
         display "  - " with non_flag
     end for
-else:
+otherwise:
     display "No arguments for flag parsing"
 end check
 display ""
@@ -171,7 +183,7 @@ check if arg_count is greater than 0:
     for each arg in args:
         check if length of arg is greater than 5:
             push with long_args and arg
-        else:
+        otherwise:
             push with short_args and arg
         end check
     end for
@@ -185,7 +197,7 @@ check if arg_count is greater than 0:
     for each short_arg in short_args:
         display "  - " with short_arg
     end for
-else:
+otherwise:
     display "No arguments for filtering"
 end check
 display ""
@@ -205,7 +217,7 @@ check if arg_count is greater than 0:
     
     display "Shortest argument: " with args[0]  // Simplified - would need proper min logic
     display "Arguments summary completed"
-else:
+otherwise:
     display "No arguments provided"
     display "Try running with: program.wfl arg1 arg2 --flag value"
 end check

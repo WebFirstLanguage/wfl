@@ -255,6 +255,55 @@ impl Analyzer {
         };
         let _ = global_scope.define(loop_symbol);
 
+        // Define runtime command-line argument variables
+        // These are defined at runtime by the interpreter but need to be known
+        // to the static analyzer to avoid false undefined variable errors
+        
+        let arg_count_symbol = Symbol {
+            name: "arg_count".to_string(),
+            kind: SymbolKind::Variable { mutable: false },
+            symbol_type: Some(Type::Number),
+            line: 0,
+            column: 0,
+        };
+        let _ = global_scope.define(arg_count_symbol);
+
+        let args_symbol = Symbol {
+            name: "args".to_string(),
+            kind: SymbolKind::Variable { mutable: false },
+            symbol_type: Some(Type::List(Box::new(Type::Text))),
+            line: 0,
+            column: 0,
+        };
+        let _ = global_scope.define(args_symbol);
+
+        let program_name_symbol = Symbol {
+            name: "program_name".to_string(),
+            kind: SymbolKind::Variable { mutable: false },
+            symbol_type: Some(Type::Text),
+            line: 0,
+            column: 0,
+        };
+        let _ = global_scope.define(program_name_symbol);
+
+        let current_directory_symbol = Symbol {
+            name: "current_directory".to_string(),
+            kind: SymbolKind::Variable { mutable: false },
+            symbol_type: Some(Type::Text),
+            line: 0,
+            column: 0,
+        };
+        let _ = global_scope.define(current_directory_symbol);
+
+        let positional_args_symbol = Symbol {
+            name: "positional_args".to_string(),
+            kind: SymbolKind::Variable { mutable: false },
+            symbol_type: Some(Type::List(Box::new(Type::Text))),
+            line: 0,
+            column: 0,
+        };
+        let _ = global_scope.define(positional_args_symbol);
+
         Analyzer {
             current_scope: global_scope,
             errors: Vec::new(),
