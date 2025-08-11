@@ -729,3 +729,179 @@ fn debug_token_sequence() {
         println!("{i}: {token:?}");
     }
 }
+
+#[test]
+fn test_subtraction_basic() {
+    let input = "display 5 - 3";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse 'display 5 - 3': {result:?}"
+    );
+
+    if let Ok(Statement::DisplayStatement { value, .. }) = result {
+        if let Expression::BinaryOperation {
+            left,
+            operator,
+            right,
+            ..
+        } = value
+        {
+            if let Expression::Literal(Literal::Integer(n), ..) = *left {
+                assert_eq!(n, 5, "Expected left operand to be 5");
+            } else {
+                panic!("Expected integer literal 5, got: {left:?}");
+            }
+
+            assert_eq!(operator, Operator::Minus, "Expected Minus operator");
+
+            if let Expression::Literal(Literal::Integer(n), ..) = *right {
+                assert_eq!(n, 3, "Expected right operand to be 3");
+            } else {
+                panic!("Expected integer literal 3, got: {right:?}");
+            }
+        } else {
+            panic!("Expected binary operation, got: {value:?}");
+        }
+    } else {
+        panic!("Expected display statement, got: {result:?}");
+    }
+}
+
+#[test]
+fn test_subtraction_with_negative() {
+    let input = "display 5 - -3";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse 'display 5 - -3': {result:?}"
+    );
+
+    if let Ok(Statement::DisplayStatement { value, .. }) = result {
+        if let Expression::BinaryOperation {
+            left,
+            operator,
+            right,
+            ..
+        } = value
+        {
+            if let Expression::Literal(Literal::Integer(n), ..) = *left {
+                assert_eq!(n, 5, "Expected left operand to be 5");
+            } else {
+                panic!("Expected integer literal 5, got: {left:?}");
+            }
+
+            assert_eq!(operator, Operator::Minus, "Expected Minus operator");
+
+            // Right side should be unary minus with 3
+            if let Expression::UnaryOperation {
+                operator: unary_op,
+                expression,
+                ..
+            } = *right
+            {
+                assert_eq!(
+                    unary_op,
+                    UnaryOperator::Minus,
+                    "Expected unary minus operator"
+                );
+
+                if let Expression::Literal(Literal::Integer(n), ..) = *expression {
+                    assert_eq!(n, 3, "Expected operand to be 3");
+                } else {
+                    panic!("Expected integer literal 3, got: {expression:?}");
+                }
+            } else {
+                panic!("Expected unary operation, got: {right:?}");
+            }
+        } else {
+            panic!("Expected binary operation, got: {value:?}");
+        }
+    } else {
+        panic!("Expected display statement, got: {result:?}");
+    }
+}
+
+#[test]
+fn test_unary_minus_with_complex_expression() {
+    let input = "display -(1 + 2) times 3";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse 'display -(1 + 2) times 3': {result:?}"
+    );
+
+    if let Ok(Statement::DisplayStatement { value, .. }) = result {
+        // Should be: (-(1 + 2)) * 3
+        if let Expression::BinaryOperation {
+            left,
+            operator,
+            right,
+            ..
+        } = value
+        {
+            assert_eq!(operator, Operator::Multiply, "Expected Multiply operator");
+
+            // Left side should be unary minus with (1 + 2)
+            if let Expression::UnaryOperation {
+                operator: unary_op,
+                expression,
+                ..
+            } = *left
+            {
+                assert_eq!(
+                    unary_op,
+                    UnaryOperator::Minus,
+                    "Expected unary minus operator"
+                );
+
+                // expression should be (1 + 2)
+                if let Expression::BinaryOperation {
+                    left: inner_left,
+                    operator: inner_op,
+                    right: inner_right,
+                    ..
+                } = *expression
+                {
+                    assert_eq!(inner_op, Operator::Plus, "Expected Plus operator");
+
+                    if let Expression::Literal(Literal::Integer(n), ..) = *inner_left {
+                        assert_eq!(n, 1, "Expected left operand to be 1");
+                    } else {
+                        panic!("Expected integer literal 1, got: {inner_left:?}");
+                    }
+
+                    if let Expression::Literal(Literal::Integer(n), ..) = *inner_right {
+                        assert_eq!(n, 2, "Expected right operand to be 2");
+                    } else {
+                        panic!("Expected integer literal 2, got: {inner_right:?}");
+                    }
+                } else {
+                    panic!("Expected binary operation (1 + 2), got: {expression:?}");
+                }
+            } else {
+                panic!("Expected unary operation, got: {left:?}");
+            }
+
+            // Right side should be 3
+            if let Expression::Literal(Literal::Integer(n), ..) = *right {
+                assert_eq!(n, 3, "Expected right operand to be 3");
+            } else {
+                panic!("Expected integer literal 3, got: {right:?}");
+            }
+        } else {
+            panic!("Expected binary operation, got: {value:?}");
+        }
+    } else {
+        panic!("Expected display statement, got: {result:?}");
+    }
+}
