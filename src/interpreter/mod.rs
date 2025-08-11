@@ -1541,10 +1541,13 @@ impl Interpreter {
                     .await
                 {
                     Ok(handle) => {
-                        let _ = env
+                        match env
                             .borrow_mut()
-                            .define(variable_name, Value::Text(handle.into()));
-                        Ok((Value::Null, ControlFlow::None))
+                            .define(variable_name, Value::Text(handle.into()))
+                        {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                        }
                     }
                     Err(e) => Err(e),
                 }
@@ -1573,11 +1576,19 @@ impl Interpreter {
                     match self.io_client.open_file(&path_str).await {
                         Ok(handle) => match self.io_client.read_file(&handle).await {
                             Ok(content) => {
-                                let _ = env
+                                match env
                                     .borrow_mut()
-                                    .define(variable_name, Value::Text(content.into()));
-                                let _ = self.io_client.close_file(&handle).await;
-                                Ok((Value::Null, ControlFlow::None))
+                                    .define(variable_name, Value::Text(content.into()))
+                                {
+                                    Ok(_) => {
+                                        let _ = self.io_client.close_file(&handle).await;
+                                        Ok((Value::Null, ControlFlow::None))
+                                    }
+                                    Err(msg) => {
+                                        let _ = self.io_client.close_file(&handle).await;
+                                        Err(RuntimeError::new(msg, *line, *column))
+                                    }
+                                }
                             }
                             Err(e) => {
                                 let _ = self.io_client.close_file(&handle).await;
@@ -1589,10 +1600,13 @@ impl Interpreter {
                 } else {
                     match self.io_client.read_file(&path_str).await {
                         Ok(content) => {
-                            let _ = env
+                            match env
                                 .borrow_mut()
-                                .define(variable_name, Value::Text(content.into()));
-                            Ok((Value::Null, ControlFlow::None))
+                                .define(variable_name, Value::Text(content.into()))
+                            {
+                                Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                                Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                            }
                         }
                         Err(e) => Err(RuntimeError::new(e, *line, *column)),
                     }
@@ -1893,11 +1907,19 @@ impl Interpreter {
                             match self.io_client.open_file(&path_str).await {
                                 Ok(handle) => match self.io_client.read_file(&handle).await {
                                     Ok(content) => {
-                                        let _ = env
+                                        match env
                                             .borrow_mut()
-                                            .define(variable_name, Value::Text(content.into()));
-                                        let _ = self.io_client.close_file(&handle).await;
-                                        Ok((Value::Null, ControlFlow::None))
+                                            .define(variable_name, Value::Text(content.into()))
+                                        {
+                                            Ok(_) => {
+                                                let _ = self.io_client.close_file(&handle).await;
+                                                Ok((Value::Null, ControlFlow::None))
+                                            }
+                                            Err(msg) => {
+                                                let _ = self.io_client.close_file(&handle).await;
+                                                Err(RuntimeError::new(msg, *line, *column))
+                                            }
+                                        }
                                     }
                                     Err(e) => {
                                         let _ = self.io_client.close_file(&handle).await;
@@ -1909,10 +1931,13 @@ impl Interpreter {
                         } else {
                             match self.io_client.read_file(&path_str).await {
                                 Ok(content) => {
-                                    let _ = env
+                                    match env
                                         .borrow_mut()
-                                        .define(variable_name, Value::Text(content.into()));
-                                    Ok((Value::Null, ControlFlow::None))
+                                        .define(variable_name, Value::Text(content.into()))
+                                    {
+                                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                                        Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                                    }
                                 }
                                 Err(e) => Err(RuntimeError::new(e, *line, *column)),
                             }
@@ -1993,10 +2018,13 @@ impl Interpreter {
 
                 match self.io_client.http_get(&url_str).await {
                     Ok(body) => {
-                        let _ = env
+                        match env
                             .borrow_mut()
-                            .define(variable_name, Value::Text(body.into()));
-                        Ok((Value::Null, ControlFlow::None))
+                            .define(variable_name, Value::Text(body.into()))
+                        {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                        }
                     }
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
@@ -2035,10 +2063,13 @@ impl Interpreter {
 
                 match self.io_client.http_post(&url_str, &data_str).await {
                     Ok(body) => {
-                        let _ = env
+                        match env
                             .borrow_mut()
-                            .define(variable_name, Value::Text(body.into()));
-                        Ok((Value::Null, ControlFlow::None))
+                            .define(variable_name, Value::Text(body.into()))
+                        {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                        }
                     }
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }

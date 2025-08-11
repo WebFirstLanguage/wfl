@@ -49,8 +49,7 @@ impl Environment {
         // Check if the variable already exists in current scope
         if self.values.contains_key(name) {
             return Err(format!(
-                "Variable '{}' has already been defined. Use 'change {} to <value>' to modify it.",
-                name, name
+                "Variable '{name}' has already been defined. Use 'change {name} to <value>' to modify it."
             ));
         }
 
@@ -60,8 +59,7 @@ impl Environment {
             && parent.borrow().get(name).is_some()
         {
             return Err(format!(
-                "Variable '{}' has already been defined in an outer scope. Use 'change {} to <value>' to modify it.",
-                name, name
+                "Variable '{name}' has already been defined in an outer scope. Use 'change {name} to <value>' to modify it."
             ));
         }
 
@@ -73,8 +71,7 @@ impl Environment {
         // Check if the variable/constant already exists
         if self.values.contains_key(name) {
             return Err(format!(
-                "Variable or constant '{}' has already been defined.",
-                name
+                "Variable or constant '{name}' has already been defined."
             ));
         }
 
@@ -84,8 +81,7 @@ impl Environment {
             && parent.borrow().get(name).is_some()
         {
             return Err(format!(
-                "Variable or constant '{}' has already been defined in an outer scope.",
-                name
+                "Variable or constant '{name}' has already been defined in an outer scope."
             ));
         }
 
