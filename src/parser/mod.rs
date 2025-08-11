@@ -1474,6 +1474,7 @@ impl<'a> Parser<'a> {
             let op = match token {
                 Token::Plus => Some((Operator::Plus, 1)),
                 Token::KeywordPlus => Some((Operator::Plus, 1)),
+                Token::Minus => Some((Operator::Minus, 1)),
                 Token::KeywordMinus => Some((Operator::Minus, 1)),
                 Token::KeywordTimes => Some((Operator::Multiply, 2)),
                 Token::KeywordDividedBy => Some((Operator::Divide, 2)),
@@ -2153,6 +2154,18 @@ impl<'a> Parser<'a> {
                     let token_column = token.column;
                     Ok(Expression::UnaryOperation {
                         operator: UnaryOperator::Not,
+                        expression: Box::new(expr),
+                        line: token_line,
+                        column: token_column,
+                    })
+                }
+                Token::Minus => {
+                    self.tokens.next(); // Consume "-"
+                    let expr = self.parse_primary_expression()?;
+                    let token_line = token.line;
+                    let token_column = token.column;
+                    Ok(Expression::UnaryOperation {
+                        operator: UnaryOperator::Minus,
                         expression: Box::new(expr),
                         line: token_line,
                         column: token_column,

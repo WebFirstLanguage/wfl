@@ -291,6 +291,9 @@ pub enum Token {
     #[token("+")]
     Plus,
 
+    #[token("-")]
+    Minus,
+
     #[token(".")]
     Dot,
 

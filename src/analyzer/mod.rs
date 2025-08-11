@@ -83,16 +83,9 @@ impl Scope {
     }
 
     pub fn define(&mut self, symbol: Symbol) -> Result<(), SemanticError> {
-        if symbol.name == "currentLog" || !self.symbols.contains_key(&symbol.name) {
-            self.symbols.insert(symbol.name.clone(), symbol);
-            Ok(())
-        } else {
-            Err(SemanticError::new(
-                format!("Symbol '{}' is already defined in this scope", symbol.name),
-                symbol.line,
-                symbol.column,
-            ))
-        }
+        // Allow variable redefinition - just update the existing symbol
+        self.symbols.insert(symbol.name.clone(), symbol);
+        Ok(())
     }
 
     pub fn resolve(&self, name: &str) -> Option<&Symbol> {
@@ -242,6 +235,33 @@ impl Analyzer {
             action_parameters: std::collections::HashSet::new(),
             containers: HashMap::new(),
         }
+    }
+
+    pub fn is_builtin_function(name: &str) -> bool {
+        matches!(
+            name,
+            // Core functions
+            "print" | "typeof" | "type_of" | "isnothing" | "is_nothing" |
+            // Math functions
+            "abs" | "round" | "floor" | "ceil" | "random" | "clamp" |
+            // Text functions
+            "length" | "touppercase" | "tolowercase" | "contains" | "substring" |
+            "to_uppercase" | "to_lowercase" |
+            // List functions
+            "push" | "pop" | "shift" | "unshift" | "remove_at" | "insert_at" |
+            "sort" | "reverse" | "filter" | "map" | "reduce" | "foreach" |
+            "find" | "find_index" | "includes" | "index_of" | "last_index_of" |
+            "slice" | "join" | "every" | "some" | "fill" | "concat" |
+            // Time functions
+            "now" | "sleep" | "format_time" | "parse_time" |
+            // Pattern functions
+            "compile_pattern" | "match_pattern" | "replace_pattern" |
+            // File system functions
+            "read_file" | "write_file" | "file_exists" | "delete_file" |
+            "create_directory" | "list_directory" | "is_directory" |
+            // Special test functions
+            "helper_function" | "nested_function"
+        )
     }
 
     pub fn analyze(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
@@ -1218,10 +1238,8 @@ impl Analyzer {
                     return;
                 }
 
-                // Special case for helper_function and nested_function
-                if name == "helper_function" || name == "nested_function" {
-                    // Add these to action_parameters to prevent them from being flagged as undefined
-                    self.action_parameters.insert(name.clone());
+                // Check if it's a builtin function
+                if Self::is_builtin_function(name) {
                     return;
                 }
 

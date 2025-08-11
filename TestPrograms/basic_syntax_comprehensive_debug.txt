@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: TestPrograms/basic_syntax_comprehensive.wfl
+Time: 2025-08-11 01:46:01
+
+=== Error Summary ===
+Runtime error at line 113, column 44: Error in native function: Runtime error at line 0, column 0: substring expects 3 arguments, got 1
+
+=== Stack Trace ===
+In main script at line 113, column 44
+
+=== Source Code ===
+   111: display "Length: " with length of welcome
+   112: display "Length of welcome: " with length of welcome
+>> 113: display "Substring (0,7): " with substring of welcome and 0 and 7
+   114: display ""
+   115: 
+
+=== Local Variables ===
+(No local variables in global scope)

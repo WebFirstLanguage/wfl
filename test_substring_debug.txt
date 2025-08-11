@@ -1,0 +1,16 @@
+=== WFL Debug Report ===
+Script: test_substring.wfl
+Time: 2025-08-11 01:44:30
+
+=== Error Summary ===
+Runtime error at line 2, column 44: Error in native function: Runtime error at line 0, column 0: substring expects 3 arguments, got 1
+
+=== Stack Trace ===
+In main script at line 2, column 44
+
+=== Source Code ===
+   1: store welcome as "Welcome to WFL"
+>> 2: display "Substring (0,7): " with substring of welcome and 0 and 7
+
+=== Local Variables ===
+(No local variables in global scope)

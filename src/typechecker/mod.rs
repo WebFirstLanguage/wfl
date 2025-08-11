@@ -1167,8 +1167,9 @@ impl TypeChecker {
                         Type::Unknown
                     }
                 } else {
-                    // Check if this is an action parameter or a special function name before reporting it as undefined
+                    // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
                     if self.analyzer.get_action_parameters().contains(name)
+                        || Analyzer::is_builtin_function(name)
                         || name == "helper_function"
                         || name == "nested_function"
                     {
@@ -1773,8 +1774,9 @@ impl TypeChecker {
                 let symbol_opt = self.analyzer.get_symbol(name);
 
                 if symbol_opt.is_none() {
-                    // Check if this is an action parameter or a special function name before reporting it as undefined
+                    // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
                     if self.analyzer.get_action_parameters().contains(name)
+                        || Analyzer::is_builtin_function(name)
                         || name == "helper_function"
                         || name == "nested_function"
                     {
