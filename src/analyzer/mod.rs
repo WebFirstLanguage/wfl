@@ -556,6 +556,9 @@ impl Analyzer {
                     self.errors.push(error);
                 }
 
+                // Add item to action_parameters to prevent it from being flagged as undefined
+                self.action_parameters.insert(item_name.clone());
+
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
