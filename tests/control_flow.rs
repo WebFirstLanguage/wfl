@@ -132,7 +132,7 @@ async fn test_nested_loops_with_break() {
     
     repeat while outer_count is less than 5:
         change outer_count to outer_count plus 1
-        store inner_count as 0
+        change inner_count to 0
         
         repeat while inner_count is less than 5:
             change inner_count to inner_count plus 1

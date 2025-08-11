@@ -291,8 +291,8 @@ mod tests {
 
         {
             let mut env_mut = env.borrow_mut();
-            env_mut.define("x", Value::Number(42.0));
-            env_mut.define("y", Value::Text("hello".into()));
+            let _ = env_mut.define("x", Value::Number(42.0));
+            let _ = env_mut.define("y", Value::Text("hello".into()));
         }
 
         call_frame.capture_locals(&env);

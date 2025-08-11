@@ -1,0 +1,81 @@
+// Test variable redefinition rules
+// This test ensures proper use of 'store' and 'change' keywords
+
+display "=== Variable Redefinition Test ==="
+display ""
+
+// 1. Basic variable definition and change
+display "1. Basic variable definition and change:"
+store my_var as "initial value"
+display "Initial: " with my_var
+
+change my_var to "updated value"
+display "Updated: " with my_var
+display ""
+
+// 2. Multiple changes
+display "2. Multiple changes:"
+store counter as 0
+display "Initial counter: " with counter
+
+change counter to 1
+display "After first change: " with counter
+
+change counter to 2
+display "After second change: " with counter
+display ""
+
+// 3. Working with different types
+display "3. Type changes:"
+store flexible as "text"
+display "As text: " with flexible
+
+change flexible to 42
+display "As number: " with flexible
+
+change flexible to yes
+display "As boolean: " with flexible
+display ""
+
+// 4. Constants cannot be changed
+display "4. Constants (should not be changeable):"
+store new constant PI as 3.14159
+display "PI = " with PI
+// The following line would cause an error if uncommented:
+// change PI to 3.14
+
+// 5. Scoped variables
+display "5. Variables in scopes:"
+store outer_var as "outer"
+display "Outer before if: " with outer_var
+
+check if yes:
+    // Can change outer variables from inner scope
+    change outer_var to "changed from inner"
+    display "Outer in if: " with outer_var
+    
+    // New variables in inner scope
+    store inner_var as "inner only"
+    display "Inner var: " with inner_var
+end check
+
+display "Outer after if: " with outer_var
+// inner_var is not accessible here
+display ""
+
+// 6. Loop variables
+display "6. Loop variables:"
+store loop_counter as 0
+
+count from 1 to 3:
+    // 'count' is automatically available in loop
+    display "Loop count: " with count
+    
+    // Can change outer variables
+    change loop_counter to count
+end count
+
+display "Final loop_counter: " with loop_counter
+display ""
+
+display "=== All variable redefinition tests passed ==="

@@ -25,18 +25,8 @@ fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
     }
 }
 
-pub fn native_length(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            format!("length expects 1 argument, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
-
-    let text = expect_text(&args[0])?;
-    Ok(Value::Number(text.len() as f64))
-}
+// Note: The length function is now provided by the list module
+// which handles both text and lists
 
 pub fn native_touppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
     if args.len() != 1 {
@@ -108,29 +98,29 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn register_text(env: &mut Environment) {
-    env.define("length", Value::NativeFunction("length", native_length));
-    env.define(
+    // Note: length function is registered by the list module instead
+    let _ = env.define(
         "touppercase",
         Value::NativeFunction("touppercase", native_touppercase),
     );
-    env.define(
+    let _ = env.define(
         "tolowercase",
         Value::NativeFunction("tolowercase", native_tolowercase),
     );
-    env.define(
+    let _ = env.define(
         "contains",
         Value::NativeFunction("contains", native_contains),
     );
-    env.define(
+    let _ = env.define(
         "substring",
         Value::NativeFunction("substring", native_substring),
     );
 
-    env.define(
+    let _ = env.define(
         "to_uppercase",
         Value::NativeFunction("to_uppercase", native_touppercase),
     );
-    env.define(
+    let _ = env.define(
         "to_lowercase",
         Value::NativeFunction("to_lowercase", native_tolowercase),
     );

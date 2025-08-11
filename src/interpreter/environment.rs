@@ -45,13 +45,53 @@ impl Environment {
         }))
     }
 
-    pub fn define(&mut self, name: &str, value: Value) {
+    pub fn define(&mut self, name: &str, value: Value) -> Result<(), String> {
+        // Check if the variable already exists in current scope
+        if self.values.contains_key(name) {
+            return Err(format!(
+                "Variable '{}' has already been defined. Use 'change {} to <value>' to modify it.",
+                name, name
+            ));
+        }
+
+        // Check if the variable exists in parent scopes
+        if let Some(parent_weak) = &self.parent
+            && let Some(parent) = parent_weak.upgrade()
+            && parent.borrow().get(name).is_some()
+        {
+            return Err(format!(
+                "Variable '{}' has already been defined in an outer scope. Use 'change {} to <value>' to modify it.",
+                name, name
+            ));
+        }
+
         self.values.insert(name.to_string(), value);
+        Ok(())
     }
 
-    pub fn define_constant(&mut self, name: &str, value: Value) {
+    pub fn define_constant(&mut self, name: &str, value: Value) -> Result<(), String> {
+        // Check if the variable/constant already exists
+        if self.values.contains_key(name) {
+            return Err(format!(
+                "Variable or constant '{}' has already been defined.",
+                name
+            ));
+        }
+
+        // Check if the variable exists in parent scopes
+        if let Some(parent_weak) = &self.parent
+            && let Some(parent) = parent_weak.upgrade()
+            && parent.borrow().get(name).is_some()
+        {
+            return Err(format!(
+                "Variable or constant '{}' has already been defined in an outer scope.",
+                name
+            ));
+        }
+
         self.values.insert(name.to_string(), value);
         self.constants.insert(name.to_string());
+        Ok(())
     }
 
     pub fn is_constant(&self, name: &str) -> bool {

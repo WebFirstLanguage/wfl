@@ -27,7 +27,7 @@ mod tests {
 
             // Store in environment
             let function_value = Value::Function(Rc::new(function));
-            global_env
+            let _ = global_env
                 .borrow_mut()
                 .define("test_function", function_value);
 
@@ -118,7 +118,7 @@ mod tests {
             };
 
             let function_value = Value::Function(Rc::new(function));
-            child_env.borrow_mut().define(name, function_value);
+            let _ = child_env.borrow_mut().define(name, function_value);
         }
 
         // Ensure child_env is properly linked to its parent

@@ -1,0 +1,7 @@
+// This should cause an error - redefining a variable with store
+store x as 5
+display "First x: " with x
+
+// This should fail with a helpful error message
+store x as 10
+display "Second x: " with x

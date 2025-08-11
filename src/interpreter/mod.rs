@@ -460,7 +460,7 @@ impl Interpreter {
 
         {
             let mut env = global_env.borrow_mut();
-            env.define(
+            let _ = env.define(
                 "display",
                 Value::NativeFunction("display", Self::native_display),
             );
@@ -642,7 +642,7 @@ impl Interpreter {
                 .iter()
                 .map(|arg| Value::Text(Rc::from(arg.as_str())))
                 .collect();
-            env.define("args", Value::List(Rc::new(RefCell::new(args_list))));
+            let _ = env.define("args", Value::List(Rc::new(RefCell::new(args_list))));
 
             // Parse and set up flags (arguments starting with - or --)
             let mut flags = HashMap::new();
@@ -691,17 +691,17 @@ impl Interpreter {
             }
 
             // Store positional arguments
-            env.define(
+            let _ = env.define(
                 "positional_args",
                 Value::List(Rc::new(RefCell::new(positional_args.clone()))),
             );
 
             // Store argument count
-            env.define("arg_count", Value::Number(self.script_args.len() as f64));
+            let _ = env.define("arg_count", Value::Number(self.script_args.len() as f64));
 
             // Store flags as individual variables with flag_ prefix
             for (key, value) in flags_map {
-                env.define(&format!("flag_{key}"), value);
+                let _ = env.define(&format!("flag_{key}"), value);
             }
         }
 
@@ -905,13 +905,17 @@ impl Interpreter {
                 #[cfg(debug_assertions)]
                 exec_var_declare!(name, &evaluated_value);
 
-                if *is_constant {
+                let result = if *is_constant {
                     env.borrow_mut()
-                        .define_constant(name, evaluated_value.clone());
+                        .define_constant(name, evaluated_value.clone())
                 } else {
-                    env.borrow_mut().define(name, evaluated_value.clone());
+                    env.borrow_mut().define(name, evaluated_value.clone())
+                };
+
+                match result {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(msg) => Err(RuntimeError::new(msg, line, column)),
                 }
-                Ok((Value::Null, ControlFlow::None))
             }
 
             Statement::Assignment {
@@ -1011,7 +1015,10 @@ impl Interpreter {
                 };
 
                 let function_value = Value::Function(Rc::new(function));
-                env.borrow_mut().define(name, function_value.clone());
+                match env.borrow_mut().define(name, function_value.clone()) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
 
                 Ok((function_value, ControlFlow::None))
             }
@@ -1107,7 +1114,6 @@ impl Interpreter {
                 };
 
                 let mut count = start_num;
-                let loop_env = Environment::new_child_env(&env);
 
                 let should_continue: Box<dyn Fn(f64, f64) -> bool> = if *downward {
                     Box::new(|count, end_num| count >= end_num)
@@ -1129,9 +1135,12 @@ impl Interpreter {
 
                     *self.current_count.borrow_mut() = Some(count);
 
+                    // Create a new scope for each iteration
+                    let loop_env = Environment::new_child_env(&env);
+
                     // Also make count available as a regular variable in the loop environment
                     // This ensures consistency and allows for nested count loops to work properly
-                    loop_env.borrow_mut().define("count", Value::Number(count));
+                    let _ = loop_env.borrow_mut().define("count", Value::Number(count));
 
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await;
 
@@ -1204,8 +1213,6 @@ impl Interpreter {
                     .evaluate_expression(collection, Rc::clone(&env))
                     .await?;
 
-                let loop_env = Environment::new_child_env(&env);
-
                 match collection_val {
                     Value::List(list_rc) => {
                         let items: Vec<Value> = {
@@ -1219,7 +1226,9 @@ impl Interpreter {
                         };
 
                         for item in items {
-                            loop_env.borrow_mut().define(item_name, item);
+                            // Create a new scope for each iteration
+                            let loop_env = Environment::new_child_env(&env);
+                            let _ = loop_env.borrow_mut().define(item_name, item);
                             let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
 
                             match result.1 {
@@ -1257,7 +1266,9 @@ impl Interpreter {
                         };
 
                         for (_, value) in items {
-                            loop_env.borrow_mut().define(item_name, value);
+                            // Create a new scope for each iteration
+                            let loop_env = Environment::new_child_env(&env);
+                            let _ = loop_env.borrow_mut().define(item_name, value);
                             let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
 
                             match result.1 {
@@ -1530,7 +1541,8 @@ impl Interpreter {
                     .await
                 {
                     Ok(handle) => {
-                        env.borrow_mut()
+                        let _ = env
+                            .borrow_mut()
                             .define(variable_name, Value::Text(handle.into()));
                         Ok((Value::Null, ControlFlow::None))
                     }
@@ -1561,7 +1573,8 @@ impl Interpreter {
                     match self.io_client.open_file(&path_str).await {
                         Ok(handle) => match self.io_client.read_file(&handle).await {
                             Ok(content) => {
-                                env.borrow_mut()
+                                let _ = env
+                                    .borrow_mut()
                                     .define(variable_name, Value::Text(content.into()));
                                 let _ = self.io_client.close_file(&handle).await;
                                 Ok((Value::Null, ControlFlow::None))
@@ -1576,7 +1589,8 @@ impl Interpreter {
                 } else {
                     match self.io_client.read_file(&path_str).await {
                         Ok(content) => {
-                            env.borrow_mut()
+                            let _ = env
+                                .borrow_mut()
                                 .define(variable_name, Value::Text(content.into()));
                             Ok((Value::Null, ControlFlow::None))
                         }
@@ -1879,7 +1893,8 @@ impl Interpreter {
                             match self.io_client.open_file(&path_str).await {
                                 Ok(handle) => match self.io_client.read_file(&handle).await {
                                     Ok(content) => {
-                                        env.borrow_mut()
+                                        let _ = env
+                                            .borrow_mut()
                                             .define(variable_name, Value::Text(content.into()));
                                         let _ = self.io_client.close_file(&handle).await;
                                         Ok((Value::Null, ControlFlow::None))
@@ -1894,7 +1909,8 @@ impl Interpreter {
                         } else {
                             match self.io_client.read_file(&path_str).await {
                                 Ok(content) => {
-                                    env.borrow_mut()
+                                    let _ = env
+                                        .borrow_mut()
                                         .define(variable_name, Value::Text(content.into()));
                                     Ok((Value::Null, ControlFlow::None))
                                 }
@@ -1933,7 +1949,7 @@ impl Interpreter {
                             };
 
                             if matches {
-                                child_env.borrow_mut().define(
+                                let _ = child_env.borrow_mut().define(
                                     &when_clause.error_name,
                                     Value::Text(err.message.into()),
                                 );
@@ -1977,7 +1993,8 @@ impl Interpreter {
 
                 match self.io_client.http_get(&url_str).await {
                     Ok(body) => {
-                        env.borrow_mut()
+                        let _ = env
+                            .borrow_mut()
                             .define(variable_name, Value::Text(body.into()));
                         Ok((Value::Null, ControlFlow::None))
                     }
@@ -2018,7 +2035,8 @@ impl Interpreter {
 
                 match self.io_client.http_post(&url_str, &data_str).await {
                     Ok(body) => {
-                        env.borrow_mut()
+                        let _ = env
+                            .borrow_mut()
                             .define(variable_name, Value::Text(body.into()));
                         Ok((Value::Null, ControlFlow::None))
                     }
@@ -2076,8 +2094,8 @@ impl Interpreter {
             Statement::CreateListStatement {
                 name,
                 initial_values,
-                line: _,
-                column: _,
+                line,
+                column,
             } => {
                 // Create a new list with initial values
                 let mut list_items = Vec::new();
@@ -2089,15 +2107,18 @@ impl Interpreter {
                 }
 
                 let list_value = Value::List(Rc::new(RefCell::new(list_items)));
-                env.borrow_mut().define(name, list_value);
+                match env.borrow_mut().define(name, list_value) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
 
                 Ok((Value::Null, ControlFlow::None))
             }
             Statement::MapCreation {
                 name,
                 entries,
-                line: _,
-                column: _,
+                line,
+                column,
             } => {
                 // Create a new map/object with initial entries
                 let mut map = std::collections::HashMap::new();
@@ -2109,15 +2130,18 @@ impl Interpreter {
                 }
 
                 let map_value = Value::Object(Rc::new(RefCell::new(map)));
-                env.borrow_mut().define(name, map_value);
+                match env.borrow_mut().define(name, map_value) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
 
                 Ok((Value::Null, ControlFlow::None))
             }
             Statement::CreateDateStatement {
                 name,
                 value,
-                line: _,
-                column: _,
+                line,
+                column,
             } => {
                 let date_value = if let Some(expr) = value {
                     // Evaluate the expression to get the date
@@ -2128,14 +2152,17 @@ impl Interpreter {
                     Value::Date(Rc::new(today))
                 };
 
-                env.borrow_mut().define(name, date_value);
+                match env.borrow_mut().define(name, date_value) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
                 Ok((Value::Null, ControlFlow::None))
             }
             Statement::CreateTimeStatement {
                 name,
                 value,
-                line: _,
-                column: _,
+                line,
+                column,
             } => {
                 let time_value = if let Some(expr) = value {
                     // Evaluate the expression to get the time
@@ -2146,7 +2173,10 @@ impl Interpreter {
                     Value::Time(Rc::new(now))
                 };
 
-                env.borrow_mut().define(name, time_value);
+                match env.borrow_mut().define(name, time_value) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
                 Ok((Value::Null, ControlFlow::None))
             }
             Statement::AddToListStatement {
@@ -2330,7 +2360,10 @@ impl Interpreter {
                 let container_value = Value::ContainerDefinition(Rc::new(container_def));
 
                 // Store the container definition in the environment
-                env.borrow_mut().define(name, container_value.clone());
+                match env.borrow_mut().define(name, container_value.clone()) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
 
                 Ok((container_value, ControlFlow::None))
             }
@@ -2363,8 +2396,13 @@ impl Interpreter {
                 let instance_value = Value::ContainerInstance(Rc::new(RefCell::new(instance)));
 
                 // Store the instance in the environment
-                env.borrow_mut()
-                    .define(instance_name, instance_value.clone());
+                match env
+                    .borrow_mut()
+                    .define(instance_name, instance_value.clone())
+                {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
 
                 // Call constructor method if arguments are provided
                 if !arguments.is_empty() {
@@ -2396,7 +2434,7 @@ impl Interpreter {
                         let init_env = Environment::new_child_env(&env);
 
                         // Add 'this' to the environment (the instance being constructed)
-                        init_env.borrow_mut().define("this", instance_value.clone());
+                        let _ = init_env.borrow_mut().define("this", instance_value.clone());
 
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
@@ -2452,7 +2490,10 @@ impl Interpreter {
                 let interface_value = Value::InterfaceDefinition(Rc::new(interface_def));
 
                 // Store the interface definition in the environment
-                env.borrow_mut().define(name, interface_value.clone());
+                match env.borrow_mut().define(name, interface_value.clone()) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *_line, *_column)),
+                }
 
                 Ok((interface_value, ControlFlow::None))
             }
@@ -2474,7 +2515,10 @@ impl Interpreter {
                 let event_value = Value::ContainerEvent(Rc::new(event_def));
 
                 // Store the event definition in the environment
-                env.borrow_mut().define(name, event_value.clone());
+                match env.borrow_mut().define(name, event_value.clone()) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *_line, *_column)),
+                }
 
                 Ok((event_value, ControlFlow::None))
             }
@@ -2513,11 +2557,11 @@ impl Interpreter {
                     // Bind arguments to parameters
                     for (i, param_name) in event.params.iter().enumerate() {
                         if i < arg_values.len() {
-                            handler_env
+                            let _ = handler_env
                                 .borrow_mut()
                                 .define(param_name, arg_values[i].clone());
                         } else {
-                            handler_env.borrow_mut().define(param_name, Value::Null);
+                            let _ = handler_env.borrow_mut().define(param_name, Value::Null);
                         }
                     }
 
@@ -2581,7 +2625,7 @@ impl Interpreter {
 
                         // Store the updated event in the environment
                         let event_value = Value::ContainerEvent(Rc::new(new_event));
-                        env.borrow_mut().define(event_name, event_value.clone());
+                        let _ = env.borrow_mut().define(event_name, event_value.clone());
 
                         Ok((Value::Null, ControlFlow::None))
                     } else {
@@ -2657,7 +2701,7 @@ impl Interpreter {
                             let method_env = Environment::new_child_env(&env);
 
                             // Add 'this' to the environment (the current instance, not the parent)
-                            method_env.borrow_mut().define("this", this_val.clone());
+                            let _ = method_env.borrow_mut().define("this", this_val.clone());
 
                             // Evaluate the arguments
                             let mut arg_values = Vec::with_capacity(arguments.len());
@@ -2698,20 +2742,29 @@ impl Interpreter {
                     ))
                 }
             }
-            Statement::PatternDefinition { name, pattern, .. } => {
+            Statement::PatternDefinition {
+                name,
+                pattern,
+                line,
+                column,
+                ..
+            } => {
                 // Compile the pattern AST into bytecode
                 match CompiledPattern::compile(pattern) {
                     Ok(compiled_pattern) => {
                         // Store the compiled pattern in the environment
                         let pattern_value = Value::Pattern(Rc::new(compiled_pattern));
-                        env.borrow_mut().define(name, pattern_value.clone());
+                        match env.borrow_mut().define(name, pattern_value.clone()) {
+                            Ok(_) => {}
+                            Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                        }
                         Ok((pattern_value, ControlFlow::None))
                     }
                     Err(compile_error) => Err(RuntimeError {
                         kind: ErrorKind::General,
                         message: format!("Failed to compile pattern '{name}': {compile_error}"),
-                        line,
-                        column,
+                        line: *line,
+                        column: *column,
                     }),
                 }
             }
@@ -2878,7 +2931,7 @@ impl Interpreter {
                         let method_env = Environment::new_child_env(&env);
 
                         // Add 'this' to the environment
-                        method_env.borrow_mut().define("this", object_val.clone());
+                        let _ = method_env.borrow_mut().define("this", object_val.clone());
 
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
@@ -3680,7 +3733,7 @@ impl Interpreter {
 
             #[cfg(debug_assertions)]
             exec_var_declare!(param, &arg);
-            call_env.borrow_mut().define(param, arg.clone());
+            let _ = call_env.borrow_mut().define(param, arg.clone());
         }
 
         let frame = CallFrame::new(

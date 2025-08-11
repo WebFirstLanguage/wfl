@@ -1,19 +1,19 @@
 === WFL Debug Report ===
 Script: basic_syntax_comprehensive.wfl
-Time: 2025-08-11 01:53:40
+Time: 2025-08-11 03:00:26
 
 === Error Summary ===
-Runtime error at line 113, column 44: Error in native function: Runtime error at line 0, column 0: substring expects 3 arguments, got 1
+Runtime error at line 103, column 37: Error in native function: Runtime error at line 0, column 0: Expected text, got List
 
 === Stack Trace ===
-In main script at line 113, column 44
+In main script at line 103, column 37
 
 === Source Code ===
-   111: display "Length: " with length of welcome
-   112: display "Length of welcome: " with length of welcome
->> 113: display "Substring (0,7): " with substring of welcome and 0 and 7
-   114: display ""
-   115: 
+   101: store my numbers as [1 and 2 and 3 and 4 and 5]
+   102: display "Number list: " with my numbers
+>> 103: display "List length: " with length of my numbers
+   104: display ""
+   105: 
 
 === Local Variables ===
 (No local variables in global scope)

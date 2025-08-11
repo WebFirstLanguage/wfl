@@ -1,0 +1,19 @@
+=== WFL Debug Report ===
+Script: TestPrograms/test_length2.wfl
+Time: 2025-08-11 03:05:38
+
+=== Error Summary ===
+Runtime error at line 3, column 21: Error in native function: Runtime error at line 0, column 0: Expected text, got List
+
+=== Stack Trace ===
+In main script at line 3, column 21
+
+=== Source Code ===
+   1: // Test length function more carefully
+   2: store numbers as [1 and 2 and 3]
+>> 3: store len as length of numbers
+   4: display len
+   5: 
+
+=== Local Variables ===
+(No local variables in global scope)

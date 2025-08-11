@@ -83,7 +83,33 @@ impl Scope {
     }
 
     pub fn define(&mut self, symbol: Symbol) -> Result<(), SemanticError> {
-        // Allow variable redefinition - just update the existing symbol
+        // Check if variable already exists in current scope
+        if self.symbols.contains_key(&symbol.name) {
+            let existing = &self.symbols[&symbol.name];
+            return Err(SemanticError::new(
+                format!(
+                    "Variable '{}' has already been defined at line {}. Use 'change {} to <value>' to modify it.",
+                    symbol.name, existing.line, symbol.name
+                ),
+                symbol.line,
+                symbol.column,
+            ));
+        }
+
+        // Check if variable exists in parent scopes
+        if let Some(parent) = &self.parent
+            && parent.resolve(&symbol.name).is_some()
+        {
+            return Err(SemanticError::new(
+                format!(
+                    "Variable '{}' has already been defined in an outer scope. Use 'change {} to <value>' to modify it.",
+                    symbol.name, symbol.name
+                ),
+                symbol.line,
+                symbol.column,
+            ));
+        }
+
         self.symbols.insert(symbol.name.clone(), symbol);
         Ok(())
     }
