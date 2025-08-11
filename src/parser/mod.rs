@@ -2555,7 +2555,8 @@ impl<'a> Parser<'a> {
                             self.tokens.next(); // Consume "of"
 
                             // Parse the first argument after "of"
-                            let first_arg = self.parse_expression()?;
+                            // Use parse_primary_expression to avoid treating "and" as a binary operator
+                            let first_arg = self.parse_primary_expression()?;
 
                             let is_function_call = matches!(
                                 expr,
@@ -2574,7 +2575,8 @@ impl<'a> Parser<'a> {
                                     if let Token::KeywordAnd = &and_token.token {
                                         self.tokens.next(); // Consume "and"
 
-                                        let arg_value = self.parse_expression()?;
+                                        // Use parse_primary_expression to avoid treating next "and" as binary operator
+                                        let arg_value = self.parse_primary_expression()?;
 
                                         arguments.push(Argument {
                                             name: None,

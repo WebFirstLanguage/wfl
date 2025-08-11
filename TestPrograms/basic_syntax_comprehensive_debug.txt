@@ -1,6 +1,6 @@
 === WFL Debug Report ===
-Script: TestPrograms/basic_syntax_comprehensive.wfl
-Time: 2025-08-11 01:46:01
+Script: basic_syntax_comprehensive.wfl
+Time: 2025-08-11 01:53:40
 
 === Error Summary ===
 Runtime error at line 113, column 44: Error in native function: Runtime error at line 0, column 0: substring expects 3 arguments, got 1
