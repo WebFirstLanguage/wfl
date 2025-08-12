@@ -207,7 +207,38 @@ when error:
 end try
 display ""
 
+// === Cleanup Test Files ===
+display "11. Cleaning Up Test Files"
+
+// Clean up all test files created during the test
+delete file at "test_output.txt"
+display "✓ Deleted test_output.txt"
+
+delete file at "crud_test.txt"
+display "✓ Deleted crud_test.txt"
+
+delete file at "test.txt"
+display "✓ Deleted test.txt"
+
+delete file at "test.log"
+display "✓ Deleted test.log"
+
+delete file at "test.dat"
+display "✓ Deleted test.dat"
+
+delete file at "async1.txt"
+display "✓ Deleted async1.txt"
+
+delete file at "async2.txt"
+display "✓ Deleted async2.txt"
+
+delete file at "stream_test.txt"
+display "✓ Deleted stream_test.txt"
+
+display "✓ All test files cleaned up successfully"
+display ""
+
 display "=== File I/O Tests Completed ==="
 display ""
 display "Note: Some advanced operations may not be implemented yet."
-display "Test files created: test_output.txt, crud_test.txt, test.txt, test.log, test.dat, async1.txt, async2.txt, stream_test.txt"
+display "All test files have been cleaned up automatically."
