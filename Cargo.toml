@@ -1,6 +1,6 @@
 [package]
 name = "wfl"
-version = "25.8.26"
+version = "25.8.27"
 edition = "2024"
 description = "WFL (WebFirst Language) is a programming language designed to be readable and intuitive using natural language constructs."
 license = "Apache-2.0"
