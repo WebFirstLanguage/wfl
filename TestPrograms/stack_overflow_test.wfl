@@ -1,0 +1,44 @@
+// Test case to reproduce stack overflow with nested operations
+// This should trigger the same async recursion issue as args_comprehensive.wfl
+
+store test_args as ["--azusa" and "--ui" and "--mio" and "--ritsu"]
+store result as []
+
+for each arg in test_args:
+    store current as arg
+    
+    check if substring of current and 0 and 2 is "--":
+        store flag_name as substring of current and 2 and length of current
+        
+        check if flag_name is "azusa":
+            store processed as "Character: " with flag_name
+            push with result and processed
+        otherwise:
+            check if flag_name is "ui":
+                store processed as "Character: " with flag_name
+                push with result and processed
+            otherwise:
+                check if flag_name is "mio":
+                    store processed as "Character: " with flag_name
+                    push with result and processed
+                otherwise:
+                    check if flag_name is "ritsu":
+                        store processed as "Character: " with flag_name
+                        push with result and processed
+                    otherwise:
+                        store processed as "Unknown: " with flag_name
+                        push with result and processed
+                    end check
+                end check
+            end check
+        end check
+    otherwise:
+        store processed as "Not a flag: " with current
+        push with result and processed
+    end check
+end for
+
+display "Results:"
+for each item in result:
+    display item
+end for
