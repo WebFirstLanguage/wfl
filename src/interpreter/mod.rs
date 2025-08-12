@@ -3416,9 +3416,7 @@ impl Interpreter {
                 let left_future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
                 let left_val = left_future.await?;
 
-                // Use Box::pin to handle recursion in async fn
-                let right_future = Box::pin(self.evaluate_expression(right, Rc::clone(&env)));
-                let right_val = right_future.await?;
+                let right_val = self.evaluate_expression(right, Rc::clone(&env)).await?;
 
                 let result = format!("{left_val}{right_val}");
                 Ok(Value::Text(Rc::from(result.as_str())))
