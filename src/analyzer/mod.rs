@@ -400,10 +400,9 @@ impl Analyzer {
                 // This is actually a property assignment, not a variable declaration
                 // Don't treat it as an error - the interpreter will handle it
 
-                if !is_property_assignment
-                    && let Err(error) = self.current_scope.define(symbol) {
-                        self.errors.push(error);
-                    }
+                if !is_property_assignment && let Err(error) = self.current_scope.define(symbol) {
+                    self.errors.push(error);
+                }
             }
             Statement::Assignment {
                 name,

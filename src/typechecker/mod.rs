@@ -356,18 +356,20 @@ impl TypeChecker {
                     // Check if we're in a container method and this is a property assignment
                     if let Some(ref container_name) = self.current_container
                         && let Some(container_info) = self.analyzer.get_container(container_name)
-                        && container_info.properties.contains_key(name) {
-                            // This is a container property assignment
-                            is_container_property_assignment = true;
-                        }
+                        && container_info.properties.contains_key(name)
+                    {
+                        // This is a container property assignment
+                        is_container_property_assignment = true;
+                    }
 
                     // Also check if the analyzer has this symbol (fallback)
                     if !is_container_property_assignment
                         && let Some(symbol) = self.analyzer.get_symbol(name)
-                        && symbol.symbol_type.is_some() {
-                            // Variable already exists with a known type
-                            is_container_property_assignment = true;
-                        }
+                        && symbol.symbol_type.is_some()
+                    {
+                        // Variable already exists with a known type
+                        is_container_property_assignment = true;
+                    }
                 }
 
                 if inferred_type == Type::Unknown && !is_container_property_assignment {

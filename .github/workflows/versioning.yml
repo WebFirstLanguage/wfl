@@ -37,7 +37,7 @@ jobs:
           git fetch --tags
           
           # Extract version from version.rs
-          VERSION=$(grep -oP '(?<=VERSION: &str = ")[0-9]+\.[0-9]+' src/version.rs)
+          VERSION=$(grep -oP '(?<=VERSION: &str = ")[0-9]+\.[0-9]+\.[0-9]+' src/version.rs)
           
           # Check if this version tag already exists
           if ! git tag -l | grep -q "^v$VERSION$"; then
