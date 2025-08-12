@@ -40,8 +40,7 @@ end
         }
     }
 
-    // If no specific colon errors, the test passes
-    assert!(true, "No double colon consumption detected");
+    // If we reach here without panicking, no double colon consumption was detected
 }
 
 #[test]

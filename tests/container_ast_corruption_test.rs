@@ -95,48 +95,47 @@ end
 
     let program = result.unwrap();
 
-    if let Statement::ContainerDefinition { methods, .. } = &program.statements[0] {
-        if let Statement::ActionDefinition {
+    if let Statement::ContainerDefinition { methods, .. } = &program.statements[0]
+        && let Statement::ActionDefinition {
             name,
             parameters,
             body,
             ..
         } = &methods[0]
-        {
-            assert_eq!(name, "set_name");
-            assert_eq!(parameters.len(), 1);
-            assert_eq!(parameters[0].name, "new_name");
-            assert_eq!(body.len(), 1);
+    {
+        assert_eq!(name, "set_name");
+        assert_eq!(parameters.len(), 1);
+        assert_eq!(parameters[0].name, "new_name");
+        assert_eq!(body.len(), 1);
 
-            // Check that the store statement has correct structure
-            if let Statement::VariableDeclaration {
-                name: var_name,
-                value,
-                ..
-            } = &body[0]
-            {
-                assert_eq!(var_name, "name");
-                if let Expression::Variable(param_name, line, column) = value {
-                    assert_eq!(param_name, "new_name");
-                    // This should point to the parameter usage in the action body
-                    assert_eq!(*line, 6, "Parameter usage should be on line 6");
-                    assert!(
-                        *column > 20,
-                        "Parameter should be at reasonable column in store statement, got column {}",
-                        column
-                    );
-                } else {
-                    panic!(
-                        "Store value should be a variable reference to new_name, got: {:?}",
-                        value
-                    );
-                }
+        // Check that the store statement has correct structure
+        if let Statement::VariableDeclaration {
+            name: var_name,
+            value,
+            ..
+        } = &body[0]
+        {
+            assert_eq!(var_name, "name");
+            if let Expression::Variable(param_name, line, column) = value {
+                assert_eq!(param_name, "new_name");
+                // This should point to the parameter usage in the action body
+                assert_eq!(*line, 6, "Parameter usage should be on line 6");
+                assert!(
+                    *column > 20,
+                    "Parameter should be at reasonable column in store statement, got column {}",
+                    column
+                );
             } else {
                 panic!(
-                    "Action body should contain a store statement, got: {:?}",
-                    body[0]
+                    "Store value should be a variable reference to new_name, got: {:?}",
+                    value
                 );
             }
+        } else {
+            panic!(
+                "Action body should contain a store statement, got: {:?}",
+                body[0]
+            );
         }
     }
 }
