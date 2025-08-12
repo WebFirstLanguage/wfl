@@ -35,7 +35,7 @@ fn print_help() {
     println!("    --step             Run in single-step execution mode");
     println!("    --edit             Open the specified file in the default editor");
     println!("    --lex              Dump lexer output to a text file and exit");
-    println!("    --ast              Dump abstract syntax tree to a text file and exit");
+    println!("    --ast, --parse      Dump abstract syntax tree to a text file and exit");
     println!("    --time             Measure and display execution time");
     println!();
     println!("Configuration Maintenance:");
@@ -100,7 +100,7 @@ async fn main() -> io::Result<()> {
                 lex_dump = true;
                 i += 1;
             }
-            "--ast" => {
+            "--ast" | "--parse" => {
                 ast_dump = true;
                 i += 1;
             }
