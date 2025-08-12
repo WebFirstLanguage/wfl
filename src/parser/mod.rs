@@ -4742,8 +4742,9 @@ impl<'a> Parser<'a> {
             && matches!(token.token, Token::Colon)
         {
             self.tokens.next(); // Consume ':'
-            // Check if there's a return type identifier after the colon
-            if let Some(type_token) = self.tokens.peek() {
+            
+            // After consuming colon, we must have a type identifier
+            if let Some(type_token) = self.tokens.peek().cloned() {
                 if let Token::Identifier(type_name) = &type_token.token {
                     self.tokens.next(); // Consume type name
                     Some(match type_name.as_str() {
@@ -4755,13 +4756,20 @@ impl<'a> Parser<'a> {
                         _ => Type::Custom(type_name.clone()),
                     })
                 } else {
-                    None
+                    return Err(ParseError::new(
+                        format!("Expected type identifier after ':', but found {:?}", type_token.token),
+                        type_token.line,
+                        type_token.column,
+                    ));
                 }
             } else {
-                None
+                return Err(ParseError::new(
+                    "Expected type identifier after ':'".to_string(),
+                    0, // Use line 0 for end-of-input errors
+                    0,
+                ));
             }
         } else {
-            self.expect_token(Token::Colon, "Expected ':' after action declaration")?;
             None
         };
 
