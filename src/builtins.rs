@@ -387,7 +387,10 @@ mod tests {
         for function_name in BUILTIN_FUNCTIONS {
             let arity = get_function_arity(function_name);
             // Just verify it doesn't panic and returns a reasonable value
-            assert!(arity <= 10, "Function '{function_name}' has unreasonable arity: {arity}");
+            assert!(
+                arity <= 10,
+                "Function '{function_name}' has unreasonable arity: {arity}"
+            );
         }
     }
 }
