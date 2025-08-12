@@ -2617,6 +2617,36 @@ impl<'a> Parser<'a> {
                                 column: token.column,
                             };
                         }
+                        Token::LeftBracket => {
+                            self.tokens.next(); // Consume "["
+
+                            let index = self.parse_expression()?;
+
+                            // Expect closing bracket
+                            if let Some(closing_token) = self.tokens.peek().cloned() {
+                                if closing_token.token == Token::RightBracket {
+                                    self.tokens.next(); // Consume "]"
+                                    expr = Expression::IndexAccess {
+                                        collection: Box::new(expr),
+                                        index: Box::new(index),
+                                        line: token.line,
+                                        column: token.column,
+                                    };
+                                } else {
+                                    return Err(ParseError::new(
+                                        format!("Expected ']' after array index, found {:?}", closing_token.token),
+                                        closing_token.line,
+                                        closing_token.column,
+                                    ));
+                                }
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected ']' after array index, found end of input".to_string(),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
+                        }
                         // Handle static member access: "Container.staticMember"
                         Token::Identifier(id) if id == "." => {
                             self.tokens.next(); // Consume "."

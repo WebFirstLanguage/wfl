@@ -905,3 +905,116 @@ fn test_unary_minus_with_complex_expression() {
         panic!("Expected display statement, got: {result:?}");
     }
 }
+#[test]
+fn test_bracket_array_indexing() {
+    // Test basic bracket indexing with integer literal
+    let input = r#"display args[0]"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Failed to parse basic bracket indexing: {result:?}");
+
+    if let Ok(Statement::DisplayStatement { value, .. }) = result {
+        if let Expression::IndexAccess { collection, index, .. } = value {
+            // Collection should be a variable "args"
+            if let Expression::Variable(var_name, ..) = *collection {
+                assert_eq!(var_name, "args", "Expected collection to be 'args'");
+            } else {
+                panic!("Expected collection to be Variable, got: {collection:?}");
+            }
+
+            // Index should be integer literal 0
+            if let Expression::Literal(Literal::Integer(n), ..) = *index {
+                assert_eq!(n, 0, "Expected index to be 0");
+            } else {
+                panic!("Expected index to be integer literal 0, got: {index:?}");
+            }
+        } else {
+            panic!("Expected IndexAccess expression, got: {value:?}");
+        }
+    } else {
+        panic!("Expected DisplayStatement, got: {result:?}");
+    }
+}
+
+#[test] 
+fn test_bracket_array_indexing_with_variable() {
+    // Test bracket indexing with variable as index
+    let input = r#"display args[last_index]"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Failed to parse bracket indexing with variable: {result:?}");
+
+    if let Ok(Statement::DisplayStatement { value, .. }) = result {
+        if let Expression::IndexAccess { collection, index, .. } = value {
+            // Collection should be a variable "args"
+            if let Expression::Variable(var_name, ..) = *collection {
+                assert_eq!(var_name, "args", "Expected collection to be 'args'");
+            } else {
+                panic!("Expected collection to be Variable, got: {collection:?}");
+            }
+
+            // Index should be variable "last_index"
+            if let Expression::Variable(var_name, ..) = *index {
+                assert_eq!(var_name, "last_index", "Expected index to be 'last_index'");
+            } else {
+                panic!("Expected index to be variable 'last_index', got: {index:?}");
+            }
+        } else {
+            panic!("Expected IndexAccess expression, got: {value:?}");
+        }
+    } else {
+        panic!("Expected DisplayStatement, got: {result:?}");
+    }
+}
+
+#[test]
+fn test_bracket_array_indexing_with_expression() {
+    // Test bracket indexing with expression as index
+    let input = r#"display my_list[count minus 1]"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Failed to parse bracket indexing with expression: {result:?}");
+
+    if let Ok(Statement::DisplayStatement { value, .. }) = result {
+        if let Expression::IndexAccess { collection, index, .. } = value {
+            // Collection should be a variable "my_list"
+            if let Expression::Variable(var_name, ..) = *collection {
+                assert_eq!(var_name, "my_list", "Expected collection to be 'my_list'");
+            } else {
+                panic!("Expected collection to be Variable, got: {collection:?}");
+            }
+
+            // Index should be a binary operation "count minus 1"
+            if let Expression::BinaryOperation { left, operator, right, .. } = *index {
+                // Left should be variable "count"
+                if let Expression::Variable(var_name, ..) = *left {
+                    assert_eq!(var_name, "count", "Expected left operand to be 'count'");
+                } else {
+                    panic!("Expected left operand to be Variable, got: {left:?}");
+                }
+
+                // Operator should be Minus
+                assert_eq!(operator, Operator::Minus, "Expected operator to be Minus");
+
+                // Right should be integer literal 1
+                if let Expression::Literal(Literal::Integer(n), ..) = *right {
+                    assert_eq!(n, 1, "Expected right operand to be 1");
+                } else {
+                    panic!("Expected right operand to be integer literal 1, got: {right:?}");
+                }
+            } else {
+                panic!("Expected index to be BinaryOperation, got: {index:?}");
+            }
+        } else {
+            panic!("Expected IndexAccess expression, got: {value:?}");
+        }
+    } else {
+        panic!("Expected DisplayStatement, got: {result:?}");
+    }
+}
