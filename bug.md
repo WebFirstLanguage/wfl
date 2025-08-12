@@ -1,81 +1,190 @@
-# Bug Report: Array Indexing Parser Limitation
+# Bug Report: Incomplete Builtin Function Arity Definitions
 
-## Issue Summary
-The WFL parser does not correctly handle array indexing syntax `array[index]`, causing variables used as array indices to be incorrectly flagged as unused by the static analyzer.
+## Bug Summary
+The WFL typechecker has incomplete builtin function arity definitions, causing false argument-count errors. When builtin function names are converted to Function types, they use a small hardcoded match set to determine param_count, defaulting to 1 for unknown functions. This causes many builtin functions that require 2 or more arguments to incorrectly report type errors claiming they only expect 1 argument.
 
-## Affected Code
-**File**: `TestPrograms/args_comprehensive.wfl`  
-**Lines**: 82-83
-```wfl
-store last_index as arg_count minus 1
-display "  Last: " with args[last_index]
+## Evidence Collected
+
+### 1. Problematic Code Location
+**File**: `C:\logbie\wfl\src\typechecker\mod.rs`
+**Lines**: 1230-1237
+
+```rust
+let param_count = match name.as_str() {
+    "substring" => 3, // text, start, length
+    "replace" => 3,   // text, old, new
+    "clamp" => 3,     // value, min, max
+    "padleft" | "padright" => 2, // text, length
+    "indexof" | "index_of" | "lastindexof" | "last_index_of" => 2, // text, substring
+    _ => 1, // Most functions take 1 parameter
+};
 ```
 
-## Expected Behavior
-- `args[last_index]` should access the element at the specified index
-- Output should show: `Last: test` (the last command line argument)
-- `last_index` should not be flagged as unused since it's used in the array access
+### 2. Current Match Cases and Their Param Counts
+Only 6 functions have correct arity definitions:
+- `substring`: 3 arguments (text, start, length)
+- `replace`: 3 arguments (text, old, new)
+- `clamp`: 3 arguments (value, min, max)
+- `padleft`, `padright`: 2 arguments (text, length)
+- `indexof`, `index_of`, `lastindexof`, `last_index_of`: 2 arguments (text, substring)
+- **All others default to 1 argument**
 
-## Actual Behavior
-- `args[last_index]` is parsed as just `args` (entire array)
-- Output shows: `Last: [This, is, a, cool, test]` (entire array)
-- Static analyzer correctly reports `last_index` as unused (since it's never actually used in the parsed AST)
+### 3. Complete List of Builtin Functions by Module
 
-## Root Cause Analysis
+**From `C:\logbie\wfl\src\builtins.rs` (Complete Registry)**:
 
-### Parser Investigation
-The WFL parser fails to generate `IndexAccess` AST nodes for array indexing syntax. Instead:
+#### Implemented Functions (with verified arities):
 
-1. **Expected AST**: `Expression::IndexAccess { collection: args, index: last_index }`
-2. **Actual AST**: `Expression::Variable(args)` 
+**Math Module** (`src/stdlib/math.rs`):
+- `abs`: 1 argument ✓ (correctly defaulted)
+- `round`: 1 argument ✓ (correctly defaulted)
+- `floor`: 1 argument ✓ (correctly defaulted)
+- `ceil`: 1 argument ✓ (correctly defaulted)
+- `random`: 0 arguments ❌ (incorrectly defaulted to 1)
+- `clamp`: 3 arguments ✓ (correctly defined)
 
-### Evidence
-Testing with a minimal case:
+**Text Module** (`src/stdlib/text.rs`):
+- `touppercase`, `to_uppercase`: 1 argument ✓ (correctly defaulted)
+- `tolowercase`, `to_lowercase`: 1 argument ✓ (correctly defaulted)
+- `contains`: 2 arguments ❌ (incorrectly defaulted to 1)
+- `substring`: 3 arguments ✓ (correctly defined)
+
+**List Module** (`src/stdlib/list.rs`):
+- `length`: 1 argument ✓ (correctly defaulted)
+- `push`: 2 arguments ❌ (incorrectly defaulted to 1)
+- `pop`: 1 argument ✓ (correctly defaulted)
+- `contains`: 2 arguments ❌ (incorrectly defaulted to 1)
+- `indexof`, `index_of`: 2 arguments ✓ (correctly defined)
+
+#### Recognized but NOT Implemented Functions:
+
+**Math Functions** (listed in builtins but not implemented):
+- `min`: **2+ arguments** ❌ (incorrectly defaulted to 1)
+- `max`: **2+ arguments** ❌ (incorrectly defaulted to 1)
+- `power`: **2 arguments** ❌ (incorrectly defaulted to 1)
+- `sqrt`, `sin`, `cos`, `tan`: 1 argument ✓ (correctly defaulted)
+
+**Text Functions** (listed in builtins but not implemented):
+- `replace`: 3 arguments ✓ (correctly defined)
+- `trim`: 1 argument ✓ (correctly defaulted)
+- `padleft`, `padright`: 2 arguments ✓ (correctly defined)
+- `capitalize`, `reverse`: 1 argument ✓ (correctly defaulted)
+- `startswith`, `starts_with`: **2 arguments** ❌ (incorrectly defaulted to 1)
+- `endswith`, `ends_with`: **2 arguments** ❌ (incorrectly defaulted to 1)
+- `split`: **2 arguments** ❌ (incorrectly defaulted to 1)
+- `join`: **2 arguments** ❌ (incorrectly defaulted to 1)
+
+**List Functions** (listed in builtins but not implemented):
+- Most list operations: varying arities, mostly defaulted incorrectly
+
+## Reproduction Steps
+
+1. Create a simple WFL program with multi-argument builtin function calls:
 ```wfl
-store my_list as ["a" and "b" and "c"]
-store index as 1
-display "Element: " with my_list[index]
+store a as 10
+store b as 5
+display min of a and b
 ```
 
-**Result**: Outputs `Element: [a, b, c]` instead of `Element: b`
+2. Run with: `./target/release/wfl.exe test.wfl`
 
-### Static Analyzer Behavior
-The static analyzer is working correctly:
-- It properly tracks variable declarations and usage
-- Since `last_index` never appears in an `IndexAccess` expression (due to parser limitation), it's correctly flagged as unused
-- The analyzer's logic for `IndexAccess` expressions is correct and tested
+3. Observe the type checking error:
+```
+Type checking warnings:
+error: Function expects 1 arguments, but 2 were provided
+```
 
-## Technical Details
+## Analysis
 
-### Debug Process
-1. **Initial hypothesis**: Analyzer bug in for-each loop variable tracking
-2. **Investigation**: Added debug logging to trace variable usage detection
-3. **Discovery**: `args[last_index]` is parsed as `Expression::Variable("args")` in concatenation
-4. **Confirmation**: Created minimal test case demonstrating parser limitation
+### Root Cause Investigation
 
-### Test Coverage
-Added comprehensive test `test_variable_used_in_array_access` that verifies the analyzer correctly handles variables in `IndexAccess` expressions when properly parsed.
+The issue stems from a **hardcoded lookup table** approach in the typechecker that only covers a small subset of builtin functions. The code at lines 1230-1237 in `src/typechecker/mod.rs` uses a match statement to determine parameter counts, but it only handles 6 specific cases and defaults everything else to 1 argument.
 
-## Impact
-- **Severity**: Medium - Functional limitation affecting array operations
-- **Scope**: All array indexing operations in WFL
-- **Workaround**: None available for array indexing syntax
+### Key Findings
 
-## Resolution Required
-This requires a **parser fix**, not an analyzer fix. The WFL parser needs to be updated to:
+1. **Incomplete Coverage**: Only 6 out of 80+ builtin functions have correct arity definitions
+2. **Default is Wrong**: The default of 1 argument is incorrect for many functions
+3. **Disconnect**: The arity definitions are disconnected from the actual function implementations
+4. **Scale of Impact**: This affects most multi-argument builtin functions
 
-1. Correctly recognize array indexing syntax `array[index]`
-2. Generate appropriate `IndexAccess` AST nodes
-3. Ensure the AST structure matches the expected semantics
+### Impact Assessment
 
-## Files Modified (During Investigation)
-- `src/analyzer/static_analyzer.rs`: Added test case, temporary debug logging (removed)
-- `TestPrograms/args_comprehensive.wfl`: No changes (issue confirmed in original file)
+**Severity**: High - Prevents use of essential builtin functions
 
-## Test Results
-- All existing analyzer tests pass
-- New test case passes (verifies analyzer works correctly with proper AST)
-- No regressions introduced
+**Scope**: Affects all builtin functions requiring 2+ arguments that are not in the hardcoded list:
 
-## Recommendation
-Prioritize fixing the parser to properly handle array indexing syntax, as this is a fundamental language feature that affects both functionality and developer experience.
+**Incorrectly Defaulted Functions (Major Impact)**:
+- `min`, `max`: Basic math operations requiring 2+ arguments
+- `power`: Exponentiation requiring 2 arguments  
+- `contains`: Text/list searching requiring 2 arguments
+- `push`: List manipulation requiring 2 arguments
+- `starts_with`, `ends_with`: Text checking requiring 2 arguments
+- `split`, `join`: String manipulation requiring 2 arguments
+- `random`: Actually requires 0 arguments but defaults to 1
+
+**Test Case Evidence**: The test program `TestPrograms/stdlib_comprehensive.wfl` contains multiple calls to these functions that would trigger this bug, including:
+- `min of a and b`
+- `max of a and b` 
+- `power of 5 and 2`
+- `contains of sample_text and search_text`
+
+## Root Cause
+
+The fundamental issue is that **parameter count determination is hardcoded and incomplete**. The typechecker attempts to create Function types for builtin functions using a small lookup table, but this table covers less than 10% of the declared builtin functions.
+
+The problem occurs in the identifier type checking logic where builtin function names are converted to Function types. The param_count is determined by a match statement that only handles a few specific cases and defaults to 1 for everything else.
+
+## Recommended Investigation Areas
+
+### 1. Immediate Fix Areas
+- **File**: `C:\logbie\wfl\src\typechecker\mod.rs`, lines 1230-1237
+- **Issue**: Expand the match statement to include correct arities for all builtin functions
+- **Priority**: High - This is the core bug location
+
+### 2. Design Improvements
+- **Synchronization**: Create a centralized arity registry that both the typechecker and interpreter can use
+- **Validation**: Ensure arity definitions match actual function implementations
+- **Testing**: Add comprehensive tests for builtin function arity validation
+
+### 3. Implementation Gaps
+- **Missing Functions**: Many builtin functions are declared but not implemented (`min`, `max`, `power`, etc.)
+- **File**: Various stdlib modules need to implement missing functions
+- **Priority**: Medium - These are functionality gaps beyond the arity bug
+
+### 4. Test Coverage
+- **File**: Need specific tests for builtin function arity validation
+- **Focus**: Create test cases that specifically verify correct argument count handling
+- **Location**: Add to existing test suites or create new arity-specific tests
+
+## Suggested Fix Approach
+
+### Minimal Expansion (Quick Fix)
+Expand the match statement in `src/typechecker/mod.rs` to include the most commonly used multi-argument functions:
+
+```rust
+let param_count = match name.as_str() {
+    // Existing entries...
+    "substring" => 3,
+    "replace" => 3,   
+    "clamp" => 3,
+    "padleft" | "padright" => 2,
+    "indexof" | "index_of" | "lastindexof" | "last_index_of" => 2,
+    
+    // Critical additions:
+    "min" | "max" => 2,  // Note: Actually variadic but minimum 2
+    "power" => 2,
+    "contains" => 2,
+    "push" => 2,
+    "starts_with" | "startswith" => 2,
+    "ends_with" | "endswith" => 2,
+    "split" | "join" => 2,
+    "random" => 0,
+    
+    _ => 1,
+};
+```
+
+### Comprehensive Solution (Recommended)
+Create a centralized arity registry that can be shared between the typechecker and function implementations, eliminating the possibility of drift between the two systems.
+
+This bug significantly impacts the usability of WFL's builtin functions and should be prioritized for fixing.
