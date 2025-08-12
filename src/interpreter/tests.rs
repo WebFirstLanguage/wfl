@@ -16,8 +16,7 @@ async fn test_literal_evaluation() {
 
     if let Some(stmt) = program.statements.first() {
         if let crate::parser::ast::Statement::ExpressionStatement { expression, .. } = stmt {
-            let result = interpreter
-                .evaluate_expression(expression, env)
+            let result = Box::pin(interpreter._evaluate_expression(expression, env))
                 .await
                 .unwrap();
             match result {
