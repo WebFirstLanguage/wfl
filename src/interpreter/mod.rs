@@ -699,6 +699,26 @@ impl Interpreter {
             // Store argument count
             let _ = env.define("arg_count", Value::Number(self.script_args.len() as f64));
 
+            // Store program name (first argument or empty string)
+            let program_name = if self.script_args.is_empty() {
+                "wfl".to_string()
+            } else {
+                // Extract just the filename from the path
+                std::path::Path::new(&self.script_args[0])
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            let _ = env.define("program_name", Value::Text(Rc::from(program_name)));
+
+            // Store current directory
+            let current_dir = std::env::current_dir()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let _ = env.define("current_directory", Value::Text(Rc::from(current_dir)));
+
             // Store flags as individual variables with flag_ prefix
             for (key, value) in flags_map {
                 let _ = env.define(&format!("flag_{key}"), value);

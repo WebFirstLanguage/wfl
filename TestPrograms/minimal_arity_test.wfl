@@ -1,0 +1,20 @@
+// Minimal test to expose the arity bug
+
+// Test 0-argument function (should work)
+store rand_val as random
+display rand_val
+
+// Test functions that should take 2 arguments but the typechecker thinks take 1
+// This should cause typechecker errors, not parse errors
+
+// Using substring which is correctly defined (3 args)
+store mytext as "Hello"
+store sub as substring of mytext and 1 and 3
+display sub
+
+// Using functions that default to 1 arg incorrectly
+// These should trigger type checking errors
+store a as 5
+store b as 10
+// Test min function (not implemented but should show arity error)
+// display min of a and b

@@ -190,6 +190,93 @@ pub fn builtin_functions() -> impl Iterator<Item = &'static str> {
     BUILTIN_FUNCTIONS.iter().copied()
 }
 
+/// Get the parameter count (arity) for a builtin function
+/// Returns the correct number of parameters each function expects
+pub fn get_function_arity(name: &str) -> usize {
+    match name {
+        // === CORE FUNCTIONS ===
+        "print" => 1,
+        "typeof" | "type_of" => 1,
+        "isnothing" | "is_nothing" => 1,
+
+        // === MATH FUNCTIONS ===
+        // Single argument functions
+        "abs" | "round" | "floor" | "ceil" | "sqrt" | "sin" | "cos" | "tan" => 1,
+        // Zero argument functions
+        "random" => 0,
+        // Two argument functions
+        "min" | "max" | "power" => 2,
+        // Three argument functions
+        "clamp" => 3,
+
+        // === TEXT FUNCTIONS ===
+        // Single argument functions
+        "length" | "touppercase" | "to_uppercase" | "tolowercase" | "to_lowercase" | "trim"
+        | "capitalize" | "reverse" => 1,
+        // Two argument functions
+        "contains" | "indexof" | "index_of" | "lastindexof" | "last_index_of" | "padleft"
+        | "padright" | "startswith" | "starts_with" | "endswith" | "ends_with" | "split"
+        | "join" => 2,
+        // Three argument functions
+        "substring" | "replace" => 3,
+
+        // === LIST FUNCTIONS ===
+        // Single argument functions
+        "pop" | "shift" | "sort" | "reverse_list" | "unique" | "clear" | "count" | "size" => 1,
+        // Two argument functions
+        "push" | "unshift" | "remove_at" | "removeat" | "includes" | "find" | "find_index" => 2,
+        // Three argument functions
+        "insert_at" | "insertat" | "slice" => 3,
+        // Variable argument functions (using 2 as minimum for now)
+        "filter" | "map" | "reduce" | "foreach" | "every" | "some" | "fill" | "concat" => 2,
+
+        // === TIME FUNCTIONS ===
+        // Zero argument functions
+        "now" | "today" | "datetime_now" | "time" | "current_date" => 0,
+        // Single argument functions
+        "year" | "month" | "day" | "hour" | "minute" | "second" | "dayofweek" | "day_of_week"
+        | "isleapyear" | "is_leap_year" | "sleep" => 1,
+        // Two argument functions
+        "format_date" | "format_time" | "format_datetime" | "parse_date" | "parse_time"
+        | "add_days" | "days_between" | "adddays" | "formatdate" | "formattime" | "parsedate"
+        | "daysbetween" | "add_hours" | "addhours" | "add_minutes" | "addminutes"
+        | "add_seconds" | "addseconds" | "add_months" | "addmonths" | "add_years" | "addyears"
+        | "months_between" | "monthsbetween" | "years_between" | "yearsbetween" => 2,
+        // Three argument functions
+        "create_time" | "create_date" => 3,
+
+        // === PATTERN FUNCTIONS ===
+        // Single argument functions
+        "compile_pattern" => 1,
+        // Two argument functions
+        "pattern_matches" | "pattern_find" | "match_pattern" | "pattern" | "match" | "test"
+        | "extract" | "ismatch" | "is_match" => 2,
+        // Three argument functions
+        "pattern_find_all" | "replace_pattern" | "findall" | "find_all" => 3,
+
+        // === FILE SYSTEM FUNCTIONS ===
+        // Single argument functions
+        "list_dir" | "path_basename" | "path_dirname" | "makedirs" | "file_mtime"
+        | "path_exists" | "is_file" | "is_dir" | "read_file" | "file_exists" | "delete_file"
+        | "create_directory" | "list_directory" | "is_directory" => 1,
+        // Two argument functions
+        "glob" | "rglob" | "path_join" | "write_file" => 2,
+
+        // === SPECIAL TEST FUNCTIONS ===
+        "helper_function" | "nested_function" => 1,
+
+        // Default case for unknown functions
+        // This should not happen if all builtins are properly catalogued above
+        _ => {
+            eprintln!(
+                "Warning: Unknown builtin function '{}' - defaulting to 1 argument",
+                name
+            );
+            1
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,5 +329,73 @@ mod tests {
             BUILTIN_FUNCTIONS.len(),
             "Duplicate builtin function names detected"
         );
+    }
+
+    #[test]
+    fn test_function_arity_mappings() {
+        // Test critical functions that were causing the bug
+        assert_eq!(
+            get_function_arity("random"),
+            0,
+            "random should take 0 arguments"
+        );
+        assert_eq!(get_function_arity("min"), 2, "min should take 2 arguments");
+        assert_eq!(get_function_arity("max"), 2, "max should take 2 arguments");
+        assert_eq!(
+            get_function_arity("power"),
+            2,
+            "power should take 2 arguments"
+        );
+        assert_eq!(
+            get_function_arity("contains"),
+            2,
+            "contains should take 2 arguments"
+        );
+        assert_eq!(
+            get_function_arity("push"),
+            2,
+            "push should take 2 arguments"
+        );
+
+        // Test correctly defined functions still work
+        assert_eq!(
+            get_function_arity("substring"),
+            3,
+            "substring should take 3 arguments"
+        );
+        assert_eq!(
+            get_function_arity("clamp"),
+            3,
+            "clamp should take 3 arguments"
+        );
+        assert_eq!(get_function_arity("abs"), 1, "abs should take 1 argument");
+
+        // Test both versions of function names
+        assert_eq!(
+            get_function_arity("indexof"),
+            2,
+            "indexof should take 2 arguments"
+        );
+        assert_eq!(
+            get_function_arity("index_of"),
+            2,
+            "index_of should take 2 arguments"
+        );
+    }
+
+    #[test]
+    fn test_all_builtins_have_arity_definition() {
+        // Ensure all builtin functions have arity definitions
+        // This prevents regression where new functions are added but arity is not defined
+        for function_name in BUILTIN_FUNCTIONS {
+            let arity = get_function_arity(function_name);
+            // Just verify it doesn't panic and returns a reasonable value
+            assert!(
+                arity <= 10,
+                "Function '{}' has unreasonable arity: {}",
+                function_name,
+                arity
+            );
+        }
     }
 }

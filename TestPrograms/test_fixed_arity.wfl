@@ -1,0 +1,20 @@
+// Test that the arity fix works for implemented functions
+
+// Test 0-argument function
+store rand1 as random
+store rand2 as random
+display "Random 1: " with rand1
+display "Random 2: " with rand2
+
+// Test 2-argument functions that should now work
+store text as "Hello World"
+store result as contains of text and "World"
+display "Contains 'World': " with result
+
+store text2 as "Testing"
+store result2 as contains of text2 and "xyz"
+display "Contains 'xyz': " with result2
+
+// Test 3-argument function (was already working)
+store sub as substring of text and 0 and 5
+display "Substring: " with sub
