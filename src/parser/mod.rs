@@ -2634,14 +2634,18 @@ impl<'a> Parser<'a> {
                                     };
                                 } else {
                                     return Err(ParseError::new(
-                                        format!("Expected ']' after array index, found {:?}", closing_token.token),
+                                        format!(
+                                            "Expected ']' after array index, found {:?}",
+                                            closing_token.token
+                                        ),
                                         closing_token.line,
                                         closing_token.column,
                                     ));
                                 }
                             } else {
                                 return Err(ParseError::new(
-                                    "Expected ']' after array index, found end of input".to_string(),
+                                    "Expected ']' after array index, found end of input"
+                                        .to_string(),
                                     token.line,
                                     token.column,
                                 ));

@@ -1,4 +1,5 @@
 use crate::analyzer::Analyzer;
+use crate::builtins;
 use crate::parser::ast::{Expression, Literal, Operator, Program, Statement, Type, UnaryOperator};
 use std::fmt;
 
@@ -1224,23 +1225,18 @@ impl TypeChecker {
                             // Special case for loopcounter - it's a Number
                             return Type::Number;
                         }
-                        
+
                         // For builtin functions, return their proper type
                         if Analyzer::is_builtin_function(name) {
-                            let param_count = match name.as_str() {
-                                "substring" => 3, // text, start, length
-                                "replace" => 3,   // text, old, new
-                                "clamp" => 3,     // value, min, max
-                                "padleft" | "padright" => 2, // text, length
-                                "indexof" | "index_of" | "lastindexof" | "last_index_of" => 2, // text, substring
-                                _ => 1, // Most functions take 1 parameter
-                            };
+                            let param_count = builtins::get_function_arity(name);
                             return Type::Function {
                                 parameters: vec![Type::Any; param_count],
-                                return_type: Box::new(self.get_builtin_function_type(name, param_count)),
+                                return_type: Box::new(
+                                    self.get_builtin_function_type(name, param_count),
+                                ),
                             };
                         }
-                        
+
                         Type::Unknown
                     } else {
                         // The analyzer already reports undefined variables, so we don't need to duplicate the error
@@ -1666,7 +1662,12 @@ impl TypeChecker {
                 // This matches the interpreter's behavior which converts values to strings
                 Type::Text
             }
-            Expression::PatternMatch { text, pattern, line, column } => {
+            Expression::PatternMatch {
+                text,
+                pattern,
+                line,
+                column,
+            } => {
                 let text_type = self.infer_expression_type(text);
                 let pattern_type = self.infer_expression_type(pattern);
 
@@ -1680,7 +1681,10 @@ impl TypeChecker {
                     );
                 }
 
-                if pattern_type != Type::Pattern && pattern_type != Type::Text && pattern_type != Type::Unknown {
+                if pattern_type != Type::Pattern
+                    && pattern_type != Type::Text
+                    && pattern_type != Type::Unknown
+                {
                     self.type_error(
                         format!("Expected Pattern for pattern matching, got {pattern_type}"),
                         Some(Type::Pattern),
@@ -2324,10 +2328,10 @@ impl TypeChecker {
             (a, b) if a == b => true,
 
             (Type::Unknown, _) => true,
-            (_, Type::Unknown) => true,  // Unknown can be assigned to any type
+            (_, Type::Unknown) => true, // Unknown can be assigned to any type
 
-            (Type::Any, _) => true,     // Any can accept any type
-            (_, Type::Any) => true,     // Any can be assigned to any type
+            (Type::Any, _) => true, // Any can accept any type
+            (_, Type::Any) => true, // Any can be assigned to any type
 
             (_, Type::Nothing) => true,
 

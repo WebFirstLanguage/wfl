@@ -258,7 +258,7 @@ impl Analyzer {
         // Define runtime command-line argument variables
         // These are defined at runtime by the interpreter but need to be known
         // to the static analyzer to avoid false undefined variable errors
-        
+
         let arg_count_symbol = Symbol {
             name: "arg_count".to_string(),
             kind: SymbolKind::Variable { mutable: false },

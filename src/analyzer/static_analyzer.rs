@@ -207,7 +207,6 @@ impl StaticAnalyzer for Analyzer {
             self.mark_used_variables(statement, &mut variable_usages);
         }
 
-
         // Special handling for action parameters - mark them as used
         for statement in &program.statements {
             // Look for ExpressionStatement that might contain ActionCall
@@ -1484,11 +1483,15 @@ mod tests {
                 },
                 Statement::VariableDeclaration {
                     name: "args".to_string(),
-                    value: Expression::Literal(Literal::List(vec![
-                        Expression::Literal(Literal::String("a".to_string()), 1, 1),
-                        Expression::Literal(Literal::String("b".to_string()), 1, 1),
-                        Expression::Literal(Literal::String("c".to_string()), 1, 1),
-                    ]), 2, 1),
+                    value: Expression::Literal(
+                        Literal::List(vec![
+                            Expression::Literal(Literal::String("a".to_string()), 1, 1),
+                            Expression::Literal(Literal::String("b".to_string()), 1, 1),
+                            Expression::Literal(Literal::String("c".to_string()), 1, 1),
+                        ]),
+                        2,
+                        1,
+                    ),
                     is_constant: false,
                     line: 2,
                     column: 1,
@@ -1502,78 +1505,96 @@ mod tests {
                         line: 3,
                         column: 10,
                     },
-                    then_block: vec![
-                        Statement::DisplayStatement {
-                            value: Expression::Literal(Literal::String("No args".to_string()), 4, 1),
-                            line: 4,
+                    then_block: vec![Statement::DisplayStatement {
+                        value: Expression::Literal(Literal::String("No args".to_string()), 4, 1),
+                        line: 4,
+                        column: 1,
+                    }],
+                    else_block: Some(vec![Statement::IfStatement {
+                        condition: Expression::BinaryOperation {
+                            left: Box::new(Expression::Variable("arg_count".to_string(), 5, 10)),
+                            operator: Operator::Equals,
+                            right: Box::new(Expression::Literal(Literal::Integer(1), 5, 20)),
+                            line: 5,
+                            column: 10,
+                        },
+                        then_block: vec![Statement::DisplayStatement {
+                            value: Expression::Literal(
+                                Literal::String("One arg".to_string()),
+                                6,
+                                1,
+                            ),
+                            line: 6,
                             column: 1,
-                        }
-                    ],
-                    else_block: Some(vec![
-                        Statement::IfStatement {
+                        }],
+                        else_block: Some(vec![Statement::IfStatement {
                             condition: Expression::BinaryOperation {
-                                left: Box::new(Expression::Variable("arg_count".to_string(), 5, 10)),
+                                left: Box::new(Expression::Variable(
+                                    "arg_count".to_string(),
+                                    7,
+                                    10,
+                                )),
                                 operator: Operator::Equals,
-                                right: Box::new(Expression::Literal(Literal::Integer(1), 5, 20)),
-                                line: 5,
+                                right: Box::new(Expression::Literal(Literal::Integer(2), 7, 20)),
+                                line: 7,
                                 column: 10,
                             },
-                            then_block: vec![
-                                Statement::DisplayStatement {
-                                    value: Expression::Literal(Literal::String("One arg".to_string()), 6, 1),
-                                    line: 6,
-                                    column: 1,
-                                }
-                            ],
+                            then_block: vec![Statement::DisplayStatement {
+                                value: Expression::Literal(
+                                    Literal::String("Two args".to_string()),
+                                    8,
+                                    1,
+                                ),
+                                line: 8,
+                                column: 1,
+                            }],
                             else_block: Some(vec![
-                                Statement::IfStatement {
-                                    condition: Expression::BinaryOperation {
-                                        left: Box::new(Expression::Variable("arg_count".to_string(), 7, 10)),
-                                        operator: Operator::Equals,
-                                        right: Box::new(Expression::Literal(Literal::Integer(2), 7, 20)),
-                                        line: 7,
-                                        column: 10,
+                                Statement::VariableDeclaration {
+                                    name: "last_index".to_string(),
+                                    value: Expression::BinaryOperation {
+                                        left: Box::new(Expression::Variable(
+                                            "arg_count".to_string(),
+                                            9,
+                                            30,
+                                        )),
+                                        operator: Operator::Minus,
+                                        right: Box::new(Expression::Literal(
+                                            Literal::Integer(1),
+                                            9,
+                                            40,
+                                        )),
+                                        line: 9,
+                                        column: 30,
                                     },
-                                    then_block: vec![
-                                        Statement::DisplayStatement {
-                                            value: Expression::Literal(Literal::String("Two args".to_string()), 8, 1),
-                                            line: 8,
-                                            column: 1,
-                                        }
-                                    ],
-                                    else_block: Some(vec![
-                                        Statement::VariableDeclaration {
-                                            name: "last_index".to_string(),
-                                            value: Expression::BinaryOperation {
-                                                left: Box::new(Expression::Variable("arg_count".to_string(), 9, 30)),
-                                                operator: Operator::Minus,
-                                                right: Box::new(Expression::Literal(Literal::Integer(1), 9, 40)),
-                                                line: 9,
-                                                column: 30,
-                                            },
-                                            is_constant: false,
-                                            line: 9,
-                                            column: 1,
-                                        },
-                                        Statement::DisplayStatement {
-                                            value: Expression::IndexAccess {
-                                                collection: Box::new(Expression::Variable("args".to_string(), 10, 20)),
-                                                index: Box::new(Expression::Variable("last_index".to_string(), 10, 25)),
-                                                line: 10,
-                                                column: 20,
-                                            },
-                                            line: 10,
-                                            column: 1,
-                                        },
-                                    ]),
-                                    line: 7,
+                                    is_constant: false,
+                                    line: 9,
+                                    column: 1,
+                                },
+                                Statement::DisplayStatement {
+                                    value: Expression::IndexAccess {
+                                        collection: Box::new(Expression::Variable(
+                                            "args".to_string(),
+                                            10,
+                                            20,
+                                        )),
+                                        index: Box::new(Expression::Variable(
+                                            "last_index".to_string(),
+                                            10,
+                                            25,
+                                        )),
+                                        line: 10,
+                                        column: 20,
+                                    },
+                                    line: 10,
                                     column: 1,
                                 },
                             ]),
-                            line: 5,
+                            line: 7,
                             column: 1,
-                        },
-                    ]),
+                        }]),
+                        line: 5,
+                        column: 1,
+                    }]),
                     line: 3,
                     column: 1,
                 },
@@ -1584,7 +1605,7 @@ mod tests {
         let file_id = 0;
 
         let diagnostics = analyzer.check_unused_variables(&program, file_id);
-        
+
         // last_index should NOT be reported as unused since it's used in the IndexAccess
         // This test currently FAILS because of the bug
         assert!(

@@ -913,10 +913,16 @@ fn test_bracket_array_indexing() {
     let mut parser = Parser::new(&tokens);
 
     let result = parser.parse_statement();
-    assert!(result.is_ok(), "Failed to parse basic bracket indexing: {result:?}");
+    assert!(
+        result.is_ok(),
+        "Failed to parse basic bracket indexing: {result:?}"
+    );
 
     if let Ok(Statement::DisplayStatement { value, .. }) = result {
-        if let Expression::IndexAccess { collection, index, .. } = value {
+        if let Expression::IndexAccess {
+            collection, index, ..
+        } = value
+        {
             // Collection should be a variable "args"
             if let Expression::Variable(var_name, ..) = *collection {
                 assert_eq!(var_name, "args", "Expected collection to be 'args'");
@@ -938,7 +944,7 @@ fn test_bracket_array_indexing() {
     }
 }
 
-#[test] 
+#[test]
 fn test_bracket_array_indexing_with_variable() {
     // Test bracket indexing with variable as index
     let input = r#"display args[last_index]"#;
@@ -946,10 +952,16 @@ fn test_bracket_array_indexing_with_variable() {
     let mut parser = Parser::new(&tokens);
 
     let result = parser.parse_statement();
-    assert!(result.is_ok(), "Failed to parse bracket indexing with variable: {result:?}");
+    assert!(
+        result.is_ok(),
+        "Failed to parse bracket indexing with variable: {result:?}"
+    );
 
     if let Ok(Statement::DisplayStatement { value, .. }) = result {
-        if let Expression::IndexAccess { collection, index, .. } = value {
+        if let Expression::IndexAccess {
+            collection, index, ..
+        } = value
+        {
             // Collection should be a variable "args"
             if let Expression::Variable(var_name, ..) = *collection {
                 assert_eq!(var_name, "args", "Expected collection to be 'args'");
@@ -979,10 +991,16 @@ fn test_bracket_array_indexing_with_expression() {
     let mut parser = Parser::new(&tokens);
 
     let result = parser.parse_statement();
-    assert!(result.is_ok(), "Failed to parse bracket indexing with expression: {result:?}");
+    assert!(
+        result.is_ok(),
+        "Failed to parse bracket indexing with expression: {result:?}"
+    );
 
     if let Ok(Statement::DisplayStatement { value, .. }) = result {
-        if let Expression::IndexAccess { collection, index, .. } = value {
+        if let Expression::IndexAccess {
+            collection, index, ..
+        } = value
+        {
             // Collection should be a variable "my_list"
             if let Expression::Variable(var_name, ..) = *collection {
                 assert_eq!(var_name, "my_list", "Expected collection to be 'my_list'");
@@ -991,7 +1009,13 @@ fn test_bracket_array_indexing_with_expression() {
             }
 
             // Index should be a binary operation "count minus 1"
-            if let Expression::BinaryOperation { left, operator, right, .. } = *index {
+            if let Expression::BinaryOperation {
+                left,
+                operator,
+                right,
+                ..
+            } = *index
+            {
                 // Left should be variable "count"
                 if let Expression::Variable(var_name, ..) = *left {
                     assert_eq!(var_name, "count", "Expected left operand to be 'count'");
