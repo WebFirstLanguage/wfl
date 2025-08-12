@@ -1,7 +1,4 @@
 use std::fs;
-use std::path::Path;
-use wfl::Interpreter;
-use wfl::config;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 

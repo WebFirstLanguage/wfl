@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::Path;
 use tokio::time::{Duration, timeout};
 use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
@@ -16,24 +15,6 @@ mod file_io_error_handling_tests {
         }
     }
 
-    async fn execute_wfl_code_expect_error(code: &str) -> bool {
-        let tokens = lex_wfl_with_positions(code);
-        let mut parser = Parser::new(&tokens);
-        let ast = match parser.parse() {
-            Ok(ast) => ast,
-            Err(_) => return true, // Parse error counts as expected error
-        };
-
-        let mut interpreter = Interpreter::new();
-
-        // Execute the program and expect it to fail
-        let result = timeout(Duration::from_secs(5), interpreter.interpret(&ast)).await;
-        match result {
-            Ok(Ok(_)) => false, // Unexpected success
-            Ok(Err(_)) => true, // Expected error
-            Err(_) => true,     // Timeout also counts as error
-        }
-    }
 
     async fn execute_wfl_code_expect_success(
         code: &str,
@@ -53,13 +34,11 @@ mod file_io_error_handling_tests {
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join(", ");
-                Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(Box::new(std::io::Error::other(
                     error_msg,
                 )))
             }
-            Err(_) => Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
+            Err(_) => Err(Box::new(std::io::Error::other(
                 "Operation timed out",
             ))),
         }
@@ -143,7 +122,6 @@ mod file_io_error_handling_tests {
 
         #[cfg(windows)]
         {
-            use std::os::windows::fs::OpenOptionsExt;
             // Windows file permissions are more complex, this test may behave differently
         }
 

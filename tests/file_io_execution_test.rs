@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::Path;
 use wfl::Interpreter;
-use wfl::config::WflConfig;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 
@@ -16,9 +15,6 @@ mod file_io_execution_tests {
         }
     }
 
-    fn setup_test_config() -> WflConfig {
-        WflConfig::default()
-    }
 
     async fn execute_wfl_code(code: &str) -> Result<String, Box<dyn std::error::Error>> {
         let tokens = lex_wfl_with_positions(code);
@@ -37,8 +33,7 @@ mod file_io_execution_tests {
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join(", ");
-                Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(Box::new(std::io::Error::other(
                     error_msg,
                 )))
             }
@@ -265,7 +260,7 @@ mod file_io_execution_tests {
             ("multi_test_3.dat", "Binary-like data for file 3"),
         ] {
             assert!(Path::new(file).exists(), "File {} was not created", file);
-            let content = fs::read_to_string(file).expect(&format!("Could not read {}", file));
+            let content = fs::read_to_string(file).unwrap_or_else(|_| panic!("Could not read {}", file));
             assert_eq!(
                 content.trim(),
                 expected_content,

@@ -38,13 +38,11 @@ mod file_io_performance_tests {
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join(", ");
-                Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(Box::new(std::io::Error::other(
                     error_msg,
                 )))
             }
-            Err(_) => Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
+            Err(_) => Err(Box::new(std::io::Error::other(
                 "Operation timed out",
             ))),
         }
