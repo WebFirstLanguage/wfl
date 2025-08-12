@@ -310,23 +310,16 @@ impl IoClient {
         }
     }
 
+    /// Read content from a file handle. Returns an error if the handle is not open or has been closed.
+    /// This prevents operations on stale handles and ensures file state consistency.
     #[allow(dead_code)]
     async fn read_file(&self, handle_id: &str) -> Result<String, String> {
         let mut file_handles = self.file_handles.lock().await;
 
         if !file_handles.contains_key(handle_id) {
-            drop(file_handles);
-
-            match self.open_file(handle_id).await {
-                Ok(new_handle) => {
-                    // Now read from the new handle - use Box::pin to handle recursion in async fn
-                    let future = Box::pin(self.read_file(&new_handle));
-                    let result = future.await;
-                    let _ = self.close_file(&new_handle).await;
-                    return result;
-                }
-                Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
-            }
+            return Err(format!(
+                "File handle '{handle_id}' is not open or has been closed"
+            ));
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
@@ -343,23 +336,16 @@ impl IoClient {
         }
     }
 
+    /// Write content to a file handle. Returns an error if the handle is not open or has been closed.
+    /// This prevents operations on stale handles and ensures file state consistency.
     #[allow(dead_code)]
     async fn write_file(&self, handle_id: &str, content: &str) -> Result<(), String> {
         let mut file_handles = self.file_handles.lock().await;
 
         if !file_handles.contains_key(handle_id) {
-            drop(file_handles);
-
-            match self.open_file(handle_id).await {
-                Ok(new_handle) => {
-                    // Now write to the new handle - use Box::pin to handle recursion in async fn
-                    let future = Box::pin(self.write_file(&new_handle, content));
-                    let result = future.await;
-                    let _ = self.close_file(&new_handle).await;
-                    return result;
-                }
-                Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
-            }
+            return Err(format!(
+                "File handle '{handle_id}' is not open or has been closed"
+            ));
         }
 
         let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
@@ -383,8 +369,9 @@ impl IoClient {
         }
     }
 
-    /// Improved file append operation - directly appends content without reading the whole file first
-    /// This is much more memory efficient, especially for large log files
+    /// Close a file handle. This operation is idempotent - closing an already closed 
+    /// handle is safe and returns Ok(()) without error. This robust behavior prevents
+    /// accidental double-close issues in user code.
     #[allow(dead_code)]
     async fn close_file(&self, handle_id: &str) -> Result<(), String> {
         let mut file_handles = self.file_handles.lock().await;
