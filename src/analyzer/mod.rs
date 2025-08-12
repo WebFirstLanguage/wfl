@@ -396,10 +396,10 @@ impl Analyzer {
                 } else {
                     false
                 };
-                
+
                 // This is actually a property assignment, not a variable declaration
                 // Don't treat it as an error - the interpreter will handle it
-                
+
                 if !is_property_assignment {
                     if let Err(error) = self.current_scope.define(symbol) {
                         self.errors.push(error);
@@ -437,12 +437,13 @@ impl Analyzer {
                     }
                 } else {
                     // Check if it's a container property assignment (including inherited)
-                    let is_container_property = if let Some(container_name) = &self.current_container {
-                        self.is_container_property(container_name, name)
-                    } else {
-                        false
-                    };
-                    
+                    let is_container_property =
+                        if let Some(container_name) = &self.current_container {
+                            self.is_container_property(container_name, name)
+                        } else {
+                            false
+                        };
+
                     if !is_container_property {
                         self.errors.push(SemanticError::new(
                             format!("Variable '{name}' is not defined"),
@@ -976,7 +977,7 @@ impl Analyzer {
                         .properties
                         .insert(prop.name.clone(), prop_info);
                 }
-                
+
                 // Register the container early so properties are available during method analysis
                 self.register_container(container_info.clone());
 
@@ -1031,14 +1032,14 @@ impl Analyzer {
 
                         // Analyze method body
                         self.push_scope();
-                        
+
                         // Set current container context
                         let previous_container = self.current_container.clone();
                         self.current_container = Some(name.clone());
-                        
+
                         // Properties will be resolved through container context
                         // Don't add them as variables to avoid conflicts with assignments
-                        
+
                         // Add method parameters
                         for param in parameters {
                             let param_type =
@@ -1056,7 +1057,7 @@ impl Analyzer {
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
-                        
+
                         // Restore previous container context
                         self.current_container = previous_container;
                         self.pop_scope();
@@ -1090,11 +1091,11 @@ impl Analyzer {
 
                         // Analyze static method body
                         self.push_scope();
-                        
+
                         // Set current container context
                         let previous_container = self.current_container.clone();
                         self.current_container = Some(name.clone());
-                        
+
                         // Add static properties as accessible variables (not instance properties)
                         for prop in static_properties {
                             let prop_type = prop
@@ -1111,7 +1112,7 @@ impl Analyzer {
                             };
                             let _ = self.current_scope.define(symbol);
                         }
-                        
+
                         // Add method parameters
                         for param in parameters {
                             let param_type =
@@ -1129,7 +1130,7 @@ impl Analyzer {
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
-                        
+
                         // Restore previous container context
                         self.current_container = previous_container;
                         self.pop_scope();
@@ -1138,7 +1139,7 @@ impl Analyzer {
 
                 // Re-register the container with all methods now that they've been processed
                 self.register_container(container_info.clone());
-                
+
                 // Also register as a type symbol
                 let container_symbol = Symbol {
                     name: name.clone(),
@@ -1187,7 +1188,7 @@ impl Analyzer {
                     line: *line,
                     column: *column,
                 };
-                
+
                 if let Err(e) = self.current_scope.define(interface_symbol) {
                     self.errors.push(e);
                 }
@@ -1333,19 +1334,19 @@ impl Analyzer {
     pub fn register_container(&mut self, container: ContainerInfo) {
         self.containers.insert(container.name.clone(), container);
     }
-    
+
     fn is_container_property(&self, container_name: &str, property_name: &str) -> bool {
         if let Some(container_info) = self.containers.get(container_name) {
             // Check direct instance properties
             if container_info.properties.contains_key(property_name) {
                 return true;
             }
-            
+
             // Check direct static properties
             if container_info.static_properties.contains_key(property_name) {
                 return true;
             }
-            
+
             // Check inherited properties (both instance and static)
             if let Some(parent_name) = &container_info.extends {
                 return self.is_container_property(parent_name, property_name);
@@ -1405,12 +1406,13 @@ impl Analyzer {
 
                 if self.current_scope.resolve(name).is_none() {
                     // Check if it's a container property (including inherited)
-                    let is_container_property = if let Some(container_name) = &self.current_container {
-                        self.is_container_property(container_name, name)
-                    } else {
-                        false
-                    };
-                    
+                    let is_container_property =
+                        if let Some(container_name) = &self.current_container {
+                            self.is_container_property(container_name, name)
+                        } else {
+                            false
+                        };
+
                     if !is_container_property {
                         self.errors.push(SemanticError::new(
                             format!("Variable '{name}' is not defined"),
@@ -1756,26 +1758,32 @@ mod tests {
         use std::collections::HashMap;
 
         let mut analyzer = Analyzer::new();
-        
+
         // Register a container with static properties
         let mut properties = HashMap::new();
-        properties.insert("name".to_string(), PropertyInfo {
-            name: "name".to_string(),
-            property_type: Type::Text,
-            is_public: true,
-            line: 1,
-            column: 1,
-        });
-        
+        properties.insert(
+            "name".to_string(),
+            PropertyInfo {
+                name: "name".to_string(),
+                property_type: Type::Text,
+                is_public: true,
+                line: 1,
+                column: 1,
+            },
+        );
+
         let mut static_properties = HashMap::new();
-        static_properties.insert("total_count".to_string(), PropertyInfo {
-            name: "total_count".to_string(),
-            property_type: Type::Number,
-            is_public: true,
-            line: 1,
-            column: 1,
-        });
-        
+        static_properties.insert(
+            "total_count".to_string(),
+            PropertyInfo {
+                name: "total_count".to_string(),
+                property_type: Type::Number,
+                is_public: true,
+                line: 1,
+                column: 1,
+            },
+        );
+
         let container_info = ContainerInfo {
             name: "Counter".to_string(),
             properties,
@@ -1787,33 +1795,36 @@ mod tests {
             line: 1,
             column: 1,
         };
-        
+
         analyzer.register_container(container_info);
-        
+
         // Test instance property recognition
         assert!(analyzer.is_container_property("Counter", "name"));
-        // Test static property recognition  
+        // Test static property recognition
         assert!(analyzer.is_container_property("Counter", "total_count"));
         // Test non-existent property
         assert!(!analyzer.is_container_property("Counter", "nonexistent"));
     }
 
-    #[test] 
+    #[test]
     fn test_container_inherited_static_property_recognition() {
         use std::collections::HashMap;
 
         let mut analyzer = Analyzer::new();
-        
+
         // Register base container with static properties
         let mut base_static_properties = HashMap::new();
-        base_static_properties.insert("base_count".to_string(), PropertyInfo {
-            name: "base_count".to_string(),
-            property_type: Type::Number,
-            is_public: true,
-            line: 1,
-            column: 1,
-        });
-        
+        base_static_properties.insert(
+            "base_count".to_string(),
+            PropertyInfo {
+                name: "base_count".to_string(),
+                property_type: Type::Number,
+                is_public: true,
+                line: 1,
+                column: 1,
+            },
+        );
+
         let base_container = ContainerInfo {
             name: "BaseContainer".to_string(),
             properties: HashMap::new(),
@@ -1825,19 +1836,22 @@ mod tests {
             line: 1,
             column: 1,
         };
-        
+
         analyzer.register_container(base_container);
-        
+
         // Register derived container with its own static properties
         let mut derived_static_properties = HashMap::new();
-        derived_static_properties.insert("derived_count".to_string(), PropertyInfo {
-            name: "derived_count".to_string(),
-            property_type: Type::Number,
-            is_public: true,
-            line: 1,
-            column: 1,
-        });
-        
+        derived_static_properties.insert(
+            "derived_count".to_string(),
+            PropertyInfo {
+                name: "derived_count".to_string(),
+                property_type: Type::Number,
+                is_public: true,
+                line: 1,
+                column: 1,
+            },
+        );
+
         let derived_container = ContainerInfo {
             name: "DerivedContainer".to_string(),
             properties: HashMap::new(),
@@ -1849,9 +1863,9 @@ mod tests {
             line: 1,
             column: 1,
         };
-        
+
         analyzer.register_container(derived_container);
-        
+
         // Test derived container can access its own static properties
         assert!(analyzer.is_container_property("DerivedContainer", "derived_count"));
         // Test derived container can access inherited static properties

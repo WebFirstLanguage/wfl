@@ -362,7 +362,7 @@ impl TypeChecker {
                             }
                         }
                     }
-                    
+
                     // Also check if the analyzer has this symbol (fallback)
                     if !is_container_property_assignment {
                         if let Some(symbol) = self.analyzer.get_symbol(name) {
@@ -1097,11 +1097,11 @@ impl TypeChecker {
                         // Set container context for method body analysis
                         let previous_container = self.current_container.clone();
                         self.current_container = Some(_name.clone());
-                        
+
                         for stmt in body {
                             self.check_statement_types(stmt);
                         }
-                        
+
                         // Restore previous container context
                         self.current_container = previous_container;
                     }

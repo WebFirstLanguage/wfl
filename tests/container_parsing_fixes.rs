@@ -17,9 +17,13 @@ end
     let tokens = lex_wfl_with_positions(source);
     let mut parser = Parser::new(&tokens);
     let result = parser.parse();
-    
+
     // This should pass once the bug is fixed
-    assert!(result.is_ok(), "Parser should handle action without return type: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Parser should handle action without return type: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -35,9 +39,13 @@ end
     let tokens = lex_wfl_with_positions(source);
     let mut parser = Parser::new(&tokens);
     let result = parser.parse();
-    
+
     // This should pass once the 'needs' keyword bug is fixed
-    assert!(result.is_ok(), "Parser should handle 'needs' parameters: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Parser should handle 'needs' parameters: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -53,9 +61,13 @@ end
     let tokens = lex_wfl_with_positions(source);
     let mut parser = Parser::new(&tokens);
     let result = parser.parse();
-    
+
     // This should pass once the nested end token handling is fixed
-    assert!(result.is_ok(), "Parser should handle nested end tokens: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Parser should handle nested end tokens: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -77,7 +89,11 @@ end
     let tokens = lex_wfl_with_positions(source);
     let mut parser = Parser::new(&tokens);
     let result = parser.parse();
-    
+
     // This comprehensive test should pass once all bugs are fixed
-    assert!(result.is_ok(), "Parser should handle complete container with all features: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Parser should handle complete container with all features: {:?}",
+        result.err()
+    );
 }

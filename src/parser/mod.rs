@@ -4742,32 +4742,38 @@ impl<'a> Parser<'a> {
             && matches!(token.token, Token::Colon)
         {
             self.tokens.next(); // Consume ':'
-            
-            // After consuming colon, we must have a type identifier
+
+            // Check if the next token is actually a type identifier
+            // If it's not, this colon just marks the start of the action body (no return type)
             if let Some(type_token) = self.tokens.peek().cloned() {
                 if let Token::Identifier(type_name) = &type_token.token {
-                    self.tokens.next(); // Consume type name
-                    Some(match type_name.as_str() {
-                        "Text" => Type::Text,
-                        "Number" => Type::Number,
-                        "Boolean" => Type::Boolean,
-                        "Nothing" => Type::Nothing,
-                        "Pattern" => Type::Pattern,
-                        _ => Type::Custom(type_name.clone()),
-                    })
+                    // Check if this identifier is a valid type name
+                    let is_type = matches!(
+                        type_name.as_str(),
+                        "Text" | "Number" | "Boolean" | "Nothing" | "Pattern"
+                    ) || type_name.chars().next().is_some_and(|c| c.is_uppercase());
+
+                    if is_type {
+                        self.tokens.next(); // Consume type name
+                        Some(match type_name.as_str() {
+                            "Text" => Type::Text,
+                            "Number" => Type::Number,
+                            "Boolean" => Type::Boolean,
+                            "Nothing" => Type::Nothing,
+                            "Pattern" => Type::Pattern,
+                            _ => Type::Custom(type_name.clone()),
+                        })
+                    } else {
+                        // This identifier is not a type, so no return type specified
+                        None
+                    }
                 } else {
-                    return Err(ParseError::new(
-                        format!("Expected type identifier after ':', but found {:?}", type_token.token),
-                        type_token.line,
-                        type_token.column,
-                    ));
+                    // Next token after ':' is not an identifier, so no return type
+                    None
                 }
             } else {
-                return Err(ParseError::new(
-                    "Expected type identifier after ':'".to_string(),
-                    0, // Use line 0 for end-of-input errors
-                    0,
-                ));
+                // End of input after ':', so no return type
+                None
             }
         } else {
             None

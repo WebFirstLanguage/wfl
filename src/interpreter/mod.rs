@@ -2996,14 +2996,16 @@ impl Interpreter {
                     // Look up the method (with inheritance support)
                     let mut found_method = container_def.methods.get(method).cloned();
                     let mut current_container_name = container_type.clone();
-                    
+
                     // If method not found, check parent containers
                     while found_method.is_none() {
                         if let Some(current_def) = env.borrow().get(&current_container_name) {
                             if let Value::ContainerDefinition(def) = current_def {
                                 if let Some(parent_name) = &def.extends {
                                     current_container_name = parent_name.clone();
-                                    if let Some(Value::ContainerDefinition(parent_def)) = env.borrow().get(parent_name) {
+                                    if let Some(Value::ContainerDefinition(parent_def)) =
+                                        env.borrow().get(parent_name)
+                                    {
                                         found_method = parent_def.methods.get(method).cloned();
                                     } else {
                                         break;
@@ -3018,7 +3020,7 @@ impl Interpreter {
                             break;
                         }
                     }
-                    
+
                     if let Some(method_val) = found_method {
                         // Create a function value from the method
                         let function = FunctionValue {
@@ -3035,21 +3037,28 @@ impl Interpreter {
 
                         // Add 'this' to the environment
                         let _ = method_env.borrow_mut().define("this", object_val.clone());
-                        
+
                         // Add container properties and events as accessible variables
                         if let Value::ContainerInstance(instance_rc) = &object_val_clone {
                             let instance = instance_rc.borrow();
-                            
+
                             // Add properties
                             for (prop_name, prop_value) in &instance.properties {
-                                let _ = method_env.borrow_mut().define(prop_name, prop_value.clone());
+                                let _ = method_env
+                                    .borrow_mut()
+                                    .define(prop_name, prop_value.clone());
                             }
-                            
+
                             // Add events from the container definition
-                            if let Some(Value::ContainerDefinition(container_def_rc)) = env.borrow().get(&instance.container_type) {
+                            if let Some(Value::ContainerDefinition(container_def_rc)) =
+                                env.borrow().get(&instance.container_type)
+                            {
                                 let container_def = container_def_rc.clone();
                                 for (event_name, event_value) in &container_def.events {
-                                    let _ = method_env.borrow_mut().define(event_name, Value::ContainerEvent(Rc::new(event_value.clone())));
+                                    let _ = method_env.borrow_mut().define(
+                                        event_name,
+                                        Value::ContainerEvent(Rc::new(event_value.clone())),
+                                    );
                                 }
                             }
                         }
