@@ -1224,6 +1224,23 @@ impl TypeChecker {
                             // Special case for loopcounter - it's a Number
                             return Type::Number;
                         }
+                        
+                        // For builtin functions, return their proper type
+                        if Analyzer::is_builtin_function(name) {
+                            let param_count = match name.as_str() {
+                                "substring" => 3, // text, start, length
+                                "replace" => 3,   // text, old, new
+                                "clamp" => 3,     // value, min, max
+                                "padleft" | "padright" => 2, // text, length
+                                "indexof" | "index_of" | "lastindexof" | "last_index_of" => 2, // text, substring
+                                _ => 1, // Most functions take 1 parameter
+                            };
+                            return Type::Function {
+                                parameters: vec![Type::Any; param_count],
+                                return_type: Box::new(self.get_builtin_function_type(name, param_count)),
+                            };
+                        }
+                        
                         Type::Unknown
                     } else {
                         // The analyzer already reports undefined variables, so we don't need to duplicate the error
@@ -1649,27 +1666,27 @@ impl TypeChecker {
                 // This matches the interpreter's behavior which converts values to strings
                 Type::Text
             }
-            Expression::PatternMatch { text, pattern, .. } => {
+            Expression::PatternMatch { text, pattern, line, column } => {
                 let text_type = self.infer_expression_type(text);
                 let pattern_type = self.infer_expression_type(pattern);
 
-                if text_type != Type::Text {
+                if text_type != Type::Text && text_type != Type::Unknown {
                     self.type_error(
                         format!("Expected Text for pattern matching, got {text_type}"),
                         Some(Type::Text),
                         Some(text_type),
-                        0,
-                        0,
+                        *line,
+                        *column,
                     );
                 }
 
-                if pattern_type != Type::Pattern && pattern_type != Type::Text {
+                if pattern_type != Type::Pattern && pattern_type != Type::Text && pattern_type != Type::Unknown {
                     self.type_error(
                         format!("Expected Pattern for pattern matching, got {pattern_type}"),
                         Some(Type::Pattern),
                         Some(pattern_type),
-                        0,
-                        0,
+                        *line,
+                        *column,
                     );
                 }
 
@@ -2307,6 +2324,10 @@ impl TypeChecker {
             (a, b) if a == b => true,
 
             (Type::Unknown, _) => true,
+            (_, Type::Unknown) => true,  // Unknown can be assigned to any type
+
+            (Type::Any, _) => true,     // Any can accept any type
+            (_, Type::Any) => true,     // Any can be assigned to any type
 
             (_, Type::Nothing) => true,
 
@@ -2560,4 +2581,7 @@ mod tests {
                 .are_types_compatible(&Type::Text, &Type::Async(Box::new(Type::Number)))
         );
     }
+
+    // TODO: Add test for type inference in for-each loops
+    // Test currently commented out due to analyzer access limitations
 }
