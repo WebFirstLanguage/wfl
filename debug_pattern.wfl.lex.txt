@@ -1,0 +1,15 @@
+Lexer output for: debug_pattern.wfl
+==============================================
+
+   0: KeywordWait at line 1, column 1 (length: 4)
+   1: KeywordFor at line 1, column 6 (length: 3)
+   2: KeywordStore at line 1, column 10 (length: 5)
+   3: Identifier("wfl_files") at line 1, column 16 (length: 9)
+   4: KeywordAs at line 1, column 26 (length: 2)
+   5: KeywordList at line 1, column 29 (length: 4)
+   6: KeywordFiles at line 1, column 34 (length: 5)
+   7: KeywordIn at line 1, column 40 (length: 2)
+   8: StringLiteral(".") at line 1, column 43 (length: 3)
+   9: KeywordWith at line 1, column 47 (length: 4)
+  10: KeywordPattern at line 1, column 52 (length: 7)
+  11: StringLiteral("*.wfl") at line 1, column 60 (length: 7)

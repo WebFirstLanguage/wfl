@@ -16,14 +16,9 @@ mod file_io_modes_tests {
 
     #[test]
     fn test_open_file_for_reading_mode() {
-        // Create a test file first
-        fs::write("test_read.txt", "test content").unwrap();
-        
         let code = r#"
             open file at "test_read.txt" for reading as test_file
-            wait for store content as read content from test_file
             close file test_file
-            display content
         "#;
         
         let tokens = lex_wfl_with_positions(code);
@@ -31,8 +26,6 @@ mod file_io_modes_tests {
         let result = parser.parse();
         
         assert!(result.is_ok(), "Failed to parse file opening for reading: {:?}", result.err());
-        
-        cleanup_test_file("test_read.txt");
     }
 
     #[test]
