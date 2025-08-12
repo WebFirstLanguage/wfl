@@ -86,7 +86,7 @@ mod file_io_execution_tests {
             close file initial_file
             
             open file at "test_exec_append.txt" for append as append_file
-            wait for append content "\nLine 2" into append_file
+            wait for append content "\\nLine 2" into append_file
             close file append_file
             
             open file at "test_exec_append.txt" for reading as read_file
@@ -101,7 +101,7 @@ mod file_io_execution_tests {
 
         let file_contents = fs::read_to_string("test_exec_append.txt")
             .expect("Could not read append test file");
-        assert_eq!(file_contents.trim(), "Line 1\nLine 2", 
+        assert_eq!(file_contents.trim(), "Line 1\\\\nLine 2", 
                   "Appended file contents don't match expected value");
 
         cleanup_test_files(&test_files);
