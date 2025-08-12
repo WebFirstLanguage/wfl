@@ -15,7 +15,6 @@ mod file_io_error_handling_tests {
         }
     }
 
-
     async fn execute_wfl_code_expect_success(
         code: &str,
     ) -> Result<String, Box<dyn std::error::Error>> {
@@ -34,13 +33,9 @@ mod file_io_error_handling_tests {
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join(", ");
-                Err(Box::new(std::io::Error::other(
-                    error_msg,
-                )))
+                Err(Box::new(std::io::Error::other(error_msg)))
             }
-            Err(_) => Err(Box::new(std::io::Error::other(
-                "Operation timed out",
-            ))),
+            Err(_) => Err(Box::new(std::io::Error::other("Operation timed out"))),
         }
     }
 

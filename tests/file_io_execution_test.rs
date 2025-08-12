@@ -15,7 +15,6 @@ mod file_io_execution_tests {
         }
     }
 
-
     async fn execute_wfl_code(code: &str) -> Result<String, Box<dyn std::error::Error>> {
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
@@ -33,9 +32,7 @@ mod file_io_execution_tests {
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join(", ");
-                Err(Box::new(std::io::Error::other(
-                    error_msg,
-                )))
+                Err(Box::new(std::io::Error::other(error_msg)))
             }
         }
     }
@@ -260,7 +257,8 @@ mod file_io_execution_tests {
             ("multi_test_3.dat", "Binary-like data for file 3"),
         ] {
             assert!(Path::new(file).exists(), "File {} was not created", file);
-            let content = fs::read_to_string(file).unwrap_or_else(|_| panic!("Could not read {}", file));
+            let content =
+                fs::read_to_string(file).unwrap_or_else(|_| panic!("Could not read {}", file));
             assert_eq!(
                 content.trim(),
                 expected_content,

@@ -33,13 +33,9 @@ mod file_io_concurrent_tests {
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join(", ");
-                Err(Box::new(std::io::Error::other(
-                    error_msg,
-                )))
+                Err(Box::new(std::io::Error::other(error_msg)))
             }
-            Err(_) => Err(Box::new(std::io::Error::other(
-                "Operation timed out",
-            ))),
+            Err(_) => Err(Box::new(std::io::Error::other("Operation timed out"))),
         }
     }
 
@@ -92,7 +88,8 @@ mod file_io_concurrent_tests {
                 "Concurrent file {} was not created",
                 file
             );
-            let content = fs::read_to_string(file).unwrap_or_else(|_| panic!("Could not read {}", file));
+            let content =
+                fs::read_to_string(file).unwrap_or_else(|_| panic!("Could not read {}", file));
             assert_eq!(
                 content.trim(),
                 expected_content,
@@ -307,8 +304,8 @@ mod file_io_concurrent_tests {
                 "File {} was not created",
                 filename
             );
-            let content =
-                fs::read_to_string(&filename).unwrap_or_else(|_| panic!("Could not read {}", filename));
+            let content = fs::read_to_string(&filename)
+                .unwrap_or_else(|_| panic!("Could not read {}", filename));
             assert_eq!(
                 content.trim(),
                 format!("Content for file {}", i),
