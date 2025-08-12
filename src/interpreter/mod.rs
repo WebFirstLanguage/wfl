@@ -2999,17 +2999,13 @@ impl Interpreter {
 
                     // If method not found, check parent containers
                     while found_method.is_none() {
-                        if let Some(current_def) = env.borrow().get(&current_container_name) {
-                            if let Value::ContainerDefinition(def) = current_def {
-                                if let Some(parent_name) = &def.extends {
-                                    current_container_name = parent_name.clone();
-                                    if let Some(Value::ContainerDefinition(parent_def)) =
-                                        env.borrow().get(parent_name)
-                                    {
-                                        found_method = parent_def.methods.get(method).cloned();
-                                    } else {
-                                        break;
-                                    }
+                        if let Some(Value::ContainerDefinition(def)) = env.borrow().get(&current_container_name) {
+                            if let Some(parent_name) = &def.extends {
+                                current_container_name = parent_name.clone();
+                                if let Some(Value::ContainerDefinition(parent_def)) =
+                                    env.borrow().get(parent_name)
+                                {
+                                    found_method = parent_def.methods.get(method).cloned();
                                 } else {
                                     break;
                                 }
