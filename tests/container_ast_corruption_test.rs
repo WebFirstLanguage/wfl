@@ -49,11 +49,10 @@ end
                     assert_eq!(*line, 6, "String literal should be on line 6 (action body)");
                     assert!(
                         *column > 10,
-                        "String literal should be at reasonable column position in action body, got column {}",
-                        column
+                        "String literal should be at reasonable column position in action body, got column {column}"
                     );
                 } else {
-                    panic!("Display value should be a string literal, got: {:?}", value);
+                    panic!("Display value should be a string literal, got: {value:?}");
                 }
             } else {
                 panic!(
@@ -122,13 +121,11 @@ end
                 assert_eq!(*line, 6, "Parameter usage should be on line 6");
                 assert!(
                     *column > 20,
-                    "Parameter should be at reasonable column in store statement, got column {}",
-                    column
+                    "Parameter should be at reasonable column in store statement, got column {column}"
                 );
             } else {
                 panic!(
-                    "Store value should be a variable reference to new_name, got: {:?}",
-                    value
+                    "Store value should be a variable reference to new_name, got: {value:?}"
                 );
             }
         } else {

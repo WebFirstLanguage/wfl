@@ -51,7 +51,7 @@ fn test_explicit_token_stream_analysis() {
     let tokens = lex_wfl_with_positions(source);
     let token_types: Vec<String> = tokens.iter().map(|t| format!("{:?}", t.token)).collect();
 
-    println!("Token sequence: {:?}", token_types);
+    println!("Token sequence: {token_types:?}");
 
     // Expected sequence: action, identifier(greet), colon, keyword(display), string, keyword(end)
     // The colon should only be consumed once
@@ -68,8 +68,6 @@ fn test_explicit_token_stream_analysis() {
     assert_eq!(
         token_types.len(),
         expected.len(),
-        "Token count mismatch. Expected: {:?}, Got: {:?}",
-        expected,
-        token_types
+        "Token count mismatch. Expected: {expected:?}, Got: {token_types:?}"
     );
 }

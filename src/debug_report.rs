@@ -387,8 +387,81 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
-    #[ignore]
     fn test_report_failure_message_windows() {
-        println!("Skipping write permission test on Windows");
+        use std::fs;
+        use std::os::windows::fs::MetadataExt;
+        use tempfile::tempdir;
+
+        let error = RuntimeError::new("Test error".to_string(), 1, 1);
+        let call_frame = CallFrame::new("test_function".to_string(), 1, 1);
+        let call_stack = vec![call_frame];
+        let script_content = "store x as 42";
+
+        let temp_dir = tempdir().unwrap();
+        let script_path = temp_dir.path().join("test_script.wfl");
+        fs::write(&script_path, script_content).unwrap();
+
+        // Set directory as read-only on Windows using Windows API
+        let temp_dir_path = temp_dir.path();
+        let mut attributes = temp_dir_path.metadata().unwrap().file_attributes();
+
+        // Add FILE_ATTRIBUTE_READONLY (0x1)
+        const FILE_ATTRIBUTE_READONLY: u32 = 0x1;
+        attributes |= FILE_ATTRIBUTE_READONLY;
+
+        // Use Windows API to set read-only attribute
+        unsafe {
+            use std::ffi::OsStr;
+            use std::os::windows::ffi::OsStrExt;
+
+            let wide_path: Vec<u16> = temp_dir_path
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+
+            #[link(name = "kernel32")]
+            extern "system" {
+                fn SetFileAttributesW(lpFileName: *const u16, dwFileAttributes: u32) -> i32;
+            }
+
+            let result = SetFileAttributesW(wide_path.as_ptr(), attributes);
+            assert_ne!(result, 0, "Failed to set read-only attribute");
+        }
+
+        // Test that create_report fails when trying to write to read-only directory
+        let result = create_report(
+            &error,
+            &call_stack,
+            script_content,
+            script_path.to_str().unwrap(),
+        );
+
+        assert!(
+            result.is_err(),
+            "Expected create_report to fail with read-only directory"
+        );
+
+        // Clean up: Remove read-only attribute to allow directory deletion
+        let mut attributes = temp_dir_path.metadata().unwrap().file_attributes();
+        attributes &= !FILE_ATTRIBUTE_READONLY;
+
+        unsafe {
+            use std::ffi::OsStr;
+            use std::os::windows::ffi::OsStrExt;
+
+            let wide_path: Vec<u16> = temp_dir_path
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+
+            #[link(name = "kernel32")]
+            extern "system" {
+                fn SetFileAttributesW(lpFileName: *const u16, dwFileAttributes: u32) -> i32;
+            }
+
+            SetFileAttributesW(wide_path.as_ptr(), attributes);
+        }
     }
 }
