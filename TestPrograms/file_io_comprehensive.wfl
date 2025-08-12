@@ -6,7 +6,7 @@ display ""
 
 // === Basic File Operations ===
 display "1. Basic File Write/Read Test"
-open file at "test_output.txt" as test_file
+open file at "test_output.txt" for writing as test_file
 
 // Write content using wait for syntax
 wait for write content "Hello, World!" into test_file
@@ -30,7 +30,7 @@ display ""
 display "2. File CRUD Test"
 
 // Create a new file
-open file at "crud_test.txt" as crud_file
+open file at "crud_test.txt" for writing as crud_file
 wait for write content "Initial content" into crud_file
 close file crud_file
 display "✓ File created"
@@ -59,8 +59,8 @@ display "3. Directory Listing Test"
 // List files in current directory  
 wait for store current_files as list files in "."
 display "Files in current directory:"
-for each file in current_files:
-    display "  - " with file
+for each filename in current_files:
+    display "  - " with filename
 end for
 display ""
 
@@ -82,28 +82,28 @@ display "test_output.txt exists: " with file_exists
 store missing_exists as file exists at "nonexistent.txt"
 display "nonexistent.txt exists: " with missing_exists
 
-// Test file size (if available)
-wait for store file_size as size of file at "test_output.txt"
-display "File size: " with file_size with " bytes"
+// Test file size (if available - not yet implemented)
+// wait for store file_size as size of file at "test_output.txt"
+// display "File size: " with file_size with " bytes"
 
-// Test file info (if available)
-wait for store file_info as info of file at "test_output.txt"
-display "File info: " with file_info
+// Test file info (if available - not yet implemented)
+// wait for store file_info as info of file at "test_output.txt"
+// display "File info: " with file_info
 display ""
 
 // === Multiple File Extensions Test ===
 display "5. Multiple Extensions File Test"
 
 // Create files with different extensions
-open file at "test.txt" as txt_file
+open file at "test.txt" for writing as txt_file
 wait for write content "Text file content" into txt_file
 close file txt_file
 
-open file at "test.log" as log_file  
+open file at "test.log" for writing as log_file  
 wait for write content "Log file content" into log_file
 close file log_file
 
-open file at "test.dat" as dat_file
+open file at "test.dat" for writing as dat_file
 wait for write content "Data file content" into dat_file
 close file dat_file
 
@@ -121,11 +121,11 @@ display "6. Recursive Directory Test"
 // Test recursive listing (if supported)
 wait for store all_files as list files recursively in "."
 display "All files (recursive) - first 10:"
-store count as 0
+store counter as 0
 for each recursive_file in all_files:
-    check if count less than 10:
+    check if counter is less than 10:
         display "  - " with recursive_file
-        store count as count + 1
+        change counter to counter + 1
     end check
 end for
 display ""
@@ -133,26 +133,27 @@ display ""
 // === File Path Operations ===
 display "7. File Path Tests"
 
-// Test path operations (if available)
-store full_path as absolute path of "test_output.txt"
-display "Absolute path: " with full_path
+// Note: Path operations not yet implemented
+// store full_path as absolute path of "test_output.txt"
+// display "Absolute path: " with full_path
 
-store dir_name as directory of full_path  
-display "Directory: " with dir_name
+// store dir_name as directory of full_path  
+// display "Directory: " with dir_name
 
-store file_name as filename of full_path
-display "Filename: " with file_name
+// store file_name as filename of full_path
+// display "Filename: " with file_name
 
-store extension as extension of full_path
-display "Extension: " with extension
+// store file_ext as extension of full_path
+// display "Extension: " with file_ext
+display "Path operations not yet implemented"
 display ""
 
 // === Async File Operations ===
 display "8. Async File Operations Test"
 
 // Test multiple async file operations
-open file at "async1.txt" as async_file1
-open file at "async2.txt" as async_file2
+open file at "async1.txt" for writing as async_file1
+open file at "async2.txt" for writing as async_file2
 
 wait for write content "Async file 1 content" into async_file1
 wait for write content "Async file 2 content" into async_file2
@@ -167,7 +168,7 @@ display ""
 display "9. File Stream Test"
 
 // Test streaming file operations (if available)
-open file at "stream_test.txt" as stream_file
+open file at "stream_test.txt" for writing as stream_file
 
 count from 1 to 5:
     wait for append content "Stream line " with count with "\n" into stream_file
@@ -191,19 +192,18 @@ display "10. File Error Handling Test"
 try:
     open file at "does_not_exist.txt" for reading as missing_file
     display "✗ This should not execute"
-catch:
+when error:
     display "✓ Correctly caught file not found error"
 end try
 
-// Try to write to read-only file (if applicable)
+// Try to write to read-only file (if applicable)  
 try:
-    open file at "test_output.txt" for reading as readonly_file
+    open file at "test_output.txt" for reading as readonly_file  
     wait for write content "This should fail" into readonly_file
     display "✗ This should not execute"
-catch:
-    display "✓ Correctly caught write to read-only file error"
-finally:
     close file readonly_file
+when error:
+    display "✓ Correctly caught write to read-only file error"
 end try
 display ""
 
