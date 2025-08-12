@@ -43,7 +43,10 @@
       "Bash(.targetdebugwfl.exe --parse TestProgramscontainers_comprehensive.wfl)",
       "Bash(.targetreleasewfl.exe TestProgramstest_redefinition_error.wfl)",
       "Bash(git fetch:*)",
-      "Bash(git tag:*)"
+      "Bash(git tag:*)",
+      "Bash(targetreleasewfl.exe TestProgramsfile_io_comprehensive.wfl)",
+      "Bash(.targetdebugwfl.exe TestProgramsfile_io_comprehensive.wfl)",
+      "Bash(rg:*)"
     ],
     "deny": []
   }
