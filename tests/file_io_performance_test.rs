@@ -1,10 +1,10 @@
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
+use tokio::time::{Duration, timeout};
+use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::Interpreter;
-use tokio::time::{timeout, Duration};
 
 // Performance and stress tests for file I/O operations
 #[cfg(test)]
@@ -17,27 +17,36 @@ mod file_io_performance_tests {
         }
     }
 
-    async fn execute_wfl_code_with_timing(code: &str) -> Result<(String, std::time::Duration), Box<dyn std::error::Error>> {
+    async fn execute_wfl_code_with_timing(
+        code: &str,
+    ) -> Result<(String, std::time::Duration), Box<dyn std::error::Error>> {
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
         let ast = parser.parse().expect("Failed to parse WFL code");
-        
+
         let mut interpreter = Interpreter::new();
-        
+
         let start = Instant::now();
         let result = timeout(Duration::from_secs(30), interpreter.interpret(&ast)).await;
         let elapsed = start.elapsed();
-        
+
         match result {
             Ok(Ok(_)) => Ok(("Program executed successfully".to_string(), elapsed)),
             Ok(Err(errors)) => {
-                let error_msg = errors.iter()
+                let error_msg = errors
+                    .iter()
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join(", ");
-                Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, error_msg)))
+                Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    error_msg,
+                )))
             }
-            Err(_) => Err(Box::new(std::io::Error::new(std::io::ErrorKind::TimedOut, "Operation timed out")))
+            Err(_) => Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Operation timed out",
+            ))),
         }
     }
 
@@ -48,35 +57,55 @@ mod file_io_performance_tests {
         cleanup_test_files(&test_file_refs);
 
         // Create many small files to test file system overhead
-        let mut code = String::from(r#"
+        let mut code = String::from(
+            r#"
             // Create many small files sequentially
             store files_created as 0
-        "#);
+        "#,
+        );
 
-        for i in 0..10 { // Reduced from 50 to avoid too much overhead
-            code.push_str(&format!(r#"
+        for i in 0..10 {
+            // Reduced from 50 to avoid too much overhead
+            code.push_str(&format!(
+                r#"
                 open file at "perf_small_{}.txt" for writing as file{}
                 wait for write content "Content for small file {}" into file{}
                 close file file{}
                 change files_created to files_created + 1
-            "#, i, i, i, i, i));
+            "#,
+                i, i, i, i, i
+            ));
         }
 
-        code.push_str(r#"
+        code.push_str(
+            r#"
             display "Created " with files_created with " small files"
-        "#);
+        "#,
+        );
 
         let result = execute_wfl_code_with_timing(&code).await;
-        assert!(result.is_ok(), "Many small files performance test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Many small files performance test failed: {:?}",
+            result.err()
+        );
 
         let (_, elapsed) = result.unwrap();
         println!("Many small files test took: {:?}", elapsed);
-        assert!(elapsed < Duration::from_secs(10), "Test took too long: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "Test took too long: {:?}",
+            elapsed
+        );
 
         // Verify some files were created
         for i in 0..5 {
             let filename = format!("perf_small_{}.txt", i);
-            assert!(Path::new(&filename).exists(), "File {} was not created", filename);
+            assert!(
+                Path::new(&filename).exists(),
+                "File {} was not created",
+                filename
+            );
         }
 
         cleanup_test_files(&test_file_refs);
@@ -88,9 +117,11 @@ mod file_io_performance_tests {
         cleanup_test_files(&test_files);
 
         // Write a moderately sized file to test throughput
-        let large_content = "This is a line of text that will be repeated many times.\n".repeat(100); // ~5.7KB
-        
-        let code = format!(r#"
+        let large_content =
+            "This is a line of text that will be repeated many times.\n".repeat(100); // ~5.7KB
+
+        let code = format!(
+            r#"
             open file at "perf_large_write.txt" for writing as large_file
             wait for write content "{}" into large_file
             close file large_file
@@ -100,19 +131,36 @@ mod file_io_performance_tests {
             check if file_exists:
                 display "Large file write completed successfully"
             end check
-        "#, large_content.replace('\"', "\\\""));
+        "#,
+            large_content.replace('\"', "\\\"")
+        );
 
         let result = execute_wfl_code_with_timing(&code).await;
-        assert!(result.is_ok(), "Large file write performance test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Large file write performance test failed: {:?}",
+            result.err()
+        );
 
         let (_, elapsed) = result.unwrap();
         println!("Large file write test took: {:?}", elapsed);
-        assert!(elapsed < Duration::from_secs(5), "Large file write took too long: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "Large file write took too long: {:?}",
+            elapsed
+        );
 
         // Verify the file content
-        assert!(Path::new("perf_large_write.txt").exists(), "Large file was not created");
+        assert!(
+            Path::new("perf_large_write.txt").exists(),
+            "Large file was not created"
+        );
         let file_size = fs::metadata("perf_large_write.txt").unwrap().len();
-        assert!(file_size > 5_000, "File size {} is smaller than expected", file_size);
+        assert!(
+            file_size > 5_000,
+            "File size {} is smaller than expected",
+            file_size
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -139,11 +187,19 @@ mod file_io_performance_tests {
         "#;
 
         let result = execute_wfl_code_with_timing(code).await;
-        assert!(result.is_ok(), "Large file read performance test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Large file read performance test failed: {:?}",
+            result.err()
+        );
 
         let (_, elapsed) = result.unwrap();
         println!("Large file read test took: {:?}", elapsed);
-        assert!(elapsed < Duration::from_secs(5), "Large file read took too long: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "Large file read took too long: {:?}",
+            elapsed
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -171,11 +227,19 @@ mod file_io_performance_tests {
         "#;
 
         let result = execute_wfl_code_with_timing(code).await;
-        assert!(result.is_ok(), "Directory listing performance test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Directory listing performance test failed: {:?}",
+            result.err()
+        );
 
         let (_, elapsed) = result.unwrap();
         println!("Directory listing test took: {:?}", elapsed);
-        assert!(elapsed < Duration::from_secs(10), "Directory listing took too long: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "Directory listing took too long: {:?}",
+            elapsed
+        );
 
         cleanup_test_files(&test_file_refs);
     }
@@ -187,13 +251,17 @@ mod file_io_performance_tests {
         cleanup_test_files(&test_file_refs);
 
         // Test rapid create, write, read, delete cycle
-        let mut code = String::from(r#"
+        let mut code = String::from(
+            r#"
             // Rapid file operations cycle
             store operations_completed as 0
-        "#);
+        "#,
+        );
 
-        for i in 0..5 { // Reduced from 20 to avoid timeout
-            code.push_str(&format!(r#"
+        for i in 0..5 {
+            // Reduced from 20 to avoid timeout
+            code.push_str(&format!(
+                r#"
                 // Create, write, read, delete cycle for file {}
                 open file at "rapid_{}.txt" for writing as file{}
                 wait for write content "Rapid test content {}" into file{}
@@ -205,38 +273,54 @@ mod file_io_performance_tests {
                 
                 delete file at "rapid_{}.txt"
                 change operations_completed to operations_completed + 1
-            "#, i, i, i, i, i, i, i, i, i, i, i, i));
+            "#,
+                i, i, i, i, i, i, i, i, i, i, i, i
+            ));
         }
 
-        code.push_str(r#"
+        code.push_str(
+            r#"
             display "Completed " with operations_completed with " rapid file operation cycles"
-        "#);
+        "#,
+        );
 
         let result = execute_wfl_code_with_timing(&code).await;
-        assert!(result.is_ok(), "Rapid file operations test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Rapid file operations test failed: {:?}",
+            result.err()
+        );
 
         let (_, elapsed) = result.unwrap();
         println!("Rapid file operations test took: {:?}", elapsed);
-        assert!(elapsed < Duration::from_secs(10), "Rapid operations took too long: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "Rapid operations took too long: {:?}",
+            elapsed
+        );
 
         cleanup_test_files(&test_file_refs);
     }
 
     #[tokio::test]
     async fn test_concurrent_performance() {
-        let test_files: Vec<String> = (0..15).map(|i| format!("concurrent_perf_{}.txt", i)).collect();
+        let test_files: Vec<String> = (0..15)
+            .map(|i| format!("concurrent_perf_{}.txt", i))
+            .collect();
         let test_file_refs: Vec<&str> = test_files.iter().map(|s| s.as_str()).collect();
         cleanup_test_files(&test_file_refs);
 
         // Test performance of concurrent operations
-        let mut code = String::from(r#"
+        let mut code = String::from(
+            r#"
             // Open multiple files concurrently
-        "#);
+        "#,
+        );
 
         // Open files
         for i in 0..5 {
             code.push_str(&format!(
-                "open file at \"concurrent_perf_{}.txt\" for writing as file{}\n", 
+                "open file at \"concurrent_perf_{}.txt\" for writing as file{}\n",
                 i, i
             ));
         }
@@ -254,7 +338,8 @@ mod file_io_performance_tests {
             code.push_str(&format!("close file file{}\n", i));
         }
 
-        code.push_str(r#"
+        code.push_str(
+            r#"
             // Verify all files exist
             store total_files as 0
             check if file exists at "concurrent_perf_0.txt":
@@ -274,19 +359,32 @@ mod file_io_performance_tests {
             end check
             
             display "Created " with total_files with " files concurrently"
-        "#);
+        "#,
+        );
 
         let result = execute_wfl_code_with_timing(&code).await;
-        assert!(result.is_ok(), "Concurrent performance test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Concurrent performance test failed: {:?}",
+            result.err()
+        );
 
         let (_, elapsed) = result.unwrap();
         println!("Concurrent performance test took: {:?}", elapsed);
-        assert!(elapsed < Duration::from_secs(8), "Concurrent operations took too long: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_secs(8),
+            "Concurrent operations took too long: {:?}",
+            elapsed
+        );
 
         // Verify files were created
         for i in 0..5 {
             let filename = format!("concurrent_perf_{}.txt", i);
-            assert!(Path::new(&filename).exists(), "Concurrent file {} was not created", filename);
+            assert!(
+                Path::new(&filename).exists(),
+                "Concurrent file {} was not created",
+                filename
+            );
         }
 
         cleanup_test_files(&test_file_refs);
@@ -322,16 +420,27 @@ mod file_io_performance_tests {
         "#;
 
         let result = execute_wfl_code_with_timing(code).await;
-        assert!(result.is_ok(), "Memory usage test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Memory usage test failed: {:?}",
+            result.err()
+        );
 
         let (_, elapsed) = result.unwrap();
         println!("Memory usage test took: {:?}", elapsed);
-        assert!(elapsed < Duration::from_secs(5), "Memory test took too long: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "Memory test took too long: {:?}",
+            elapsed
+        );
 
         // Verify both files exist and have similar sizes
         let source_size = fs::metadata("memory_test_large.txt").unwrap().len();
         let output_size = fs::metadata("memory_test_output.txt").unwrap().len();
-        assert_eq!(source_size, output_size, "File sizes don't match after copy");
+        assert_eq!(
+            source_size, output_size,
+            "File sizes don't match after copy"
+        );
 
         cleanup_test_files(&test_files);
     }

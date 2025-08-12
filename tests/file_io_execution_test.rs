@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::Path;
+use wfl::Interpreter;
 use wfl::config::WflConfig;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::Interpreter;
 
 // Integration tests that actually execute file I/O operations using the interpreter
 #[cfg(test)]
@@ -24,19 +24,23 @@ mod file_io_execution_tests {
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
         let ast = parser.parse().expect("Failed to parse WFL code");
-        
+
         let mut interpreter = Interpreter::new();
-        
+
         // Execute the program
         let result = interpreter.interpret(&ast).await;
         match result {
             Ok(_) => Ok("Program executed successfully".to_string()),
             Err(errors) => {
-                let error_msg = errors.iter()
+                let error_msg = errors
+                    .iter()
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join(", ");
-                Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, error_msg)))
+                Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    error_msg,
+                )))
             }
         }
     }
@@ -58,19 +62,29 @@ mod file_io_execution_tests {
             display file_data
         "#;
 
-        // This test should fail initially because we need to verify the interpreter 
+        // This test should fail initially because we need to verify the interpreter
         // actually creates files and reads content correctly
         let result = execute_wfl_code(code).await;
-        assert!(result.is_ok(), "File I/O execution failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "File I/O execution failed: {:?}",
+            result.err()
+        );
 
         // Verify the file was actually created
-        assert!(Path::new("test_exec_basic.txt").exists(), "Test file was not created by interpreter");
+        assert!(
+            Path::new("test_exec_basic.txt").exists(),
+            "Test file was not created by interpreter"
+        );
 
         // Verify file contents
-        let file_contents = fs::read_to_string("test_exec_basic.txt")
-            .expect("Could not read test file");
-        assert_eq!(file_contents.trim(), "Hello from execution test!", 
-                  "File contents don't match expected value");
+        let file_contents =
+            fs::read_to_string("test_exec_basic.txt").expect("Could not read test file");
+        assert_eq!(
+            file_contents.trim(),
+            "Hello from execution test!",
+            "File contents don't match expected value"
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -97,17 +111,24 @@ mod file_io_execution_tests {
         "#;
 
         let result = execute_wfl_code(code).await;
-        assert!(result.is_ok(), "File append execution failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "File append execution failed: {:?}",
+            result.err()
+        );
 
-        let file_contents = fs::read_to_string("test_exec_append.txt")
-            .expect("Could not read append test file");
-        assert_eq!(file_contents.trim(), "Line 1\\\\nLine 2", 
-                  "Appended file contents don't match expected value");
+        let file_contents =
+            fs::read_to_string("test_exec_append.txt").expect("Could not read append test file");
+        assert_eq!(
+            file_contents.trim(),
+            "Line 1\\\\nLine 2",
+            "Appended file contents don't match expected value"
+        );
 
         cleanup_test_files(&test_files);
     }
 
-    #[tokio::test] 
+    #[tokio::test]
     async fn test_file_exists_execution() {
         let test_files = ["test_exec_exists.txt"];
         cleanup_test_files(&test_files);
@@ -128,7 +149,11 @@ mod file_io_execution_tests {
         "#;
 
         let result = execute_wfl_code(code).await;
-        assert!(result.is_ok(), "File exists execution failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "File exists execution failed: {:?}",
+            result.err()
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -152,7 +177,11 @@ mod file_io_execution_tests {
         "#;
 
         let result = execute_wfl_code(code).await;
-        assert!(result.is_ok(), "Directory listing execution failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Directory listing execution failed: {:?}",
+            result.err()
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -160,10 +189,14 @@ mod file_io_execution_tests {
     #[tokio::test]
     async fn test_file_deletion_execution() {
         let test_files = ["test_delete_me.txt"];
-        
+
         // Create test file first
-        fs::write("test_delete_me.txt", "This file should be deleted").expect("Failed to create test file");
-        assert!(Path::new("test_delete_me.txt").exists(), "Test file was not created for deletion test");
+        fs::write("test_delete_me.txt", "This file should be deleted")
+            .expect("Failed to create test file");
+        assert!(
+            Path::new("test_delete_me.txt").exists(),
+            "Test file was not created for deletion test"
+        );
 
         let code = r#"
             delete file at "test_delete_me.txt"
@@ -174,10 +207,17 @@ mod file_io_execution_tests {
         "#;
 
         let result = execute_wfl_code(code).await;
-        assert!(result.is_ok(), "File deletion execution failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "File deletion execution failed: {:?}",
+            result.err()
+        );
 
         // Verify file was actually deleted
-        assert!(!Path::new("test_delete_me.txt").exists(), "Test file was not properly deleted by interpreter");
+        assert!(
+            !Path::new("test_delete_me.txt").exists(),
+            "Test file was not properly deleted by interpreter"
+        );
 
         cleanup_test_files(&test_files); // Just in case
     }
@@ -212,17 +252,26 @@ mod file_io_execution_tests {
         "#;
 
         let result = execute_wfl_code(code).await;
-        assert!(result.is_ok(), "Multiple files execution failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Multiple files execution failed: {:?}",
+            result.err()
+        );
 
         // Verify all files exist with correct content
         for (file, expected_content) in [
             ("multi_test_1.txt", "Content for file 1"),
-            ("multi_test_2.log", "Log data for file 2"), 
+            ("multi_test_2.log", "Log data for file 2"),
             ("multi_test_3.dat", "Binary-like data for file 3"),
         ] {
             assert!(Path::new(file).exists(), "File {} was not created", file);
             let content = fs::read_to_string(file).expect(&format!("Could not read {}", file));
-            assert_eq!(content.trim(), expected_content, "Content mismatch in {}", file);
+            assert_eq!(
+                content.trim(),
+                expected_content,
+                "Content mismatch in {}",
+                file
+            );
         }
 
         cleanup_test_files(&test_files);

@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::Path;
+use tokio::time::{Duration, timeout};
+use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::Interpreter;
-use tokio::time::{timeout, Duration};
 
 // Tests for concurrent file operations and async I/O behavior
 #[cfg(test)]
@@ -20,21 +20,28 @@ mod file_io_concurrent_tests {
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
         let ast = parser.parse().expect("Failed to parse WFL code");
-        
+
         let mut interpreter = Interpreter::new();
-        
+
         // Execute the program with timeout to catch hanging operations
         let result = timeout(Duration::from_secs(10), interpreter.interpret(&ast)).await;
         match result {
             Ok(Ok(_)) => Ok("Program executed successfully".to_string()),
             Ok(Err(errors)) => {
-                let error_msg = errors.iter()
+                let error_msg = errors
+                    .iter()
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join(", ");
-                Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, error_msg)))
+                Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    error_msg,
+                )))
             }
-            Err(_) => Err(Box::new(std::io::Error::new(std::io::ErrorKind::TimedOut, "Operation timed out")))
+            Err(_) => Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Operation timed out",
+            ))),
         }
     }
 
@@ -70,7 +77,11 @@ mod file_io_concurrent_tests {
         "#;
 
         let result = execute_wfl_code(code).await;
-        assert!(result.is_ok(), "Concurrent file writes failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Concurrent file writes failed: {:?}",
+            result.err()
+        );
 
         // Verify all files exist with correct content
         for (file, expected_content) in [
@@ -78,9 +89,18 @@ mod file_io_concurrent_tests {
             ("concurrent_2.txt", "Data for file 2"),
             ("concurrent_3.txt", "Data for file 3"),
         ] {
-            assert!(Path::new(file).exists(), "Concurrent file {} was not created", file);
+            assert!(
+                Path::new(file).exists(),
+                "Concurrent file {} was not created",
+                file
+            );
             let content = fs::read_to_string(file).expect(&format!("Could not read {}", file));
-            assert_eq!(content.trim(), expected_content, "Content mismatch in concurrent file {}", file);
+            assert_eq!(
+                content.trim(),
+                expected_content,
+                "Content mismatch in concurrent file {}",
+                file
+            );
         }
 
         cleanup_test_files(&test_files);
@@ -113,16 +133,26 @@ mod file_io_concurrent_tests {
         "#;
 
         let result = execute_wfl_code(code).await;
-        assert!(result.is_ok(), "Concurrent read/write failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Concurrent read/write failed: {:?}",
+            result.err()
+        );
 
         // Verify operations completed correctly
-        let content1 = fs::read_to_string("read_write_1.txt")
-            .expect("Could not read file 1");
-        assert_eq!(content1.trim(), "Initial content 1", "File 1 content changed unexpectedly");
+        let content1 = fs::read_to_string("read_write_1.txt").expect("Could not read file 1");
+        assert_eq!(
+            content1.trim(),
+            "Initial content 1",
+            "File 1 content changed unexpectedly"
+        );
 
-        let content2 = fs::read_to_string("read_write_2.txt")
-            .expect("Could not read file 2");
-        assert_eq!(content2.trim(), "New content for file 2", "File 2 content not updated correctly");
+        let content2 = fs::read_to_string("read_write_2.txt").expect("Could not read file 2");
+        assert_eq!(
+            content2.trim(),
+            "New content for file 2",
+            "File 2 content not updated correctly"
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -151,13 +181,23 @@ mod file_io_concurrent_tests {
         "#;
 
         let result = execute_wfl_code(code).await;
-        assert!(result.is_ok(), "File locking test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "File locking test failed: {:?}",
+            result.err()
+        );
 
         // Verify the file content is correct
-        let content = fs::read_to_string("locking_test.txt")
-            .expect("Could not read locking test file");
-        assert!(content.contains("First write operation"), "First write not found in file");
-        assert!(content.contains("Second write to same handle"), "Second write not found in file");
+        let content =
+            fs::read_to_string("locking_test.txt").expect("Could not read locking test file");
+        assert!(
+            content.contains("First write operation"),
+            "First write not found in file"
+        );
+        assert!(
+            content.contains("Second write to same handle"),
+            "Second write not found in file"
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -195,14 +235,20 @@ mod file_io_concurrent_tests {
         "#;
 
         let result = execute_wfl_code(code).await;
-        assert!(result.is_ok(), "Async directory operations failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Async directory operations failed: {:?}",
+            result.err()
+        );
 
         cleanup_test_files(&test_files);
     }
 
     #[tokio::test]
     async fn test_large_concurrent_file_operations() {
-        let test_files: Vec<String> = (0..10).map(|i| format!("large_concurrent_{}.txt", i)).collect();
+        let test_files: Vec<String> = (0..10)
+            .map(|i| format!("large_concurrent_{}.txt", i))
+            .collect();
         let test_file_refs: Vec<&str> = test_files.iter().map(|s| s.as_str()).collect();
         cleanup_test_files(&test_file_refs);
 
@@ -249,16 +295,28 @@ mod file_io_concurrent_tests {
         "#;
 
         let result = execute_wfl_code(code).await;
-        assert!(result.is_ok(), "Large concurrent file operations failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Large concurrent file operations failed: {:?}",
+            result.err()
+        );
 
         // Verify at least the first 5 files were created
         for i in 0..5 {
             let filename = format!("large_concurrent_{}.txt", i);
-            assert!(Path::new(&filename).exists(), "File {} was not created", filename);
-            let content = fs::read_to_string(&filename)
-                .expect(&format!("Could not read {}", filename));
-            assert_eq!(content.trim(), format!("Content for file {}", i), 
-                      "Content mismatch in {}", filename);
+            assert!(
+                Path::new(&filename).exists(),
+                "File {} was not created",
+                filename
+            );
+            let content =
+                fs::read_to_string(&filename).expect(&format!("Could not read {}", filename));
+            assert_eq!(
+                content.trim(),
+                format!("Content for file {}", i),
+                "Content mismatch in {}",
+                filename
+            );
         }
 
         cleanup_test_files(&test_file_refs);

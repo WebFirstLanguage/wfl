@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::Path;
+use tokio::time::{Duration, timeout};
+use wfl::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::Interpreter;
-use tokio::time::{timeout, Duration};
 
 // Tests for comprehensive error handling in file I/O operations
 #[cfg(test)]
@@ -23,9 +23,9 @@ mod file_io_error_handling_tests {
             Ok(ast) => ast,
             Err(_) => return true, // Parse error counts as expected error
         };
-        
+
         let mut interpreter = Interpreter::new();
-        
+
         // Execute the program and expect it to fail
         let result = timeout(Duration::from_secs(5), interpreter.interpret(&ast)).await;
         match result {
@@ -35,24 +35,33 @@ mod file_io_error_handling_tests {
         }
     }
 
-    async fn execute_wfl_code_expect_success(code: &str) -> Result<String, Box<dyn std::error::Error>> {
+    async fn execute_wfl_code_expect_success(
+        code: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
         let ast = parser.parse().expect("Failed to parse WFL code");
-        
+
         let mut interpreter = Interpreter::new();
-        
+
         let result = timeout(Duration::from_secs(5), interpreter.interpret(&ast)).await;
         match result {
             Ok(Ok(_)) => Ok("Program executed successfully".to_string()),
             Ok(Err(errors)) => {
-                let error_msg = errors.iter()
+                let error_msg = errors
+                    .iter()
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join(", ");
-                Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, error_msg)))
+                Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    error_msg,
+                )))
             }
-            Err(_) => Err(Box::new(std::io::Error::new(std::io::ErrorKind::TimedOut, "Operation timed out")))
+            Err(_) => Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Operation timed out",
+            ))),
         }
     }
 
@@ -74,21 +83,26 @@ mod file_io_error_handling_tests {
         "#;
 
         let result = execute_wfl_code_expect_success(code).await;
-        assert!(result.is_ok(), "Error handling for non-existent file read failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Error handling for non-existent file read failed: {:?}",
+            result.err()
+        );
     }
 
-    #[tokio::test] 
+    #[tokio::test]
     async fn test_invalid_file_path_error() {
         // Test with various invalid file paths
         let invalid_paths = [
             "invalid/path/that/does/not/exist/file.txt",
-            "", // Empty path
-            "con", // Reserved Windows filename
+            "",                 // Empty path
+            "con",              // Reserved Windows filename
             "file\x00name.txt", // Null character in path
         ];
 
         for invalid_path in &invalid_paths {
-            let code = format!(r#"
+            let code = format!(
+                r#"
                 try:
                     open file at "{}" for writing as invalid_file
                     wait for write content "This should fail" into invalid_file
@@ -97,12 +111,17 @@ mod file_io_error_handling_tests {
                 when error:
                     display "Correctly caught invalid path error"
                 end try
-            "#, invalid_path);
+            "#,
+                invalid_path
+            );
 
             let result = execute_wfl_code_expect_success(&code).await;
-            assert!(result.is_ok(), 
-                   "Error handling for invalid path '{}' failed: {:?}", 
-                   invalid_path, result.err());
+            assert!(
+                result.is_ok(),
+                "Error handling for invalid path '{}' failed: {:?}",
+                invalid_path,
+                result.err()
+            );
         }
     }
 
@@ -113,7 +132,7 @@ mod file_io_error_handling_tests {
 
         // Create a file and try to make it read-only (platform dependent)
         fs::write("readonly_test.txt", "Initial content").expect("Failed to create test file");
-        
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -140,7 +159,11 @@ mod file_io_error_handling_tests {
         "#;
 
         let result = execute_wfl_code_expect_success(code).await;
-        assert!(result.is_ok(), "Error handling for read-only file failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Error handling for read-only file failed: {:?}",
+            result.err()
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -166,7 +189,11 @@ mod file_io_error_handling_tests {
         "#;
 
         let result = execute_wfl_code_expect_success(code).await;
-        assert!(result.is_ok(), "Error handling for writing to read handle failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Error handling for writing to read handle failed: {:?}",
+            result.err()
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -190,7 +217,11 @@ mod file_io_error_handling_tests {
         "#;
 
         let result = execute_wfl_code_expect_success(code).await;
-        assert!(result.is_ok(), "Error handling for double close failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Error handling for double close failed: {:?}",
+            result.err()
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -214,7 +245,11 @@ mod file_io_error_handling_tests {
         "#;
 
         let result = execute_wfl_code_expect_success(code).await;
-        assert!(result.is_ok(), "Error handling for closed file handle failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Error handling for closed file handle failed: {:?}",
+            result.err()
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -227,7 +262,8 @@ mod file_io_error_handling_tests {
 
         // Try to write a moderately large string to test limits
         let large_content = "x".repeat(10_000); // 10KB of 'x' characters - more reasonable for testing
-        let code = format!(r#"
+        let code = format!(
+            r#"
             try:
                 open file at "large_write_test.txt" for writing as large_file
                 wait for write content "{}" into large_file
@@ -236,10 +272,16 @@ mod file_io_error_handling_tests {
             when error:
                 display "Correctly caught large write error (possibly disk full)"
             end try
-        "#, large_content);
+        "#,
+            large_content
+        );
 
         let result = execute_wfl_code_expect_success(&code).await;
-        assert!(result.is_ok(), "Large write test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Large write test failed: {:?}",
+            result.err()
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -265,7 +307,11 @@ mod file_io_error_handling_tests {
         "#;
 
         let result = execute_wfl_code_expect_success(code).await;
-        assert!(result.is_ok(), "Concurrent access test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Concurrent access test failed: {:?}",
+            result.err()
+        );
 
         cleanup_test_files(&test_files);
     }
@@ -286,7 +332,11 @@ mod file_io_error_handling_tests {
         "#;
 
         let result = execute_wfl_code_expect_success(code).await;
-        assert!(result.is_ok(), "Delete nonexistent file test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Delete nonexistent file test failed: {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]
@@ -322,7 +372,11 @@ mod file_io_error_handling_tests {
         "#;
 
         let result = execute_wfl_code_expect_success(code).await;
-        assert!(result.is_ok(), "Nested error handling test failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Nested error handling test failed: {:?}",
+            result.err()
+        );
 
         cleanup_test_files(&test_files);
     }

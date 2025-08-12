@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::Path;
-use wfl::lexer::lex_wfl_with_positions;
-use wfl::parser::Parser;
 use wfl::Interpreter;
 use wfl::config;
+use wfl::lexer::lex_wfl_with_positions;
+use wfl::parser::Parser;
 
 // Test file I/O opening modes functionality that should work but currently fails
 #[cfg(test)]
@@ -20,12 +20,16 @@ mod file_io_modes_tests {
             open file at "test_read.txt" for reading as test_file
             close file test_file
         "#;
-        
+
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
         let result = parser.parse();
-        
-        assert!(result.is_ok(), "Failed to parse file opening for reading: {:?}", result.err());
+
+        assert!(
+            result.is_ok(),
+            "Failed to parse file opening for reading: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -35,13 +39,17 @@ mod file_io_modes_tests {
             wait for write content "test data" into test_file
             close file test_file
         "#;
-        
+
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
         let result = parser.parse();
-        
-        assert!(result.is_ok(), "Failed to parse file opening for writing: {:?}", result.err());
-        
+
+        assert!(
+            result.is_ok(),
+            "Failed to parse file opening for writing: {:?}",
+            result.err()
+        );
+
         cleanup_test_file("test_write.txt");
     }
 
@@ -51,12 +59,16 @@ mod file_io_modes_tests {
             wait for store wfl_files as list files in "." with pattern "*.wfl"
             display "Found " with length of wfl_files with " WFL files"
         "#;
-        
+
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
         let result = parser.parse();
-        
-        assert!(result.is_ok(), "Failed to parse file listing with pattern: {:?}", result.err());
+
+        assert!(
+            result.is_ok(),
+            "Failed to parse file listing with pattern: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -65,12 +77,16 @@ mod file_io_modes_tests {
             wait for store all_files as list files recursively in "."
             display "Found " with length of all_files with " files total"
         "#;
-        
+
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
         let result = parser.parse();
-        
-        assert!(result.is_ok(), "Failed to parse recursive file listing: {:?}", result.err());
+
+        assert!(
+            result.is_ok(),
+            "Failed to parse recursive file listing: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -86,12 +102,16 @@ mod file_io_modes_tests {
                 display "Missing file correctly detected as non-existent"
             end check
         "#;
-        
+
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
         let result = parser.parse();
-        
-        assert!(result.is_ok(), "Failed to parse file exists operation: {:?}", result.err());
+
+        assert!(
+            result.is_ok(),
+            "Failed to parse file exists operation: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -100,11 +120,15 @@ mod file_io_modes_tests {
             wait for store file_size as size of file at "size_test.txt"
             display "File size: " with file_size with " bytes"
         "#;
-        
+
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
         let result = parser.parse();
-        
-        assert!(result.is_ok(), "Failed to parse file size operation: {:?}", result.err());
+
+        assert!(
+            result.is_ok(),
+            "Failed to parse file size operation: {:?}",
+            result.err()
+        );
     }
 }

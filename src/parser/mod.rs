@@ -2367,7 +2367,7 @@ impl<'a> Parser<'a> {
                         && next_token.token == Token::KeywordFiles
                     {
                         self.tokens.next(); // Consume "files"
-                        
+
                         // Check if "recursively" comes before "in"
                         let mut is_recursive = false;
                         if let Some(token) = self.tokens.peek()
@@ -2376,8 +2376,11 @@ impl<'a> Parser<'a> {
                             self.tokens.next(); // Consume "recursively"
                             is_recursive = true;
                         }
-                        
-                        self.expect_token(Token::KeywordIn, "Expected 'in' after 'list files [recursively]'")?;
+
+                        self.expect_token(
+                            Token::KeywordIn,
+                            "Expected 'in' after 'list files [recursively]'",
+                        )?;
                         let path = self.parse_primary_expression()?;
 
                         // Handle recursive listing (if not already handled)
@@ -2404,7 +2407,7 @@ impl<'a> Parser<'a> {
                                 column: token_column,
                             });
                         }
-                        
+
                         // Check for "recursively" or "with" after the path
                         if let Some(next) = self.tokens.peek() {
                             match &next.token {
@@ -3920,7 +3923,7 @@ impl<'a> Parser<'a> {
                 if next_token.token == Token::KeywordFor {
                     // Check for "for [mode] as" pattern where mode can be append, reading, or writing
                     self.tokens.next(); // Consume "for"
-                    
+
                     let mode = if let Some(token) = self.tokens.peek().cloned() {
                         match token.token {
                             Token::KeywordAppend => {
@@ -3937,7 +3940,8 @@ impl<'a> Parser<'a> {
                             }
                             _ => {
                                 return Err(ParseError::new(
-                                    "Expected 'append', 'reading', or 'writing' after 'for'".to_string(),
+                                    "Expected 'append', 'reading', or 'writing' after 'for'"
+                                        .to_string(),
                                     token.line,
                                     token.column,
                                 ));
