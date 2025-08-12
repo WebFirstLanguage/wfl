@@ -390,8 +390,20 @@ impl Analyzer {
                     column: *column,
                 };
 
-                if let Err(error) = self.current_scope.define(symbol) {
-                    self.errors.push(error);
+                // Check if this is actually a container property assignment (including inherited)
+                let is_property_assignment = if let Some(container_name) = &self.current_container {
+                    self.is_container_property(container_name, name)
+                } else {
+                    false
+                };
+                
+                // This is actually a property assignment, not a variable declaration
+                // Don't treat it as an error - the interpreter will handle it
+                
+                if !is_property_assignment {
+                    if let Err(error) = self.current_scope.define(symbol) {
+                        self.errors.push(error);
+                    }
                 }
             }
             Statement::Assignment {
@@ -424,11 +436,20 @@ impl Analyzer {
                         }
                     }
                 } else {
-                    self.errors.push(SemanticError::new(
-                        format!("Variable '{name}' is not defined"),
-                        0, // Need location info
-                        0,
-                    ));
+                    // Check if it's a container property assignment (including inherited)
+                    let is_container_property = if let Some(container_name) = &self.current_container {
+                        self.is_container_property(container_name, name)
+                    } else {
+                        false
+                    };
+                    
+                    if !is_container_property {
+                        self.errors.push(SemanticError::new(
+                            format!("Variable '{name}' is not defined"),
+                            *line,
+                            *column,
+                        ));
+                    }
                 }
 
                 // Only analyze the value expression if the assignment is potentially valid
@@ -955,6 +976,9 @@ impl Analyzer {
                         .properties
                         .insert(prop.name.clone(), prop_info);
                 }
+                
+                // Register the container early so properties are available during method analysis
+                self.register_container(container_info.clone());
 
                 // Process static properties
                 for prop in static_properties {
@@ -1012,22 +1036,8 @@ impl Analyzer {
                         let previous_container = self.current_container.clone();
                         self.current_container = Some(name.clone());
                         
-                        // Add container properties as accessible variables
-                        for prop in properties {
-                            let prop_type = prop
-                                .property_type
-                                .as_ref()
-                                .cloned()
-                                .unwrap_or(Type::Unknown);
-                            let symbol = Symbol {
-                                name: prop.name.clone(),
-                                kind: SymbolKind::Variable { mutable: true },
-                                symbol_type: Some(prop_type),
-                                line: prop.line,
-                                column: prop.column,
-                            };
-                            let _ = self.current_scope.define(symbol);
-                        }
+                        // Properties will be resolved through container context
+                        // Don't add them as variables to avoid conflicts with assignments
                         
                         // Add method parameters
                         for param in parameters {
@@ -1126,9 +1136,7 @@ impl Analyzer {
                     }
                 }
 
-                // Register the container
-                self.register_container(container_info);
-
+                // Container already registered early for method analysis
                 // Also register as a type symbol
                 let container_symbol = Symbol {
                     name: name.clone(),
@@ -1302,6 +1310,21 @@ impl Analyzer {
     pub fn register_container(&mut self, container: ContainerInfo) {
         self.containers.insert(container.name.clone(), container);
     }
+    
+    fn is_container_property(&self, container_name: &str, property_name: &str) -> bool {
+        if let Some(container_info) = self.containers.get(container_name) {
+            // Check direct properties
+            if container_info.properties.contains_key(property_name) {
+                return true;
+            }
+            
+            // Check inherited properties
+            if let Some(parent_name) = &container_info.extends {
+                return self.is_container_property(parent_name, property_name);
+            }
+        }
+        false
+    }
 
     pub fn get_container(&self, name: &str) -> Option<&ContainerInfo> {
         self.containers.get(name)
@@ -1353,11 +1376,20 @@ impl Analyzer {
                 }
 
                 if self.current_scope.resolve(name).is_none() {
-                    self.errors.push(SemanticError::new(
-                        format!("Variable '{name}' is not defined"),
-                        *line,
-                        *column,
-                    ));
+                    // Check if it's a container property (including inherited)
+                    let is_container_property = if let Some(container_name) = &self.current_container {
+                        self.is_container_property(container_name, name)
+                    } else {
+                        false
+                    };
+                    
+                    if !is_container_property {
+                        self.errors.push(SemanticError::new(
+                            format!("Variable '{name}' is not defined"),
+                            *line,
+                            *column,
+                        ));
+                    }
                 }
             }
             Expression::FunctionCall {

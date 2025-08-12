@@ -47,9 +47,7 @@ Statement #4: ContainerDefinition {
         PropertyDefinition {
             name: "name",
             property_type: Some(
-                Custom(
-                    "Text",
-                ),
+                Text,
             ),
             default_value: None,
             validation_rules: [],
@@ -61,9 +59,7 @@ Statement #4: ContainerDefinition {
         PropertyDefinition {
             name: "age",
             property_type: Some(
-                Custom(
-                    "Number",
-                ),
+                Number,
             ),
             default_value: None,
             validation_rules: [],
@@ -75,9 +71,7 @@ Statement #4: ContainerDefinition {
         PropertyDefinition {
             name: "email",
             property_type: Some(
-                Custom(
-                    "Text",
-                ),
+                Text,
             ),
             default_value: None,
             validation_rules: [],
@@ -154,9 +148,7 @@ Statement #4: ContainerDefinition {
                 Parameter {
                     name: "new_email",
                     param_type: Some(
-                        Custom(
-                            "Text",
-                        ),
+                        Text,
                     ),
                     default_value: None,
                     line: 18,
@@ -204,15 +196,6 @@ Statement #4: ContainerDefinition {
             name: "get_info",
             parameters: [],
             body: [
-                ExpressionStatement {
-                    expression: Variable(
-                        "Text",
-                        23,
-                        22,
-                    ),
-                    line: 24,
-                    column: 9,
-                },
                 ReturnStatement {
                     value: Some(
                         Concatenation {
@@ -256,7 +239,9 @@ Statement #4: ContainerDefinition {
                     column: 9,
                 },
             ],
-            return_type: None,
+            return_type: Some(
+                Text,
+            ),
             line: 0,
             column: 0,
         },
@@ -430,9 +415,7 @@ Statement #12: ContainerDefinition {
         PropertyDefinition {
             name: "job_title",
             property_type: Some(
-                Custom(
-                    "Text",
-                ),
+                Text,
             ),
             default_value: None,
             validation_rules: [],
@@ -444,9 +427,7 @@ Statement #12: ContainerDefinition {
         PropertyDefinition {
             name: "salary",
             property_type: Some(
-                Custom(
-                    "Number",
-                ),
+                Number,
             ),
             default_value: None,
             validation_rules: [],
@@ -521,15 +502,6 @@ Statement #12: ContainerDefinition {
             name: "get_salary_info",
             parameters: [],
             body: [
-                ExpressionStatement {
-                    expression: Variable(
-                        "Text",
-                        50,
-                        29,
-                    ),
-                    line: 51,
-                    column: 9,
-                },
                 ReturnStatement {
                     value: Some(
                         Concatenation {
@@ -562,7 +534,9 @@ Statement #12: ContainerDefinition {
                     column: 9,
                 },
             ],
-            return_type: None,
+            return_type: Some(
+                Text,
+            ),
             line: 0,
             column: 0,
         },
@@ -572,9 +546,7 @@ Statement #12: ContainerDefinition {
                 Parameter {
                     name: "amount",
                     param_type: Some(
-                        Custom(
-                            "Number",
-                        ),
+                        Number,
                     ),
                     default_value: None,
                     line: 54,
@@ -816,9 +788,7 @@ Statement #21: ContainerDefinition {
         PropertyDefinition {
             name: "width",
             property_type: Some(
-                Custom(
-                    "Number",
-                ),
+                Number,
             ),
             default_value: None,
             validation_rules: [],
@@ -830,9 +800,7 @@ Statement #21: ContainerDefinition {
         PropertyDefinition {
             name: "height",
             property_type: Some(
-                Custom(
-                    "Number",
-                ),
+                Number,
             ),
             default_value: None,
             validation_rules: [],
@@ -896,15 +864,6 @@ Statement #21: ContainerDefinition {
             name: "get_area",
             parameters: [],
             body: [
-                ExpressionStatement {
-                    expression: Variable(
-                        "Number",
-                        85,
-                        22,
-                    ),
-                    line: 86,
-                    column: 9,
-                },
                 ReturnStatement {
                     value: Some(
                         BinaryOperation {
@@ -927,7 +886,9 @@ Statement #21: ContainerDefinition {
                     column: 9,
                 },
             ],
-            return_type: None,
+            return_type: Some(
+                Number,
+            ),
             line: 0,
             column: 0,
         },
@@ -937,9 +898,7 @@ Statement #21: ContainerDefinition {
                 Parameter {
                     name: "w",
                     param_type: Some(
-                        Custom(
-                            "Number",
-                        ),
+                        Number,
                     ),
                     default_value: None,
                     line: 89,
@@ -948,9 +907,7 @@ Statement #21: ContainerDefinition {
                 Parameter {
                     name: "h",
                     param_type: Some(
-                        Custom(
-                            "Number",
-                        ),
+                        Number,
                     ),
                     default_value: None,
                     line: 89,
@@ -1194,9 +1151,7 @@ Statement #31: ContainerDefinition {
         PropertyDefinition {
             name: "label",
             property_type: Some(
-                Custom(
-                    "Text",
-                ),
+                Text,
             ),
             default_value: None,
             validation_rules: [],
@@ -1208,9 +1163,7 @@ Statement #31: ContainerDefinition {
         PropertyDefinition {
             name: "clicked",
             property_type: Some(
-                Custom(
-                    "Number",
-                ),
+                Number,
             ),
             default_value: None,
             validation_rules: [],
@@ -1491,9 +1444,7 @@ Statement #38: ContainerDefinition {
         PropertyDefinition {
             name: "text_prop",
             property_type: Some(
-                Custom(
-                    "Text",
-                ),
+                Text,
             ),
             default_value: None,
             validation_rules: [],
@@ -1505,9 +1456,7 @@ Statement #38: ContainerDefinition {
         PropertyDefinition {
             name: "num_prop",
             property_type: Some(
-                Custom(
-                    "Number",
-                ),
+                Number,
             ),
             default_value: None,
             validation_rules: [],
@@ -1519,9 +1468,7 @@ Statement #38: ContainerDefinition {
         PropertyDefinition {
             name: "bool_prop",
             property_type: Some(
-                Custom(
-                    "Boolean",
-                ),
+                Boolean,
             ),
             default_value: None,
             validation_rules: [],
@@ -1538,9 +1485,7 @@ Statement #38: ContainerDefinition {
                 Parameter {
                     name: "t",
                     param_type: Some(
-                        Custom(
-                            "Text",
-                        ),
+                        Text,
                     ),
                     default_value: None,
                     line: 146,
@@ -1549,9 +1494,7 @@ Statement #38: ContainerDefinition {
                 Parameter {
                     name: "n",
                     param_type: Some(
-                        Custom(
-                            "Number",
-                        ),
+                        Number,
                     ),
                     default_value: None,
                     line: 146,
@@ -1560,9 +1503,7 @@ Statement #38: ContainerDefinition {
                 Parameter {
                     name: "b",
                     param_type: Some(
-                        Custom(
-                            "Boolean",
-                        ),
+                        Boolean,
                     ),
                     default_value: None,
                     line: 146,
@@ -1977,9 +1918,7 @@ Statement #45: ContainerDefinition {
         PropertyDefinition {
             name: "species",
             property_type: Some(
-                Custom(
-                    "Text",
-                ),
+                Text,
             ),
             default_value: None,
             validation_rules: [],
@@ -2048,9 +1987,7 @@ Statement #46: ContainerDefinition {
         PropertyDefinition {
             name: "fur_color",
             property_type: Some(
-                Custom(
-                    "Text",
-                ),
+                Text,
             ),
             default_value: None,
             validation_rules: [],
@@ -2139,9 +2076,7 @@ Statement #47: ContainerDefinition {
         PropertyDefinition {
             name: "breed",
             property_type: Some(
-                Custom(
-                    "Text",
-                ),
+                Text,
             ),
             default_value: None,
             validation_rules: [],
