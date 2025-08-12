@@ -15,7 +15,7 @@ create container Person:
         display "Hello, I am " with name with " and I am " with age with " years old."
     end
     
-    action set_email with new_email: Text:
+    action set_email needs new_email: Text:
         store email as new_email
         display "Email set to: " with email
     end
@@ -51,7 +51,7 @@ create container Employee extends Person:
         return job_title with " earns $" with salary
     end
     
-    action give_raise with amount: Number:
+    action give_raise needs amount: Number:
         store salary as salary + amount
         display name with " received a raise of $" with amount
     end
@@ -72,10 +72,7 @@ display ""
 
 // === Interface Implementation ===
 display "3. Interface Implementation Test"
-create interface Drawable:
-    action draw
-    action get_area: Number
-end
+create interface Drawable
 
 create container Rectangle implements Drawable:
     property width: Number
@@ -86,10 +83,10 @@ create container Rectangle implements Drawable:
     end
     
     action get_area: Number
-        return width * height
+        return width times height
     end
     
-    action set_dimensions with w: Number and h: Number:
+    action set_dimensions needs w: Number, h: Number:
         store width as w
         store height as h
     end
@@ -146,7 +143,7 @@ create container TypedContainer:
     property num_prop: Number
     property bool_prop: Boolean
     
-    action set_props with t: Text and n: Number and b: Boolean:
+    action set_props needs t: Text, n: Number, b: Boolean:
         store text_prop as t
         store num_prop as n  
         store bool_prop as b

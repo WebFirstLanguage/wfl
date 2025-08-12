@@ -38,7 +38,11 @@
       "Bash(../target/release/wfl --parse basic_syntax_comprehensive.wfl)",
       "Bash(target\\release\\wfl.exe:*)",
       "Bash(targetreleasewfl.exe TestProgramstest_length.wfl)",
-      "Bash(../target/release/wfl.exe test_redefinition_error.wfl:*)"
+      "Bash(../target/release/wfl.exe test_redefinition_error.wfl:*)",
+      "Bash(../target/debug/wfl.exe --parse containers_comprehensive.wfl)",
+      "Bash(.targetdebugwfl.exe --parse TestProgramscontainers_comprehensive.wfl)",
+      "Bash(.targetreleasewfl.exe TestProgramstest_redefinition_error.wfl)",
+      "Bash(git fetch:*)"
     ],
     "deny": []
   }

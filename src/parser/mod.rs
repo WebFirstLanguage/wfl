@@ -837,7 +837,14 @@ impl<'a> Parser<'a> {
                 if let Some(type_token) = self.tokens.peek() {
                     if let Token::Identifier(type_name) = &type_token.token {
                         self.tokens.next(); // Consume type name
-                        Some(Type::Custom(type_name.clone()))
+                        Some(match type_name.as_str() {
+                            "Text" => Type::Text,
+                            "Number" => Type::Number,
+                            "Boolean" => Type::Boolean,
+                            "Nothing" => Type::Nothing,
+                            "Pattern" => Type::Pattern,
+                            _ => Type::Custom(type_name.clone()),
+                        })
                     } else {
                         return Err(ParseError::new(
                             "Expected type name after ':'".to_string(),
@@ -940,7 +947,14 @@ impl<'a> Parser<'a> {
                         if let Some(type_name_token) = self.tokens.peek() {
                             if let Token::Identifier(type_name) = &type_name_token.token {
                                 self.tokens.next(); // Consume type name
-                                Some(Type::Custom(type_name.clone()))
+                                Some(match type_name.as_str() {
+                                    "Text" => Type::Text,
+                                    "Number" => Type::Number,
+                                    "Boolean" => Type::Boolean,
+                                    "Nothing" => Type::Nothing,
+                                    "Pattern" => Type::Pattern,
+                                    _ => Type::Custom(type_name.clone()),
+                                })
                             } else {
                                 return Err(ParseError::new(
                                     "Expected type name after ':'".to_string(),
@@ -4723,10 +4737,47 @@ impl<'a> Parser<'a> {
             parameters = self.parse_parameter_list()?;
         }
 
-        // For now, container actions don't support explicit return types
-        let return_type = None;
+        // Parse return type if present (after parameters or action name)
+        let return_type = if let Some(token) = self.tokens.peek().cloned()
+            && matches!(token.token, Token::Colon)
+        {
+            self.tokens.next(); // Consume ':'
 
-        self.expect_token(Token::Colon, "Expected ':' after action declaration")?;
+            // Check if the next token is actually a type identifier
+            // If it's not, this colon just marks the start of the action body (no return type)
+            if let Some(type_token) = self.tokens.peek().cloned() {
+                if let Token::Identifier(type_name) = &type_token.token {
+                    // Check if this identifier is a valid type name
+                    let is_type = matches!(
+                        type_name.as_str(),
+                        "Text" | "Number" | "Boolean" | "Nothing" | "Pattern"
+                    ) || type_name.chars().next().is_some_and(|c| c.is_uppercase());
+
+                    if is_type {
+                        self.tokens.next(); // Consume type name
+                        Some(match type_name.as_str() {
+                            "Text" => Type::Text,
+                            "Number" => Type::Number,
+                            "Boolean" => Type::Boolean,
+                            "Nothing" => Type::Nothing,
+                            "Pattern" => Type::Pattern,
+                            _ => Type::Custom(type_name.clone()),
+                        })
+                    } else {
+                        // This identifier is not a type, so no return type specified
+                        None
+                    }
+                } else {
+                    // Next token after ':' is not an identifier, so no return type
+                    None
+                }
+            } else {
+                // End of input after ':', so no return type
+                None
+            }
+        } else {
+            None
+        };
 
         let mut body = Vec::new();
 

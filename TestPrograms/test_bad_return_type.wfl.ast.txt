@@ -1,0 +1,41 @@
+AST output for: TestPrograms/test_bad_return_type.wfl
+==============================================
+
+Program with 1 statements:
+
+Statement #1: ContainerDefinition {
+    name: "TestContainer",
+    extends: None,
+    implements: [],
+    properties: [],
+    methods: [
+        ActionDefinition {
+            name: "bad_return",
+            parameters: [],
+            body: [
+                ReturnStatement {
+                    value: Some(
+                        Literal(
+                            Integer(
+                                0,
+                            ),
+                            4,
+                            16,
+                        ),
+                    ),
+                    line: 4,
+                    column: 9,
+                },
+            ],
+            return_type: None,
+            line: 0,
+            column: 0,
+        },
+    ],
+    events: [],
+    static_properties: [],
+    static_methods: [],
+    line: 2,
+    column: 1,
+}
+
