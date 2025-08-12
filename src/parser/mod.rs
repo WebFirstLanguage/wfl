@@ -2362,15 +2362,50 @@ impl<'a> Parser<'a> {
                     let token_line = token.line;
                     let token_column = token.column;
 
-                    // Check if it's "list files in"
+                    // Check if it's "list files [recursively] in"
                     if let Some(next_token) = self.tokens.peek()
                         && next_token.token == Token::KeywordFiles
                     {
                         self.tokens.next(); // Consume "files"
-                        self.expect_token(Token::KeywordIn, "Expected 'in' after 'list files'")?;
+                        
+                        // Check if "recursively" comes before "in"
+                        let mut is_recursive = false;
+                        if let Some(token) = self.tokens.peek()
+                            && token.token == Token::KeywordRecursively
+                        {
+                            self.tokens.next(); // Consume "recursively"
+                            is_recursive = true;
+                        }
+                        
+                        self.expect_token(Token::KeywordIn, "Expected 'in' after 'list files [recursively]'")?;
                         let path = self.parse_primary_expression()?;
 
-                        // Check for "recursively" or "with"
+                        // Handle recursive listing (if not already handled)
+                        if is_recursive {
+                            // Check for "with extension/extensions" after recursive
+                            if let Some(with_token) = self.tokens.peek()
+                                && with_token.token == Token::KeywordWith
+                            {
+                                self.tokens.next(); // Consume "with"
+                                let extensions = self.parse_extension_filter()?;
+                                return Ok(Expression::ListFilesRecursive {
+                                    path: Box::new(path),
+                                    extensions: Some(extensions),
+                                    line: token_line,
+                                    column: token_column,
+                                });
+                            }
+
+                            // Just recursively, no filter
+                            return Ok(Expression::ListFilesRecursive {
+                                path: Box::new(path),
+                                extensions: None,
+                                line: token_line,
+                                column: token_column,
+                            });
+                        }
+                        
+                        // Check for "recursively" or "with" after the path
                         if let Some(next) = self.tokens.peek() {
                             match &next.token {
                                 Token::KeywordRecursively => {
@@ -3883,10 +3918,40 @@ impl<'a> Parser<'a> {
             // Check for "for append", "and read content as" pattern AND direct "as" pattern
             if let Some(next_token) = self.tokens.peek().cloned() {
                 if next_token.token == Token::KeywordFor {
-                    // Check for "for append as" pattern
+                    // Check for "for [mode] as" pattern where mode can be append, reading, or writing
                     self.tokens.next(); // Consume "for"
-                    self.expect_token(Token::KeywordAppend, "Expected 'append' after 'for'")?;
-                    self.expect_token(Token::KeywordAs, "Expected 'as' after 'append'")?;
+                    
+                    let mode = if let Some(token) = self.tokens.peek().cloned() {
+                        match token.token {
+                            Token::KeywordAppend => {
+                                self.tokens.next(); // Consume "append"
+                                FileOpenMode::Append
+                            }
+                            Token::Identifier(ref mode_str) if mode_str == "reading" => {
+                                self.tokens.next(); // Consume "reading"
+                                FileOpenMode::Read
+                            }
+                            Token::Identifier(ref mode_str) if mode_str == "writing" => {
+                                self.tokens.next(); // Consume "writing"
+                                FileOpenMode::Write
+                            }
+                            _ => {
+                                return Err(ParseError::new(
+                                    "Expected 'append', 'reading', or 'writing' after 'for'".to_string(),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected mode after 'for'".to_string(),
+                            next_token.line,
+                            next_token.column,
+                        ));
+                    };
+
+                    self.expect_token(Token::KeywordAs, "Expected 'as' after file mode")?;
 
                     let variable_name = if let Some(token) = self.tokens.peek().cloned() {
                         if let Token::Identifier(name) = &token.token {
@@ -3910,7 +3975,7 @@ impl<'a> Parser<'a> {
                     return Ok(Statement::OpenFileStatement {
                         path: path_expr,
                         variable_name,
-                        mode: FileOpenMode::Append,
+                        mode,
                         line: open_token.line,
                         column: open_token.column,
                     });
@@ -4889,7 +4954,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_extension_filter(&mut self) -> Result<Vec<Expression>, ParseError> {
-        // Expect "extension" or "extensions"
+        // Expect "extension", "extensions", or "pattern"
         if let Some(token) = self.tokens.peek() {
             match &token.token {
                 Token::KeywordExtension => {
@@ -4925,15 +4990,21 @@ impl<'a> Parser<'a> {
                         Ok(vec![expr])
                     }
                 }
+                Token::KeywordPattern => {
+                    self.tokens.next(); // Consume "pattern"
+                    // Parse pattern expression (e.g., "*.wfl")
+                    let expr = self.parse_primary_expression()?;
+                    Ok(vec![expr])
+                }
                 _ => Err(ParseError::new(
-                    "Expected 'extension' or 'extensions' after 'with'".to_string(),
+                    "Expected 'extension', 'extensions', or 'pattern' after 'with'".to_string(),
                     token.line,
                     token.column,
                 )),
             }
         } else {
             Err(ParseError::new(
-                "Expected 'extension' or 'extensions' after 'with'".to_string(),
+                "Expected 'extension', 'extensions', or 'pattern' after 'with'".to_string(),
                 0,
                 0,
             ))
