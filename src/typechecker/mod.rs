@@ -88,6 +88,7 @@ pub struct TypeChecker {
     analyzer: Analyzer,
     errors: Vec<TypeError>,
     analyzer_already_run: bool,
+    current_container: Option<String>,
 }
 
 impl Default for TypeChecker {
@@ -106,6 +107,7 @@ impl TypeChecker {
             analyzer,
             errors: Vec::new(),
             analyzer_already_run: false,
+            current_container: None,
         }
     }
 
@@ -116,6 +118,7 @@ impl TypeChecker {
             analyzer,
             errors: Vec::new(),
             analyzer_already_run: true, // Analyzer has already been run when passed in
+            current_container: None,
         }
     }
 
@@ -346,7 +349,32 @@ impl TypeChecker {
                     return;
                 }
 
+                // Check if this is a container property assignment within a method
+                // In this case, we might know the property type from the container definition
+                let mut is_container_property_assignment = false;
                 if inferred_type == Type::Unknown {
+                    // Check if we're in a container method and this is a property assignment
+                    if let Some(ref container_name) = self.current_container {
+                        if let Some(container_info) = self.analyzer.get_container(container_name) {
+                            if container_info.properties.contains_key(name) {
+                                // This is a container property assignment
+                                is_container_property_assignment = true;
+                            }
+                        }
+                    }
+                    
+                    // Also check if the analyzer has this symbol (fallback)
+                    if !is_container_property_assignment {
+                        if let Some(symbol) = self.analyzer.get_symbol(name) {
+                            if symbol.symbol_type.is_some() {
+                                // Variable already exists with a known type
+                                is_container_property_assignment = true;
+                            }
+                        }
+                    }
+                }
+
+                if inferred_type == Type::Unknown && !is_container_property_assignment {
                     self.type_error(
                         format!("Could not infer type for variable '{name}'"),
                         None,
@@ -1066,9 +1094,16 @@ impl TypeChecker {
 
                 for method in methods {
                     if let Statement::ActionDefinition { body, .. } = method {
+                        // Set container context for method body analysis
+                        let previous_container = self.current_container.clone();
+                        self.current_container = Some(_name.clone());
+                        
                         for stmt in body {
                             self.check_statement_types(stmt);
                         }
+                        
+                        // Restore previous container context
+                        self.current_container = previous_container;
                     }
                 }
 

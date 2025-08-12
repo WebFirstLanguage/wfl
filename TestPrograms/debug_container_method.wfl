@@ -1,0 +1,13 @@
+create container Person:
+    property name: Text
+    
+    action greet:
+        display "Hello, I am " with name
+    end
+end
+
+create new Person as alice:
+    name is "Alice"
+end
+
+alice.greet()

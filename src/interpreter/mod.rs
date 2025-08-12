@@ -929,7 +929,15 @@ impl Interpreter {
                     env.borrow_mut()
                         .define_constant(name, evaluated_value.clone())
                 } else {
-                    env.borrow_mut().define(name, evaluated_value.clone())
+                    // Check if this variable already exists in the current environment
+                    // This handles container property assignment in methods
+                    if env.borrow().get(name).is_some() {
+                        // Variable exists, use assignment instead of definition
+                        env.borrow_mut().assign(name, evaluated_value.clone())
+                    } else {
+                        // Variable doesn't exist, use normal definition
+                        env.borrow_mut().define(name, evaluated_value.clone())
+                    }
                 };
 
                 match result {
@@ -2339,7 +2347,7 @@ impl Interpreter {
                 implements,
                 properties,
                 methods,
-                events: _events,
+                events,
                 static_properties: _static_properties,
                 static_methods: _static_methods,
                 line,
@@ -2400,13 +2408,26 @@ impl Interpreter {
                     }
                 }
 
+                // Process events
+                let mut container_events = HashMap::new();
+                for event in events {
+                    let container_event = ContainerEventValue {
+                        name: event.name.clone(),
+                        params: event.parameters.iter().map(|p| p.name.clone()).collect(),
+                        handlers: Vec::new(),
+                        line: event.line,
+                        column: event.column,
+                    };
+                    container_events.insert(event.name.clone(), container_event);
+                }
+
                 let container_def = ContainerDefinitionValue {
                     name: name.clone(),
                     extends: extends.clone(),
                     implements: implements.clone(),
                     properties: container_properties,
                     methods: container_methods,
-                    events: HashMap::new(),            // Future feature
+                    events: container_events,
                     static_properties: HashMap::new(), // Future feature
                     static_methods: HashMap::new(),    // Future feature
                     line: *line,
@@ -2972,8 +2993,33 @@ impl Interpreter {
                         }
                     };
 
-                    // Look up the method
-                    if let Some(method_val) = container_def.methods.get(method) {
+                    // Look up the method (with inheritance support)
+                    let mut found_method = container_def.methods.get(method).cloned();
+                    let mut current_container_name = container_type.clone();
+                    
+                    // If method not found, check parent containers
+                    while found_method.is_none() {
+                        if let Some(current_def) = env.borrow().get(&current_container_name) {
+                            if let Value::ContainerDefinition(def) = current_def {
+                                if let Some(parent_name) = &def.extends {
+                                    current_container_name = parent_name.clone();
+                                    if let Some(Value::ContainerDefinition(parent_def)) = env.borrow().get(parent_name) {
+                                        found_method = parent_def.methods.get(method).cloned();
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    if let Some(method_val) = found_method {
                         // Create a function value from the method
                         let function = FunctionValue {
                             name: Some(method_val.name.clone()),
@@ -2990,11 +3036,21 @@ impl Interpreter {
                         // Add 'this' to the environment
                         let _ = method_env.borrow_mut().define("this", object_val.clone());
                         
-                        // Add container properties as accessible variables
+                        // Add container properties and events as accessible variables
                         if let Value::ContainerInstance(instance_rc) = &object_val_clone {
                             let instance = instance_rc.borrow();
+                            
+                            // Add properties
                             for (prop_name, prop_value) in &instance.properties {
                                 let _ = method_env.borrow_mut().define(prop_name, prop_value.clone());
+                            }
+                            
+                            // Add events from the container definition
+                            if let Some(Value::ContainerDefinition(container_def_rc)) = env.borrow().get(&instance.container_type) {
+                                let container_def = container_def_rc.clone();
+                                for (event_name, event_value) in &container_def.events {
+                                    let _ = method_env.borrow_mut().define(event_name, Value::ContainerEvent(Rc::new(event_value.clone())));
+                                }
                             }
                         }
 

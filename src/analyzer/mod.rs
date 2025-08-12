@@ -1136,7 +1136,9 @@ impl Analyzer {
                     }
                 }
 
-                // Container already registered early for method analysis
+                // Re-register the container with all methods now that they've been processed
+                self.register_container(container_info.clone());
+                
                 // Also register as a type symbol
                 let container_symbol = Symbol {
                     name: name.clone(),
@@ -1166,6 +1168,27 @@ impl Analyzer {
                 };
 
                 if let Err(e) = self.current_scope.define(instance_symbol) {
+                    self.errors.push(e);
+                }
+            }
+
+            Statement::InterfaceDefinition {
+                name,
+                extends: _,
+                required_actions: _,
+                line,
+                column,
+            } => {
+                // Register the interface as a type symbol
+                let interface_symbol = Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: Some(Type::Interface(name.clone())),
+                    line: *line,
+                    column: *column,
+                };
+                
+                if let Err(e) = self.current_scope.define(interface_symbol) {
                     self.errors.push(e);
                 }
             }
