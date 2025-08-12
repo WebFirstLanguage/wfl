@@ -1548,7 +1548,7 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -1584,7 +1584,7 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -1705,7 +1705,7 @@ impl Interpreter {
                 }
             }
             Statement::CreateDirectoryStatement { path, line, column } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -1728,7 +1728,7 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                 let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
 
                 let path_str = match &path_value {
@@ -1750,7 +1750,7 @@ impl Interpreter {
                 }
             }
             Statement::DeleteFileStatement { path, line, column } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -1795,7 +1795,7 @@ impl Interpreter {
                 }
             }
             Statement::DeleteDirectoryStatement { path, line, column } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -1912,7 +1912,8 @@ impl Interpreter {
                         column,
                     } => {
                         exec_trace!("Executing wait for read file statement");
-                        let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                        let path_value =
+                            Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                         let path_str = match &path_value {
                             Value::Text(s) => s.clone(),
                             _ => {
@@ -2950,7 +2951,8 @@ impl Interpreter {
                 column,
             } => {
                 // Evaluate the object
-                let object_val = self.evaluate_expression(object, Rc::clone(&env)).await?;
+                let object_val =
+                    Box::pin(self._evaluate_expression(object, Rc::clone(&env))).await?;
 
                 // Clone the object value to avoid borrow issues
                 let object_val_clone = object_val.clone();
@@ -3047,7 +3049,7 @@ impl Interpreter {
                 Literal::List(elements) => {
                     let mut list_values = Vec::new();
                     for element in elements {
-                        // Use Box::pin to handle recursion in async fn
+                        // Already in _evaluate_expression, so direct call is fine
                         let future = Box::pin(self._evaluate_expression(element, Rc::clone(&env)));
                         let value = future.await?;
                         list_values.push(value);
@@ -3096,11 +3098,11 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // Use Box::pin to handle recursion in async fn
-                let left_future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
+                // Call _evaluate_expression directly to avoid double Boxing when recursing
+                let left_future = Box::pin(self._evaluate_expression(left, Rc::clone(&env)));
                 let left_val = left_future.await?;
 
-                let right_val = self.evaluate_expression(right, Rc::clone(&env)).await?;
+                let right_val = Box::pin(self._evaluate_expression(right, Rc::clone(&env))).await?;
 
                 match operator {
                     Operator::Plus => self.add(left_val, right_val, *line, *column),
@@ -3152,7 +3154,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let function_val = self.evaluate_expression(function, Rc::clone(&env)).await?;
+                let function_val =
+                    Box::pin(self._evaluate_expression(function, Rc::clone(&env))).await?;
 
                 let mut arg_values = Vec::new();
                 for arg in arguments {
@@ -3253,7 +3256,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let object_val = self.evaluate_expression(object, Rc::clone(&env)).await?;
+                let object_val =
+                    Box::pin(self._evaluate_expression(object, Rc::clone(&env))).await?;
 
                 match object_val {
                     Value::Object(obj_rc) => {
@@ -3285,7 +3289,7 @@ impl Interpreter {
                 let collection_val = self
                     .evaluate_expression(collection, Rc::clone(&env))
                     .await?;
-                let index_val = self.evaluate_expression(index, Rc::clone(&env)).await?;
+                let index_val = Box::pin(self._evaluate_expression(index, Rc::clone(&env))).await?;
 
                 match (collection_val, index_val) {
                     (Value::List(list_rc), Value::Number(idx)) => {
@@ -3338,12 +3342,11 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                // Use Box::pin to handle recursion in async fn
-                let left_future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
+                // Call _evaluate_expression directly to avoid double Boxing when recursing
+                let left_future = Box::pin(self._evaluate_expression(left, Rc::clone(&env)));
                 let left_val = left_future.await?;
 
-                // Use Box::pin to handle recursion in async fn
-                let right_future = Box::pin(self.evaluate_expression(right, Rc::clone(&env)));
+                let right_future = Box::pin(self._evaluate_expression(right, Rc::clone(&env)));
                 let right_val = right_future.await?;
 
                 let result = format!("{left_val}{right_val}");
@@ -3356,8 +3359,9 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
-                let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
+                let text_val = Box::pin(self._evaluate_expression(text, Rc::clone(&env))).await?;
+                let pattern_val =
+                    Box::pin(self._evaluate_expression(pattern, Rc::clone(&env))).await?;
 
                 // Extract text string
                 let text_str = match &text_val {
@@ -3394,8 +3398,9 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
-                let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
+                let text_val = Box::pin(self._evaluate_expression(text, Rc::clone(&env))).await?;
+                let pattern_val =
+                    Box::pin(self._evaluate_expression(pattern, Rc::clone(&env))).await?;
 
                 // Extract text string
                 let text_str = match &text_val {
@@ -3462,11 +3467,11 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
-                let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
-                let replacement_val = self
-                    .evaluate_expression(replacement, Rc::clone(&env))
-                    .await?;
+                let text_val = Box::pin(self._evaluate_expression(text, Rc::clone(&env))).await?;
+                let pattern_val =
+                    Box::pin(self._evaluate_expression(pattern, Rc::clone(&env))).await?;
+                let replacement_val =
+                    Box::pin(self._evaluate_expression(replacement, Rc::clone(&env))).await?;
 
                 let args = vec![text_val, pattern_val, replacement_val]; // Note: text, pattern, then replacement
                 crate::stdlib::pattern::native_pattern_replace(args, *_line, *_column)
@@ -3478,8 +3483,9 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
-                let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
+                let text_val = Box::pin(self._evaluate_expression(text, Rc::clone(&env))).await?;
+                let pattern_val =
+                    Box::pin(self._evaluate_expression(pattern, Rc::clone(&env))).await?;
 
                 let args = vec![text_val, pattern_val];
                 crate::stdlib::pattern::native_pattern_split(args, *_line, *_column)
@@ -3490,7 +3496,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let obj_value = self.evaluate_expression(object, Rc::clone(&env)).await?;
+                let obj_value =
+                    Box::pin(self._evaluate_expression(object, Rc::clone(&env))).await?;
                 match obj_value {
                     Value::ContainerInstance(instance) => {
                         let instance_ref = instance.borrow();
@@ -3512,7 +3519,7 @@ impl Interpreter {
                 }
             }
             Expression::FileExists { path, line, column } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -3527,7 +3534,7 @@ impl Interpreter {
                 Ok(Value::Bool(tokio::fs::metadata(&*path_str).await.is_ok()))
             }
             Expression::DirectoryExists { path, line, column } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -3545,7 +3552,7 @@ impl Interpreter {
                 }
             }
             Expression::ListFiles { path, line, column } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -3604,7 +3611,7 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -3620,7 +3627,8 @@ impl Interpreter {
                 let ext_filters = if let Some(ext_exprs) = extensions {
                     let mut filters = Vec::new();
                     for ext_expr in ext_exprs {
-                        let ext_value = self.evaluate_expression(ext_expr, Rc::clone(&env)).await?;
+                        let ext_value =
+                            Box::pin(self._evaluate_expression(ext_expr, Rc::clone(&env))).await?;
                         match &ext_value {
                             Value::Text(s) => filters.push(s.to_string()),
                             Value::List(list) => {
@@ -3673,7 +3681,7 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -3688,7 +3696,8 @@ impl Interpreter {
                 // Evaluate extensions
                 let mut ext_filters = Vec::new();
                 for ext_expr in extensions {
-                    let ext_value = self.evaluate_expression(ext_expr, Rc::clone(&env)).await?;
+                    let ext_value =
+                        Box::pin(self._evaluate_expression(ext_expr, Rc::clone(&env))).await?;
                     match &ext_value {
                         Value::Text(s) => ext_filters.push(s.to_string()),
                         Value::List(list) => {

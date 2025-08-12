@@ -268,10 +268,7 @@ pub fn get_function_arity(name: &str) -> usize {
         // Default case for unknown functions
         // This should not happen if all builtins are properly catalogued above
         _ => {
-            eprintln!(
-                "Warning: Unknown builtin function '{}' - defaulting to 1 argument",
-                name
-            );
+            eprintln!("Warning: Unknown builtin function '{name}' - defaulting to 1 argument");
             1
         }
     }
@@ -390,12 +387,7 @@ mod tests {
         for function_name in BUILTIN_FUNCTIONS {
             let arity = get_function_arity(function_name);
             // Just verify it doesn't panic and returns a reasonable value
-            assert!(
-                arity <= 10,
-                "Function '{}' has unreasonable arity: {}",
-                function_name,
-                arity
-            );
+            assert!(arity <= 10, "Function '{function_name}' has unreasonable arity: {arity}");
         }
     }
 }

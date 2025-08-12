@@ -1,0 +1,56 @@
+// Stress test for deep async recursion that might cause stack overflow
+// This creates a pathological case with extreme nesting and recursion
+
+display "Starting deep recursion stress test"
+
+// Create a deeply nested chain of string concatenations
+store base_text as "start"
+store counter as 0
+
+// This creates a long chain of expressions that each require async evaluation
+store result1 as base_text with "-" with "level1" with "-" with "part1"
+store result2 as result1 with "-" with "level2" with "-" with "part2" with "-" with substring of result1 and 0 and 5
+store result3 as result2 with "-" with "level3" with "-" with "part3" with "-" with substring of result2 and 0 and 10
+store result4 as result3 with "-" with "level4" with "-" with "part4" with "-" with substring of result3 and 0 and 15
+store result5 as result4 with "-" with "level5" with "-" with "part5" with "-" with substring of result4 and 0 and 20
+
+// Now create deeply nested conditionals with complex expressions in each branch
+check if length of result5 is greater than 10:
+    check if substring of result5 and 0 and 5 is "start":
+        check if result5 with "-extra" with "-" with length of result5 is result5 with "-extra-" with length of result5:
+            check if substring of result5 with "-test" and 0 and 10 is "start-leve":
+                check if length of result5 with "-" with result4 with "-" with result3 is greater than 100:
+                    display "Deep nesting level 5: " with result5 with " (length: " with length of result5 with ")"
+                    display "Complex expression: " with substring of result5 with "-final" and 0 with 25
+                otherwise:
+                    display "Fallback level 5: " with result5
+                end check
+            otherwise:
+                display "Fallback level 4: " with result4
+            end check
+        otherwise:
+            display "Fallback level 3: " with result3
+        end check
+    otherwise:
+        display "Fallback level 2: " with result2
+    end check
+otherwise:
+    display "Fallback level 1: " with result1
+end check
+
+// Create a loop with complex nested expressions
+store complex_list as ["item1" and "item2" and "item3" and "item4" and "item5"]
+for each item in complex_list:
+    check if length of item is greater than 4:
+        store complex_result as item with "-" with length of item with "-" with substring of item and 0 and 3
+        check if complex_result with "-test" is item with "-" with length of item with "-" with substring of item and 0 and 3 with "-test":
+            display "Complex match: " with complex_result with " -> " with item
+        otherwise:
+            display "Complex no-match: " with complex_result
+        end check
+    otherwise:
+        display "Simple item: " with item
+    end check
+end for
+
+display "Deep recursion stress test completed"

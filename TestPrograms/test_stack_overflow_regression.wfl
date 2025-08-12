@@ -1,0 +1,51 @@
+// Test program to reproduce stack overflow with nested conditionals and string concatenation
+// This is designed to trigger the async recursion issue described in issue #145
+
+display "Testing deep async recursion that could cause stack overflow"
+
+// Simulate the exact problematic pattern from args_comprehensive.wfl
+store test_args as ["--test" and "value1" and "value2" and "value3" and "value4"]
+store test_arg_count as 5
+
+check if test_arg_count is greater than 0:
+    store has_test as no
+    store has_verbose as no
+    store has_debug as no
+    store non_flag_args as []
+    
+    for each arg in test_args:
+        check if arg is "--test" or arg is "-t":
+            change has_test to yes
+        otherwise:
+            check if arg is "--verbose" or arg is "-v":
+                change has_verbose to yes
+            otherwise:
+                check if arg is "--debug" or arg is "-d":
+                    change has_debug to yes
+                otherwise:
+                    check if substring of arg and 0 and 1 is "-":
+                        // This creates deep nested async calls: 
+                        // display -> concatenation -> substring function call -> variable access
+                        display "  Unknown flag: " with arg with " (length: " with length of arg with ")"
+                    otherwise:
+                        // More nested calls with concatenation and list operations
+                        display "  Adding non-flag: " with arg
+                        push with non_flag_args and arg
+                    end check
+                end check
+            end check
+        end check
+    end for
+    
+    // More concatenation operations that could trigger recursion
+    display "Results: test=" with has_test with ", verbose=" with has_verbose with ", debug=" with has_debug
+    
+    for each non_flag in non_flag_args:
+        // Even more nested async calls with multiple concatenations
+        display "  - " with non_flag with " (" with length of non_flag with " chars)"
+    end for
+otherwise:
+    display "No arguments"
+end check
+
+display "Test completed successfully"

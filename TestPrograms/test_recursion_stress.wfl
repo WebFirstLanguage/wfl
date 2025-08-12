@@ -1,0 +1,26 @@
+// Stress test for the async recursion fixes
+// This creates many levels of nested string concatenations
+
+display "Testing async recursion fixes"
+
+// Create deeply nested concatenations
+store a as "start"
+store b as a with "-" with "level1"
+store c as b with "-" with "level2" with "-" with length of b
+store d as c with "-" with "level3" with "-" with length of c with "-" with substring of c and 0 and 5
+store e as d with "-" with "level4" with "-" with length of d with "-" with substring of d and 0 and 10
+
+display "Final result: " with e
+
+// Test nested conditionals with concatenations (reproduces original issue pattern)
+check if length of e is greater than 10:
+    check if substring of e and 0 and 5 is "start":
+        display "Success: " with e with " starts correctly"
+    otherwise:
+        display "Error: " with e with " does not start with 'start'"
+    end check
+otherwise:
+    display "Error: " with e with " is too short"
+end check
+
+display "Recursion stress test completed successfully"
