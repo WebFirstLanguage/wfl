@@ -914,7 +914,7 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                let mut evaluated_value = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                let mut evaluated_value = Box::pin(self._evaluate_expression(value, Rc::clone(&env))).await?;
 
                 if let Value::Text(text) = &evaluated_value
                     && text.as_ref() == "[]"
@@ -944,7 +944,7 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let value = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                let value = Box::pin(self._evaluate_expression(value, Rc::clone(&env))).await?;
                 #[cfg(debug_assertions)]
                 exec_var_assign!(name, &value);
                 match env.borrow_mut().assign(name, value.clone()) {
@@ -960,7 +960,7 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                let condition_value = self.evaluate_expression(condition, Rc::clone(&env)).await?;
+                let condition_value = Box::pin(self._evaluate_expression(condition, Rc::clone(&env))).await?;
                 #[cfg(debug_assertions)]
                 exec_control_flow!("if condition", condition_value.is_truthy());
 
@@ -994,7 +994,7 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                let condition_value = self.evaluate_expression(condition, Rc::clone(&env)).await?;
+                let condition_value = Box::pin(self._evaluate_expression(condition, Rc::clone(&env))).await?;
 
                 if condition_value.is_truthy() {
                     self.execute_statement(then_stmt, Rc::clone(&env)).await
@@ -1010,7 +1010,7 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                let value = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                let value = Box::pin(self._evaluate_expression(value, Rc::clone(&env))).await?;
                 println!("{value}");
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -1052,7 +1052,7 @@ impl Interpreter {
                 exec_trace!("Executing return statement");
 
                 if let Some(expr) = value {
-                    let result = self.evaluate_expression(expr, Rc::clone(&env)).await?;
+                    let result = Box::pin(self._evaluate_expression(expr, Rc::clone(&env))).await?;
                     Ok((result.clone(), ControlFlow::Return(result)))
                 } else {
                     Ok((Value::Null, ControlFlow::Return(Value::Null)))
@@ -1104,8 +1104,8 @@ impl Interpreter {
 
                 crate::exec_trace!("Count loop: resetting state before evaluation");
 
-                let start_val = self.evaluate_expression(start, Rc::clone(&env)).await?;
-                let end_val = self.evaluate_expression(end, Rc::clone(&env)).await?;
+                let start_val = Box::pin(self._evaluate_expression(start, Rc::clone(&env))).await?;
+                let end_val = Box::pin(self._evaluate_expression(end, Rc::clone(&env))).await?;
 
                 let (start_num, end_num) = match (start_val, end_val) {
                     (Value::Number(s), Value::Number(e)) => (s, e),
@@ -1119,7 +1119,7 @@ impl Interpreter {
                 };
 
                 let step_num = if let Some(step_expr) = step {
-                    match self.evaluate_expression(step_expr, Rc::clone(&env)).await? {
+                    match Box::pin(self._evaluate_expression(step_expr, Rc::clone(&env))).await? {
                         Value::Number(n) => n,
                         _ => {
                             return Err(RuntimeError::new(
@@ -1645,8 +1645,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let file_value = self.evaluate_expression(file, Rc::clone(&env)).await?;
-                let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                let file_value = Box::pin(self._evaluate_expression(file, Rc::clone(&env))).await?;
+                let content_value = Box::pin(self._evaluate_expression(content, Rc::clone(&env))).await?;
 
                 let file_str = match &file_value {
                     Value::Text(s) => s.clone(),
@@ -1686,7 +1686,7 @@ impl Interpreter {
                 }
             }
             Statement::CloseFileStatement { file, line, column } => {
-                let file_value = self.evaluate_expression(file, Rc::clone(&env)).await?;
+                let file_value = Box::pin(self._evaluate_expression(file, Rc::clone(&env))).await?;
 
                 let file_str = match &file_value {
                     Value::Text(s) => s.clone(),
@@ -1729,7 +1729,7 @@ impl Interpreter {
                 column,
             } => {
                 let path_value = Box::pin(self._evaluate_expression(path, Rc::clone(&env))).await?;
-                let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                let content_value = Box::pin(self._evaluate_expression(content, Rc::clone(&env))).await?;
 
                 let path_str = match &path_value {
                     Value::Text(s) => s.clone(),
@@ -1773,8 +1773,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
-                let file_value = self.evaluate_expression(file, Rc::clone(&env)).await?;
+                let content_value = Box::pin(self._evaluate_expression(content, Rc::clone(&env))).await?;
+                let file_value = Box::pin(self._evaluate_expression(file, Rc::clone(&env))).await?;
 
                 let file_str = match &file_value {
                     Value::Text(s) => s.clone(),
@@ -1849,9 +1849,9 @@ impl Interpreter {
                         line,
                         column,
                     } => {
-                        let file_value = self.evaluate_expression(file, Rc::clone(&env)).await?;
+                        let file_value = Box::pin(self._evaluate_expression(file, Rc::clone(&env))).await?;
                         let content_value =
-                            self.evaluate_expression(content, Rc::clone(&env)).await?;
+                            Box::pin(self._evaluate_expression(content, Rc::clone(&env))).await?;
 
                         let file_str = match &file_value {
                             Value::Text(s) => s.clone(),
@@ -2031,7 +2031,7 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let url_val = self.evaluate_expression(url, Rc::clone(&env)).await?;
+                let url_val = Box::pin(self._evaluate_expression(url, Rc::clone(&env))).await?;
                 let url_str = match &url_val {
                     Value::Text(s) => s.clone(),
                     _ => {
@@ -2063,8 +2063,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let url_val = self.evaluate_expression(url, Rc::clone(&env)).await?;
-                let data_val = self.evaluate_expression(data, Rc::clone(&env)).await?;
+                let url_val = Box::pin(self._evaluate_expression(url, Rc::clone(&env))).await?;
+                let data_val = Box::pin(self._evaluate_expression(data, Rc::clone(&env))).await?;
 
                 let url_str = match &url_val {
                     Value::Text(s) => s.clone(),
@@ -2134,8 +2134,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let list_val = self.evaluate_expression(list, Rc::clone(&env)).await?;
-                let value_val = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                let list_val = Box::pin(self._evaluate_expression(list, Rc::clone(&env))).await?;
+                let value_val = Box::pin(self._evaluate_expression(value, Rc::clone(&env))).await?;
 
                 match list_val {
                     Value::List(list_rc) => {
@@ -2203,7 +2203,7 @@ impl Interpreter {
             } => {
                 let date_value = if let Some(expr) = value {
                     // Evaluate the expression to get the date
-                    self.evaluate_expression(expr, Rc::clone(&env)).await?
+                    Box::pin(self._evaluate_expression(expr, Rc::clone(&env))).await?
                 } else {
                     // Default to today's date
                     let today = chrono::Local::now().date_naive();
@@ -2224,7 +2224,7 @@ impl Interpreter {
             } => {
                 let time_value = if let Some(expr) = value {
                     // Evaluate the expression to get the time
-                    self.evaluate_expression(expr, Rc::clone(&env)).await?
+                    Box::pin(self._evaluate_expression(expr, Rc::clone(&env))).await?
                 } else {
                     // Default to current time
                     let now = chrono::Local::now().time();
@@ -2244,7 +2244,7 @@ impl Interpreter {
                 column,
             } => {
                 // Evaluate the value to add
-                let value_to_add = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                let value_to_add = Box::pin(self._evaluate_expression(value, Rc::clone(&env))).await?;
 
                 // Get the list from the environment
                 let list_val = env.borrow().get(list_name).ok_or_else(|| {
@@ -2288,7 +2288,7 @@ impl Interpreter {
                 column,
             } => {
                 // Evaluate the value to remove
-                let value_to_remove = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                let value_to_remove = Box::pin(self._evaluate_expression(value, Rc::clone(&env))).await?;
 
                 // Get the list from the environment
                 let list_val = env.borrow().get(list_name).ok_or_else(|| {
@@ -2497,7 +2497,7 @@ impl Interpreter {
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
                         for arg in arguments {
-                            let arg_val = self.evaluate_expression(&arg.value, env.clone()).await?;
+                            let arg_val = Box::pin(self._evaluate_expression(&arg.value, env.clone())).await?;
                             arg_values.push(arg_val);
                         }
 
@@ -3160,7 +3160,7 @@ impl Interpreter {
                 let mut arg_values = Vec::new();
                 for arg in arguments {
                     arg_values.push(
-                        self.evaluate_expression(&arg.value, Rc::clone(&env))
+                        Box::pin(self._evaluate_expression(&arg.value, Rc::clone(&env)))
                             .await?,
                     );
                 }
@@ -3219,7 +3219,7 @@ impl Interpreter {
                         let mut arg_values = Vec::new();
                         for arg in arguments.iter() {
                             arg_values.push(
-                                self.evaluate_expression(&arg.value, Rc::clone(&env))
+                                Box::pin(self._evaluate_expression(&arg.value, Rc::clone(&env)))
                                     .await?,
                             );
                         }
