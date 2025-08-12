@@ -1,5 +1,19 @@
-[build]
+# Windows (MSVC toolchain) - 8MB stack
+[target.'cfg(all(target_os = "windows", target_env = "msvc"))']
+rustflags = ["-C", "link-arg=/STACK:8388608"]
+
+# Windows (GNU toolchain) - 8MB stack  
+[target.'cfg(all(target_os = "windows", target_env = "gnu"))']
+rustflags = ["-C", "link-arg=-Wl,--stack,8388608"]
+
+# Linux - 8MB stack
+[target.'cfg(target_os = "linux")']
+rustflags = ["-C", "link-arg=-Wl,-z,stack-size=8388608"]
+
+# macOS - 8MB stack
+[target.'cfg(target_os = "macos")']
 rustflags = ["-C", "link-arg=-Wl,-stack_size,0x800000"]
 
-[target.'cfg(windows)']
-rustflags = ["-C", "link-arg=/STACK:8388608"]
+# FreeBSD and other Unix-like systems - 8MB stack
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))']
+rustflags = ["-C", "link-arg=-Wl,-z,stack-size=8388608"]
