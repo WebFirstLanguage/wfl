@@ -159,6 +159,7 @@ pub struct Analyzer {
     errors: Vec<SemanticError>,
     action_parameters: std::collections::HashSet<String>,
     containers: HashMap<String, ContainerInfo>,
+    current_container: Option<String>,
 }
 
 impl Default for Analyzer {
@@ -309,6 +310,7 @@ impl Analyzer {
             errors: Vec::new(),
             action_parameters: std::collections::HashSet::new(),
             containers: HashMap::new(),
+            current_container: None,
         }
     }
 
@@ -1005,6 +1007,29 @@ impl Analyzer {
 
                         // Analyze method body
                         self.push_scope();
+                        
+                        // Set current container context
+                        let previous_container = self.current_container.clone();
+                        self.current_container = Some(name.clone());
+                        
+                        // Add container properties as accessible variables
+                        for prop in properties {
+                            let prop_type = prop
+                                .property_type
+                                .as_ref()
+                                .cloned()
+                                .unwrap_or(Type::Unknown);
+                            let symbol = Symbol {
+                                name: prop.name.clone(),
+                                kind: SymbolKind::Variable { mutable: true },
+                                symbol_type: Some(prop_type),
+                                line: prop.line,
+                                column: prop.column,
+                            };
+                            let _ = self.current_scope.define(symbol);
+                        }
+                        
+                        // Add method parameters
                         for param in parameters {
                             let param_type =
                                 param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
@@ -1021,6 +1046,9 @@ impl Analyzer {
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
+                        
+                        // Restore previous container context
+                        self.current_container = previous_container;
                         self.pop_scope();
                     }
                 }
@@ -1050,8 +1078,31 @@ impl Analyzer {
                             .static_methods
                             .insert(method_name.clone(), method_info);
 
-                        // Analyze method body
+                        // Analyze static method body
                         self.push_scope();
+                        
+                        // Set current container context
+                        let previous_container = self.current_container.clone();
+                        self.current_container = Some(name.clone());
+                        
+                        // Add static properties as accessible variables (not instance properties)
+                        for prop in static_properties {
+                            let prop_type = prop
+                                .property_type
+                                .as_ref()
+                                .cloned()
+                                .unwrap_or(Type::Unknown);
+                            let symbol = Symbol {
+                                name: prop.name.clone(),
+                                kind: SymbolKind::Variable { mutable: true },
+                                symbol_type: Some(prop_type),
+                                line: prop.line,
+                                column: prop.column,
+                            };
+                            let _ = self.current_scope.define(symbol);
+                        }
+                        
+                        // Add method parameters
                         for param in parameters {
                             let param_type =
                                 param.param_type.as_ref().cloned().unwrap_or(Type::Unknown);
@@ -1068,6 +1119,9 @@ impl Analyzer {
                         for stmt in body {
                             self.analyze_statement(stmt);
                         }
+                        
+                        // Restore previous container context
+                        self.current_container = previous_container;
                         self.pop_scope();
                     }
                 }

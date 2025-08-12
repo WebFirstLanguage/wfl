@@ -2989,6 +2989,14 @@ impl Interpreter {
 
                         // Add 'this' to the environment
                         let _ = method_env.borrow_mut().define("this", object_val.clone());
+                        
+                        // Add container properties as accessible variables
+                        if let Value::ContainerInstance(instance_rc) = &object_val_clone {
+                            let instance = instance_rc.borrow();
+                            for (prop_name, prop_value) in &instance.properties {
+                                let _ = method_env.borrow_mut().define(prop_name, prop_value.clone());
+                            }
+                        }
 
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
@@ -2999,9 +3007,19 @@ impl Interpreter {
                             arg_values.push(arg_val);
                         }
 
-                        // Call the function
+                        // Create a modified function with the method environment
+                        let method_function = FunctionValue {
+                            name: function.name.clone(),
+                            params: function.params.clone(),
+                            body: function.body.clone(),
+                            env: Rc::downgrade(&method_env),
+                            line: function.line,
+                            column: function.column,
+                        };
+
+                        // Call the function with the method environment
                         let result = self
-                            .call_function(&function, arg_values, line, column)
+                            .call_function(&method_function, arg_values, line, column)
                             .await?;
 
                         Ok(result)
