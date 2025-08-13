@@ -583,6 +583,8 @@ pub enum PatternExpression {
     Lookbehind(Box<PatternExpression>),
     /// Negative lookbehind - matches if pattern would NOT match behind
     NegativeLookbehind(Box<PatternExpression>),
+    /// Reference to a list variable - matches any element in the list
+    ListReference(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]

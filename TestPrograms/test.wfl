@@ -1,0 +1,23 @@
+store test as "test"
+display test
+
+create list protocol:
+ add "http"
+ add "https"
+ add "ftp"
+ add "file"
+end list
+display protocol
+
+create pattern url2:
+    protocol
+    "://"
+    one or more letter or digit or "-" or "."
+    "/"
+end pattern
+
+display url2
+
+
+
+

@@ -8,6 +8,35 @@ use ast::*;
 use std::iter::Peekable;
 use std::slice::Iter;
 
+/// Checks if a pattern name conflicts with reserved keywords in WFL
+fn is_reserved_pattern_name(name: &str) -> bool {
+    matches!(name, 
+        "url" | "digit" | "letter" | "file" | "database" | "data" | 
+        "date" | "time" | "text" | "pattern" | "character" | "whitespace" |
+        "unicode" | "category" | "script" | "greedy" | "lazy" | "zero" |
+        "one" | "any" | "optional" | "between" | "start" | "ahead" |
+        "behind" | "not" | "is" | "than" | "same" | "greater" | "less" |
+        "equal" | "above" | "below" | "contains" | "matches" | "find" |
+        "replace" | "split" | "capture" | "captured" | "more" | "exactly" |
+        "push" | "add" | "subtract" | "multiply" | "divide" | "plus" |
+        "minus" | "times" | "divided" | "by" | "open" | "close" |
+        "read" | "write" | "append" | "content" | "wait" | "try" |
+        "error" | "exists" | "list" | "map" | "remove" | "clear" |
+        "files" | "found" | "permission" | "denied" | "recursively" |
+        "extension" | "extensions" | "at" | "least" | "most" | "into" |
+        "when" | "store" | "create" | "display" | "change" | "if" |
+        "check" | "otherwise" | "then" | "end" | "as" | "to" | "from" |
+        "with" | "and" | "or" | "count" | "for" | "each" | "in" |
+        "reversed" | "repeat" | "while" | "until" | "forever" |
+        "skip" | "continue" | "break" | "exit" | "loop" | "define" |
+        "action" | "called" | "needs" | "give" | "back" | "return" |
+        "directory" | "delete" | "container" | "property" | "extends" |
+        "implements" | "interface" | "requires" | "event" | "trigger" |
+        "on" | "static" | "public" | "private" | "parent" | "new" |
+        "constant" | "must" | "defaults" | "of"
+    )
+}
+
 pub struct Parser<'a> {
     tokens: Peekable<Iter<'a, TokenWithPosition>>,
     errors: Vec<ParseError>,
@@ -1417,6 +1446,47 @@ impl<'a> Parser<'a> {
                 0,
                 0,
             ))
+        }
+    }
+
+    /// Consumes all tokens until "end pattern" is found to prevent cascading errors
+    /// when a pattern definition fails early (e.g., due to reserved name)
+    fn consume_pattern_body_on_error(&mut self) {
+        // First, skip the colon if present
+        if let Some(token) = self.tokens.peek() {
+            if token.token == Token::Colon {
+                self.tokens.next();
+            }
+        }
+        
+        let mut depth = 1; // We're inside one pattern block
+        
+        while let Some(token) = self.tokens.next() {
+            match token.token {
+                Token::KeywordEnd => {
+                    // Check if this is "end pattern"
+                    if let Some(next_token) = self.tokens.peek() {
+                        if next_token.token == Token::KeywordPattern {
+                            depth -= 1;
+                            if depth == 0 {
+                                self.tokens.next(); // Consume "pattern"
+                                break;
+                            }
+                        }
+                    }
+                }
+                Token::KeywordCreate => {
+                    // Check if this is nested "create pattern"
+                    if let Some(next_token) = self.tokens.peek() {
+                        if next_token.token == Token::KeywordPattern {
+                            depth += 1;
+                        }
+                    }
+                }
+                _ => {
+                    // Continue consuming tokens
+                }
+            }
         }
     }
 
@@ -4881,15 +4951,31 @@ impl<'a> Parser<'a> {
         let create_token = self.tokens.next().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordPattern, "Expected 'pattern' after 'create'")?;
 
-        let pattern_name = if let Some(token) = self.tokens.next() {
-            if let Token::Identifier(name) = &token.token {
-                name.clone()
-            } else {
-                return Err(ParseError::new(
-                    "Expected pattern name after 'create pattern'".to_string(),
-                    token.line,
-                    token.column,
-                ));
+        let (pattern_name, pattern_token) = if let Some(token) = self.tokens.next() {
+            match &token.token {
+                Token::Identifier(name) => (name.clone(), token.clone()),
+                Token::KeywordUrl => ("url".to_string(), token.clone()),
+                Token::KeywordDigit => ("digit".to_string(), token.clone()),
+                Token::KeywordLetter => ("letter".to_string(), token.clone()),
+                Token::KeywordFile => ("file".to_string(), token.clone()),
+                Token::KeywordDatabase => ("database".to_string(), token.clone()),
+                Token::KeywordData => ("data".to_string(), token.clone()),
+                Token::KeywordDate => ("date".to_string(), token.clone()),
+                Token::KeywordTime => ("time".to_string(), token.clone()),
+                Token::KeywordText => ("text".to_string(), token.clone()),
+                Token::KeywordPattern => ("pattern".to_string(), token.clone()),
+                Token::KeywordCharacter => ("character".to_string(), token.clone()),
+                Token::KeywordWhitespace => ("whitespace".to_string(), token.clone()),
+                Token::KeywordUnicode => ("unicode".to_string(), token.clone()),
+                Token::KeywordCategory => ("category".to_string(), token.clone()),
+                Token::KeywordScript => ("script".to_string(), token.clone()),
+                _ => {
+                    return Err(ParseError::new(
+                        "Expected pattern name after 'create pattern'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
             }
         } else {
             return Err(ParseError::new(
@@ -4898,6 +4984,18 @@ impl<'a> Parser<'a> {
                 create_token.column,
             ));
         };
+
+        // Check if pattern name is a reserved keyword
+        if is_reserved_pattern_name(&pattern_name) {
+            // Consume tokens until we find "end pattern" to prevent cascading errors
+            self.consume_pattern_body_on_error();
+            
+            return Err(ParseError::new(
+                format!("'{}' is a predefined pattern in WFL. Please choose a different name.", pattern_name),
+                pattern_token.line,
+                pattern_token.column,
+            ));
+        }
 
         self.expect_token(Token::Colon, "Expected ':' after pattern name")?;
 
@@ -5859,6 +5957,12 @@ impl<'a> Parser<'a> {
                 // Parse the inner pattern as a sequence
                 let mut inner_i = 0;
                 Self::parse_pattern_sequence(inner_tokens, &mut inner_i)?
+            }
+
+            // List references - identifiers that reference list variables
+            Token::Identifier(name) => {
+                *i += 1;
+                PatternExpression::ListReference(name.clone())
             }
 
             _ => {

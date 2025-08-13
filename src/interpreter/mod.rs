@@ -2827,8 +2827,12 @@ impl Interpreter {
                 column,
                 ..
             } => {
-                // Compile the pattern AST into bytecode
-                match CompiledPattern::compile(pattern) {
+                // Compile the pattern AST into bytecode with environment access for list references
+                let compiled_pattern = {
+                    let env_borrow = env.borrow();
+                    CompiledPattern::compile_with_env(pattern, &env_borrow)
+                };
+                match compiled_pattern {
                     Ok(compiled_pattern) => {
                         // Store the compiled pattern in the environment
                         let pattern_value = Value::Pattern(Rc::new(compiled_pattern));
