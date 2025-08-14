@@ -310,6 +310,60 @@ pub fn native_is_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Bool(path.is_dir()))
 }
 
+pub fn native_count_lines(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("count_lines expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str);
+
+    if !path.exists() {
+        return Err(RuntimeError::new(
+            format!("File does not exist: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
+    if !path.is_file() {
+        return Err(RuntimeError::new(
+            format!("Path is not a file: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
+    let content = fs::read_to_string(path).map_err(|e| {
+        RuntimeError::new(
+            format!("Failed to read file '{path_str}': {e}"),
+            0,
+            0,
+        )
+    })?;
+
+    // Count lines by splitting on newline characters
+    // Handle edge case: empty file has 0 lines
+    // Handle edge case: file without trailing newline still counts all lines
+    let line_count = if content.is_empty() {
+        0
+    } else {
+        // Count newlines and add 1 if the content doesn't end with a newline
+        let newline_count = content.matches('\n').count();
+        if content.ends_with('\n') {
+            newline_count
+        } else {
+            newline_count + 1
+        }
+    };
+
+    Ok(Value::Number(line_count as f64))
+}
+
 pub fn register_filesystem(env: &mut crate::interpreter::environment::Environment) {
     let _ = env.define(
         "list_dir",
@@ -343,6 +397,7 @@ pub fn register_filesystem(env: &mut crate::interpreter::environment::Environmen
     );
     let _ = env.define("is_file", Value::NativeFunction("is_file", native_is_file));
     let _ = env.define("is_dir", Value::NativeFunction("is_dir", native_is_dir));
+    let _ = env.define("count_lines", Value::NativeFunction("count_lines", native_count_lines));
 }
 
 #[cfg(test)]

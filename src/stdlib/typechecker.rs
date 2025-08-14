@@ -29,6 +29,8 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_pattern_find(analyzer);
     register_pattern_replace(analyzer);
     register_pattern_split(analyzer);
+
+    register_count_lines(analyzer);
 }
 
 fn register_print(analyzer: &mut Analyzer) {
@@ -200,4 +202,11 @@ fn register_pattern_split(analyzer: &mut Analyzer) {
     let param_types = vec![Type::Text, Type::Text];
 
     analyzer.register_builtin_function("split_by_pattern", param_types, return_type);
+}
+
+fn register_count_lines(analyzer: &mut Analyzer) {
+    let return_type = Type::Number;
+    let param_types = vec![Type::Text]; // Takes a file path as text
+
+    analyzer.register_builtin_function("count_lines", param_types, return_type);
 }
