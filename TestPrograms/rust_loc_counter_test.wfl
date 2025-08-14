@@ -4,32 +4,6 @@
 display "=== Rust Line Counter Test (Should FAIL initially) ==="
 display ""
 
-// Test the main rust_loc_counter action
-try:
-    // This will fail because rust_loc_counter.wfl doesn't exist yet
-    store result as run_rust_loc_counter with "./test_rust_files"
-    
-    // Check that result contains expected statistics
-    check if result contains "Total files processed":
-        display "✓ Found total files count"
-    otherwise:
-        display "✗ Missing total files count"
-    end check
-    
-    check if result contains "Code lines":
-        display "✓ Found code lines count"
-    otherwise:
-        display "✗ Missing code lines count"  
-    end check
-    
-    display "Test completed successfully"
-    
-when error:
-    display "✗ EXPECTED FAILURE: rust_loc_counter not implemented yet"
-    display "This test establishes the TDD baseline"
-end try
-
-display ""
 display "=== Test Files Creation ==="
 
 // Create test directory for sample Rust files
@@ -87,3 +61,22 @@ display "✓ Created subdir/lib.rs test file"
 
 display ""
 display "Test files created. Ready for TDD implementation."
+
+display ""
+display "=== Testing rust_loc_counter action (EXPECTED TO FAIL) ==="
+
+// Test the main rust_loc_counter action
+try:
+    store result as run_rust_loc_counter with "./test_rust_files"
+    check if result contains "Total files processed":
+        display "✓ Found total files count"
+    otherwise:
+        display "✗ Missing total files count"
+    end check
+    
+    display "Test completed successfully"
+    
+when error:
+    display "✗ FAILURE: rust_loc_counter implementation error"
+    display "Implementation needs debugging"
+end try

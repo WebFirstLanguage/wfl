@@ -1,24 +1,24 @@
 # Rust Code Line Count Report
-*Generated on: 2025-08-12 12:43:35*
+*Generated on: 2025-08-14 09:23:51*
 
 
 ## Overall Statistics
 Total files processed: 53
-Total lines: 32711
-Code lines: 27725 (84.8%)
-Comment lines: 1684 (5.1%)
-Blank lines: 3302 (10.1%)
+Total lines: 33157
+Code lines: 28019 (84.5%)
+Comment lines: 1785 (5.4%)
+Blank lines: 3353 (10.1%)
 
 ## Lines by Directory
 Directory                                Total      Code       Comments   Blank     
 | Directory | Total | Code | Comments | Blank |
 | --- | --- | --- | --- | --- |
-| src\parser | 9008 | 7768 | 445 | 795 |
-| src\interpreter | 5413 | 4675 | 206 | 532 |
+| src\parser | 9237 | 7940 | 471 | 826 |
+| src\interpreter | 5417 | 4679 | 206 | 532 |
 | src\analyzer | 3579 | 3106 | 124 | 349 |
 | src | 3409 | 2842 | 154 | 413 |
 | src\typechecker | 2624 | 2394 | 76 | 154 |
-| src\pattern | 2202 | 1363 | 565 | 274 |
+| src\pattern | 2415 | 1481 | 640 | 294 |
 | src\stdlib | 2178 | 1841 | 37 | 300 |
 | src\fixer | 1322 | 1136 | 38 | 148 |
 | src\diagnostics | 824 | 700 | 31 | 93 |
@@ -30,21 +30,21 @@ Directory                                Total      Code       Comments   Blank
 | File |  | Total | Code | Comment |
 | Directory | Total | Code | Comments | Blank |
 | --- | --- | --- | --- | --- |
-| src\parser\mod.rs |  | 6258 | 5373 | 320 |
-| src\interpreter\mod.rs |  | 4311 | 3756 | 162 |
+| src\parser\mod.rs |  | 6362 | 5460 | 330 |
+| src\interpreter\mod.rs |  | 4315 | 3760 | 162 |
 | src\typechecker\mod.rs |  | 2624 | 2394 | 76 |
 | src\analyzer\mod.rs |  | 1874 | 1599 | 67 |
 | src\analyzer\static_analyzer.rs |  | 1616 | 1437 | 57 |
 | src\fixer\mod.rs |  | 1206 | 1050 | 30 |
-| src\parser\tests.rs |  | 1044 | 872 | 55 |
+| src\parser\tests.rs |  | 1167 | 956 | 70 |
+| src\pattern\compiler.rs |  | 934 | 552 | 255 |
 | src\pattern\vm.rs |  | 880 | 649 | 123 |
 | src\main.rs |  | 849 | 714 | 35 |
 | src\parser\mod_complete.rs |  | 816 | 735 | 17 |
 | src\config.rs |  | 762 | 653 | 30 |
-| src\pattern\compiler.rs |  | 753 | 440 | 205 |
 | src\wfl_config\checker.rs |  | 728 | 628 | 0 |
 | src\diagnostics\mod.rs |  | 712 | 616 | 22 |
-| src\parser\ast.rs |  | 704 | 648 | 27 |
+| src\parser\ast.rs |  | 706 | 649 | 28 |
 | src\stdlib\time.rs |  | 593 | 525 | 14 |
 | src\linter\mod.rs |  | 565 | 481 | 2 |
 | src\stdlib\filesystem.rs |  | 565 | 477 | 0 |
@@ -56,7 +56,7 @@ Directory                                Total      Code       Comments   Blank
 | src\interpreter\value.rs |  | 341 | 319 | 2 |
 | src\pattern\instruction.rs |  | 301 | 193 | 68 |
 | src\stdlib\pattern.rs |  | 283 | 240 | 14 |
-| src\pattern\mod.rs |  | 236 | 58 | 166 |
+| src\pattern\mod.rs |  | 268 | 64 | 191 |
 | src\interpreter\tests.rs |  | 227 | 175 | 16 |
 | src\stdlib\typechecker.rs |  | 203 | 147 | 0 |
 | src\lexer\mod.rs |  | 197 | 177 | 3 |

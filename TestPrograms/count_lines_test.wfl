@@ -1,0 +1,79 @@
+// Test program for count_lines functionality
+// This test will fail until count_lines is implemented
+
+display "=== WFL Count Lines Test ==="
+display ""
+
+// Test 1: Create a test file and count its lines
+display "1. Creating test file with known line count"
+open file at "test_line_count.txt" for writing as test_file
+wait for write content "Line 1" with "\n" into test_file
+wait for append content "Line 2" with "\n" into test_file  
+wait for append content "Line 3" with "\n" into test_file
+wait for append content "Line 4" with "\n" into test_file
+close file test_file
+
+// Test the count_lines function
+display "2. Testing count_lines function"
+store line_count as count_lines of "test_line_count.txt"
+display "File has " with line_count with " lines"
+
+check if line_count is 4:
+    display "✓ Line count is correct"
+otherwise:
+    display "✗ Line count is incorrect, expected 4 but got " with line_count
+end check
+
+// Test 3: Empty file
+display ""
+display "3. Testing with empty file"
+open file at "empty_file.txt" for writing as empty_file
+close file empty_file
+
+store empty_count as count_lines of "empty_file.txt"
+display "Empty file has " with empty_count with " lines"
+
+check if empty_count is 0:
+    display "✓ Empty file line count is correct"
+otherwise:
+    display "✗ Empty file line count is incorrect, expected 0 but got " with empty_count
+end check
+
+// Test 4: File without trailing newline
+display ""
+display "4. Testing file without trailing newline"
+open file at "no_newline.txt" for writing as no_newline_file
+wait for write content "Line 1" with "\n" into no_newline_file
+wait for append content "Line 2" with "\n" into no_newline_file
+wait for append content "Line 3" into no_newline_file  // No newline at end
+close file no_newline_file
+
+store no_newline_count as count_lines of "no_newline.txt"
+display "File without trailing newline has " with no_newline_count with " lines"
+
+check if no_newline_count is 3:
+    display "✓ No trailing newline line count is correct"
+otherwise:
+    display "✗ No trailing newline line count is incorrect, expected 3 but got " with no_newline_count
+end check
+
+// Test 5: Error handling - file that doesn't exist
+display ""
+display "5. Testing error handling with non-existent file"
+try:
+    store missing_count as count_lines of "does_not_exist.txt"
+    display "✗ Should have failed for non-existent file"
+when error:
+    display "✓ Correctly caught error for non-existent file"
+end try
+
+// Cleanup test files
+display ""
+display "6. Cleaning up test files"
+delete file at "test_line_count.txt"
+delete file at "empty_file.txt"
+delete file at "no_newline.txt"
+display "✓ Test files cleaned up"
+
+display ""
+display "=== Count Lines Tests Completed ==="
