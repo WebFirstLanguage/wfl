@@ -31,9 +31,9 @@ display "Valid email format: " with valid_email
 
 // Test 6: Contains with variable needle
 store search_term as "test"
-store content as "This is a test string"
-store found as contains search_term in content
-display "Found search term: " with found
+store mycontent as "This is a test string"
+store myfound as contains search_term in mycontent
+display "Found search term: " with myfound
 
 // Also test that the old syntax still works for backward compatibility
 store old_style as contains of filename and ".rs"

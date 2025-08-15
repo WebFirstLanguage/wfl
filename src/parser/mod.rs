@@ -52,6 +52,42 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Helper method to get text representation of contextual keywords
+    fn get_token_text(&self, token: &Token) -> String {
+        match token {
+            Token::KeywordCount => "count".to_string(),
+            Token::KeywordPattern => "pattern".to_string(),
+            Token::KeywordFiles => "files".to_string(),
+            Token::KeywordExtension => "extension".to_string(),
+            Token::KeywordExtensions => "extensions".to_string(),
+            Token::KeywordContains => "contains".to_string(),
+            Token::KeywordList => "list".to_string(),
+            Token::KeywordMap => "map".to_string(),
+            Token::KeywordText => "text".to_string(),
+            Token::KeywordCreate => "create".to_string(),
+            Token::KeywordNew => "new".to_string(),
+            Token::KeywordParent => "parent".to_string(),
+            Token::KeywordRead => "read".to_string(),
+            Token::KeywordPush => "push".to_string(),
+            Token::KeywordSkip => "skip".to_string(),
+            Token::KeywordGive => "give".to_string(),
+            Token::KeywordBack => "back".to_string(),
+            Token::KeywordCalled => "called".to_string(),
+            Token::KeywordNeeds => "needs".to_string(),
+            Token::KeywordChange => "change".to_string(),
+            Token::KeywordReversed => "reversed".to_string(),
+            Token::KeywordAt => "at".to_string(),
+            Token::KeywordLeast => "least".to_string(),
+            Token::KeywordMost => "most".to_string(),
+            Token::KeywordThan => "than".to_string(),
+            Token::KeywordZero => "zero".to_string(),
+            Token::KeywordAny => "any".to_string(),
+            Token::KeywordMust => "must".to_string(),
+            Token::KeywordDefaults => "defaults".to_string(),
+            _ => format!("{:?}", token),
+        }
+    }
+
     pub fn parse(&mut self) -> Result<Program, Vec<ParseError>> {
         let mut program = Program::new();
         program.statements.reserve(self.tokens.clone().count() / 5);
@@ -1344,12 +1380,18 @@ impl<'a> Parser<'a> {
                         token.column,
                     ));
                 }
-                _ if token.token.is_keyword() => {
+                _ if token.token.is_structural_keyword() => {
                     return Err(ParseError::new(
-                        format!("Cannot use keyword '{:?}' as a variable name", token.token),
+                        format!("Cannot use reserved keyword '{:?}' as a variable name", token.token),
                         token.line,
                         token.column,
                     ));
+                }
+                _ if token.token.is_contextual_keyword() => {
+                    // Contextual keywords can be used as variable names
+                    let name = self.get_token_text(&token.token);
+                    self.tokens.next(); // Consume the contextual keyword
+                    name_parts.push(name);
                 }
                 _ => {
                     return Err(ParseError::new(
@@ -2053,13 +2095,14 @@ impl<'a> Parser<'a> {
                             ));
                         } else if next_token.token == Token::KeywordAnd
                             || next_token.token == Token::Colon
+                            || next_token.token == Token::Comma
                         {
                             self.tokens.next(); // Consume separator
                             elements.push(self.parse_list_element()?);
                         } else {
                             return Err(ParseError::new(
                                 format!(
-                                    "Expected ']' or 'and' in list literal, found {:?}",
+                                    "Expected ']', ',' or 'and' in list literal, found {:?}",
                                     next_token.token
                                 ),
                                 next_token.line,
@@ -2671,6 +2714,161 @@ impl<'a> Parser<'a> {
                         ))
                     }
                 }
+                _ if token.token.is_contextual_keyword() => {
+                    // Special handling for "create list" expression
+                    if token.token == Token::KeywordCreate {
+                        self.tokens.next(); // Consume "create"
+                        let token_line = token.line;
+                        let token_column = token.column;
+                        
+                        // Check if next token is "list"
+                        if let Some(next_token) = self.tokens.peek()
+                            && next_token.token == Token::KeywordList
+                        {
+                            self.tokens.next(); // Consume "list"
+                            // Return an empty list literal
+                            return Ok(Expression::Literal(
+                                Literal::List(Vec::new()),
+                                token_line,
+                                token_column,
+                            ));
+                        } else {
+                            // Not "create list", treat "create" as a variable
+                            return Ok(Expression::Variable(
+                                "create".to_string(),
+                                token_line,
+                                token_column,
+                            ));
+                        }
+                    }
+                    
+                    // Special handling for "contains X in Y" syntax or "contains of X and Y"
+                    if token.token == Token::KeywordContains {
+                        self.tokens.next(); // Consume "contains"
+                        let token_line = token.line;
+                        let token_column = token.column;
+                        
+                        // Check if next token is "of" for old syntax
+                        if let Some(next_token) = self.tokens.peek()
+                            && next_token.token == Token::KeywordOf
+                        {
+                            // Old syntax: "contains of X and Y"
+                            // Set as variable and let postfix operators handle "of"
+                            Ok(Expression::Variable(
+                                "contains".to_string(),
+                                token_line,
+                                token_column,
+                            ))
+                        } else {
+                            // Try to parse as "contains X in Y"
+                            // Parse the needle expression
+                            let needle = self.parse_primary_expression()?;
+                            
+                            // Check if next token is "in"
+                            if let Some(in_token) = self.tokens.peek()
+                                && in_token.token == Token::KeywordIn
+                            {
+                                self.tokens.next(); // Consume "in"
+                                
+                                // Parse the haystack expression
+                                let haystack = self.parse_primary_expression()?;
+                                
+                                // Create a function call expression for contains
+                                Ok(Expression::FunctionCall {
+                                    function: Box::new(Expression::Variable(
+                                        "contains".to_string(),
+                                        token_line,
+                                        token_column,
+                                    )),
+                                    arguments: vec![
+                                        Argument { name: None, value: haystack },
+                                        Argument { name: None, value: needle },
+                                    ],
+                                    line: token_line,
+                                    column: token_column,
+                                })
+                            } else {
+                                // Not "contains X in Y", treat as error
+                                // We already parsed an expression after contains
+                                Err(ParseError::new(
+                                    "Expected 'in' after expression in contains".to_string(),
+                                    token_line,
+                                    token_column,
+                                ))
+                            }
+                        }
+                    } else {
+                        // Handle other contextual keywords as variables/identifiers
+                        let name = self.get_token_text(&token.token);
+                        self.tokens.next(); // Consume the contextual keyword
+                        let token_line = token.line;
+                        let token_column = token.column;
+                        
+                        // Check for property access (dot notation) - same as identifier handling
+                        if let Some(next_token) = self.tokens.peek().cloned() {
+                            if next_token.token == Token::Dot {
+                                self.tokens.next(); // Consume '.'
+                                
+                                if let Some(property_token) = self.tokens.peek().cloned() {
+                                    if let Token::Identifier(property_name) = &property_token.token {
+                                        self.tokens.next(); // Consume property name
+                                        
+                                        // Check for method call with parentheses
+                                        if let Some(paren_token) = self.tokens.peek().cloned()
+                                            && paren_token.token == Token::LeftParen
+                                        {
+                                            // Handle method call - similar to identifier method handling
+                                            // For now, just return property access
+                                            return Ok(Expression::PropertyAccess {
+                                                object: Box::new(Expression::Variable(
+                                                    name,
+                                                    token_line,
+                                                    token_column,
+                                                )),
+                                                property: property_name.clone(),
+                                                line: token_line,
+                                                column: token_column,
+                                            });
+                                        }
+                                        
+                                        return Ok(Expression::PropertyAccess {
+                                            object: Box::new(Expression::Variable(
+                                                name,
+                                                token_line,
+                                                token_column,
+                                            )),
+                                            property: property_name.clone(),
+                                            line: token_line,
+                                            column: token_column,
+                                        });
+                                    }
+                                }
+                            } else if next_token.token == Token::LeftBracket {
+                                // Handle array indexing
+                                self.tokens.next(); // Consume '['
+                                let index = self.parse_expression()?;
+                                
+                                self.expect_token(
+                                    Token::RightBracket,
+                                    "Expected ']' after array index",
+                                )?;
+                                
+                                return Ok(Expression::IndexAccess {
+                                    collection: Box::new(Expression::Variable(
+                                        name,
+                                        token_line,
+                                        token_column,
+                                    )),
+                                    index: Box::new(index),
+                                    line: token_line,
+                                    column: token_column,
+                                });
+                            }
+                        }
+                        
+                        // Return as a simple variable
+                        Ok(Expression::Variable(name, token_line, token_column))
+                    }
                 _ => Err(ParseError::new(
                     format!("Unexpected token in expression: {:?}", token.token),
                     token.line,

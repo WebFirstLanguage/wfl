@@ -1,0 +1,6 @@
+// Very simple contains test
+
+// New syntax
+store text as "hello world"
+store has_hello as contains "hello" in text
+display "Has hello: " with has_hello

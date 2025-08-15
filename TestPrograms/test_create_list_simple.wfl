@@ -1,0 +1,20 @@
+// Simple test for create list expression
+
+// Test 1: Basic create list as expression
+store my_list as create list
+display "Created empty list"
+
+// Test 2: Create list and add items
+store numbers as create list
+add 1 to numbers
+add 2 to numbers
+display "Numbers created"
+
+// Test 3: Multiple create list expressions
+store list1 as create list
+store list2 as create list
+add "a" to list1
+add "b" to list2
+display "Two lists created"
+
+display "Create list expression tests passed!"

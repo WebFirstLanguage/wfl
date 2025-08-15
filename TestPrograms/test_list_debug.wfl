@@ -1,0 +1,6 @@
+// Debug list keyword issue
+display "Before store"
+store list as 999
+display "After store, before display"
+display list
+display "After display"

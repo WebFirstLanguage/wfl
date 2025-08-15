@@ -370,11 +370,12 @@ impl TokenWithPosition {
 }
 
 impl Token {
-    pub fn is_keyword(&self) -> bool {
+    /// Returns true if this token is a structural keyword that must be reserved
+    /// These are keywords that define program structure and control flow
+    pub fn is_structural_keyword(&self) -> bool {
         matches!(
             self,
             Token::KeywordStore
-                | Token::KeywordCreate
                 | Token::KeywordDisplay
                 | Token::KeywordCheck
                 | Token::KeywordIf
@@ -384,41 +385,24 @@ impl Token {
                 | Token::KeywordFor
                 | Token::KeywordEach
                 | Token::KeywordIn
-                | Token::KeywordReversed
                 | Token::KeywordFrom
                 | Token::KeywordTo
                 | Token::KeywordBy
-                | Token::KeywordCount
                 | Token::KeywordRepeat
                 | Token::KeywordWhile
                 | Token::KeywordUntil
                 | Token::KeywordForever
                 | Token::KeywordAction
-                | Token::KeywordCalled
                 | Token::KeywordWith
-                | Token::KeywordNot
                 | Token::KeywordBreak
                 | Token::KeywordContinue
                 | Token::KeywordReturn
-                | Token::KeywordGive
-                | Token::KeywordBack
                 | Token::KeywordAs
-                | Token::KeywordAt
-                | Token::KeywordLeast
-                | Token::KeywordMost
                 | Token::KeywordDefine
-                | Token::KeywordNeeds
-                | Token::KeywordChange
                 | Token::KeywordAnd
                 | Token::KeywordOr
-                | Token::KeywordPattern
-                | Token::KeywordRead
+                | Token::KeywordNot
                 | Token::KeywordWait
-                | Token::KeywordSkip
-                | Token::KeywordThan
-                | Token::KeywordPush
-                | Token::KeywordZero
-                | Token::KeywordAny
                 | Token::KeywordContainer
                 | Token::KeywordProperty
                 | Token::KeywordExtends
@@ -431,11 +415,50 @@ impl Token {
                 | Token::KeywordStatic
                 | Token::KeywordPublic
                 | Token::KeywordPrivate
-                | Token::KeywordParent
-                | Token::KeywordNew
                 | Token::KeywordConstant
+        )
+    }
+
+    /// Returns true if this token is a contextual keyword
+    /// These can be used as variable names when not in their keyword context
+    pub fn is_contextual_keyword(&self) -> bool {
+        matches!(
+            self,
+            Token::KeywordCount        // Only reserved in 'count from X to Y' context
+                | Token::KeywordPattern // Only reserved in pattern matching context
+                | Token::KeywordFiles   // Only reserved in file operations context
+                | Token::KeywordExtension
+                | Token::KeywordExtensions
+                | Token::KeywordContains // Can be a function name
+                | Token::KeywordList    // Only reserved in type/create context
+                | Token::KeywordMap     // Only reserved in type/create context
+                | Token::KeywordText    // Only reserved in type context
+                | Token::KeywordCreate  // Context-sensitive for expressions
+                | Token::KeywordNew     // Context-sensitive
+                | Token::KeywordParent  // Context-sensitive
+                | Token::KeywordRead    // Context-sensitive
+                | Token::KeywordPush    // Context-sensitive
+                | Token::KeywordSkip    // Context-sensitive
+                | Token::KeywordGive
+                | Token::KeywordBack
+                | Token::KeywordCalled
+                | Token::KeywordNeeds
+                | Token::KeywordChange
+                | Token::KeywordReversed
+                | Token::KeywordAt
+                | Token::KeywordLeast
+                | Token::KeywordMost
+                | Token::KeywordThan
+                | Token::KeywordZero
+                | Token::KeywordAny
                 | Token::KeywordMust
                 | Token::KeywordDefaults
         )
+    }
+
+    /// Legacy method for backward compatibility
+    /// Returns true for any keyword (structural or contextual)
+    pub fn is_keyword(&self) -> bool {
+        self.is_structural_keyword() || self.is_contextual_keyword()
     }
 }

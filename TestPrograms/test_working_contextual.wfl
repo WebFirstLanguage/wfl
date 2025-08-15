@@ -1,0 +1,12 @@
+// Test working contextual keywords
+
+store count as 5
+display "Count: " with count
+
+store files as 10
+display "Files: " with files
+
+store extension as ".txt"
+display "Extension: " with extension
+
+display "Working contextual keywords passed!"
