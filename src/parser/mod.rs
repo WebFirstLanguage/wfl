@@ -1495,11 +1495,10 @@ impl<'a> Parser<'a> {
     /// when a pattern definition fails early (e.g., due to reserved name)
     fn consume_pattern_body_on_error(&mut self) {
         // First, skip the colon if present
-        if let Some(token) = self.tokens.peek() {
-            if token.token == Token::Colon {
+        if let Some(token) = self.tokens.peek()
+            && token.token == Token::Colon {
                 self.tokens.next();
             }
-        }
         
         let mut depth = 1; // We're inside one pattern block
         
@@ -1507,23 +1506,21 @@ impl<'a> Parser<'a> {
             match token.token {
                 Token::KeywordEnd => {
                     // Check if this is "end pattern"
-                    if let Some(next_token) = self.tokens.peek() {
-                        if next_token.token == Token::KeywordPattern {
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::KeywordPattern {
                             depth -= 1;
                             if depth == 0 {
                                 self.tokens.next(); // Consume "pattern"
                                 break;
                             }
                         }
-                    }
                 }
                 Token::KeywordCreate => {
                     // Check if this is nested "create pattern"
-                    if let Some(next_token) = self.tokens.peek() {
-                        if next_token.token == Token::KeywordPattern {
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::KeywordPattern {
                             depth += 1;
                         }
-                    }
                 }
                 _ => {
                     // Continue consuming tokens
@@ -2809,8 +2806,8 @@ impl<'a> Parser<'a> {
                             if next_token.token == Token::Dot {
                                 self.tokens.next(); // Consume '.'
                                 
-                                if let Some(property_token) = self.tokens.peek().cloned() {
-                                    if let Token::Identifier(property_name) = &property_token.token {
+                                if let Some(property_token) = self.tokens.peek().cloned()
+                                    && let Token::Identifier(property_name) = &property_token.token {
                                         self.tokens.next(); // Consume property name
                                         
                                         // Check for method call with parentheses
@@ -2842,7 +2839,6 @@ impl<'a> Parser<'a> {
                                             column: token_column,
                                         });
                                     }
-                                }
                             } else if next_token.token == Token::LeftBracket {
                                 // Handle array indexing
                                 self.tokens.next(); // Consume '['
