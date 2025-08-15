@@ -1823,7 +1823,12 @@ impl TypeChecker {
 
                 Type::List(Box::new(Type::Text))
             }
-            Expression::StringSplit { text, delimiter, line, column } => {
+            Expression::StringSplit {
+                text,
+                delimiter,
+                line,
+                column,
+            } => {
                 let text_type = self.infer_expression_type(text);
                 let delimiter_type = self.infer_expression_type(delimiter);
 

@@ -203,12 +203,9 @@ pub fn register_text(env: &mut Environment) {
         "to_lowercase",
         Value::NativeFunction("to_lowercase", native_tolowercase),
     );
-    
+
     // New string manipulation functions
-    let _ = env.define(
-        "trim",
-        Value::NativeFunction("trim", native_trim),
-    );
+    let _ = env.define("trim", Value::NativeFunction("trim", native_trim));
     let _ = env.define(
         "starts_with",
         Value::NativeFunction("starts_with", native_starts_with),
