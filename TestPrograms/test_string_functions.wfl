@@ -1,0 +1,52 @@
+// Test new string manipulation functions
+// These should work after adding the functions to stdlib
+
+// Test 1: trim function
+store text_with_spaces as "  hello world  "
+store trimmed as trim of text_with_spaces
+display "Original: '" with text_with_spaces with "'"
+display "Trimmed: '" with trimmed with "'"
+
+// Test 2: starts_with function
+store filename as "test.rs"
+store starts_with_test as starts_with of filename and "test"
+store starts_with_main as starts_with of filename and "main"
+display "Starts with 'test': " with starts_with_test
+display "Starts with 'main': " with starts_with_main
+
+// Test 3: ends_with function  
+store path as "/home/user/file.txt"
+store ends_with_txt as ends_with of path and ".txt"
+store ends_with_rs as ends_with of path and ".rs"
+display "Ends with '.txt': " with ends_with_txt
+display "Ends with '.rs': " with ends_with_rs
+
+// Test 4: Natural syntax variations
+store line as "// This is a comment"
+store is_comment as starts_with of line and "//"
+display "Is comment line: " with is_comment
+
+// Test 5: Combining string functions
+store input as "  user@example.com  "
+store email as trim of input
+store is_email as contains "@" in email and contains "." in email
+display "Cleaned email: " with email
+display "Valid email format: " with is_email
+
+// Test 6: Empty string edge cases
+store empty as ""
+store empty_trimmed as trim of empty
+store empty_starts as starts_with of empty and "test"
+store empty_ends as ends_with of empty and "test"
+display "Empty trim: '" with empty_trimmed with "'"
+display "Empty starts_with: " with empty_starts
+display "Empty ends_with: " with empty_ends
+
+// Test 7: Case sensitivity
+store text as "Hello World"
+store starts_hello as starts_with of text and "Hello"
+store starts_hello_lower as starts_with of text and "hello"
+display "Starts with 'Hello': " with starts_hello
+display "Starts with 'hello': " with starts_hello_lower
+
+display "All string function tests passed!"
