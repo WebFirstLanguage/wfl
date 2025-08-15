@@ -1,0 +1,44 @@
+# Test simple string split functionality
+# This test should demonstrate basic string splitting by delimiter
+
+# Test 1: Basic split by space
+store sentence as "hello world testing"
+store words as split sentence by " "
+display "Word count: " with length of words
+display "First word: " with words[0]
+display "Second word: " with words[1]
+display "Last word: " with words[2]
+
+# Test 2: Split by comma
+store csv_data as "apple,banana,cherry"
+store fruits as split csv_data by ","
+display "Fruit count: " with length of fruits
+display "First fruit: " with fruits[0]
+display "Last fruit: " with fruits[2]
+
+# Test 3: Split by newline
+store multiline as "line1\nline2\nline3"
+store lines as split multiline by "\n"
+display "Line count: " with length of lines
+display "First line: " with lines[0]
+
+# Test 4: Split with multi-character delimiter
+store data as "foo::bar::baz"
+store parts as split data by "::"
+display "Parts count: " with length of parts
+display "First part: " with parts[0]
+display "Second part: " with parts[1]
+
+# Expected output:
+# Word count: 3
+# First word: hello
+# Second word: world
+# Last word: testing
+# Fruit count: 3
+# First fruit: apple
+# Last fruit: cherry
+# Line count: 3
+# First line: line1
+# Parts count: 3
+# First part: foo
+# Second part: bar
