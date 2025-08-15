@@ -149,6 +149,7 @@ fn expr_type(expr: &Expression) -> String {
         Expression::PatternFind { .. } => "PatternFind".to_string(),
         Expression::PatternReplace { .. } => "PatternReplace".to_string(),
         Expression::PatternSplit { .. } => "PatternSplit".to_string(),
+        Expression::StringSplit { .. } => "StringSplit".to_string(),
         Expression::AwaitExpression { .. } => "AwaitExpression".to_string(),
         // Container-related expressions
         Expression::StaticMemberAccess {
@@ -3566,6 +3567,34 @@ impl Interpreter {
 
                 let args = vec![text_val, pattern_val];
                 crate::stdlib::pattern::native_pattern_split(args, *_line, *_column)
+            }
+            Expression::StringSplit {
+                text,
+                delimiter,
+                line: _line,
+                column: _column,
+            } => {
+                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
+                let delimiter_val = self.evaluate_expression(delimiter, Rc::clone(&env)).await?;
+
+                // Validate types
+                if !matches!(text_val, Value::Text(_)) {
+                    return Err(RuntimeError::new(
+                        format!("Cannot split {} - expected text", text_val.type_name()),
+                        *_line,
+                        *_column,
+                    ));
+                }
+                if !matches!(delimiter_val, Value::Text(_)) {
+                    return Err(RuntimeError::new(
+                        format!("Delimiter must be text - got {}", delimiter_val.type_name()),
+                        *_line,
+                        *_column,
+                    ));
+                }
+
+                let args = vec![text_val, delimiter_val];
+                crate::stdlib::text::native_string_split(args)
             }
             Expression::PropertyAccess {
                 object,

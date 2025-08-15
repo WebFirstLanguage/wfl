@@ -11,10 +11,10 @@ display "Name: " with fields[0]
 display "Age: " with fields[1]
 display "City: " with fields[2]
 
-# Test 2: Split on whitespace pattern
-store input_text as "hello   world    test"
+# Test 2: Split on space literal pattern
+store input_text as "hello world test"
 create pattern spaces:
-    one or more space
+    " "
 end pattern
 store tokens as split input_text on pattern spaces
 display "Token count: " with length of tokens

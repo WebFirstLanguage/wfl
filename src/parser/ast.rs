@@ -448,6 +448,12 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    StringSplit {
+        text: Box<Expression>,
+        delimiter: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
     AwaitExpression {
         expression: Box<Expression>,
         line: usize,

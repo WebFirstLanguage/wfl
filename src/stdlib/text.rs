@@ -1,6 +1,7 @@
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 fn expect_text(value: &Value) -> Result<Rc<str>, RuntimeError> {
@@ -97,6 +98,36 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Text(Rc::from(substring)))
 }
 
+pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("string_split expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let delimiter = expect_text(&args[1])?;
+
+    // Handle empty delimiter
+    if delimiter.is_empty() {
+        return Err(RuntimeError::new(
+            "Empty delimiter not allowed in string split".to_string(),
+            0,
+            0,
+        ));
+    }
+
+    // Split the text by the delimiter
+    let parts: Vec<Value> = text
+        .split(delimiter.as_ref())
+        .map(|s| Value::Text(Rc::from(s)))
+        .collect();
+
+    Ok(Value::List(Rc::new(RefCell::new(parts))))
+}
+
 pub fn register_text(env: &mut Environment) {
     // Note: length function is registered by the list module instead
     let _ = env.define(
@@ -114,6 +145,10 @@ pub fn register_text(env: &mut Environment) {
     let _ = env.define(
         "substring",
         Value::NativeFunction("substring", native_substring),
+    );
+    let _ = env.define(
+        "string_split",
+        Value::NativeFunction("string_split", native_string_split),
     );
 
     let _ = env.define(

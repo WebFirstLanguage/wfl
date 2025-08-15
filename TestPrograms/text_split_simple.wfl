@@ -23,8 +23,8 @@ display "Line count: " with length of lines
 display "First line: " with lines[0]
 
 # Test 4: Split with multi-character delimiter
-store data as "foo::bar::baz"
-store parts as split data by "::"
+store text_data as "foo::bar::baz"
+store parts as split text_data by "::"
 display "Parts count: " with length of parts
 display "First part: " with parts[0]
 display "Second part: " with parts[1]

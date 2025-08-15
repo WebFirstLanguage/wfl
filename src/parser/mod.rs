@@ -1880,37 +1880,61 @@ impl<'a> Parser<'a> {
                 Token::KeywordSplit => {
                     self.tokens.next(); // Consume "split"
 
-                    // Handle "split text on pattern name" syntax
+                    // Parse the text expression to split
                     let text_expr = self.parse_binary_expression(precedence + 1)?;
 
-                    if let Some(on_token) = self.tokens.peek().cloned()
-                        && matches!(on_token.token, Token::KeywordOn)
-                    {
-                        self.tokens.next(); // Consume "on"
+                    // Check for "by" (string split) or "on" (pattern split)
+                    if let Some(next_token) = self.tokens.peek().cloned() {
+                        match next_token.token {
+                            Token::KeywordBy => {
+                                // Handle "split text by delimiter" syntax
+                                self.tokens.next(); // Consume "by"
+                                let delimiter_expr = self.parse_binary_expression(precedence + 1)?;
+                                
+                                left = Expression::StringSplit {
+                                    text: Box::new(text_expr),
+                                    delimiter: Box::new(delimiter_expr),
+                                    line,
+                                    column,
+                                };
+                                continue;
+                            }
+                            Token::KeywordOn => {
+                                // Handle "split text on pattern name" syntax
+                                self.tokens.next(); // Consume "on"
 
-                        // Check if next token is "pattern" keyword (optional)
-                        if let Some(pattern_token) = self.tokens.peek().cloned()
-                            && matches!(pattern_token.token, Token::KeywordPattern)
-                        {
-                            self.tokens.next(); // Consume "pattern"
+                                // Check if next token is "pattern" keyword (optional)
+                                if let Some(pattern_token) = self.tokens.peek().cloned()
+                                    && matches!(pattern_token.token, Token::KeywordPattern)
+                                {
+                                    self.tokens.next(); // Consume "pattern"
+                                }
+
+                                let pattern_expr = self.parse_binary_expression(precedence + 1)?;
+
+                                left = Expression::PatternSplit {
+                                    text: Box::new(text_expr),
+                                    pattern: Box::new(pattern_expr),
+                                    line,
+                                    column,
+                                };
+                                continue;
+                            }
+                            _ => {
+                                return Err(ParseError::new(
+                                    "Expected 'by' or 'on' after text in split operation".to_string(),
+                                    line,
+                                    column,
+                                ));
+                            }
                         }
-
-                        let pattern_expr = self.parse_binary_expression(precedence + 1)?;
-
-                        left = Expression::PatternSplit {
-                            text: Box::new(text_expr),
-                            pattern: Box::new(pattern_expr),
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected 'by' or 'on' after text in split operation".to_string(),
                             line,
                             column,
-                        };
-                        continue; // Skip the rest of the loop since we've already updated left
+                        ));
                     }
-
-                    return Err(ParseError::new(
-                        "Expected 'on' after text in split operation".to_string(),
-                        line,
-                        column,
-                    ));
                 }
                 Token::KeywordContains => {
                     self.tokens.next(); // Consume "contains"
@@ -2603,21 +2627,49 @@ impl<'a> Parser<'a> {
                 Token::KeywordSplit => {
                     self.tokens.next(); // Consume "split"
                     let text_expr = self.parse_expression()?;
-                    self.expect_token(
-                        Token::KeywordOn,
-                        "Expected 'on' after text in split expression",
-                    )?;
-                    self.expect_token(
-                        Token::KeywordPattern,
-                        "Expected 'pattern' after 'on' in split expression",
-                    )?;
-                    let pattern_expr = self.parse_expression()?;
-                    Ok(Expression::PatternSplit {
-                        text: Box::new(text_expr),
-                        pattern: Box::new(pattern_expr),
-                        line: token.line,
-                        column: token.column,
-                    })
+                    
+                    // Check for "by" (string split) or "on" (pattern split)
+                    if let Some(next_token) = self.tokens.peek().cloned() {
+                        match next_token.token {
+                            Token::KeywordBy => {
+                                // Handle "split text by delimiter" syntax
+                                self.tokens.next(); // Consume "by"
+                                let delimiter_expr = self.parse_expression()?;
+                                Ok(Expression::StringSplit {
+                                    text: Box::new(text_expr),
+                                    delimiter: Box::new(delimiter_expr),
+                                    line: token.line,
+                                    column: token.column,
+                                })
+                            }
+                            Token::KeywordOn => {
+                                // Handle "split text on pattern name" syntax
+                                self.tokens.next(); // Consume "on"
+                                self.expect_token(
+                                    Token::KeywordPattern,
+                                    "Expected 'pattern' after 'on' in split expression",
+                                )?;
+                                let pattern_expr = self.parse_expression()?;
+                                Ok(Expression::PatternSplit {
+                                    text: Box::new(text_expr),
+                                    pattern: Box::new(pattern_expr),
+                                    line: token.line,
+                                    column: token.column,
+                                })
+                            }
+                            _ => Err(ParseError::new(
+                                "Expected 'by' or 'on' after text in split expression".to_string(),
+                                token.line,
+                                token.column,
+                            ))
+                        }
+                    } else {
+                        Err(ParseError::new(
+                            "Expected 'by' or 'on' after text in split expression".to_string(),
+                            token.line,
+                            token.column,
+                        ))
+                    }
                 }
                 _ => Err(ParseError::new(
                     format!("Unexpected token in expression: {:?}", token.token),
@@ -2906,6 +2958,11 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Expression::PatternSplit { line, column, .. } => Ok(Statement::DisplayStatement {
+                    value: expr,
+                    line,
+                    column,
+                }),
+                Expression::StringSplit { line, column, .. } => Ok(Statement::DisplayStatement {
                     value: expr,
                     line,
                     column,
