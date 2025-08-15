@@ -1,30 +1,45 @@
 # WFL Parser Limitations Report
 
-*Generated: August 2025*
+*Generated: August 2025*  
+*Updated: August 2025 - Many limitations now resolved*
 
 ## Executive Summary
 
-This report documents critical parser limitations discovered during the implementation of `rust_loc_counter.wfl`, a Rust source code line counter. These limitations significantly impact WFL's usability for real-world programming tasks, requiring extensive workarounds and resulting in less readable, more error-prone code.
+This report documents critical parser limitations discovered during the implementation of `rust_loc_counter.wfl`, a Rust source code line counter. **UPDATE: As of August 2025, many of these limitations have been addressed through parser improvements that implement contextual keyword support and enhanced expression parsing.**
 
-## 1. Keyword Reservation Issues
+### August 2025 Improvements Summary
 
-### The Problem
+✅ **Contextual Keywords** - Common words like `count`, `files`, `extension` can now be used as variable names  
+✅ **List Creation Expression** - `store my_list as create list` now works  
+✅ **Natural Contains Syntax** - `contains X in Y` syntax added while maintaining backward compatibility  
+✅ **New String Functions** - Added `trim`, `starts_with`, and `ends_with` functions  
+✅ **List Literal Commas** - Lists now accept comma separators: `[1, 2, 3]`
 
-WFL reserves an extensive list of common English words as keywords, preventing their use as variable names. This creates unexpected conflicts when writing natural code.
+⚠️ **Known Issues** - Some pattern-related syntax may have conflicts with contextual keywords
 
-### Affected Keywords Discovered
+## 1. Keyword Reservation Issues ✅ RESOLVED
 
-The following common words cannot be used as variable names:
-- `count` - Reserved for count loops (`count from X to Y`)
-- `files` - Reserved for file operations (`list files`)
-- `extension` - Reserved for file extension operations
-- `extensions` - Plural form also reserved
-- `contains` - Reserved as both a keyword and function name
-- `create` - Reserved for object creation
-- `new` - Reserved for instantiation
-- `list` - Reserved for list operations
-- `map` - Reserved for map/dictionary operations
-- `pattern` - Reserved for pattern matching
+### The Problem (Historical)
+
+WFL reserved an extensive list of common English words as keywords, preventing their use as variable names. This created unexpected conflicts when writing natural code.
+
+### Resolution (August 2025)
+
+The parser now distinguishes between **structural keywords** (that define program structure) and **contextual keywords** (that can be used as variable names when not in their keyword context). This allows common words like `count`, `files`, `extension`, `contains`, `list`, `map`, and `text` to be used as variable names.
+
+### Now Usable as Variables
+
+The following words can now be used as variable names:
+- ✅ `count` - Can be used as variable (still works in `count from X to Y`)
+- ✅ `files` - Can be used as variable (still works in `list files`)
+- ✅ `extension` - Can be used as variable
+- ✅ `extensions` - Can be used as variable
+- ✅ `contains` - Can be used as variable (enhanced with natural syntax)
+- ✅ `list` - Can be used as variable (still works in `create list`)
+- ✅ `map` - Can be used as variable
+- ✅ `text` - Can be used as variable
+- ⚠️ `pattern` - Partially working (some pattern syntax conflicts remain)
+- ⚠️ `create` - Works in most contexts
 
 ### Implementation Details
 
@@ -76,11 +91,15 @@ store file_ext as ".rs"
 
 This forces developers to use less intuitive variable names, reducing code readability.
 
-## 2. List Creation Syntax Limitations
+## 2. List Creation Syntax Limitations ✅ RESOLVED
 
-### The Problem
+### The Problem (Historical)
 
-WFL has inconsistent list creation syntax that doesn't follow expected patterns from the language's natural syntax design.
+WFL had inconsistent list creation syntax that didn't follow expected patterns from the language's natural syntax design.
+
+### Resolution (August 2025)
+
+The parser now supports `store my_list as create list` as a valid expression, making list creation more consistent with the language's natural syntax.
 
 ### Syntax Patterns
 
@@ -96,11 +115,11 @@ WFL has inconsistent list creation syntax that doesn't follow expected patterns 
    end list
    ```
 
-**Non-Working Pattern:**
+**Now Working Pattern:**
 ```wfl
-// This SHOULD work but doesn't
+// This now works as expected! ✅
 store my_list as create list
-// Error: Unexpected token in expression: KeywordCreate
+// Creates an empty list successfully
 ```
 
 ### Root Cause
@@ -111,11 +130,15 @@ The parser treats `create` as a statement keyword, not as part of an expression.
 
 This inconsistency breaks the natural language flow that WFL aims to provide. Users expect `store X as create list` to work analogously to `store X as create pattern`.
 
-## 3. Function Call Syntax Restrictions
+## 3. Function Call Syntax Restrictions ✅ ENHANCED
 
-### The Problem
+### The Problem (Historical)
 
-Some keywords like `contains` serve dual purposes as both keywords and function names, creating parser ambiguities.
+Some keywords like `contains` served dual purposes as both keywords and function names, creating parser ambiguities.
+
+### Resolution (August 2025)
+
+The parser now supports **both** the natural syntax `contains X in Y` and the original `contains of Y and X` syntax for backward compatibility. The `contains` keyword is now contextual and can also be used as a variable name.
 
 ### The `contains` Dilemma
 
@@ -123,15 +146,16 @@ Some keywords like `contains` serve dual purposes as both keywords and function 
 1. A keyword (`KeywordContains`) in the lexer
 2. A standard library function in `src/stdlib/text.rs`
 
-**Expected Natural Syntax (doesn't work):**
+**Natural Syntax (now works):** ✅
 ```wfl
 store has_rust as contains ".rs" in filename
-// Error: Unexpected token in expression: KeywordContains
+// Works perfectly!
 ```
 
-**Required Syntax:**
+**Original Syntax (still supported):** ✅
 ```wfl
 store has_rust as contains of filename and ".rs"
+// Backward compatibility maintained
 ```
 
 ### Parser Conflict
@@ -142,17 +166,21 @@ When the parser encounters `contains` in an expression context, it sees `Keyword
 
 This forces an unnatural `of...and` syntax pattern for function calls that breaks WFL's natural language design philosophy.
 
-## 4. String Manipulation Limitations
+## 4. String Manipulation Limitations ✅ PARTIALLY RESOLVED
 
-### Missing Basic Functions
+### Missing Basic Functions (Historical)
 
-WFL lacks essential string manipulation functions that are standard in most languages:
+WFL lacked essential string manipulation functions that are standard in most languages.
 
-**Not Available:**
-- `trim()` - Remove whitespace
-- `starts_with()` - Check string prefix
-- `ends_with()` - Check string suffix
-- `strip()` - Remove characters
+### Resolution (August 2025)
+
+Added three critical string functions:
+- ✅ `trim` - Remove whitespace: `trim of text`
+- ✅ `starts_with` - Check string prefix: `starts_with of text and prefix`
+- ✅ `ends_with` - Check string suffix: `ends_with of text and suffix`
+
+**Still Not Available:**
+- `strip()` - Remove specific characters
 - `slice()` - Extract substring by indices
 - Character iteration
 

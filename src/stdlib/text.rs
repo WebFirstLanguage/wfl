@@ -128,6 +128,50 @@ pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::List(Rc::new(RefCell::new(parts))))
 }
 
+pub fn native_trim(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("trim expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let trimmed = text.trim();
+    Ok(Value::Text(Rc::from(trimmed)))
+}
+
+pub fn native_starts_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("starts_with expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let prefix = expect_text(&args[1])?;
+    let result = text.starts_with(prefix.as_ref());
+    Ok(Value::Bool(result))
+}
+
+pub fn native_ends_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("ends_with expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let text = expect_text(&args[0])?;
+    let suffix = expect_text(&args[1])?;
+    let result = text.ends_with(suffix.as_ref());
+    Ok(Value::Bool(result))
+}
+
 pub fn register_text(env: &mut Environment) {
     // Note: length function is registered by the list module instead
     let _ = env.define(
@@ -158,5 +202,19 @@ pub fn register_text(env: &mut Environment) {
     let _ = env.define(
         "to_lowercase",
         Value::NativeFunction("to_lowercase", native_tolowercase),
+    );
+    
+    // New string manipulation functions
+    let _ = env.define(
+        "trim",
+        Value::NativeFunction("trim", native_trim),
+    );
+    let _ = env.define(
+        "starts_with",
+        Value::NativeFunction("starts_with", native_starts_with),
+    );
+    let _ = env.define(
+        "ends_with",
+        Value::NativeFunction("ends_with", native_ends_with),
     );
 }

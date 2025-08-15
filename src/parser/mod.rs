@@ -2869,6 +2869,7 @@ impl<'a> Parser<'a> {
                         // Return as a simple variable
                         Ok(Expression::Variable(name, token_line, token_column))
                     }
+                }
                 _ => Err(ParseError::new(
                     format!("Unexpected token in expression: {:?}", token.token),
                     token.line,
