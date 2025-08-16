@@ -6,9 +6,9 @@
 
 use super::PatternError;
 use super::instruction::{CharClassType, Instruction, Program};
-use crate::parser::ast::{Anchor, CharClass, PatternExpression, Quantifier};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::value::Value;
+use crate::parser::ast::{Anchor, CharClass, PatternExpression, Quantifier};
 use std::collections::HashMap;
 
 /// Compiler that converts PatternExpression AST into executable bytecode.
@@ -146,7 +146,11 @@ impl PatternCompiler {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn compile_with_env(&mut self, pattern: &PatternExpression, env: &Environment) -> Result<Program, PatternError> {
+    pub fn compile_with_env(
+        &mut self,
+        pattern: &PatternExpression,
+        env: &Environment,
+    ) -> Result<Program, PatternError> {
         self.compile_expression_with_env(pattern, env)?;
         self.program.push(Instruction::Match);
 
@@ -254,12 +258,16 @@ impl PatternCompiler {
     /// # Returns
     /// * `Ok(())` - Node compiled successfully
     /// * `Err(PatternError)` - Compilation failed or list not found
-    fn compile_expression_with_env(&mut self, pattern: &PatternExpression, env: &Environment) -> Result<(), PatternError> {
+    fn compile_expression_with_env(
+        &mut self,
+        pattern: &PatternExpression,
+        env: &Environment,
+    ) -> Result<(), PatternError> {
         match pattern {
             PatternExpression::ListReference(name) => {
                 self.compile_list_reference(name, env)?;
             }
-            
+
             // For all other patterns, recursively handle any nested list references
             _ => {
                 let resolved_pattern = self.resolve_list_references(pattern, env)?;
@@ -270,10 +278,15 @@ impl PatternCompiler {
     }
 
     /// Recursively resolve list references in a pattern expression.
-    /// 
+    ///
     /// This method traverses the pattern AST and replaces any ListReference nodes
     /// with Alternative nodes containing the list elements.
-    fn resolve_list_references(&self, pattern: &PatternExpression, env: &Environment) -> Result<PatternExpression, PatternError> {
+    #[allow(clippy::only_used_in_recursion)]
+    fn resolve_list_references(
+        &self,
+        pattern: &PatternExpression,
+        env: &Environment,
+    ) -> Result<PatternExpression, PatternError> {
         match pattern {
             PatternExpression::ListReference(name) => {
                 // Look up the list variable in the environment
@@ -289,50 +302,58 @@ impl PatternCompiler {
                                 ))
                             })
                             .collect();
-                        
+
                         let alternatives = alternatives?;
                         if alternatives.is_empty() {
-                            return Err(PatternError::CompileError(
-                                format!("List '{}' is empty. Patterns cannot match empty alternatives.", name)
-                            ));
+                            return Err(PatternError::CompileError(format!(
+                                "List '{}' is empty. Patterns cannot match empty alternatives.",
+                                name
+                            )));
                         }
-                        
+
                         if alternatives.len() == 1 {
                             Ok(alternatives.into_iter().next().unwrap())
                         } else {
                             Ok(PatternExpression::Alternative(alternatives))
                         }
-                    },
-                    Some(_) => Err(PatternError::CompileError(
-                        format!("'{}' is not a list variable. Only list variables can be referenced in patterns.", name)
-                    )),
-                    None => Err(PatternError::CompileError(
-                        format!("List '{}' is not defined in the current scope.", name)
-                    ))
+                    }
+                    Some(_) => Err(PatternError::CompileError(format!(
+                        "'{}' is not a list variable. Only list variables can be referenced in patterns.",
+                        name
+                    ))),
+                    None => Err(PatternError::CompileError(format!(
+                        "List '{}' is not defined in the current scope.",
+                        name
+                    ))),
                 }
-            },
+            }
 
             PatternExpression::Sequence(patterns) => {
-                let resolved: Result<Vec<_>, _> = patterns.iter()
+                let resolved: Result<Vec<_>, _> = patterns
+                    .iter()
                     .map(|p| self.resolve_list_references(p, env))
                     .collect();
                 Ok(PatternExpression::Sequence(resolved?))
-            },
+            }
 
             PatternExpression::Alternative(patterns) => {
-                let resolved: Result<Vec<_>, _> = patterns.iter()
+                let resolved: Result<Vec<_>, _> = patterns
+                    .iter()
                     .map(|p| self.resolve_list_references(p, env))
                     .collect();
                 Ok(PatternExpression::Alternative(resolved?))
-            },
+            }
 
-            PatternExpression::Quantified { pattern, quantifier } => {
+            PatternExpression::Quantified {
+                pattern,
+                quantifier,
+            } => {
                 let resolved = self.resolve_list_references(pattern, env)?;
                 Ok(PatternExpression::Quantified {
                     pattern: Box::new(resolved),
                     quantifier: quantifier.clone(),
                 })
-            },
+            }
 
             PatternExpression::Capture { name, pattern } => {
                 let resolved = self.resolve_list_references(pattern, env)?;
@@ -340,40 +361,45 @@ impl PatternCompiler {
                     name: name.clone(),
                     pattern: Box::new(resolved),
                 })
-            },
+            }
 
             // For these node types, just return as-is since they don't contain nested patterns
-            PatternExpression::Literal(_) |
-            PatternExpression::CharacterClass(_) |
-            PatternExpression::Backreference(_) |
-            PatternExpression::Anchor(_) => Ok(pattern.clone()),
+            PatternExpression::Literal(_)
+            | PatternExpression::CharacterClass(_)
+            | PatternExpression::Backreference(_)
+            | PatternExpression::Anchor(_) => Ok(pattern.clone()),
 
             // For lookaround patterns, resolve nested patterns
             PatternExpression::Lookahead(pattern) => {
                 let resolved = self.resolve_list_references(pattern, env)?;
                 Ok(PatternExpression::Lookahead(Box::new(resolved)))
-            },
+            }
 
             PatternExpression::NegativeLookahead(pattern) => {
                 let resolved = self.resolve_list_references(pattern, env)?;
                 Ok(PatternExpression::NegativeLookahead(Box::new(resolved)))
-            },
+            }
 
             PatternExpression::Lookbehind(pattern) => {
                 let resolved = self.resolve_list_references(pattern, env)?;
                 Ok(PatternExpression::Lookbehind(Box::new(resolved)))
-            },
+            }
 
             PatternExpression::NegativeLookbehind(pattern) => {
                 let resolved = self.resolve_list_references(pattern, env)?;
                 Ok(PatternExpression::NegativeLookbehind(Box::new(resolved)))
-            },
+            }
         }
     }
 
     /// Compile a list reference by resolving it from the environment.
-    fn compile_list_reference(&mut self, name: &str, env: &Environment) -> Result<(), PatternError> {
-        let resolved = self.resolve_list_references(&PatternExpression::ListReference(name.to_string()), env)?;
+    fn compile_list_reference(
+        &mut self,
+        name: &str,
+        env: &Environment,
+    ) -> Result<(), PatternError> {
+        let resolved =
+            self.resolve_list_references(&PatternExpression::ListReference(name.to_string()), env)?;
         self.compile_expression(&resolved)
     }
 

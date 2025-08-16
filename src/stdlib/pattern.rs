@@ -280,7 +280,7 @@ pub fn native_pattern_split(
 
     // Find all matches of the pattern in the text
     let matches = pattern.find_all(text);
-    
+
     // If no matches, return the entire text as a single element
     if matches.is_empty() {
         let parts = vec![Value::Text(Rc::from(text))];
@@ -290,7 +290,7 @@ pub fn native_pattern_split(
     // Split the text at match positions
     let mut parts = Vec::new();
     let mut last_end = 0;
-    
+
     for match_result in matches {
         // Add the text before this match
         if match_result.start > last_end || (match_result.start == last_end && last_end == 0) {
@@ -302,7 +302,7 @@ pub fn native_pattern_split(
         }
         last_end = match_result.end;
     }
-    
+
     // Add any remaining text after the last match
     if last_end <= text.len() {
         let part = &text[last_end..];

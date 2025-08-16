@@ -172,7 +172,10 @@ impl CompiledPattern {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn compile_with_env(pattern: &PatternExpression, env: &crate::interpreter::environment::Environment) -> Result<Self, PatternError> {
+    pub fn compile_with_env(
+        pattern: &PatternExpression,
+        env: &crate::interpreter::environment::Environment,
+    ) -> Result<Self, PatternError> {
         let mut compiler = PatternCompiler::new();
         let program = compiler.compile_with_env(pattern, env)?;
         let capture_names = compiler.capture_names();
