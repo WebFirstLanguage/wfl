@@ -1,0 +1,12 @@
+// Simple test to verify catch syntax works
+display "Testing catch syntax..."
+
+try:
+    display "About to cause an error"
+    store result as 10 / 0
+    display "This should not execute"
+catch:
+    display "✓ Caught error successfully"
+end try
+
+display "Test completed"
