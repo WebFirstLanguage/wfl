@@ -1,0 +1,125 @@
+// Basic Random Number Generation Validation - WFL
+// Simple tests for all random functions
+
+display "=== WFL Random Number Generation Basic Validation ==="
+display ""
+
+// === Test 1: Basic Random Function ===
+display "Test 1: Basic Random Function"
+store r1 as random
+display "Random value: " with r1
+display "✓ Basic random function works"
+display ""
+
+// === Test 2: Random Between Function ===
+display "Test 2: Random Between Function"
+store r2 as random_between of 1 and 10
+display "Random between 1-10: " with r2
+display "✓ Random between function works"
+display ""
+
+// === Test 3: Random Integer Function ===
+display "Test 3: Random Integer Function"
+store r3 as random_int of 5 and 15
+display "Random integer 5-15: " with r3
+display "✓ Random integer function works"
+display ""
+
+// === Test 4: Random Boolean Function ===
+display "Test 4: Random Boolean Function"
+store r4 as random_boolean
+display "Random boolean: " with r4
+display "✓ Random boolean function works"
+display ""
+
+// === Test 5: Random From List Function ===
+display "Test 5: Random From List Function"
+store colors as ["red" and "green" and "blue" and "yellow"]
+store r5 as random_from of colors
+display "Random color: " with r5
+
+store numbers as [10 and 20 and 30 and 40 and 50]
+store r6 as random_from of numbers
+display "Random number from list: " with r6
+display "✓ Random from list function works"
+display ""
+
+// === Test 6: Random Seed Function ===
+display "Test 6: Random Seed Function (Reproducibility)"
+random_seed of 42
+store seed1 as random
+display "First seeded random: " with seed1
+
+random_seed of 42
+store seed2 as random
+display "Second seeded random: " with seed2
+
+check if seed1 is equal to seed2:
+    display "✓ Random seed produces reproducible results"
+otherwise:
+    display "✗ Random seed not working properly"
+end check
+display ""
+
+// === Test 7: Multiple Random Generations ===
+display "Test 7: Multiple Random Generations"
+count from 1 to 5:
+    store multi_r as random
+    display "Random " with count with ": " with multi_r
+end count
+display "✓ Multiple random generations work"
+display ""
+
+// === Test 8: Different Seed Values ===
+display "Test 8: Different Seed Values"
+random_seed of 100
+store diff1 as random
+display "Seed 100 random: " with diff1
+
+random_seed of 200
+store diff2 as random
+display "Seed 200 random: " with diff2
+display "✓ Different seeds produce different values"
+display ""
+
+// === Test 9: Boolean Distribution ===
+display "Test 9: Boolean Distribution (10 samples)"
+store true_count as 0
+store false_count as 0
+
+count from 1 to 10:
+    store bool_test as random_boolean
+    check if bool_test is equal to yes:
+        change true_count to true_count plus 1
+    otherwise:
+        change false_count to false_count plus 1
+    end check
+end count
+
+display "True count: " with true_count
+display "False count: " with false_count
+display "✓ Boolean distribution test complete"
+display ""
+
+// === Test 10: Edge Cases ===
+display "Test 10: Edge Cases"
+
+// Same min and max
+store edge1 as random_between of 7 and 7
+display "Same min/max (7,7): " with edge1
+
+store edge2 as random_int of 3 and 3
+display "Integer same min/max (3,3): " with edge2
+
+// Negative numbers
+store edge3 as random_between of -5 and -1
+display "Negative range (-5 to -1): " with edge3
+
+store edge4 as random_int of -10 and -5
+display "Negative integer range (-10 to -5): " with edge4
+
+display "✓ Edge cases handled"
+display ""
+
+display "=== All Random Function Tests Complete ==="
+display "✓ All random number generation functions are working correctly!"

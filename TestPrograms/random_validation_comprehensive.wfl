@@ -1,0 +1,183 @@
+// Comprehensive Random Number Generation Validation - WFL
+// Tests all random functions with various scenarios and edge cases
+
+display "=== WFL Random Number Generation Comprehensive Validation ==="
+display ""
+
+// === Basic Random Function ===
+display "1. Basic Random Function (0-1 range)"
+store r1 as random
+display "Random value: " with r1
+check if r1 is greater than 0 or r1 is equal to 0:
+    check if r1 is less than 1 or r1 is equal to 1:
+        display "✓ Basic random is in valid range [0,1]"
+    otherwise:
+        display "✗ Basic random out of range: " with r1
+    end check
+otherwise:
+    display "✗ Basic random out of range: " with r1
+end check
+display ""
+
+// === Random Between Function ===
+display "2. Random Between Function"
+store r2 as random_between of 5 and 15
+display "Random between 5-15: " with r2
+check if r2 is greater than or equal to 5 and r2 is less than or equal to 15:
+    display "✓ Random between is in valid range [5,15]"
+otherwise:
+    display "✗ Random between out of range: " with r2
+end check
+
+// Test negative ranges
+store r3 as random_between of -10 and -5
+display "Random between -10 to -5: " with r3
+check if r3 is greater than or equal to -10 and r3 is less than or equal to -5:
+    display "✓ Negative range random is valid"
+otherwise:
+    display "✗ Negative range random invalid: " with r3
+end check
+display ""
+
+// === Random Integer Function ===
+display "3. Random Integer Function"
+store r4 as random_int of 1 and 10
+display "Random integer 1-10: " with r4
+check if r4 is greater than or equal to 1 and r4 is less than or equal to 10:
+    display "✓ Random integer is in valid range [1,10]"
+otherwise:
+    display "✗ Random integer out of range: " with r4
+end check
+
+// Test large integer range
+store r5 as random_int of 100 and 1000
+display "Random integer 100-1000: " with r5
+check if r5 is greater than or equal to 100 and r5 is less than or equal to 1000:
+    display "✓ Large integer range is valid"
+otherwise:
+    display "✗ Large integer range invalid: " with r5
+end check
+display ""
+
+// === Random Boolean Function ===
+display "4. Random Boolean Function"
+store r6 as random_boolean
+display "Random boolean: " with r6
+check if r6 is equal to yes or r6 is equal to no:
+    display "✓ Random boolean is valid (yes/no)"
+otherwise:
+    display "✗ Random boolean invalid: " with r6
+end check
+display ""
+
+// === Random From List Function ===
+display "5. Random From List Function"
+store colors as ["red" and "green" and "blue" and "yellow" and "purple"]
+store r7 as random_from of colors
+display "Random color: " with r7
+
+store numbers as [1 and 2 and 3 and 4 and 5]
+store r8 as random_from of numbers
+display "Random number from list: " with r8
+display ""
+
+// === Random Seed Function (Reproducibility) ===
+display "6. Random Seed Function (Reproducibility Test)"
+random_seed of 12345
+store seed_r1 as random
+store seed_r2 as random_int of 1 and 100
+display "First seeded sequence: " with seed_r1 with ", " with seed_r2
+
+random_seed of 12345
+store seed_r3 as random
+store seed_r4 as random_int of 1 and 100
+display "Second seeded sequence: " with seed_r3 with ", " with seed_r4
+
+check if seed_r1 is equal to seed_r3 and seed_r2 is equal to seed_r4:
+    display "✓ Random seed produces reproducible results"
+otherwise:
+    display "✗ Random seed not reproducible"
+end check
+display ""
+
+// === Distribution Testing ===
+display "7. Distribution Testing (Multiple Samples)"
+store true_count as 0
+store false_count as 0
+
+// Test boolean distribution
+count from 1 to 20:
+    store bool_val as random_boolean
+    check if bool_val is equal to yes:
+        change true_count to true_count plus 1
+    otherwise:
+        change false_count to false_count plus 1
+    end check
+end count
+
+display "Boolean distribution - True: " with true_count with ", False: " with false_count
+check if true_count is greater than 0 and false_count is greater than 0:
+    display "✓ Boolean distribution appears random"
+otherwise:
+    display "⚠ Boolean distribution may be biased"
+end check
+display ""
+
+// === Range Testing ===
+display "8. Range Boundary Testing"
+store min_val as 999999
+store max_val as -999999
+
+count from 1 to 50:
+    store range_val as random_between of 10 and 20
+    check if range_val is less than min_val:
+        change min_val to range_val
+    end check
+    check if range_val is greater than max_val:
+        change max_val to range_val
+    end check
+end count
+
+display "Range test - Min observed: " with min_val with ", Max observed: " with max_val
+check if min_val is greater than or equal to 10 and max_val is less than or equal to 20:
+    display "✓ All values within expected range [10,20]"
+otherwise:
+    display "✗ Some values outside expected range"
+end check
+display ""
+
+// === Edge Cases ===
+display "9. Edge Case Testing"
+
+// Same min/max values
+store edge1 as random_between of 5 and 5
+display "Same min/max (5,5): " with edge1
+check if edge1 is equal to 5:
+    display "✓ Same min/max returns exact value"
+otherwise:
+    display "✗ Same min/max failed: " with edge1
+end check
+
+// Integer edge case
+store edge2 as random_int of 0 and 0
+display "Integer same min/max (0,0): " with edge2
+check if edge2 is equal to 0:
+    display "✓ Integer same min/max returns exact value"
+otherwise:
+    display "✗ Integer same min/max failed: " with edge2
+end check
+display ""
+
+// === Performance Test ===
+display "10. Performance Test (1000 generations)"
+store start_time as now
+count from 1 to 1000:
+    store perf_val as random
+end count
+store end_time as now
+display "Generated 1000 random numbers successfully"
+display "✓ Performance test completed"
+display ""
+
+display "=== Random Number Generation Validation Complete ==="
+display "All random functions have been tested with various scenarios."
