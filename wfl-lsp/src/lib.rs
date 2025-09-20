@@ -458,6 +458,281 @@ impl WflLanguageServer {
             });
         }
     }
+
+    fn get_hover_info(&self, document_text: &str, position: Position) -> Option<String> {
+        // Try to find symbol information at the given position
+        let tokens = lex_wfl_with_positions(document_text);
+        let mut parser = Parser::new(&tokens);
+
+        match parser.parse() {
+            Ok(program) => {
+                // Look for symbols at the position
+                if let Some(symbol_info) = self.find_symbol_at_position(&program, document_text, position) {
+                    Some(self.format_hover_info(&symbol_info))
+                } else {
+                    // Check for keywords or stdlib functions at position
+                    self.get_keyword_or_stdlib_hover(document_text, position)
+                }
+            }
+            Err(_) => {
+                // Even if parsing fails, try to provide keyword/stdlib hover
+                self.get_keyword_or_stdlib_hover(document_text, position)
+            }
+        }
+    }
+
+    fn find_symbol_at_position(&self, program: &Program, document_text: &str, position: Position) -> Option<SymbolInfo> {
+        use wfl::parser::ast::Statement;
+
+        // Get the word at the cursor position
+        let word_at_position = self.get_word_at_position(document_text, position)?;
+
+        // Search for variables
+        for statement in &program.statements {
+            match statement {
+                Statement::VariableDeclaration { name, .. } if name == &word_at_position => {
+                    return Some(SymbolInfo::Variable {
+                        name: name.clone(),
+                        var_type: self.infer_variable_type(statement),
+                        value: self.get_variable_value(statement),
+                    });
+                }
+                Statement::ActionDefinition { name, parameters, .. } if name == &word_at_position => {
+                    let param_names: Vec<String> = parameters.iter().map(|p| p.name.clone()).collect();
+                    return Some(SymbolInfo::Function {
+                        name: name.clone(),
+                        parameters: param_names,
+                        return_type: Some("any".to_string()), // Could be enhanced with type analysis
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
+    fn get_word_at_position(&self, document_text: &str, position: Position) -> Option<String> {
+        let lines: Vec<&str> = document_text.lines().collect();
+        if position.line as usize >= lines.len() {
+            return None;
+        }
+
+        let line = lines[position.line as usize];
+        let char_pos = position.character as usize;
+
+        if char_pos >= line.len() {
+            return None;
+        }
+
+        // Find word boundaries around the cursor position
+        let chars: Vec<char> = line.chars().collect();
+
+        // Find start of word
+        let mut start = char_pos;
+        while start > 0 && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_') {
+            start -= 1;
+        }
+
+        // Find end of word
+        let mut end = char_pos;
+        while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
+            end += 1;
+        }
+
+        if start < end {
+            Some(chars[start..end].iter().collect())
+        } else {
+            None
+        }
+    }
+
+    fn infer_variable_type(&self, statement: &wfl::parser::ast::Statement) -> String {
+        use wfl::parser::ast::{Statement, Expression, Literal};
+
+        match statement {
+            Statement::VariableDeclaration { value, .. } => {
+                match value {
+                    Expression::Literal(Literal::String(_), _, _) => "text".to_string(),
+                    Expression::Literal(Literal::Integer(_), _, _) => "number".to_string(),
+                    Expression::Literal(Literal::Float(_), _, _) => "number".to_string(),
+                    Expression::Literal(Literal::Boolean(_), _, _) => "boolean".to_string(),
+                    Expression::Literal(Literal::Nothing, _, _) => "nothing".to_string(),
+                    _ => "any".to_string(),
+                }
+            }
+            _ => "unknown".to_string(),
+        }
+    }
+
+    fn get_variable_value(&self, statement: &wfl::parser::ast::Statement) -> Option<String> {
+        use wfl::parser::ast::{Statement, Expression, Literal};
+
+        match statement {
+            Statement::VariableDeclaration { value, .. } => {
+                match value {
+                    Expression::Literal(Literal::String(s), _, _) => Some(format!("\"{}\"", s)),
+                    Expression::Literal(Literal::Integer(i), _, _) => Some(i.to_string()),
+                    Expression::Literal(Literal::Float(f), _, _) => Some(f.to_string()),
+                    Expression::Literal(Literal::Boolean(b), _, _) => Some(if *b { "yes".to_string() } else { "no".to_string() }),
+                    Expression::Literal(Literal::Nothing, _, _) => Some("nothing".to_string()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn get_keyword_or_stdlib_hover(&self, document_text: &str, position: Position) -> Option<String> {
+        let word = self.get_word_at_position(document_text, position)?;
+
+        // Check for WFL keywords
+        if let Some(keyword_info) = self.get_keyword_info(&word) {
+            return Some(self.format_hover_info(&keyword_info));
+        }
+
+        // Check for stdlib functions (including multi-word ones like "length of")
+        if let Some(stdlib_info) = self.get_stdlib_function_info(document_text, position) {
+            return Some(self.format_hover_info(&stdlib_info));
+        }
+
+        None
+    }
+
+    fn get_keyword_info(&self, word: &str) -> Option<SymbolInfo> {
+        let keywords = [
+            ("if", "Conditional statement - executes code block if condition is true"),
+            ("then", "Marks the beginning of the if block"),
+            ("otherwise", "Alternative block for if statement (else)"),
+            ("end", "Marks the end of a code block"),
+            ("count", "Loop statement - repeats code block for a range of values"),
+            ("from", "Specifies the start of a count loop"),
+            ("to", "Specifies the end of a count loop"),
+            ("store", "Creates a new variable and assigns a value"),
+            ("create", "Creates a new variable (alias for store)"),
+            ("display", "Outputs text or values to the console"),
+            ("call", "Invokes a function or action"),
+            ("define", "Defines a new function or action"),
+            ("action", "Keyword used in function definitions"),
+            ("called", "Keyword used in function definitions"),
+            ("with", "Specifies parameters or arguments"),
+            ("and", "Logical AND operator or parameter separator"),
+            ("or", "Logical OR operator"),
+            ("not", "Logical NOT operator"),
+            ("is", "Comparison operator"),
+            ("equal", "Part of equality comparison"),
+            ("greater", "Part of greater than comparison"),
+            ("less", "Part of less than comparison"),
+            ("than", "Part of comparison operators"),
+            ("return", "Returns a value from a function"),
+            ("try", "Begins error handling block"),
+            ("catch", "Handles errors in try block"),
+            ("when", "Conditional error handling"),
+            ("error", "Error handling keyword"),
+        ];
+
+        for (keyword, description) in &keywords {
+            if word == *keyword {
+                return Some(SymbolInfo::Keyword {
+                    name: keyword.to_string(),
+                    description: description.to_string(),
+                });
+            }
+        }
+
+        None
+    }
+
+    fn get_stdlib_function_info(&self, document_text: &str, position: Position) -> Option<SymbolInfo> {
+        let lines: Vec<&str> = document_text.lines().collect();
+        if position.line as usize >= lines.len() {
+            return None;
+        }
+
+        let line = lines[position.line as usize];
+        let char_pos = position.character as usize;
+
+        // Look for multi-word stdlib functions around the cursor
+        let stdlib_functions = [
+            ("length of", "length of collection", "Returns the number of items in a collection"),
+            ("first of", "first of collection", "Returns the first item in a collection"),
+            ("last of", "last of collection", "Returns the last item in a collection"),
+            ("uppercase", "uppercase text", "Converts text to uppercase"),
+            ("lowercase", "lowercase text", "Converts text to lowercase"),
+            ("trim", "trim text", "Removes whitespace from the beginning and end of text"),
+            ("random", "random number", "Generates a random number between 0 and 1"),
+            ("round", "round number", "Rounds a number to the nearest integer"),
+            ("floor", "floor number", "Rounds a number down to the nearest integer"),
+            ("ceiling", "ceiling number", "Rounds a number up to the nearest integer"),
+            ("absolute", "absolute value of number", "Returns the absolute value of a number"),
+            ("join", "join collection with separator", "Joins collection items with a separator"),
+            ("split", "split text by separator", "Splits text into a collection using a separator"),
+            ("replace", "replace old with new in text", "Replaces occurrences of old text with new text"),
+            ("substring", "substring of text from start to end", "Extracts a portion of text"),
+            ("contains", "collection contains item", "Checks if a collection contains an item"),
+            ("add", "add item to collection", "Adds an item to a collection"),
+            ("remove", "remove item from collection", "Removes an item from a collection"),
+            ("sort", "sort collection", "Sorts a collection in ascending order"),
+            ("reverse", "reverse collection", "Reverses the order of items in a collection"),
+            ("clear", "clear collection", "Removes all items from a collection"),
+            ("today", "today", "Returns the current date"),
+            ("now", "now", "Returns the current time"),
+        ];
+
+        // Check if any stdlib function appears around the cursor position
+        for (func_name, signature, description) in &stdlib_functions {
+            if line.contains(func_name) {
+                // Check if cursor is within the function name
+                if let Some(func_pos) = line.find(func_name) {
+                    let func_end = func_pos + func_name.len();
+                    if char_pos >= func_pos && char_pos <= func_end {
+                        return Some(SymbolInfo::StdlibFunction {
+                            name: func_name.to_string(),
+                            description: description.to_string(),
+                            signature: signature.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    fn format_hover_info(&self, symbol_info: &SymbolInfo) -> String {
+        match symbol_info {
+            SymbolInfo::Variable { name, var_type, value } => {
+                let mut info = format!("**Variable:** `{}`\n\n**Type:** `{}`", name, var_type);
+                if let Some(val) = value {
+                    info.push_str(&format!("\n\n**Value:** `{}`", val));
+                }
+                info
+            }
+            SymbolInfo::Function { name, parameters, return_type } => {
+                let params = parameters.join(", ");
+                let mut info = format!("**Function:** `{}({})`", name, params);
+                if let Some(ret_type) = return_type {
+                    info.push_str(&format!("\n\n**Returns:** `{}`", ret_type));
+                }
+                info.push_str("\n\n*User-defined function*");
+                info
+            }
+            SymbolInfo::Keyword { name, description } => {
+                format!("**WFL Keyword:** `{}`\n\n{}", name, description)
+            }
+            SymbolInfo::StdlibFunction { name: _, description, signature } => {
+                format!("**WFL Standard Library**\n\n`{}`\n\n{}", signature, description)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum SymbolInfo {
+    Variable { name: String, var_type: String, value: Option<String> },
+    Function { name: String, parameters: Vec<String>, return_type: Option<String> },
+    Keyword { name: String, description: String },
+    StdlibFunction { name: String, description: String, signature: String },
 }
 
 #[tower_lsp::async_trait]
@@ -532,16 +807,20 @@ impl LanguageServer for WflLanguageServer {
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = params.text_document_position_params.text_document.uri;
-        let _position = params.text_document_position_params.position;
+        let position = params.text_document_position_params.position;
 
-        if let Some(_document) = self.document_map.get(&uri.to_string()) {
-            Ok(Some(Hover {
-                contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: "WFL symbol information would appear here.".to_string(),
-                }),
-                range: None,
-            }))
+        if let Some(document) = self.document_map.get(&uri.to_string()) {
+            if let Some(hover_info) = self.get_hover_info(&document, position) {
+                Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: hover_info,
+                    }),
+                    range: None,
+                }))
+            } else {
+                Ok(None)
+            }
         } else {
             Ok(None)
         }
