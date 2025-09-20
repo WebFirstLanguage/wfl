@@ -1,0 +1,93 @@
+// WFL Rust Line Counter - Port of Python script
+// Counts lines of Rust code, categorizing them as code, comments, or blank
+
+// Function to count lines in a single Rust file
+define action called count_lines_in_file:
+    parameter file_path as Text
+    
+    // Initialize counters
+    store total_lines as 0
+    store code_lines as 0  
+    store comment_lines as 0
+    store blank_lines as 0
+    store in_block_comment as no
+    
+    try:
+        // Read the entire file
+        open file at file_path for reading as rust_file
+        wait for store file_content as read content from rust_file
+        close file rust_file
+        
+        // Split content into lines
+        store lines as split file_content by "\n"
+        
+        // Process each line
+        for each line in lines:
+            add 1 to total_lines
+            store trimmed_line as trim of line
+            
+            // Check for empty line
+            check if length of trimmed_line is 0:
+                add 1 to blank_lines
+                continue
+            end check
+            
+            // Handle block comments
+            check if in_block_comment is yes:
+                add 1 to comment_lines
+                
+                // Check if block comment ends on this line
+                check if contains of line and "*/":
+                    change in_block_comment to no
+                    
+                    // Check if there's code after the block comment end
+                    store star_slash_pos as indexof of line and "*/"
+                    store after_comment as substring of line and (star_slash_pos plus 2) and (length of line minus star_slash_pos minus 2)
+                    store after_trimmed as trim of after_comment
+                    
+                    check if length of after_trimmed is greater than 0 and not startswith of after_trimmed and "//":
+                        add 1 to code_lines
+                    end check
+                end check
+                continue
+            end check
+            
+            // Check if line starts with block comment
+            check if startswith of trimmed_line and "/*":
+                add 1 to comment_lines
+                
+                // Check if block comment doesn't end on same line
+                check if not contains of line and "*/":
+                    change in_block_comment to yes
+                end check
+                continue
+            end check
+            
+            // Check if line is single-line comment
+            check if startswith of trimmed_line and "//":
+                add 1 to comment_lines
+                continue
+            end check
+            
+            // Otherwise, it's a code line
+            add 1 to code_lines
+            
+            // Check for block comment starting in middle of line
+            check if contains of line and "/*":
+                store slash_star_pos as indexof of line and "/*"
+                store rest_of_line as substring of line and slash_star_pos and (length of line minus slash_star_pos)
+                
+                check if not contains of rest_of_line and "*/":
+                    change in_block_comment to yes
+                end check
+            end check
+        end for
+        
+        // Return results as list [total, code, comments, blank]
+        return [total_lines and code_lines and comment_lines and blank_lines]
+        
+    when error:
+        display "Error processing file " with file_path with ": " with error
+        return [0 and 0 and 0 and 0]
+    end try
+end action
