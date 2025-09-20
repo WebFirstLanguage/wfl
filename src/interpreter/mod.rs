@@ -37,6 +37,7 @@ use crate::logging::IndentGuard;
 use crate::parser::ast::{
     Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
 };
+use crate::builtins::get_function_arity;
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
 use std::cell::RefCell;
@@ -3153,7 +3154,25 @@ impl Interpreter {
 
                 // Try normal variable lookup first (allows user-defined 'count' variables outside loops)
                 if let Some(value) = env.borrow().get(name) {
-                    Ok(value)
+                    // Check if this is a zero-argument native function that should be auto-called
+                    match &value {
+                        Value::NativeFunction(func_name, native_fn) => {
+                            if get_function_arity(func_name) == 0 {
+                                // Auto-call zero-argument functions when referenced as variables
+                                native_fn(vec![]).map_err(|e| {
+                                    RuntimeError::new(
+                                        format!("Error in native function '{}': {}", func_name, e),
+                                        *line,
+                                        *column,
+                                    )
+                                })
+                            } else {
+                                // Return function object for functions with arguments
+                                Ok(value)
+                            }
+                        }
+                        _ => Ok(value)
+                    }
                 } else if name == "count" {
                     // If 'count' is not found and we're not in a count loop, provide helpful error
                     Err(RuntimeError::new(

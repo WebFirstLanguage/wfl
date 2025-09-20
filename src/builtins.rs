@@ -21,8 +21,14 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "round",
     "floor",
     "ceil",
-    "random",
     "clamp",
+    // Random functions (implemented in stdlib/random.rs)
+    "random",
+    "random_between",
+    "random_int",
+    "random_boolean",
+    "random_from",
+    "random_seed",
     // Math functions recognized by TypeChecker but not yet implemented
     "min",
     "max",
@@ -202,12 +208,18 @@ pub fn get_function_arity(name: &str) -> usize {
         // === MATH FUNCTIONS ===
         // Single argument functions
         "abs" | "round" | "floor" | "ceil" | "sqrt" | "sin" | "cos" | "tan" => 1,
-        // Zero argument functions
-        "random" => 0,
         // Two argument functions
         "min" | "max" | "power" => 2,
         // Three argument functions
         "clamp" => 3,
+
+        // === RANDOM FUNCTIONS ===
+        // Zero argument functions
+        "random" | "random_boolean" => 0,
+        // Single argument functions
+        "random_from" | "random_seed" => 1,
+        // Two argument functions
+        "random_between" | "random_int" => 2,
 
         // === TEXT FUNCTIONS ===
         // Single argument functions

@@ -12,14 +12,21 @@ use tokio;
 mod random_function_tests {
     use super::*;
 
-    /// Test helper to run WFL code and get the result
+    /// Test helper to run WFL code and get the result from a variable
     async fn run_wfl_code(code: &str) -> Result<Value, String> {
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
         let ast = parser.parse().map_err(|e| format!("Parse error: {:?}", e))?;
 
         let mut interpreter = Interpreter::new();
-        interpreter.interpret(&ast).await.map_err(|e| format!("Runtime error: {:?}", e))
+        let _ = interpreter.interpret(&ast).await.map_err(|e| format!("Runtime error: {:?}", e))?;
+
+        // Extract the result from the 'result' variable
+        if let Some(result_value) = interpreter.global_env().borrow().get("result") {
+            Ok(result_value)
+        } else {
+            Err("Variable 'result' not found after execution".to_string())
+        }
     }
 
     /// Test helper to check if a value is a number within a range

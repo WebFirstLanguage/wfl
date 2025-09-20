@@ -1,7 +1,6 @@
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
     match value {
@@ -66,24 +65,7 @@ pub fn native_ceil(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Number(x.ceil()))
 }
 
-pub fn native_random(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if !args.is_empty() {
-        return Err(RuntimeError::new(
-            format!("random expects 0 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
 
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-
-    let nanos = now.subsec_nanos() as f64;
-    let random_value = (nanos / 1_000_000_000.0) % 1.0;
-
-    Ok(Value::Number(random_value))
-}
 
 pub fn native_clamp(args: Vec<Value>) -> Result<Value, RuntimeError> {
     if args.len() != 3 {
@@ -115,6 +97,5 @@ pub fn register_math(env: &mut Environment) {
     let _ = env.define("round", Value::NativeFunction("round", native_round));
     let _ = env.define("floor", Value::NativeFunction("floor", native_floor));
     let _ = env.define("ceil", Value::NativeFunction("ceil", native_ceil));
-    let _ = env.define("random", Value::NativeFunction("random", native_random));
     let _ = env.define("clamp", Value::NativeFunction("clamp", native_clamp));
 }

@@ -115,7 +115,7 @@ display ""
 display "7. Random Selection Tests"
 
 // Random from list
-store colors as ["red", "green", "blue", "yellow", "purple"]
+store colors as ["red" and "green" and "blue" and "yellow" and "purple"]
 display "Color list: " with colors
 
 display "Random color selections:"
@@ -207,7 +207,7 @@ else:
     display "  ✗ Date1 should be before Date2"
 end check
 
-check if date1 is same as date3:
+check if date1 is equal to date3:
     display "  ✓ Date1 equals Date3"
 else:
     display "  ✗ Date1 should equal Date3"

@@ -1,0 +1,28 @@
+// Simple test for random functions
+display "Testing basic random function:"
+store r1 as random
+display r1
+
+display "Testing random_between:"
+store r2 as random_between of 1 and 10
+display r2
+
+display "Testing random_int:"
+store r3 as random_int of 1 and 10
+display r3
+
+display "Testing random_boolean:"
+store r4 as random_boolean
+display r4
+
+display "Testing random_from with list:"
+store colors as ["red" and "green" and "blue"]
+store r5 as random_from of colors
+display r5
+
+display "Testing random_seed:"
+random_seed of 42
+store r6 as random
+display r6
+
+display "All tests completed!"

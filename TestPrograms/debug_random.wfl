@@ -1,0 +1,16 @@
+// Debug random function calls
+display "Testing random with parentheses:"
+store r1 as random()
+display r1
+
+display "Testing random without parentheses:"
+store r2 as random
+display r2
+
+display "Testing random_boolean with parentheses:"
+store r3 as random_boolean()
+display r3
+
+display "Testing random_boolean without parentheses:"
+store r4 as random_boolean
+display r4
