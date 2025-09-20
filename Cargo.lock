@@ -3029,7 +3029,7 @@ dependencies = [
 
 [[package]]
 name = "wfl"
-version = "25.8.29"
+version = "25.9.1"
 dependencies = [
  "chrono",
  "codespan-reporting",
