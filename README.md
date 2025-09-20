@@ -1,7 +1,7 @@
 # WFL (WebFirst Language)
 
 <div align="center">
-  <img src="https://img.shields.io/badge/version-25.8.11-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-25.9.1-blue" alt="Version">
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="Status">
   <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License">
   <img src="https://img.shields.io/badge/rust-1.75+-brown" alt="Rust Version">
@@ -13,6 +13,21 @@
 </div>
 
 ---
+
+## 📋 Table of Contents
+
+- [🎯 What is WFL?](#-what-is-wfl)
+- [✨ Key Features](#-key-features)
+- [🚀 Quick Start](#-quick-start)
+- [📚 Language Overview](#-language-overview)
+- [🛠️ Development Tools](#️-development-tools)
+- [📦 Standard Library](#-standard-library)
+- [⚙️ Configuration](#️-configuration)
+- [🏗️ Architecture](#️-architecture)
+- [📊 Project Status](#-project-status)
+- [📖 Documentation](#-documentation)
+- [🤝 Contributing](#-contributing)
+- [📄 License & Support](#-license--support)
 
 ## ⚠️ Alpha Software Notice
 
@@ -289,6 +304,9 @@ Key components:
 
 ## 📊 Project Status
 
+<details>
+<summary><strong>Component Status Overview</strong></summary>
+
 | Component | Status | Description |
 |-----------|--------|-------------|
 | Lexer | ✅ Complete | Fast tokenization with Logos |
@@ -301,6 +319,11 @@ Key components:
 | Code Quality Tools | ✅ Complete | Linter, analyzer, formatter |
 | Bytecode VM | 🔄 Planned | Performance optimization |
 
+**Current Version**: v25.9.1 (September 2025)
+**Development Status**: Active Alpha Development
+**Next Milestone**: Performance optimization and bytecode VM
+</details>
+
 ## 🔢 Version Scheme
 
 WFL uses a calendar-based version scheme: **YY.MM.BUILD**
@@ -309,49 +332,76 @@ WFL uses a calendar-based version scheme: **YY.MM.BUILD**
 - **MM**: Month number (1-12)
 - **BUILD**: Build number within the month (resets each month)
 
-Example: `25.8.3` means Year 2025, August, Build 3
+Example: `25.9.1` means Year 2025, September, Build 1
 
-### Why This Format?
+<details>
+<summary><strong>Why This Format?</strong></summary>
 
 The previous format (YYYY.BUILD) exceeded Windows MSI installer limitations, which require the major version to be less than 256. Our new format:
 - ✅ Compatible with Windows installers
 - ✅ Clear indication of release date
 - ✅ Predictable monthly release cycles
 - ✅ Easy to understand and remember
+</details>
 
 ## 📖 Documentation
 
-- [Language Specification](Docs/wfl-spec.md) - Complete language reference
-- [Standard Library](Docs/wfl-standard-library.md) - Built-in functions reference
-- [Error Handling](Docs/wfl-errors.md) - Error types and debugging
-- [Variables Guide](Docs/wfl-variables.md) - Working with data
-- [Control Flow](Docs/wfl-control-flow.md) - Conditionals and loops
-- [Actions Guide](Docs/wfl-actions.md) - Functions and code organization
-- [Async Programming](Docs/wfl-async.md) - Asynchronous operations
-- [Container System](Docs/wfl-containers.md) - Object-oriented programming
+### 📚 Core Documentation
+- **[📋 Documentation Index](Docs/wfl-documentation-index.md)** - Complete navigation guide
+- **[📖 Language Specification](Docs/language-reference/wfl-spec.md)** - Complete language reference
+- **[🚀 Getting Started Guide](Docs/guides/wfl-getting-started.md)** - Installation and first steps
+- **[📚 WFL by Example](Docs/guides/wfl-by-example.md)** - Learn through practical examples
+
+### 🔧 Language Reference
+- **[Variables Guide](Docs/language-reference/wfl-variables.md)** - Working with data
+- **[Control Flow](Docs/language-reference/wfl-control-flow.md)** - Conditionals and loops
+- **[Actions Guide](Docs/language-reference/wfl-actions.md)** - Functions and code organization
+- **[Async Programming](Docs/language-reference/wfl-async.md)** - Asynchronous operations
+- **[Container System](Docs/language-reference/wfl-containers.md)** - Object-oriented programming
+- **[Error Handling](Docs/language-reference/wfl-errors.md)** - Error types and debugging
+
+### 📦 API Reference
+- **[Standard Library](Docs/api/wfl-standard-library.md)** - Built-in functions reference
+- **[Core Module](Docs/api/core-module.md)** - Core language functions
+- **[Math Module](Docs/api/math-module.md)** - Mathematical operations
+- **[Text Module](Docs/api/text-module.md)** - String manipulation
+- **[List Module](Docs/api/list-module.md)** - List operations
+
+### 🛠️ Development Guides
+- **[Building WFL](Docs/guides/building.md)** - Building from source
+- **[WFL Cookbook](Docs/guides/wfl-cookbook.md)** - Recipes for common tasks
+- **[Migration Guide](Docs/guides/wfl-migration-guide.md)** - Migrating from other languages
 
 ## 🤝 Contributing
 
 We welcome contributions! Here's how to get started:
 
+<details>
+<summary><strong>Quick Start for Contributors</strong></summary>
+
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
+3. Make your changes following our [TDD guidelines](.augment/rules/DEVELOPMENT.md)
 4. Run tests (`cargo test`)
 5. Ensure all test programs pass
 6. Commit your changes
 7. Push to your branch
 8. Open a Pull Request
+</details>
 
-### Development Guidelines
+### 🔧 Development Guidelines
 
-- **Maintain backward compatibility** - Never break existing WFL programs
-- **Add tests** for new features in `TestPrograms/`
-- **Update documentation** in the `Docs/` folder
-- **Follow code style** - Run `cargo fmt` and `cargo clippy`
-- **Create Dev Diary entries** for significant changes
+- **🛡️ Maintain backward compatibility** - Never break existing WFL programs
+- **🧪 Test-Driven Development** - Write failing tests first, then implement
+- **📝 Add tests** for new features in `TestPrograms/`
+- **📚 Update documentation** in the `Docs/` folder
+- **🎨 Follow code style** - Run `cargo fmt` and `cargo clippy`
+- **📖 Create Dev Diary entries** for significant changes
 
-### Running Tests
+### 🧪 Running Tests
+
+<details>
+<summary><strong>Test Commands</strong></summary>
 
 ```bash
 # Run all tests
@@ -363,33 +413,52 @@ cargo test -- --nocapture
 # Test specific module
 cargo test --package wfl --lib module_name
 
-# Run all test programs
-for file in TestPrograms/*.wfl; do 
+# Run all test programs (Windows PowerShell)
+Get-ChildItem TestPrograms\*.wfl | ForEach-Object { .\target\release\wfl.exe $_.FullName }
+
+# Run all test programs (Linux/macOS)
+for file in TestPrograms/*.wfl; do
     ./target/release/wfl "$file"
 done
 ```
+</details>
 
-## 🛡️ Our Commitment
+### 📋 Development Resources
+
+- **[Development Guide](.augment/rules/DEVELOPMENT.md)** - Comprehensive guide for contributors
+- **[Dev Diary](Dev%20diary/)** - Development history and progress
+- **[TestPrograms](TestPrograms/)** - Example WFL programs and integration tests
+
+## 📄 License & Support
+
+### 🛡️ Our Commitment
 
 **Backward Compatibility Promise**: We guarantee that WFL code you write today will continue to work with all future versions of the language. We will not actively kill features unless a security bug forces our hand. If we must deprecate something, we will give you at least 1 year notice.
 
-## 📄 License
+### 📄 License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+### 📞 Support & Community
 
-WFL is developed by Logbie LLC with assistance from:
-- Devin.ai - Primary AI development partner
-- ChatGPT - Code review and optimization
-- Claude - Documentation and architecture
-- The Rust community for excellent libraries and tools
+- **🐛 Issues**: [GitHub Issues](https://github.com/WebFirstLanguage/wfl/issues)
+- **💬 Discussions**: [GitHub Discussions](https://github.com/WebFirstLanguage/wfl/discussions)
+- **📧 Email**: info@logbie.com
 
-## 📞 Support
+### 🙏 Acknowledgments
 
-- **Issues**: [GitHub Issues](https://github.com/WebFirstLanguage/wfl/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/WebFirstLanguage/wfl/discussions)
-- **Email**: info@logbie.com
+WFL is developed by **Logbie LLC** with assistance from:
+- **Devin.ai** - Primary AI development partner
+- **ChatGPT** - Code review and optimization
+- **Claude** - Documentation and architecture
+- **The Rust community** for excellent libraries and tools
+
+### 📊 Project Links
+
+- **[📋 Full Documentation](Docs/wfl-documentation-index.md)** - Complete documentation index
+- **[🔧 Development Guide](.augment/rules/DEVELOPMENT.md)** - For contributors
+- **[📈 Project Status](#-project-status)** - Current development status
+- **[🏗️ Architecture](#️-architecture)** - System design overview
 
 ---
 

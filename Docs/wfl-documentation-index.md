@@ -77,6 +77,8 @@ Internal technical documentation for contributors and advanced users:
 Internal development documentation (not for general users):
 
 - **[TODO List](dev-notes/wfl-todo.md)** - Project task tracking
+- **[Bug Reports](dev-notes/wfl-bug-reports.md)** - Historical bug investigations and resolutions
+- **[Memory Optimization](dev-notes/wfl-memory-optimization.md)** - Memory management guidelines and best practices
 - **[Devin Integration](dev-notes/wfl-devin.md)** - AI assistant integration notes
 - **[Gemini Research](dev-notes/wfl-gemini-research.md)** - Research notes
 - **[Library Recommendations](dev-notes/wfl-library-recommendations.md)** - External library suggestions
@@ -86,10 +88,23 @@ Internal development documentation (not for general users):
 
 ## 🚀 Quick Links
 
-- [README](../README.md) - Project overview and quick start
-- [CLAUDE.md](../CLAUDE.md) - AI assistant instructions
-- [TestPrograms](../TestPrograms/) - Example WFL programs
-- [Dev Diary](../Dev%20diary/) - Development history
+### 📋 Project Overview
+- **[README](../README.md)** - Project overview and quick start
+- **[CHANGELOG](../CHANGELOG.md)** - Version history and changes
+- **[SECURITY](../SECURITY.md)** - Security policy and vulnerability reporting
+- **[LICENSE](../LICENSE)** - Apache 2.0 license details
+
+### 🛠️ Development Resources
+- **[Development Guide](../.augment/rules/DEVELOPMENT.md)** - Comprehensive guide for AI assistants and contributors
+- **[TestPrograms](../TestPrograms/)** - Example WFL programs and integration tests
+- **[Dev Diary](../Dev%20diary/)** - Development history and progress logs
+- **[Tools](../Tools/)** - Development tools and utilities
+
+### 🏗️ Project Structure
+- **[Source Code](../src/)** - Main WFL interpreter source code
+- **[LSP Server](../wfl-lsp/)** - Language Server Protocol implementation
+- **[VSCode Extension](../vscode-extension/)** - Editor integration
+- **[Tests](../tests/)** - Unit and integration tests
 
 ## 📝 Contributing to Documentation
 
@@ -124,11 +139,28 @@ When adding new documentation:
 - **Language Reference:** 11 comprehensive guides
 - **User Guides:** 9 tutorials and how-tos
 - **API Documentation:** 10 module references
-- **Technical Docs:** 15 internal documents  
-- **Dev Notes:** 7 development documents
-- **Total Documentation:** 52 organized documents
+- **Technical Docs:** 15 internal documents
+- **Dev Notes:** 9 development documents (including bug reports and optimization guides)
+- **Total Documentation:** 54 organized documents
 
-*Last updated: August 2025*
+*Last updated: September 2025*
+
+## 🔗 External Resources
+
+### 🌐 Online Presence
+- **[GitHub Repository](https://github.com/WebFirstLanguage/wfl)** - Source code and issue tracking
+- **[GitHub Issues](https://github.com/WebFirstLanguage/wfl/issues)** - Bug reports and feature requests
+- **[GitHub Discussions](https://github.com/WebFirstLanguage/wfl/discussions)** - Community discussions
+
+### 📚 Learning Resources
+- **[TestPrograms](../TestPrograms/)** - Comprehensive example programs demonstrating WFL features
+- **[Examples](../examples/)** - Additional code examples and demonstrations
+- **[Syntax Test](../syntax_test/)** - Syntax validation and testing files
+
+### 🔧 Development Tools
+- **[Scripts](../scripts/)** - Build and development automation scripts
+- **[Tools](../Tools/)** - Development utilities and helpers
+- **[Benchmarks](../benches/)** - Performance benchmarking suite
 
 ---
 

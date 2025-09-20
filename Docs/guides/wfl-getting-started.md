@@ -29,7 +29,7 @@ Before you start, you'll need:
 
 1. **Clone the WFL Repository**:
    ```bash
-   git clone https://github.com/wfl-project/wfl.git
+   git clone https://github.com/WebFirstLanguage/wfl.git
    cd wfl
    ```
 

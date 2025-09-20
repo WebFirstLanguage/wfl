@@ -1,6 +1,6 @@
-# CLAUDE.md
+# WFL Development Guide for AI Assistants
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This comprehensive guide provides instructions for AI assistants working on the WebFirst Language (WFL) project.
 
 ## Project Overview
 
@@ -14,26 +14,53 @@ This project uses a comprehensive memory bank system located in `.kilocode/rules
 - `product.md` - Features, roadmap, and user experience
 - `tech.md` - Implementation details and technical specifications
 
-## Core Instructions & Rules
+## Project Structure & Organization
 
-### Test-Driven Development (TDD) is MANDATORY
+### Core Architecture
+```
+wfl/
+├── src/                    # Main source code
+│   ├── lexer/             # Tokenization (Logos-based)
+│   ├── parser/            # AST generation with natural language support
+│   ├── analyzer/          # Semantic analysis and validation
+│   ├── typechecker/       # Static type analysis
+│   ├── interpreter/       # Execution engine with Tokio async runtime
+│   ├── stdlib/            # Standard library modules
+│   ├── linter/            # Code style checking
+│   └── fixer/             # Auto-formatting
+├── TestPrograms/          # Integration test programs (TDD)
+├── tests/                 # Unit and integration tests (TDD)
+├── Docs/                  # All user-facing documentation
+├── Dev diary/             # Development history and progress
+├── wfl-lsp/              # Language Server Protocol implementation
+├── vscode-extension/      # VSCode language support
+└── .kilocode/rules/      # Memory bank and AI context
+```
+
+### Module Organization
+- Root crate `wfl` (compiler/runtime) in `src/`
+- Workspace member `wfl-lsp/` provides Language Server (VS Code integration in `vscode-extension/`)
+- Tests: inline (`src/**/tests.rs`) and integration (`tests/` using `*_test.rs`)
+- Benchmarks in `benches/` (Criterion), Examples in `examples/`
+- Scripts in `scripts/` (PowerShell/Bash), Packaging assets in `wix/`
+
+## Core Development Principles
+
+### 1. Test-Driven Development (TDD) is MANDATORY
 
 **TDD is as critical as backward compatibility. Violating TDD is equivalent to breaking the build.**
 
 #### TDD Rules (NEVER VIOLATE):
-
-1. **Always write comprehensive failing tests FIRST** for any change (feature, bug fix, or refactor)
-2. **Explicitly confirm that tests fail** before writing any implementation code
+1. **Always write comprehensive failing tests FIRST** for any change
+2. **Explicitly confirm that tests fail** before writing implementation code
 3. **Commit failing tests as a baseline** before starting implementation
 4. **Never modify tests to make them pass** - fix the implementation instead
 5. **"Done" means all tests pass** with no changes to original test intent
 
 #### TDD Workflow for Every Change:
-
 ```bash
 # Step 1: Write failing test
 echo "Writing test that MUST fail first..."
-# Add test to tests/ or TestPrograms/
 cargo test new_test_name 2>&1 | grep -E "(FAILED|failed)"  # MUST see failure
 
 # Step 2: Commit failing test
@@ -47,41 +74,29 @@ git commit -m "test: Add failing test for [feature/fix]"
 cargo test new_test_name  # MUST pass now
 
 # Step 5: Refactor if needed (tests still pass)
-cargo fmt --all
-cargo clippy --all-targets -- -D warnings
+cargo fmt --all && cargo clippy --all-targets -- -D warnings
 
 # Step 6: Commit implementation
 git add -A
 git commit -m "feat/fix: Implement [feature/fix] to pass tests"
 ```
 
-### Prime Development Directives
-
-1. **TDD Compliance is Non-Negotiable**: Every change starts with a failing test
-2. **Test Programs MUST Pass**: After ANY code change, run ALL programs in TestPrograms/ and ensure they execute successfully
-3. **Backward Compatibility is Sacred**: NEVER break existing WFL programs. Maintain 100% compatibility with all syntax
-4. **User Experience First**: Error messages must be helpful, clear, and actionable
-5. **Performance Matters**: Optimize for speed without sacrificing clarity or correctness
-6. **Document Your Journey**: Create detailed Dev Diary entries for all significant changes
-7. **All documentation is in the Docs folder** off the main project root - keep it updated
-8. **All components must be documented** (parser, lexer, bytecode, etc.)
-
-## Critical Development Rules
-
-### TDD Enforcement
-**Writing implementation before tests is a CRITICAL VIOLATION**. This rule supersedes all others except backward compatibility:
-1. Tests define the specification
-2. Implementation satisfies the tests
-3. Tests are the source of truth
-4. Modifying tests to pass is forbidden
-
-### Backward Compatibility Commitment
-**NEVER BREAK EXISTING WFL PROGRAMS**. This is co-equal with TDD. Before merging any change:
+### 2. Backward Compatibility is Sacred
+**NEVER BREAK EXISTING WFL PROGRAMS**. Before merging any change:
 1. Write new tests for new features FIRST
 2. Run ALL test programs in TestPrograms/
 3. Verify identical behavior for existing syntax
 4. Document any edge cases
 5. If implementing something in the parser, also update the bytecode
+
+### 3. Prime Development Directives
+1. **TDD Compliance is Non-Negotiable**: Every change starts with a failing test
+2. **Test Programs MUST Pass**: After ANY code change, run ALL programs in TestPrograms/
+3. **User Experience First**: Error messages must be helpful, clear, and actionable
+4. **Performance Matters**: Optimize for speed without sacrificing clarity
+5. **Document Your Journey**: Create detailed Dev Diary entries for significant changes
+6. **All documentation is in the Docs folder** - keep it updated
+7. **All components must be documented** (parser, lexer, bytecode, etc.)
 
 ## Development Workflow: Explore → Plan → Code → Commit
 
@@ -90,7 +105,7 @@ git commit -m "feat/fix: Implement [feature/fix] to pass tests"
 
 ```bash
 # Read relevant documentation
-cat Docs/wfl-spec.md
+cat Docs/language-reference/wfl-spec.md
 cat .kilocode/rules/memory-bank/*.md
 
 # Search for similar patterns
@@ -182,63 +197,7 @@ git commit -m "feat: [Feature] with comprehensive tests
 - Updated documentation"
 ```
 
-## Anti-Patterns (FORBIDDEN PRACTICES)
-
-### TDD Violations (NEVER DO THESE):
-
-1. ❌ **Writing implementation before tests**
-   ```bash
-   # WRONG: Implementation first
-   vim src/feature.rs  # Writing feature without test
-   ```
-
-2. ❌ **Skipping the "confirm failure" step**
-   ```bash
-   # WRONG: Not verifying test fails
-   cargo test new_test  # Without checking it fails first
-   ```
-
-3. ❌ **Modifying tests to make them pass**
-   ```rust
-   // WRONG: Changing test expectations
-   // Original: assert_eq!(result, 42);
-   // Modified: assert_eq!(result, 40); // Changed to match buggy implementation
-   ```
-
-4. ❌ **Loosely defined or incomplete test coverage**
-   ```rust
-   // WRONG: Vague test
-   #[test]
-   fn test_feature() {
-       // Just checking it doesn't crash
-       let _ = my_feature();
-   }
-   ```
-
-5. ❌ **Committing without tests**
-   ```bash
-   # WRONG: Implementation-only commit
-   git commit -m "feat: Add new feature"  # No tests included
-   ```
-
-6. ❌ **"Fixing" tests instead of implementation**
-   ```bash
-   # WRONG: Tests fail, so modify them
-   sed -i 's/expected_value/actual_buggy_value/g' tests/*.rs
-   ```
-
-### Correct TDD Pattern:
-```bash
-# RIGHT: Test-first development
-1. Write test that captures intended behavior
-2. Run test, see it fail
-3. Commit failing test
-4. Write minimal code to pass
-5. Refactor if needed (tests still pass)
-6. Commit implementation
-```
-
-## Core Development Commands
+## Build, Test, and Run Commands
 
 ### Building and Testing (TDD-Enhanced)
 ```bash
@@ -334,6 +293,26 @@ npm run test       # Run tests
 ../scripts/install_vscode_extension.ps1
 ```
 
+## Coding Style & Standards
+
+### Rust Style Guidelines
+- Rust style via rustfmt. Format before pushing: `cargo fmt`
+- Lint with Clippy: `cargo clippy -- -D warnings`
+- Indentation: 4 spaces; max width ~100 (see rustfmt config)
+- Tests and files: prefer descriptive names; integration tests use `*_test.rs`
+
+### Commit & PR Guidelines
+- Prefer Conventional Commits style: `feat:`, `fix:`, `test:`, `chore:`, `refactor:`
+- PRs should include: clear description, rationale, test updates, and `cargo test` output
+- Link issues with `Fixes #123`
+- Keep changes scoped; update docs/examples when behavior changes
+
+### Testing Guidelines
+- Use `cargo test` for unit and integration tests
+- Place integration tests in `tests/` and module tests in `src/**/tests.rs`
+- Add focused tests near the code they cover
+- For performance-sensitive paths, add Criterion benches in `benches/`
+
 ## CLI Flag Reference
 
 | Flag | Description | Example |
@@ -348,101 +327,14 @@ npm run test       # Run tests
 | `--diff` | Show diff for --fix | `cargo run -- --fix program.wfl --diff` |
 | `--debug` | Enable debug output | `cargo run -- --debug program.wfl` |
 | `--config` | Specify config file | `cargo run -- --config custom.wflcfg program.wfl` |
-| `--time` | Measure and display execution time | `cargo run -- --time program.wfl` |
+| `--time` | Measure execution time | `cargo run -- --time program.wfl` |
 | `--interactive` | Start REPL mode | `cargo run -- --interactive` |
 | `-v, --version` | Show version info | `cargo run -- --version` |
 
-## Testing Requirements (TDD-Enforced)
-
-### Test Categories (ALL MUST PASS):
-- Unit tests in `tests/` directory
-- Integration tests in TestPrograms/
-- Basic syntax tests (variables, loops, conditions)
-- Async/await tests
-- Error handling tests
-- Standard library tests
-- Container and inheritance tests
-- Performance benchmarks
-
-### TDD Test Commands:
-```bash
-# Write new test (MUST fail first)
-echo "Writing failing test..." >> tests/new_feature.rs
-cargo test new_feature 2>&1 | grep FAILED || exit 1
-
-# Run specific test
-cargo test test_name
-
-# Run module tests
-cargo test --package wfl --lib module_name
-
-# Run integration tests
-cargo test --test '*'
-
-# Verify all TestPrograms still work
-Get-ChildItem TestPrograms\*.wfl | ForEach-Object { 
-    Write-Host "Testing $_"
-    .\target\release\wfl.exe $_.FullName
-    if ($LASTEXITCODE -ne 0) { exit 1 }
-}
-```
-
-### Test-First Development Examples:
-
-#### Example 1: Adding a New Standard Library Function
-```bash
-# 1. Write failing test first
-cat > tests/stdlib_new_function.rs << 'EOF'
-#[test]
-fn test_new_string_function() {
-    let result = run_wfl("display reverse of 'hello'");
-    assert_eq!(result, "olleh");
-}
-EOF
-
-# 2. Confirm it fails
-cargo test test_new_string_function 2>&1 | grep FAILED
-
-# 3. Commit failing test
-git add tests/stdlib_new_function.rs
-git commit -m "test: Add failing test for string reverse function"
-
-# 4. Now implement in src/stdlib/text.rs
-# ... implementation code ...
-
-# 5. Verify test passes
-cargo test test_new_string_function
-```
-
-#### Example 2: Fixing a Parser Bug
-```bash
-# 1. Write test that exposes the bug
-cat > TestPrograms/parser_bug_test.wfl << 'EOF'
-store x as 10
-if x is greater than 5 then
-    display "should work"
-end if
-EOF
-
-# 2. Confirm it fails (reproduces bug)
-./target/release/wfl.exe TestPrograms/parser_bug_test.wfl 2>&1 | grep -i error
-
-# 3. Commit failing test
-git add TestPrograms/parser_bug_test.wfl
-git commit -m "test: Add failing test for parser if-statement bug"
-
-# 4. Fix parser in src/parser/mod.rs
-# ... fix code ...
-
-# 5. Verify test passes and all others still pass
-./target/release/wfl.exe TestPrograms/parser_bug_test.wfl
-cargo test
-```
-
 ## Architecture Overview
 
-### Module Structure
-The codebase follows a pipeline architecture:
+### Processing Pipeline
+The codebase follows a traditional compiler architecture:
 
 ```
 Input (.wfl) → Lexer → Parser → Analyzer → Type Checker → Interpreter → Output
@@ -479,9 +371,66 @@ WFL uses "containers" (similar to classes) with:
 ### Natural Language Parsing
 The parser supports English-like syntax:
 - "store X as Y" for variable assignment
-- "check if X is greater than Y" for conditionals  
+- "check if X is greater than Y" for conditionals
 - "count from X to Y" for loops
 - Function calls like "length of mylist"
+
+## Testing Requirements (TDD-Enforced)
+
+### Test Categories (ALL MUST PASS):
+- Unit tests in `tests/` directory
+- Integration tests in TestPrograms/
+- Basic syntax tests (variables, loops, conditions)
+- Async/await tests
+- Error handling tests
+- Standard library tests
+- Container and inheritance tests
+- Performance benchmarks
+
+### TDD Test Commands:
+```bash
+# Write new test (MUST fail first)
+echo "Writing failing test..." >> tests/new_feature.rs
+cargo test new_feature 2>&1 | grep FAILED || exit 1
+
+# Run specific test
+cargo test test_name
+
+# Run module tests
+cargo test --package wfl --lib module_name
+
+# Run integration tests
+cargo test --test '*'
+
+# Verify all TestPrograms still work
+Get-ChildItem TestPrograms\*.wfl | ForEach-Object {
+    Write-Host "Testing $_"
+    .\target\release\wfl.exe $_.FullName
+    if ($LASTEXITCODE -ne 0) { exit 1 }
+}
+```
+
+## Anti-Patterns (FORBIDDEN PRACTICES)
+
+### TDD Violations (NEVER DO THESE):
+
+1. ❌ **Writing implementation before tests**
+2. ❌ **Skipping the "confirm failure" step**
+3. ❌ **Modifying tests to make them pass**
+4. ❌ **Loosely defined or incomplete test coverage**
+5. ❌ **Committing without tests**
+6. ❌ **"Fixing" tests instead of implementation**
+
+### Correct TDD Pattern:
+```bash
+# RIGHT: Test-first development
+1. Write test that captures intended behavior
+2. Run test, see it fail
+3. Commit failing test
+4. Write minimal code to pass
+5. Refactor if needed (tests still pass)
+6. Commit implementation
+```
 
 ## Standard Debug Procedure (TDD-Enhanced)
 
@@ -500,7 +449,7 @@ When debugging ANY issue:
 ## Documentation Requirements
 
 Before making changes:
-1. Read `Docs/wfl-spec.md` for language specification
+1. Read `Docs/language-reference/wfl-spec.md` for language specification
 2. Check module-specific docs in `Docs/`
 3. Review recent Dev Diary entries
 4. Consult memory bank files in `.kilocode/rules/memory-bank/`
@@ -579,72 +528,6 @@ git sync       # or git sync-force
 3. **Rebases commits** - Puts your local commits on top of remote changes
 4. **Restores work** - Re-applies stashed changes after sync
 
-### Common Scenarios
-- **CI version bump conflicts**: Script rebases your work on top of version bumps
-- **Parallel development**: Cleanly integrates remote changes
-- **Linear history**: Maintains clean git history through rebasing
-
-### Manual Steps if Conflicts Occur
-```bash
-# Fix conflicts in marked files
-# Stage resolved files
-git add <resolved-files>
-# Continue rebase
-git rebase --continue
-# Or abort if needed
-git rebase --abort
-```
-
-## TDD Workflow Examples
-
-### Adding a New Feature (TDD)
-1. **Write failing tests** for the feature in TestPrograms/ and tests/
-2. **Confirm all tests fail** as expected
-3. **Commit failing tests** to establish the specification
-4. Update the lexer if new tokens needed (with tests)
-5. Extend the parser AST and parsing logic (with tests)
-6. Add semantic analysis rules (with tests)
-7. Implement type checking rules (with tests)
-8. Add interpreter execution logic (minimal to pass tests)
-9. **Verify all tests pass** including existing ones
-10. Update documentation in Docs/
-11. Update bytecode implementation if parser was changed (with tests)
-12. **Commit implementation** with reference to test commits
-
-### Fixing a Bug (TDD)
-1. **Write a test that reproduces the bug** (must fail)
-2. **Commit the failing test** as evidence of the bug
-3. Debug using standard debug procedure
-4. Fix the minimal code to make test pass
-5. Ensure all existing tests still pass
-6. Commit fix with reference to the test
-
-### Updating Standard Library (TDD)
-1. **Write tests for new function** in module's test section
-2. **Verify tests fail** (function doesn't exist yet)
-3. **Commit failing tests**
-4. Add function to appropriate module in `src/stdlib/`
-5. Register in module's `register_functions()`
-6. Add type signatures and validation
-7. Run tests until they pass
-8. Document in function catalog
-9. Commit implementation
-
-## Debug and Code Quality
-
-**TDD ENFORCEMENT**: No code ships without tests
-```bash
-# Mandatory quality checks (run after TDD cycle)
-cargo fmt --all  # Format code
-cargo clippy --all-targets --all-features -- -D warnings  # Fix all warnings
-cargo test  # All tests must pass
-cargo test --release  # Release mode tests
-
-# Verify test coverage
-cargo tarpaulin --out Html  # Generate coverage report
-# Coverage should never decrease
-```
-
 ## Key Files to Understand
 
 - `src/main.rs` - CLI entry point and command handling
@@ -660,29 +543,7 @@ cargo tarpaulin --out Html  # Generate coverage report
 - `tests/` - Unit test directory (TDD tests go here)
 - `TestPrograms/` - Integration test programs (TDD integration tests)
 
-## Project Structure
-
-```
-wfl/
-├── src/                    # Main source code
-│   ├── lexer/             # Tokenization
-│   ├── parser/            # AST generation
-│   ├── analyzer/          # Semantic analysis
-│   ├── typechecker/       # Type checking
-│   ├── interpreter/       # Execution engine
-│   ├── stdlib/            # Standard library
-│   ├── linter/            # Code style checking
-│   └── fixer/             # Auto-formatting
-├── TestPrograms/          # Integration test programs (TDD)
-├── tests/                 # Unit and integration tests (TDD)
-├── Docs/                  # All documentation
-├── Dev diary/             # Development history
-├── vscode-extension/      # VSCode language support
-├── wfl-lsp/              # Language Server Protocol
-└── .kilocode/rules/      # Memory bank and AI context
-```
-
-## Current Focus Areas (August 2025)
+## Current Focus Areas (September 2025)
 
 1. **TDD Compliance**: Ensuring all new code follows test-first development
 2. **Testing**: Expanding test coverage and TestPrograms
@@ -690,33 +551,13 @@ wfl/
 4. **Error Messages**: Improving clarity and helpfulness (with error tests)
 5. **Documentation**: Keeping all docs up-to-date
 6. **Stability**: Ensuring backward compatibility
-7. **Version**: Currently at v25.8.3
+7. **Version**: Currently at v25.8.11
 
 ## Debugging Principles
 
 - **TDD First**: Every bug gets a failing test before any fix
 - **Interpreter Debugging Principle**: We are building WFL, so unless told to debug the script, we are debugging the interpreter itself
 - **Test-Driven Debugging**: Bugs are fixed when the test passes, not when it "looks right"
-
-## AI Development Rules (TDD-Enforced)
-
-When working on this codebase:
-
-1. **Test-first development is mandatory** - Write failing tests before ANY implementation
-2. **Never break existing functionality** - All changes must maintain backward compatibility
-3. **Follow the TDD debug procedure** for any issues:
-   - Write failing test that reproduces issue
-   - Commit failing test
-   - Review code and logs
-   - Form hypothesis
-   - Make targeted change to pass test
-   - Verify all tests pass
-   - Document in Dev diary
-4. **Commit tests separately** - Failing tests get their own commit before implementation
-5. **Maintain clean separation** - Debug output uses `exec_trace!`, never pollutes program output
-6. **Read todo.md and implementation_progress_{date}.md** in Docs folder to understand current state
-7. **Update README.md** with any new important information
-8. **No implementation without specification** - Tests ARE the specification
 
 ## Final TDD Checklist
 
@@ -729,6 +570,15 @@ Before ANY commit, verify:
 - [ ] Coverage didn't decrease
 - [ ] Documentation updated
 - [ ] Dev Diary entry created
+
+## Security & Configuration
+
+- Do not commit secrets. Review `SECURITY.md` before reporting vulnerabilities
+- Local runtime settings live in `.wflcfg` (created via `scripts/init_config.ps1`)
+- Avoid checking machine-specific configs into VCS
+- Init local config: `powershell ./scripts/init_config.ps1` (creates `.wflcfg`)
+
+---
 
 Remember: This is alpha software under active development. TDD ensures we build the right thing correctly. Always prioritize test-first development and backward compatibility while implementing new features. The goal is to make programming accessible while maintaining professional-grade tooling and performance through rigorous testing.
 

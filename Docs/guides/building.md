@@ -7,7 +7,7 @@ This document describes how to build the WFL compiler from source, how the night
 WFL is built using Rust and Cargo. To build from source:
 
 1. Ensure you have Rust installed (see [rustup.rs](https://rustup.rs/) for installation instructions)
-2. Clone the repository: `git clone https://github.com/logbie/wfl.git`
+2. Clone the repository: `git clone https://github.com/WebFirstLanguage/wfl.git`
 3. Navigate to the project directory: `cd wfl`
 4. Build the project: `cargo build --release`
 5. Run the compiler: `./target/release/wfl <file>`

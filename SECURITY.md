@@ -10,9 +10,9 @@ We provide security updates for the following versions of WFL:
 
 | Version Pattern | Supported          | Notes |
 | --------------- | ------------------ | ----- |
-| 25.8.x (Current)| ✅ Yes             | Active development, security fixes prioritized |
-| 25.7.x          | ⚠️ Limited         | Critical security issues only |
-| 25.6.x and older| ❌ No             | No security updates provided |
+| 25.9.x (Current)| ✅ Yes             | Active development, security fixes prioritized |
+| 25.8.x          | ⚠️ Limited         | Critical security issues only |
+| 25.7.x and older| ❌ No             | No security updates provided |
 
 **Version Scheme**: WFL uses calendar-based versioning (YY.MM.BUILD). Security patches are released as point releases within the current month.
 
@@ -192,7 +192,7 @@ We appreciate the security research community and will acknowledge responsible d
 
 ---
 
-**Last Updated**: August 2025  
-**Version**: 25.8.29
+**Last Updated**: September 2025
+**Version**: 25.9.1
 
 © 2025 Logbie LLC. This security policy is subject to updates as WFL evolves from alpha to stable release.
