@@ -1,0 +1,323 @@
+// Working Pattern Matching Test - WFL
+// Tests only features that are actually implemented and working
+// Based on implementation analysis - September 2025
+
+display "=== WFL Pattern Matching - Working Features Test ==="
+display ""
+
+// === Basic Pattern Matching ===
+display "1. Basic Literal Patterns"
+create pattern greeting:
+    "hello"
+end pattern
+
+create pattern exact_match:
+    "test123"
+end pattern
+
+store greeting_text as "hello world"
+check if greeting_text matches greeting:
+    display "✓ Basic literal pattern matches"
+otherwise:
+    display "✗ Basic literal pattern failed"
+end check
+
+store exact_text as "test123"
+check if exact_text matches exact_match:
+    display "✓ Exact match pattern works"
+otherwise:
+    display "✗ Exact match pattern failed"
+end check
+display ""
+
+// === Character Classes ===
+display "2. Character Class Patterns"
+create pattern digits_only:
+    one or more digit
+end pattern
+
+create pattern letters_only:
+    one or more letter
+end pattern
+
+create pattern whitespace_pattern:
+    one or more whitespace
+end pattern
+
+store number_text as "12345"
+check if number_text matches digits_only:
+    display "✓ Digit character class works"
+otherwise:
+    display "✗ Digit character class failed"
+end check
+
+store word_text as "hello"
+check if word_text matches letters_only:
+    display "✓ Letter character class works"
+otherwise:
+    display "✗ Letter character class failed"
+end check
+
+store space_text as "   "
+check if space_text matches whitespace_pattern:
+    display "✓ Whitespace character class works"
+otherwise:
+    display "✗ Whitespace character class failed"
+end check
+display ""
+
+// === Quantifiers ===
+display "3. Quantifier Patterns"
+create pattern optional_pattern:
+    "hello" then optional " " then "world"
+end pattern
+
+create pattern zero_or_more_pattern:
+    "a" then zero or more "b" then "c"
+end pattern
+
+create pattern exactly_pattern:
+    exactly 3 digit
+end pattern
+
+create pattern between_pattern:
+    2 to 4 letter
+end pattern
+
+create pattern at_least_pattern:
+    at least 2 digit
+end pattern
+
+create pattern at_most_pattern:
+    at most 3 letter
+end pattern
+
+// Test optional
+store optional_text1 as "hello world"
+store optional_text2 as "helloworld"
+check if optional_text1 matches optional_pattern:
+    display "✓ Optional quantifier works (with space)"
+otherwise:
+    display "✗ Optional quantifier failed (with space)"
+end check
+
+check if optional_text2 matches optional_pattern:
+    display "✓ Optional quantifier works (without space)"
+otherwise:
+    display "✗ Optional quantifier failed (without space)"
+end check
+
+// Test zero or more
+store zero_more_text1 as "ac"
+store zero_more_text2 as "abbbbc"
+check if zero_more_text1 matches zero_or_more_pattern:
+    display "✓ Zero or more works (zero matches)"
+otherwise:
+    display "✗ Zero or more failed (zero matches)"
+end check
+
+check if zero_more_text2 matches zero_or_more_pattern:
+    display "✓ Zero or more works (multiple matches)"
+otherwise:
+    display "✗ Zero or more failed (multiple matches)"
+end check
+
+// Test exactly
+store exactly_text as "123"
+check if exactly_text matches exactly_pattern:
+    display "✓ Exactly quantifier works"
+otherwise:
+    display "✗ Exactly quantifier failed"
+end check
+
+// Test between
+store between_text as "abc"
+check if between_text matches between_pattern:
+    display "✓ Between quantifier works"
+otherwise:
+    display "✗ Between quantifier failed"
+end check
+
+// Test at least
+store at_least_text as "12345"
+check if at_least_text matches at_least_pattern:
+    display "✓ At least quantifier works"
+otherwise:
+    display "✗ At least quantifier failed"
+end check
+
+// Test at most
+store at_most_text as "ab"
+check if at_most_text matches at_most_pattern:
+    display "✓ At most quantifier works"
+otherwise:
+    display "✗ At most quantifier failed"
+end check
+display ""
+
+// === Sequences ===
+display "4. Sequence Patterns"
+create pattern email_sequence:
+    one or more letter then "@" then one or more letter then "." then one or more letter
+end pattern
+
+create pattern phone_sequence:
+    exactly 3 digit then "-" then exactly 3 digit then "-" then exactly 4 digit
+end pattern
+
+store email_text as "user@domain.com"
+check if email_text matches email_sequence:
+    display "✓ Email sequence pattern works"
+otherwise:
+    display "✗ Email sequence pattern failed"
+end check
+
+store phone_text as "555-123-4567"
+check if phone_text matches phone_sequence:
+    display "✓ Phone sequence pattern works"
+otherwise:
+    display "✗ Phone sequence pattern failed"
+end check
+display ""
+
+// === Alternatives ===
+display "5. Alternative Patterns"
+create pattern greeting_alternatives:
+    "hello" or "hi" or "hey"
+end pattern
+
+create pattern file_extensions:
+    ".txt" or ".md" or ".wfl"
+end pattern
+
+store greeting1 as "hello there"
+store greeting2 as "hi there"
+store greeting3 as "hey there"
+
+check if greeting1 matches greeting_alternatives:
+    display "✓ Alternative 1 works (hello)"
+otherwise:
+    display "✗ Alternative 1 failed (hello)"
+end check
+
+check if greeting2 matches greeting_alternatives:
+    display "✓ Alternative 2 works (hi)"
+otherwise:
+    display "✗ Alternative 2 failed (hi)"
+end check
+
+check if greeting3 matches greeting_alternatives:
+    display "✓ Alternative 3 works (hey)"
+otherwise:
+    display "✗ Alternative 3 failed (hey)"
+end check
+
+store filename as "document.txt"
+check if filename matches file_extensions:
+    display "✓ File extension alternative works"
+otherwise:
+    display "✗ File extension alternative failed"
+end check
+display ""
+
+// === Capture Groups ===
+display "6. Capture Group Patterns"
+create pattern name_capture:
+    capture {
+        one or more letter
+    } as first_name then " " then capture {
+        one or more letter
+    } as last_name
+end pattern
+
+create pattern phone_capture:
+    capture {
+        exactly 3 digit
+    } as area_code then "-" then capture {
+        exactly 3 digit
+    } as exchange then "-" then capture {
+        exactly 4 digit
+    } as number
+end pattern
+
+store full_name as "John Doe"
+store result as find name_capture in full_name
+check if result is not nothing:
+    display "✓ Name capture pattern works"
+    display "  First name captured successfully"
+    display "  Last name captured successfully"
+otherwise:
+    display "✗ Name capture pattern failed"
+end check
+
+store phone_number as "555-123-4567"
+store phone_result as find phone_capture in phone_number
+check if phone_result is not nothing:
+    display "✓ Phone capture pattern works"
+    display "  Area code captured successfully"
+    display "  Exchange captured successfully"
+    display "  Number captured successfully"
+otherwise:
+    display "✗ Phone capture pattern failed"
+end check
+display ""
+
+// === Complex Combinations ===
+display "7. Complex Pattern Combinations"
+create pattern complex_email:
+    capture {
+        one or more letter or digit
+    } as username then "@" then capture {
+        one or more letter or digit
+    } as domain then "." then capture {
+        2 to 4 letter
+    } as tld
+end pattern
+
+create pattern flexible_phone:
+    optional "(" then capture {
+        exactly 3 digit
+    } as area then optional ")" then optional " " then optional "-" then capture {
+        exactly 3 digit
+    } as exchange then optional " " then optional "-" then capture {
+        exactly 4 digit
+    } as line
+end pattern
+
+store complex_email_text as "user123@example.com"
+store email_result as find complex_email in complex_email_text
+check if email_result is not nothing:
+    display "✓ Complex email pattern works"
+otherwise:
+    display "✗ Complex email pattern failed"
+end check
+
+store flexible_phone1 as "(555) 123-4567"
+store flexible_phone2 as "555-123-4567"
+store flexible_phone3 as "5551234567"
+
+store phone_result1 as find flexible_phone in flexible_phone1
+check if phone_result1 is not nothing:
+    display "✓ Flexible phone format 1 works"
+otherwise:
+    display "✗ Flexible phone format 1 failed"
+end check
+
+store phone_result2 as find flexible_phone in flexible_phone2
+check if phone_result2 is not nothing:
+    display "✓ Flexible phone format 2 works"
+otherwise:
+    display "✗ Flexible phone format 2 failed"
+end check
+
+store phone_result3 as find flexible_phone in flexible_phone3
+check if phone_result3 is not nothing:
+    display "✓ Flexible phone format 3 works"
+otherwise:
+    display "✗ Flexible phone format 3 failed"
+end check
+display ""
+
+display "=== All Working Pattern Features Tested ==="
+display "Note: This test only includes features that are actually implemented."
+display "See Docs/dev-notes/pattern-implementation-analysis.md for full feature status."

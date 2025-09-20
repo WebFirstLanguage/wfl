@@ -1,15 +1,33 @@
 # WFL Pattern Migration Guide
 
-This guide helps you migrate from the old WFL regex system to the new advanced natural language pattern matching system.
+This guide helps you migrate from the old WFL regex system to the new natural language pattern matching system.
 
 ## Overview
 
 The new pattern system represents a major upgrade from the previous regex-based implementation, offering:
 - **Natural Language Syntax**: English-like pattern definitions
-- **Advanced Features**: Lookahead/lookbehind, backreferences, named captures
-- **Better Performance**: Bytecode VM with ReDoS protection
-- **Unicode Support**: Full Unicode categories, scripts, and properties
+- **Bytecode VM**: Efficient execution with step limits
+- **Named Captures**: Extract data with meaningful names
+- **Basic Lookaround**: Simple lookahead/lookbehind support (with braces)
 - **Improved Safety**: Step limits prevent infinite loops
+
+## Implementation Status
+
+**✅ Currently Implemented:**
+- Basic character classes (`digit`, `letter`, `whitespace`)
+- Quantifiers (`one or more`, `zero or more`, `optional`, `exactly N`, `N to M`, `at least N`, `at most N`)
+- Sequences and alternatives
+- Named capture groups (with braces: `capture {pattern} as name`)
+- Basic lookahead/lookbehind (with braces: `followed by {pattern}`)
+- Start of text anchor (`start of text`)
+
+**❌ Not Yet Implemented:**
+- End of text anchor (`end of text`)
+- Backreferences (`same as group N`)
+- Character sets (`any of "chars"`)
+- Unicode categories/scripts
+- Line anchors, word boundaries
+- Pattern replacement/split functions
 
 ## Migration Timeline
 
@@ -92,12 +110,16 @@ store vowel_pattern as regex("[aeiouAEIOU]")
 
 **New:**
 ```wfl
+// ❌ Character sets not implemented - use alternatives instead
 create pattern hex_digits:
-    one or more {"0" through "9" or "A" through "F" or "a" through "f"}
+    one or more (
+        digit or "A" or "B" or "C" or "D" or "E" or "F" or
+        "a" or "b" or "c" or "d" or "e" or "f"
+    )
 end pattern
 
 create pattern vowels:
-    "a" or "e" or "i" or "o" or "u" or 
+    "a" or "e" or "i" or "o" or "u" or
     "A" or "E" or "I" or "O" or "U"
 end pattern
 ```
@@ -128,16 +150,18 @@ store full_pattern as regex("^complete match$")
 **New:**
 ```wfl
 create pattern starts_with_hello:
-    start of text "Hello"
+    start of text then "Hello"
 end pattern
 
-create pattern ends_with_world:
-    "world" end of text
-end pattern
+// ❌ End of text anchor not yet implemented
+// create pattern ends_with_world:
+//     "world" then end of text
+// end pattern
 
-create pattern exact_match:
-    start of text "complete match" end of text
-end pattern
+// ❌ Full match requires end anchor (not implemented)
+// create pattern exact_match:
+//     start of text then "complete match" then end of text
+// end pattern
 ```
 
 ## Advanced Feature Migration
@@ -152,9 +176,9 @@ store email_pattern as regex("(?P<user>[a-zA-Z0-9]+)@(?P<domain>[a-zA-Z0-9.]+)")
 **New:**
 ```wfl
 create pattern email:
-    capture "user": one or more {letter or digit}
+    capture {one or more letter or digit} as user
     "@"
-    capture "domain": one or more {letter or digit or "."}
+    capture {one or more letter or digit or "."} as domain
 end pattern
 ```
 
@@ -167,11 +191,19 @@ store repeat_pattern as regex("(\\w+)\\s+\\1")
 
 **New:**
 ```wfl
-create pattern repeated_word:
-    capture "word": one or more letter
-    whitespace
-    same as captured "word"
+// ❌ Backreferences not yet implemented
+// create pattern repeated_word:
+//     capture {one or more letter} as word
+//     whitespace
+//     same as captured word
+// end pattern
+
+// Workaround: Use separate matching logic
+create pattern word_pattern:
+    capture {one or more letter} as word
 end pattern
+
+// Then check manually in code if words match
 ```
 
 ### Lookahead Assertions
@@ -185,11 +217,11 @@ store negative_lookahead as regex("\\d(?!\\w)")
 **New:**
 ```wfl
 create pattern digit_before_letter:
-    digit check ahead for letter
+    digit followed by {letter}
 end pattern
 
 create pattern digit_not_before_letter:
-    digit check not ahead for letter  
+    digit not followed by {letter}
 end pattern
 ```
 
@@ -204,13 +236,11 @@ store negative_lookbehind as regex("(?<!\\w)\\d")
 **New:**
 ```wfl
 create pattern digit_after_letter:
-    check behind for letter
-    digit
+    preceded by {letter} then digit
 end pattern
 
 create pattern digit_not_after_letter:
-    check not behind for letter
-    digit
+    not preceded by {letter} then digit
 end pattern
 ```
 
@@ -234,7 +264,7 @@ end pattern
 
 store is_match as text matches greeting
 store first_match as find greeting in text
-store all_matches as find_all greeting in text
+// store all_matches as find_all greeting in text  // ❌ Not yet implemented
 ```
 
 ### Replacement Functions
@@ -251,9 +281,9 @@ create pattern numbers:
     one or more digit
 end pattern
 
-// Note: Replace functionality is planned for future release
-// Current workaround using string functions
-store result as replace_pattern(text, numbers, "NUMBER")
+// ❌ Replace functionality not yet implemented
+// Use string replace functions as workaround
+store result as replace(text, "123", "NUMBER")  // Manual replacement
 ```
 
 ### Split Functions
@@ -271,14 +301,16 @@ create pattern comma_separator:
     zero or more whitespace
 end pattern
 
-// Note: Split functionality is planned for future release  
-// Current workaround using string functions
-store parts as split_pattern(text, comma_separator)
+// ❌ Split functionality not yet implemented
+// Use string split functions as workaround
+store parts as split(text, ",")  // Manual splitting
 ```
 
 ## Unicode Migration
 
-### Old ASCII-Only Approach
+**❌ Unicode categories and scripts are not yet implemented.**
+
+### Current ASCII-Only Approach
 
 **Old:**
 ```wfl
@@ -286,32 +318,29 @@ store word_pattern as regex("[a-zA-Z]+")
 store number_pattern as regex("[0-9]+")
 ```
 
-**New Unicode-Aware Approach:**
+**New (ASCII-Only for now):**
 ```wfl
-create pattern unicode_word:
-    one or more {unicode category "Letter"}
+create pattern ascii_word:
+    one or more letter
 end pattern
 
-create pattern unicode_number:
-    one or more {unicode category "Number"}
+create pattern ascii_number:
+    one or more digit
 end pattern
 ```
 
 ### International Text Support
 
-**Old (Limited):**
+**Current Limitation:**
 ```wfl
-store name_pattern as regex("[a-zA-Z\\s]+")
-```
+// ❌ Unicode categories not implemented
+// create pattern international_name:
+//     one or more {unicode category "Letter"}
+// end pattern
 
-**New (Full Unicode):**
-```wfl
-create pattern international_name:
-    one or more {
-        unicode category "Letter" or 
-        unicode category "Mark" or
-        whitespace or "'" or "-"
-    }
+// ✅ Workaround: Use basic character classes
+create pattern basic_name:
+    one or more letter or whitespace or "'" or "-"
 end pattern
 ```
 
@@ -403,13 +432,13 @@ store email_pattern as regex("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
 **New:**
 ```wfl
 create pattern email:
-    start of text
-    one or more {letter or digit or "." or "_" or "%" or "+" or "-"}
-    "@"
-    one or more {letter or digit or "." or "-"}
-    "."
+    start of text then
+    one or more letter or digit or "." or "_" or "%" or "+" or "-"
+    then "@" then
+    one or more letter or digit or "." or "-"
+    then "." then
     at least 2 letter
-    end of text
+    // Note: end of text anchor not yet implemented
 end pattern
 ```
 
@@ -446,11 +475,11 @@ store phone_pattern as regex("^\\+?[1-9]\\d{1,14}$")
 **New:**
 ```wfl
 create pattern phone:
-    start of text
-    optional "+"
-    "1" through "9"
-    between 1 and 14 digit
-    end of text
+    start of text then
+    optional "+" then
+    ("1" or "2" or "3" or "4" or "5" or "6" or "7" or "8" or "9") then
+    1 to 14 digit
+    // Note: end of text anchor not yet implemented
 end pattern
 ```
 

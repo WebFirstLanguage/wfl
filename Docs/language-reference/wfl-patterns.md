@@ -2,14 +2,18 @@
 
 WFL provides a powerful, natural-language pattern matching system that makes it easy to work with text patterns without the complexity of traditional regular expressions.
 
+> **⚠️ Implementation Status Notice**
+> This documentation covers both implemented and planned features. Features marked with ❌ are not yet implemented. See [Implementation Status](#implementation-status) for details.
+
 ## Table of Contents
 - [Overview](#overview)
+- [Implementation Status](#implementation-status)
 - [Basic Syntax](#basic-syntax)
 - [Pattern Elements](#pattern-elements)
 - [Built-in Functions](#built-in-functions)
 - [Common Patterns](#common-patterns)
 - [Advanced Features](#advanced-features)
-- [Unicode Support](#unicode-support)
+- [Unicode Support](#unicode-support) ❌
 - [Performance & Optimization](#performance--optimization)
 - [Migration from Regex](#migration-from-regex)
 - [Design Philosophy](#design-philosophy)
@@ -19,12 +23,31 @@ WFL provides a powerful, natural-language pattern matching system that makes it 
 
 The WFL pattern matching system uses declarative `create pattern` blocks that compile to an efficient bytecode virtual machine. This approach provides:
 
-- **Natural language syntax** - Use words like "one or more", "optional", "between 1 and 5"
+- **Natural language syntax** - Use words like "one or more", "optional", "2 to 5"
 - **Type safety** - Capture groups are typed as `Option<Text>` with flow-sensitive analysis
 - **Performance protection** - Built-in guards against catastrophic backtracking
 - **Clear error messages** - Helpful diagnostics for both syntax and runtime errors
-- **Full Unicode support** - Handle text in any language or script
 - **Bytecode compilation** - Optimized execution through VM
+
+## Implementation Status
+
+### ✅ Fully Implemented Features
+- Basic literals and character classes (`digit`, `letter`, `whitespace`)
+- Quantifiers (`one or more`, `zero or more`, `optional`, `exactly N`, `N to M`, `at least N`, `at most N`)
+- Sequences and alternatives (`"a" then "b"`, `"a" or "b"`)
+- Capture groups (`capture { pattern } as name`)
+- Pattern operations (`matches`, `find`, `find_all`, `replace`, `split`)
+
+### ❌ Not Yet Implemented
+- Backreferences (`same as group N`)
+- Character sets (`any of "!@#$%"`)
+- Unicode categories and scripts
+- Simple lookahead/lookbehind syntax (requires braces currently)
+
+### ⚠️ Partially Implemented
+- Lookahead/lookbehind (works with braces: `followed by { pattern }`)
+
+For a complete analysis, see `Docs/dev-notes/pattern-implementation-analysis.md`.
 
 ## Basic Syntax
 
@@ -76,12 +99,18 @@ Character classes define what types of characters to match at a specific positio
 | `digit` | Shorthand for `any digit` | "0", "9" |
 | `whitespace` | Shorthand for `any whitespace` | " ", "\t" |
 
-**Combined Classes:**
+**Combined Classes:** ✅ IMPLEMENTED
 ```wfl
-any letter or digit          // Alphanumeric
-any letter or digit or "_"   // Variable names
-any character not in "xyz"   // Exclusion
-any character from "a" to "z" // Range
+any letter or digit          // Alphanumeric - works with "or"
+any letter or digit or "_"   // Variable names - works with literals
+```
+
+**Character Sets:** ❌ NOT YET IMPLEMENTED
+```wfl
+// These don't work yet:
+// any character not in "xyz"   // Exclusion
+// any character from "a" to "z" // Range
+// any of "!@#$%"              // Character set
 ```
 
 ### Quantifiers
@@ -94,7 +123,7 @@ Control how many times elements can repeat:
 | `one or more` | Match at least once | `one or more digits` |
 | `optional` | Match 0 or 1 time | `optional whitespace` |
 | `exactly N` | Match exactly N times | `exactly 3 digits` |
-| `between N and M` | Match between N and M times | `between 2 and 4 letters` |
+| `N to M` | Match between N and M times | `2 to 4 letters` |
 | `at least N` | Match N or more times | `at least 5 characters` |
 | `at most N` | Match up to N times | `at most 10 digits` |
 
@@ -116,49 +145,68 @@ Control how many times elements can repeat:
 Match at specific positions in text:
 
 ```wfl
-at start of text     // Beginning of entire text
-at end of text       // End of entire text
-at start of line     // Beginning of line
-at end of line       // End of line
-word boundary        // Word boundaries
+start of text        // ✅ Beginning of entire text
+// end of text       // ❌ Not yet implemented
+// at start of line  // ❌ Not yet implemented
+// at end of line    // ❌ Not yet implemented
+// word boundary     // ❌ Not yet implemented
 ```
+
+**⚠️ Implementation Status:**
+- Only `start of text` is currently implemented
+- Other anchors are planned for future releases
 
 ### Captures and Backreferences
 
 Extract parts of matches and reference them later:
 
 ```wfl
-// Named capture groups
+// Named capture groups ✅ IMPLEMENTED
 create pattern name_pattern:
-    capture {one or more letter} as "first_name"
+    capture {one or more letter} as first_name
     whitespace
-    capture {one or more letter} as "last_name"
+    capture {one or more letter} as last_name
 end pattern
 
-// Backreferences - match same content
-create pattern duplicate_word:
-    capture {one or more letter} as "word"
-    whitespace
-    same as captured "word"
+// Backreferences - match same content ❌ NOT YET IMPLEMENTED
+// create pattern duplicate_word:
+//     capture {one or more letter} as word
+//     whitespace
+//     same as captured word
+// end pattern
+```
+
+### Lookarounds ⚠️ PARTIALLY IMPLEMENTED
+
+Zero-width assertions that check ahead or behind. **Note:** Current implementation requires braces around the lookaround pattern.
+
+```wfl
+// Positive lookahead - must be followed by ✅ WORKS WITH BRACES
+create pattern digit_before_letter:
+    digit followed by {letter}
+end pattern
+
+// Negative lookahead - must NOT be followed by ✅ WORKS WITH BRACES
+create pattern digit_not_before_letter:
+    digit not followed by {letter}
+end pattern
+
+// Positive lookbehind - must be preceded by ✅ WORKS WITH BRACES
+create pattern digit_after_dollar:
+    preceded by {"$"} then digit
+end pattern
+
+// Negative lookbehind - must NOT be preceded by ✅ WORKS WITH BRACES
+create pattern digit_not_after_dollar:
+    not preceded by {"$"} then digit
 end pattern
 ```
 
-### Lookarounds
-
-Zero-width assertions that check ahead or behind:
-
+❌ **Simple syntax not yet implemented:**
 ```wfl
-// Positive lookahead - must be followed by
-digit followed by letter
-
-// Negative lookahead - must NOT be followed by
-digit not followed by letter
-
-// Positive lookbehind - must be preceded by
-digit preceded by "$"
-
-// Negative lookbehind - must NOT be preceded by
-digit not preceded by "$"
+// These don't work yet:
+// digit followed by letter
+// digit preceded by "$"
 ```
 
 ## Built-in Functions
@@ -190,11 +238,11 @@ store results as find_all pattern_name in text_value
 **Example:**
 ```wfl
 create pattern phone_number:
-    capture area: exactly 3 digit
+    capture {exactly 3 digit} as area
     "-"
-    capture exchange: exactly 3 digit
+    capture {exactly 3 digit} as exchange
     "-"
-    capture number: exactly 4 digit
+    capture {exactly 4 digit} as number
 end pattern
 
 store text as "Call 555-123-4567 or 555-987-6543 for help"
@@ -248,15 +296,15 @@ uuid_pattern       // UUID format
 create pattern email:
     capture {
         one or more letter or digit or "." or "_" or "%" or "+" or "-"
-    } as "username"
+    } as username
     "@"
     capture {
         one or more letter or digit or "." or "-"
-    } as "domain"
+    } as domain
     "."
     capture {
-        between 2 and 10 letter
-    } as "tld"
+        2 to 10 letter
+    } as tld
 end pattern
 ```
 
@@ -267,12 +315,12 @@ end pattern
 create pattern us_phone:
     optional "+" or "1" then optional " "
     optional "("
-    capture {exactly 3 digit} as "area_code"
+    capture {exactly 3 digit} as area_code
     optional ")"
     optional " " or "-"
-    capture {exactly 3 digit} as "exchange"
+    capture {exactly 3 digit} as exchange
     optional " " or "-"
-    capture {exactly 4 digit} as "line"
+    capture {exactly 4 digit} as line
 end pattern
 ```
 
@@ -423,9 +471,11 @@ create pattern paragraph:
 end pattern
 ```
 
-## Unicode Support
+## Unicode Support ❌ NOT YET IMPLEMENTED
 
-WFL provides comprehensive Unicode support for international text processing.
+> **⚠️ Note:** Unicode support is planned but not yet implemented. The examples below show the intended syntax for future implementation.
+
+WFL will provide comprehensive Unicode support for international text processing.
 
 ### Unicode Categories
 
@@ -553,20 +603,20 @@ The WFL pattern engine includes:
 
 ### Conversion Guide
 
-| PCRE Regex | WFL Pattern |
-|------------|-------------|
-| `\d+` | `one or more digit` |
-| `\w*` | `zero or more letter or digit or "_"` |
-| `[a-zA-Z]+` | `one or more letter` |
-| `\s+` | `one or more whitespace` |
-| `(pattern)` | `capture {pattern} as "name"` |
-| `pattern?` | `optional pattern` |
-| `pattern{2,5}` | `between 2 and 5 pattern` |
-| `pattern1\|pattern2` | `pattern1 or pattern2` |
-| `^pattern$` | `at start of text then pattern then at end of text` |
-| `(?=\d)` | `followed by digit` |
-| `(?<=\$)` | `preceded by "$"` |
-| `(.+)\1` | `capture {one or more any character} as "x" then same as captured "x"` |
+| PCRE Regex | WFL Pattern | Status |
+|------------|-------------|--------|
+| `\d+` | `one or more digit` | ✅ |
+| `\w*` | `zero or more letter or digit or "_"` | ✅ |
+| `[a-zA-Z]+` | `one or more letter` | ✅ |
+| `\s+` | `one or more whitespace` | ✅ |
+| `(pattern)` | `capture {pattern} as name` | ✅ |
+| `pattern?` | `optional pattern` | ✅ |
+| `pattern{2,5}` | `2 to 5 pattern` | ✅ |
+| `pattern1\|pattern2` | `pattern1 or pattern2` | ✅ |
+| `^pattern$` | `start of text then pattern` (end anchor not implemented) | ⚠️ |
+| `(?=\d)` | `followed by {digit}` | ⚠️ (requires braces) |
+| `(?<=\$)` | `preceded by {"$"}` | ⚠️ (requires braces) |
+| `(.+)\1` | ❌ Not yet implemented | ❌ |
 
 ### Migration Strategy
 
@@ -644,7 +694,48 @@ end if
 
 ## Troubleshooting
 
-### Common Issues
+### Common Syntax Errors
+
+**"Unexpected token in pattern" errors:**
+```wfl
+// ❌ Wrong: between N and M syntax
+create pattern wrong:
+    between 2 and 4 letter
+end pattern
+
+// ✅ Correct: N to M syntax
+create pattern correct:
+    2 to 4 letter
+end pattern
+```
+
+**"Expected '{' after 'capture'" errors:**
+```wfl
+// ❌ Wrong: capture without braces
+create pattern wrong:
+    capture one or more letter as name
+end pattern
+
+// ✅ Correct: capture with braces
+create pattern correct:
+    capture {one or more letter} as name
+end pattern
+```
+
+**Lookahead/lookbehind syntax:**
+```wfl
+// ❌ Wrong: simple syntax not implemented
+// create pattern wrong:
+//     digit followed by letter
+// end pattern
+
+// ✅ Correct: use braces
+create pattern correct:
+    digit followed by {letter}
+end pattern
+```
+
+### Common Runtime Issues
 
 **Pattern doesn't match expected input:**
 - Check for missing `optional` quantifiers
