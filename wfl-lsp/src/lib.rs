@@ -5,7 +5,7 @@ use tower_lsp::{Client, LanguageServer};
 use wfl::analyzer::Analyzer;
 use wfl::diagnostics::{DiagnosticReporter, WflDiagnostic};
 use wfl::lexer::lex_wfl_with_positions;
-use wfl::parser::Parser;
+use wfl::parser::{Parser, ast::Program};
 use wfl::typechecker::TypeChecker;
 
 #[derive(Debug)]
@@ -235,7 +235,7 @@ impl WflLanguageServer {
     fn get_scope_items(
         &self,
         document_text: &str,
-        _position: Position,
+        position: Position,
     ) -> Option<Vec<CompletionItem>> {
         let mut items = Vec::new();
 
@@ -244,27 +244,219 @@ impl WflLanguageServer {
 
         match parser.parse() {
             Ok(program) => {
-                let mut analyzer = Analyzer::new();
-                if analyzer.analyze(&program).is_ok() {
-                    items.push(CompletionItem {
-                        label: "example_variable".to_string(),
-                        kind: Some(CompletionItemKind::VARIABLE),
-                        detail: Some("Example variable (placeholder)".to_string()),
-                        ..CompletionItem::default()
-                    });
+                // Collect variables from the program
+                self.collect_variables_from_program(&program, &mut items);
 
-                    items.push(CompletionItem {
-                        label: "example_function".to_string(),
-                        kind: Some(CompletionItemKind::FUNCTION),
-                        detail: Some("Example function (placeholder)".to_string()),
-                        ..CompletionItem::default()
-                    });
-                }
+                // Collect functions from the program
+                self.collect_functions_from_program(&program, &mut items);
+
+                // Add standard library functions
+                self.add_stdlib_completions(&mut items);
+
+                // Add context-aware completions based on cursor position
+                self.add_context_aware_completions(document_text, position, &mut items);
             }
-            Err(_) => {}
+            Err(_) => {
+                // Even if parsing fails, provide basic completions
+                self.add_stdlib_completions(&mut items);
+            }
         }
 
         Some(items)
+    }
+
+    fn collect_variables_from_program(&self, program: &Program, items: &mut Vec<CompletionItem>) {
+        use wfl::parser::ast::Statement;
+
+        for statement in &program.statements {
+            match statement {
+                Statement::VariableDeclaration { name, .. } => {
+                    items.push(CompletionItem {
+                        label: name.clone(),
+                        kind: Some(CompletionItemKind::VARIABLE),
+                        detail: Some(format!("Variable: {}", name)),
+                        insert_text: Some(name.clone()),
+                        ..CompletionItem::default()
+                    });
+                }
+                Statement::CreateListStatement { name, .. } => {
+                    items.push(CompletionItem {
+                        label: name.clone(),
+                        kind: Some(CompletionItemKind::VARIABLE),
+                        detail: Some(format!("List variable: {}", name)),
+                        insert_text: Some(name.clone()),
+                        ..CompletionItem::default()
+                    });
+                }
+                Statement::MapCreation { name, .. } => {
+                    items.push(CompletionItem {
+                        label: name.clone(),
+                        kind: Some(CompletionItemKind::VARIABLE),
+                        detail: Some(format!("Map variable: {}", name)),
+                        insert_text: Some(name.clone()),
+                        ..CompletionItem::default()
+                    });
+                }
+                Statement::CreateDateStatement { name, .. } => {
+                    items.push(CompletionItem {
+                        label: name.clone(),
+                        kind: Some(CompletionItemKind::VARIABLE),
+                        detail: Some(format!("Date variable: {}", name)),
+                        insert_text: Some(name.clone()),
+                        ..CompletionItem::default()
+                    });
+                }
+                Statement::CreateTimeStatement { name, .. } => {
+                    items.push(CompletionItem {
+                        label: name.clone(),
+                        kind: Some(CompletionItemKind::VARIABLE),
+                        detail: Some(format!("Time variable: {}", name)),
+                        insert_text: Some(name.clone()),
+                        ..CompletionItem::default()
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn collect_functions_from_program(&self, program: &Program, items: &mut Vec<CompletionItem>) {
+        use wfl::parser::ast::Statement;
+
+        for statement in &program.statements {
+            if let Statement::ActionDefinition { name, parameters, .. } = statement {
+                let param_list = parameters.iter()
+                    .map(|p| p.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                items.push(CompletionItem {
+                    label: name.clone(),
+                    kind: Some(CompletionItemKind::FUNCTION),
+                    detail: Some(format!("Function: {}({})", name, param_list)),
+                    insert_text: Some(format!("{}({})", name,
+                        parameters.iter()
+                            .enumerate()
+                            .map(|(i, p)| format!("${{{}:{}}}", i + 1, p.name))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )),
+                    insert_text_format: Some(InsertTextFormat::SNIPPET),
+                    ..CompletionItem::default()
+                });
+            }
+        }
+    }
+
+    fn add_stdlib_completions(&self, items: &mut Vec<CompletionItem>) {
+        let stdlib_functions = [
+            // Core functions
+            ("length of", "length of ${1:collection}", "Get the length of a collection"),
+            ("first of", "first of ${1:collection}", "Get the first item of a collection"),
+            ("last of", "last of ${1:collection}", "Get the last item of a collection"),
+            ("add", "add ${1:item} to ${2:collection}", "Add an item to a collection"),
+            ("remove", "remove ${1:item} from ${2:collection}", "Remove an item from a collection"),
+            ("contains", "${1:collection} contains ${2:item}", "Check if collection contains item"),
+
+            // Text functions
+            ("uppercase", "uppercase ${1:text}", "Convert text to uppercase"),
+            ("lowercase", "lowercase ${1:text}", "Convert text to lowercase"),
+            ("trim", "trim ${1:text}", "Remove whitespace from text"),
+            ("replace", "replace ${1:old} with ${2:new} in ${3:text}", "Replace text"),
+            ("substring", "substring of ${1:text} from ${2:start} to ${3:end}", "Extract substring"),
+            ("join", "join ${1:collection} with ${2:separator}", "Join collection with separator"),
+            ("split", "split ${1:text} by ${2:separator}", "Split text by separator"),
+
+            // Math functions
+            ("random", "random number", "Generate random number"),
+            ("random between", "random number between ${1:min} and ${2:max}", "Random number in range"),
+            ("round", "round ${1:number}", "Round number to nearest integer"),
+            ("floor", "floor ${1:number}", "Round number down"),
+            ("ceiling", "ceiling ${1:number}", "Round number up"),
+            ("absolute", "absolute value of ${1:number}", "Get absolute value"),
+
+            // List functions
+            ("sort", "sort ${1:list}", "Sort a list"),
+            ("reverse", "reverse ${1:list}", "Reverse a list"),
+            ("clear", "clear ${1:list}", "Clear all items from list"),
+
+            // Time functions
+            ("today", "today", "Get current date"),
+            ("now", "now", "Get current time"),
+            ("format date", "format ${1:date} as ${2:format}", "Format date"),
+            ("format time", "format ${1:time} as ${2:format}", "Format time"),
+        ];
+
+        for (label, snippet, description) in &stdlib_functions {
+            items.push(CompletionItem {
+                label: label.to_string(),
+                kind: Some(CompletionItemKind::FUNCTION),
+                detail: Some(format!("WFL stdlib: {}", description)),
+                insert_text: Some(snippet.to_string()),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                ..CompletionItem::default()
+            });
+        }
+    }
+
+    fn add_context_aware_completions(&self, document_text: &str, position: Position, items: &mut Vec<CompletionItem>) {
+        // Get the line where completion is requested
+        let lines: Vec<&str> = document_text.lines().collect();
+        if position.line as usize >= lines.len() {
+            return;
+        }
+
+        let current_line = lines[position.line as usize];
+        let line_prefix = &current_line[..position.character.min(current_line.len() as u32) as usize];
+
+        // Context-aware completions based on what comes before the cursor
+        if line_prefix.trim_end().ends_with("if") || line_prefix.contains("if ") {
+            // After 'if', suggest comparison patterns
+            let comparisons = [
+                ("is equal to", "${1:variable} is equal to ${2:value}"),
+                ("is greater than", "${1:variable} is greater than ${2:value}"),
+                ("is less than", "${1:variable} is less than ${2:value}"),
+                ("is not equal to", "${1:variable} is not equal to ${2:value}"),
+                ("contains", "${1:collection} contains ${2:item}"),
+                ("is empty", "${1:collection} is empty"),
+                ("is not empty", "${1:collection} is not empty"),
+            ];
+
+            for (label, snippet) in &comparisons {
+                items.push(CompletionItem {
+                    label: label.to_string(),
+                    kind: Some(CompletionItemKind::OPERATOR),
+                    detail: Some("Comparison operator".to_string()),
+                    insert_text: Some(snippet.to_string()),
+                    insert_text_format: Some(InsertTextFormat::SNIPPET),
+                    ..CompletionItem::default()
+                });
+            }
+        }
+
+        if line_prefix.trim_end().ends_with("store") || line_prefix.contains("store ") {
+            // After 'store', suggest 'as' keyword
+            items.push(CompletionItem {
+                label: "as".to_string(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                detail: Some("WFL keyword: as".to_string()),
+                insert_text: Some("${1:variable_name} as ${2:value}".to_string()),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                ..CompletionItem::default()
+            });
+        }
+
+        if line_prefix.trim_end().ends_with("count") {
+            // After 'count', suggest count loop patterns
+            items.push(CompletionItem {
+                label: "from".to_string(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                detail: Some("Count loop: from".to_string()),
+                insert_text: Some("from ${1:variable} as ${2:start} to ${3:end}".to_string()),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                ..CompletionItem::default()
+            });
+        }
     }
 }
 
