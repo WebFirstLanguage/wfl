@@ -137,6 +137,8 @@ pub enum Token {
     KeywordTry,
     #[token("when")]
     KeywordWhen,
+    #[token("catch")]
+    KeywordCatch,
     #[token("data")]
     KeywordData,
     #[token("date")]
@@ -414,6 +416,9 @@ impl Token {
                 | Token::KeywordPattern
                 | Token::KeywordRead
                 | Token::KeywordWait
+                | Token::KeywordTry
+                | Token::KeywordWhen
+                | Token::KeywordCatch
                 | Token::KeywordSkip
                 | Token::KeywordThan
                 | Token::KeywordPush

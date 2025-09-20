@@ -4444,7 +4444,7 @@ impl<'a> Parser<'a> {
         while let Some(token) = self.tokens.peek().cloned() {
             if matches!(
                 token.token,
-                Token::KeywordWhen | Token::KeywordOtherwise | Token::KeywordEnd
+                Token::KeywordWhen | Token::KeywordCatch | Token::KeywordOtherwise | Token::KeywordEnd
             ) {
                 break;
             }
@@ -4512,7 +4512,7 @@ impl<'a> Parser<'a> {
                     while let Some(token) = self.tokens.peek().cloned() {
                         if matches!(
                             token.token,
-                            Token::KeywordWhen | Token::KeywordOtherwise | Token::KeywordEnd
+                            Token::KeywordWhen | Token::KeywordCatch | Token::KeywordOtherwise | Token::KeywordEnd
                         ) {
                             break;
                         }
@@ -4523,6 +4523,51 @@ impl<'a> Parser<'a> {
                         error_type,
                         error_name,
                         body: when_body,
+                    });
+                }
+                Token::KeywordCatch => {
+                    self.tokens.next(); // Consume "catch"
+
+                    // Check for optional "with error_name" syntax
+                    let error_name = if let Some(next_token) = self.tokens.peek() {
+                        if matches!(next_token.token, Token::KeywordWith) {
+                            self.tokens.next(); // Consume "with"
+                            if let Some(name_token) = self.tokens.peek() {
+                                if let Token::Identifier(name) = &name_token.token {
+                                    let name = name.clone();
+                                    self.tokens.next(); // Consume identifier
+                                    name
+                                } else {
+                                    "error".to_string()
+                                }
+                            } else {
+                                "error".to_string()
+                            }
+                        } else {
+                            "error".to_string()
+                        }
+                    } else {
+                        "error".to_string()
+                    };
+
+                    self.expect_token(Token::Colon, "Expected ':' after 'catch'")?;
+
+                    let mut catch_body = Vec::new();
+                    while let Some(token) = self.tokens.peek().cloned() {
+                        if matches!(
+                            token.token,
+                            Token::KeywordWhen | Token::KeywordCatch | Token::KeywordOtherwise | Token::KeywordEnd
+                        ) {
+                            break;
+                        }
+                        catch_body.push(self.parse_statement()?);
+                    }
+
+                    // Add catch as a general error when clause
+                    when_clauses.push(ast::WhenClause {
+                        error_type: ast::ErrorType::General,
+                        error_name,
+                        body: catch_body,
                     });
                 }
                 Token::KeywordOtherwise => {
@@ -4545,7 +4590,7 @@ impl<'a> Parser<'a> {
                 _ => {
                     return Err(ParseError::new(
                         format!(
-                            "Expected 'when', 'otherwise', or 'end', found {:?}",
+                            "Expected 'when', 'catch', 'otherwise', or 'end', found {:?}",
                             token.token
                         ),
                         token.line,
@@ -4555,10 +4600,10 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Ensure at least one when clause for backward compatibility
+        // Ensure at least one when or catch clause
         if when_clauses.is_empty() {
             return Err(ParseError::new(
-                "Try statement must have at least one 'when' clause".to_string(),
+                "Try statement must have at least one 'when' or 'catch' clause".to_string(),
                 try_token.line,
                 try_token.column,
             ));
