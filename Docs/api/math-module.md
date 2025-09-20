@@ -169,59 +169,7 @@ store result as ceil value of 3.1
 
 ---
 
-### `random()`
-
-Returns a pseudo-random number between 0 (inclusive) and 1 (exclusive).
-
-**Parameters:** None
-
-**Returns:** Number (0 ≤ result < 1)
-
-**Examples:**
-
-```wfl
-// Basic random number
-store rand as random
-display "Random number: " with rand  // e.g., 0.7234567
-
-// Random integer in range [1, 6] (dice roll)
-store dice_roll as floor of (random * 6) + 1
-display "Dice roll: " with dice_roll
-
-// Random choice from list
-store colors as ["red", "green", "blue", "yellow"]
-store random_index as floor of (random * length of colors)
-store random_color as colors[random_index]
-display "Random color: " with random_color
-
-// Random percentage
-store percentage as round of (random * 100)
-display "Random percentage: " with percentage with "%"
-```
-
-**Practical Use Cases:**
-
-```wfl
-// Random password character
-action random_digit:
-    return floor of (random * 10)
-end
-
-// Coin flip
-action coin_flip:
-    check if random < 0.5:
-        return "heads"
-    otherwise:
-        return "tails"
-    end
-end
-
-// Random wait time (between 1-5 seconds)
-action random_delay:
-    store delay as 1 + (random * 4)
-    return delay
-end
-```
+**Note:** The `random()` function has been moved to the [Random Module](random-module.md) along with other random number generation functions for better organization and enhanced security.
 
 ---
 
@@ -309,34 +257,21 @@ action calculate_percentage with part and whole:
     return round of percentage
 end
 
-// Generate random number in range
-action random_between with min and max:
-    store range as max - min
-    store random_value as min + (random * range)
-    return random_value
-end
+// Note: For random number generation, see the Random Module
+// which provides secure random_between, random_int, and other functions
 ```
 
 ### Game Development Examples
 
 ```wfl
-// Dice rolling system
-action roll_dice with sides:
-    return floor of (random * sides) + 1
-end
-
 // Health calculation with clamping
 action apply_damage with current_health and damage and max_health:
     store new_health as current_health - damage
     return clamp of new_health and 0 and max_health
 end
 
-// Random spawn position
-action random_spawn_position:
-    store x as random_between of -50 and 50
-    store y as random_between of -50 and 50
-    return [x, y]
-end
+// Note: For dice rolling and random positioning, see the Random Module
+// which provides random_int, random_between, and other secure functions
 ```
 
 ### Statistical Functions
@@ -394,16 +329,16 @@ end
 ## Performance Notes
 
 - All math functions are implemented in Rust for optimal performance
-- Random number generation uses system time as seed (simple but effective)
 - Floating-point operations follow IEEE 754 standard
 - Functions are designed for single-threaded use
+- For random number generation performance, see the [Random Module](random-module.md)
 
 ## Best Practices
 
 1. **Use appropriate rounding**: Choose `round`, `floor`, or `ceil` based on your needs
 2. **Clamp user inputs**: Always validate ranges for user-provided numbers
-3. **Seed randomness appropriately**: For games, consider time-based or user-input seeding
-4. **Handle edge cases**: Check for division by zero, negative inputs where inappropriate
+3. **Handle edge cases**: Check for division by zero, negative inputs where inappropriate
+4. **For randomness**: Use the [Random Module](random-module.md) for secure random number generation
 
 ```wfl
 // Example of best practices

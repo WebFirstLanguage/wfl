@@ -39,6 +39,7 @@ Standard library and built-in functionality:
 - **[Standard Library Reference](api/wfl-standard-library.md)** - Complete reference for all built-in functions
 - **[Core Module](api/core-module.md)** - Core language functions
 - **[Math Module](api/math-module.md)** - Mathematical operations
+- **[Random Module](api/random-module.md)** - Cryptographically secure random number generation
 - **[Text Module](api/text-module.md)** - String manipulation
 - **[List Module](api/list-module.md)** - List operations
 - **[Pattern Module](api/pattern-module.md)** - Pattern matching API (legacy)
@@ -138,10 +139,10 @@ When adding new documentation:
 
 - **Language Reference:** 11 comprehensive guides
 - **User Guides:** 9 tutorials and how-tos
-- **API Documentation:** 10 module references
+- **API Documentation:** 11 module references
 - **Technical Docs:** 15 internal documents
 - **Dev Notes:** 9 development documents (including bug reports and optimization guides)
-- **Total Documentation:** 54 organized documents
+- **Total Documentation:** 55 organized documents
 
 *Last updated: September 2025*
 

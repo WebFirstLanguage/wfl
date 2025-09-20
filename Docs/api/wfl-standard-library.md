@@ -54,17 +54,63 @@ Rounds a number up to the nearest integer.
 - **Returns**: Number
 - **Example**: `store upper as ceil(3.1)  // upper is 4`
 
-#### `random()`
-Returns a random number between 0 and 1.
-- **Parameters**: None
-- **Returns**: Number
-- **Example**: `store chance as random()  // chance is between 0 and 1`
+**Note**: Random number generation functions have been moved to the dedicated [Random Module](random-module.md) for enhanced security and functionality.
 
 #### `clamp(value, min, max)`
 Constrains a value between a minimum and maximum.
 - **Parameters**: Number (value), Number (min), Number (max)
 - **Returns**: Number
 - **Example**: `store limited as clamp(150, 0, 100)  // limited is 100`
+
+## Random Module
+
+### Cryptographically Secure Random Number Generation
+
+The Random module provides secure random number generation for all randomness needs. All functions use cryptographically secure random number generators suitable for security-sensitive applications.
+
+#### `random()`
+Returns a cryptographically secure random number between 0 and 1.
+- **Parameters**: None
+- **Returns**: Number (0 ≤ result < 1)
+- **Example**: `store chance as random  // chance is between 0 and 1`
+
+#### `random_between(min, max)`
+Returns a secure random number between specified values.
+- **Parameters**: Number (min), Number (max)
+- **Returns**: Number (min ≤ result ≤ max)
+- **Example**: `store temp as random_between of -10 and 35`
+
+#### `random_int(min, max)`
+Returns a secure random integer between specified values.
+- **Parameters**: Number (min), Number (max)
+- **Returns**: Number (integer, min ≤ result ≤ max)
+- **Example**: `store dice as random_int of 1 and 6`
+
+#### `random_boolean()`
+Returns a secure random boolean value.
+- **Parameters**: None
+- **Returns**: Boolean (true or false with equal probability)
+- **Example**: `store coin as random_boolean`
+
+#### `random_from(list)`
+Returns a secure random element from a list.
+- **Parameters**: List (must not be empty)
+- **Returns**: Any (type matches selected element)
+- **Example**: `store color as random_from of ["red" and "green" and "blue"]`
+
+#### `random_seed(seed)`
+Sets the random seed for reproducible results.
+- **Parameters**: Number (seed value)
+- **Returns**: Nothing
+- **Example**: `random_seed of 42`
+
+**Security Features:**
+- Cryptographically secure random number generation
+- Properly seeded from system entropy
+- Suitable for security-sensitive applications
+- Replaces previous time-based implementation
+
+For detailed documentation, see the [Random Module Reference](random-module.md).
 
 ## Text Module
 
