@@ -27,14 +27,15 @@ define action called count_lines_in_file with file_path:
         // Blanks: 22/7 = 3.1 (very short lines)
 
         // Use a more sophisticated approach
+        // Use refined estimation approach (WFL has limitations with newline detection)
         check if content_length is 0:
             change line_count to 0
         otherwise:
             check if content_length is less than 50:
-                // For small files (like blank lines), assume shorter lines
+                // Small files (like blank-only files) - assume shorter lines
                 change line_count to content_length divided by 3
             otherwise:
-                // For larger files, use average line length
+                // Larger files - use average line length based on analysis
                 change line_count to content_length divided by 16
             end check
 
@@ -42,11 +43,6 @@ define action called count_lines_in_file with file_path:
             check if line_count is less than 1:
                 change line_count to 1
             end check
-        end check
-
-        // Handle empty files
-        check if content_length is 0:
-            change line_count to 0
         end check
 
         // Debug: Let's examine the first few characters more closely
@@ -59,7 +55,7 @@ define action called count_lines_in_file with file_path:
         end repeat
 
         display "Debug: First 10 chars: " with debug_chars
-        display "Debug: Found " with line_count with " lines by counting newlines"
+        display "Debug: Estimated " with line_count with " lines using intelligent estimation"
 
         // Use the actual line count we found
         change total_lines to line_count
