@@ -32,6 +32,14 @@ Best practices and learning resources:
 - **[General Migration Guide](guides/wfl-migration-guide.md)** - Migrating from other languages
 - **[Documentation Policy](guides/wfl-documentation-policy.md)** - Guidelines for writing documentation
 
+## 🔌 IDE Integration
+
+Language Server Protocol and editor support:
+
+- **[WFL LSP Guide](guides/wfl-lsp-guide.md)** - Complete guide to using the WFL Language Server Protocol
+- **[WFL LSP Quick Reference](guides/wfl-lsp-quick-reference.md)** - Quick reference for LSP features and shortcuts
+- **[VS Code Extension Guide](../vscode-extension/README.md)** - Visual Studio Code integration and setup
+
 ## 📦 API Reference
 
 Standard library and built-in functionality:
@@ -72,6 +80,7 @@ Internal technical documentation for contributors and advanced users:
 
 ### Architecture
 - **[Architecture Diagram](technical/wfl-architecture-diagram.md)** - System architecture overview
+- **[LSP Architecture](technical/wfl-lsp-architecture.md)** - Language Server Protocol implementation details
 
 ## 🔬 Development Notes
 
@@ -139,10 +148,11 @@ When adding new documentation:
 
 - **Language Reference:** 11 comprehensive guides
 - **User Guides:** 9 tutorials and how-tos
+- **IDE Integration:** 3 LSP and editor guides
 - **API Documentation:** 11 module references
-- **Technical Docs:** 15 internal documents
+- **Technical Docs:** 16 internal documents (including LSP architecture)
 - **Dev Notes:** 9 development documents (including bug reports and optimization guides)
-- **Total Documentation:** 55 organized documents
+- **Total Documentation:** 59 organized documents
 
 *Last updated: September 2025*
 
