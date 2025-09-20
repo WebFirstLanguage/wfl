@@ -1,0 +1,87 @@
+// WFL Test for Rust Line Counter - FAILING TEST (TDD Phase 1)
+// This test will fail initially because the functions don't exist yet
+
+display "=== Rust Line Counter Test Suite ==="
+display ""
+
+// Test 1: Basic line counting for simple code file
+display "Test 1: Simple code file"
+store simple_result as count_lines_in_file with "TestPrograms/test_data/simple_code.rs"
+display "Simple code results: " with simple_result
+
+// Expected: [28, 23, 1, 4] = [total, code, comments, blank]
+store expected_simple as [28 and 23 and 1 and 4]
+check if simple_result is expected_simple:
+    display "✓ Simple code test PASSED"
+otherwise:
+    display "✗ Simple code test FAILED"
+    display "  Expected: " with expected_simple
+    display "  Got: " with simple_result
+end check
+display ""
+
+// Test 2: Only comments file
+display "Test 2: Only comments file"  
+store comments_result as count_lines_in_file with "TestPrograms/test_data/only_comments.rs"
+display "Comments only results: " with comments_result
+
+// Expected: [24, 0, 16, 8] = [total, code, comments, blank]
+store expected_comments as [24 and 0 and 16 and 8]
+check if comments_result is expected_comments:
+    display "✓ Comments only test PASSED"
+otherwise:
+    display "✗ Comments only test FAILED"
+    display "  Expected: " with expected_comments  
+    display "  Got: " with comments_result
+end check
+display ""
+
+// Test 3: Only blank lines file
+display "Test 3: Only blank lines file"
+store blanks_result as count_lines_in_file with "TestPrograms/test_data/only_blanks.rs"
+display "Blanks only results: " with blanks_result
+
+// Expected: [7, 0, 0, 7] = [total, code, comments, blank]
+store expected_blanks as [7 and 0 and 0 and 7]
+check if blanks_result is expected_blanks:
+    display "✓ Blanks only test PASSED"
+otherwise:
+    display "✗ Blanks only test FAILED"
+    display "  Expected: " with expected_blanks
+    display "  Got: " with blanks_result
+end check
+display ""
+
+// Test 4: Mixed content file
+display "Test 4: Mixed content file"
+store mixed_result as count_lines_in_file with "TestPrograms/test_data/mixed_content.rs"
+display "Mixed content results: " with mixed_result
+
+// Expected: [43, 22, 15, 6] = [total, code, comments, blank]  
+store expected_mixed as [43 and 22 and 15 and 6]
+check if mixed_result is expected_mixed:
+    display "✓ Mixed content test PASSED"
+otherwise:
+    display "✗ Mixed content test FAILED"
+    display "  Expected: " with expected_mixed
+    display "  Got: " with mixed_result
+end check
+display ""
+
+// Test 5: Empty file
+display "Test 5: Empty file"
+store empty_result as count_lines_in_file with "TestPrograms/test_data/empty_file.rs"
+display "Empty file results: " with empty_result
+
+// Expected: [0, 0, 0, 0] = [total, code, comments, blank]
+store expected_empty as [0 and 0 and 0 and 0]
+check if empty_result is expected_empty:
+    display "✓ Empty file test PASSED"
+otherwise:
+    display "✗ Empty file test FAILED"
+    display "  Expected: " with expected_empty
+    display "  Got: " with empty_result
+end check
+display ""
+
+display "=== Test Suite Complete ==="

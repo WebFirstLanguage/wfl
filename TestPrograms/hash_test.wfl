@@ -1,0 +1,50 @@
+// Test WFL hash functionality
+// This program tests the WFLHASH implementation
+
+display "Testing WFLHASH functionality..."
+display "================================"
+
+// Test basic function call
+store message as "hello world"
+display "Message: " with message
+
+// Test WFLHASH-256
+display ""
+display "Testing WFLHASH-256..."
+store hash256 as wflhash256 of message
+display "WFLHASH-256 of 'hello world': " with hash256
+
+// Test WFLHASH-512
+display ""
+display "Testing WFLHASH-512..."
+store hash512 as wflhash512 of message
+display "WFLHASH-512 of 'hello world': " with hash512
+
+// Test deterministic behavior
+display ""
+display "Testing deterministic behavior..."
+store hash256_2 as wflhash256 of message
+display "Second WFLHASH-256 of same input: " with hash256_2
+
+// Test empty input
+display ""
+display "Testing empty input..."
+store empty_hash as wflhash256 of ""
+display "WFLHASH-256 of empty string: " with empty_hash
+
+// Test different inputs
+display ""
+display "Testing different inputs..."
+store message2 as "hello worlD"
+store hash256_diff as wflhash256 of message2
+display "WFLHASH-256 of 'hello worlD': " with hash256_diff
+
+// Test longer input
+display ""
+display "Testing longer input..."
+store long_message as "The quick brown fox jumps over the lazy dog"
+store long_hash as wflhash256 of long_message
+display "WFLHASH-256 of long message: " with long_hash
+
+display ""
+display "Hash tests completed successfully!"

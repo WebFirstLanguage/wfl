@@ -29,6 +29,9 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_pattern_find(analyzer);
     register_pattern_replace(analyzer);
     register_pattern_split(analyzer);
+
+    register_wflhash256(analyzer);
+    register_wflhash512(analyzer);
 }
 
 fn register_print(analyzer: &mut Analyzer) {
@@ -200,4 +203,18 @@ fn register_pattern_split(analyzer: &mut Analyzer) {
     let param_types = vec![Type::Text, Type::Text];
 
     analyzer.register_builtin_function("split_by_pattern", param_types, return_type);
+}
+
+fn register_wflhash256(analyzer: &mut Analyzer) {
+    let return_type = Type::Text;
+    let param_types = vec![Type::Text];
+
+    analyzer.register_builtin_function("wflhash256", param_types, return_type);
+}
+
+fn register_wflhash512(analyzer: &mut Analyzer) {
+    let return_type = Type::Text;
+    let param_types = vec![Type::Text];
+
+    analyzer.register_builtin_function("wflhash512", param_types, return_type);
 }

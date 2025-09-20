@@ -1,0 +1,41 @@
+# Expected Line Counts for Test Files
+# Format: filename: total,code,comments,blank
+
+simple_code.rs: 28,23,1,4
+only_comments.rs: 24,0,16,8  
+mixed_content.rs: 43,22,15,6
+complex_comments.rs: 32,11,15,6
+only_blanks.rs: 7,0,0,7
+empty_file.rs: 0,0,0,0
+
+# Detailed breakdown:
+
+## simple_code.rs (28 total)
+# Code lines (23): All function definitions, struct definitions, variable declarations, etc.
+# Comment lines (1): Line 1 "// Simple Rust file with only code lines"  
+# Blank lines (4): Lines 9, 13, 18, 28
+
+## only_comments.rs (24 total)
+# Code lines (0): No executable code
+# Comment lines (16): All // and /* */ comment lines
+# Blank lines (8): Empty lines between comments
+
+## mixed_content.rs (43 total) 
+# Code lines (22): Function definitions, variable declarations, etc.
+# Comment lines (15): Both // and /* */ style comments
+# Blank lines (6): Empty lines for spacing
+
+## complex_comments.rs (32 total)
+# Code lines (11): Executable statements
+# Comment lines (15): Various comment patterns including inline
+# Blank lines (6): Empty lines
+
+## only_blanks.rs (7 total)
+# Code lines (0): No code
+# Comment lines (0): No comments  
+# Blank lines (7): All lines are blank/whitespace
+
+## empty_file.rs (0 total)
+# Code lines (0): Empty file
+# Comment lines (0): Empty file
+# Blank lines (0): Empty file

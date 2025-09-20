@@ -29,6 +29,9 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "random_boolean",
     "random_from",
     "random_seed",
+    // Crypto functions (implemented in stdlib/crypto.rs)
+    "wflhash256",
+    "wflhash512",
     // Math functions recognized by TypeChecker but not yet implemented
     "min",
     "max",
