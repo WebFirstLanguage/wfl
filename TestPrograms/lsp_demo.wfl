@@ -1,0 +1,129 @@
+// WFL LSP Demo Program
+// This program demonstrates various LSP features including:
+// Code completion, hover information, error diagnostics, and standard library integration
+
+// Variable declarations with different types
+store user_name as "Alice"
+store user_age as 25
+store active_status as yes
+store first_score as 85
+store second_score as 92
+store third_score as 78
+
+// Simple list creation (using current WFL syntax)
+create list scores:
+    add 85
+    add 92
+    add 78
+    add 96
+    add 88
+end list
+
+// Function definition with parameters
+define action called calculateAverage with parameters scoreA and scoreB and scoreC:
+    store total as scoreA + scoreB + scoreC
+    store average as total / 3
+    return average
+end action
+
+// Simple function that uses conditionals
+define action called gradeStudent with parameters average:
+    check if average is greater than 90:
+        return "A"
+    otherwise:
+        check if average is greater than 80:
+            return "B"
+        otherwise:
+            return "C"
+        end check
+    end check
+end action
+
+// Main program logic
+display "=== WFL LSP Demo ==="
+display "User: " with user_name with " (Age: " with user_age with ")"
+
+// Demonstrate basic operations
+display "Scores list created"
+display "First score variable: " with first_score
+display "Second score variable: " with second_score
+display "Third score variable: " with third_score
+
+// Simple calculations
+store total as first_score + second_score + third_score
+store average as total / 3
+display "Average of first three scores: " with average
+
+// Text operations (using working syntax from basic_syntax_comprehensive.wfl)
+store message as "Hello, " with user_name with "!"
+display message
+
+// Conditional logic
+check if user_age is greater than 18:
+    display user_name with " is an adult"
+otherwise:
+    display user_name with " is a minor"
+end check
+
+// Simple loop demonstration
+display "Counting from 1 to 3:"
+count from 1 to 3:
+    display "Count: " with count
+end count
+
+// More text operations
+store greeting as "Welcome to WFL!"
+display "Original greeting: " with greeting
+
+// Number operations
+store num1 as 10
+store num2 as 5
+store sum as num1 + num2
+store difference as num1 - num2
+
+display "Math operations:"
+display "10 + 5 = " with sum
+display "10 - 5 = " with difference
+
+// Boolean operations
+store condition1 as yes
+store condition2 as no
+
+check if condition1:
+    display "Condition 1 is true"
+end check
+
+check if condition2:
+    display "Condition 2 is true"
+otherwise:
+    display "Condition 2 is false"
+end check
+
+// Simple nested conditionals
+check if user_age is greater than 21:
+    display "Can drink alcohol"
+otherwise:
+    check if user_age is greater than 18:
+        display "Can vote but not drink"
+    otherwise:
+        display "Too young for both"
+    end check
+end check
+
+// List iteration
+display "All scores:"
+for each score in scores:
+    display "Score: " with score
+end for
+
+// Error examples (commented out to avoid breaking the demo)
+// Uncomment these lines to see LSP error detection:
+
+// display undefined_variable
+// store result as 5 + "text"
+// store x as
+// check if undefined_condition:
+//     display "test"
+// Missing 'end check' would show error
+
+display "=== Demo Complete ==="
