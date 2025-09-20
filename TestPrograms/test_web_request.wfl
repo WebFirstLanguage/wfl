@@ -1,0 +1,89 @@
+// WFL Web Request Test Program
+// Tests HTTP GET request to google.com and file I/O operations
+// This program is designed to test the WFL interpreter's web request capabilities
+
+display "=== WFL Web Request Test ==="
+display ""
+
+// Test 1: Basic HTTP GET request to Google
+display "1. Testing HTTP GET request to https://google.com"
+
+// Initialize response variable
+store google_response as ""
+
+try:
+    // Make HTTP GET request using WFL syntax
+    open url at "https://google.com" and read content as response_temp
+    change google_response to response_temp
+
+    display "✓ HTTP GET request successful"
+    display "Response length: " with length of google_response with " characters"
+
+    // Check if we got a reasonable response
+    check if length of google_response is greater than 100:
+        display "✓ Response appears to contain HTML content"
+    otherwise:
+        display "✗ Response seems too short, might be an error"
+    end check
+
+catch:
+    display "✗ HTTP GET request failed"
+end try
+
+display ""
+
+// Test 2: Save response to file
+display "2. Testing file write operation"
+try:
+    // Open file for writing
+    open file at "google_index.html" for writing as output_file
+    
+    // Write the HTTP response to the file
+    wait for write content google_response into output_file
+    
+    // Close the file
+    close file output_file
+    
+    display "✓ Successfully saved response to google_index.html"
+    
+    // Verify file was created by reading it back
+    open file at "google_index.html" for reading as read_file
+    wait for store file_content as read content from read_file
+    close file read_file
+    
+    check if length of file_content is equal to length of google_response:
+        display "✓ File content matches original response"
+    otherwise:
+        display "✗ File content length mismatch"
+        display "Original: " with length of google_response with " characters"
+        display "File: " with length of file_content with " characters"
+    end check
+    
+catch:
+    display "✗ File operation failed"
+end try
+
+display ""
+
+// Test 3: Error handling test with invalid URL
+display "3. Testing error handling with invalid URL"
+try:
+    open url at "https://this-domain-should-not-exist-12345.com" and read content as error_response
+    display "✗ Expected error but request succeeded"
+catch:
+    display "✓ Error handling works correctly"
+end try
+
+display ""
+
+// Test 4: File existence check
+display "4. Testing file existence verification"
+check if file exists at "google_index.html":
+    display "✓ Output file exists"
+    display "✓ File was successfully created"
+otherwise:
+    display "✗ Output file was not created"
+end check
+
+display ""
+display "=== Web Request Test Complete ==="
