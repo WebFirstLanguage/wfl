@@ -1,3 +1,7 @@
+---
+type: "always_apply"
+---
+
 # WFL Development Guide for AI Assistants
 
 This comprehensive guide provides instructions for AI assistants working on the WebFirst Language (WFL) project.
