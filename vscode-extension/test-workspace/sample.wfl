@@ -1,0 +1,22 @@
+// Sample WFL program for testing
+store greeting as "Hello, World!"
+store number as 42
+
+// Display the greeting
+display greeting
+
+// Simple arithmetic
+store result as number + 8
+display "The result is: " with result
+
+// Conditional logic
+if result is greater than 50 then
+  display "Result is large"
+otherwise
+  display "Result is small"
+end if
+
+// Loop example
+count from i as 1 to 3
+  display "Count: " with i
+end count
