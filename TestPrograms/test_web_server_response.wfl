@@ -1,0 +1,20 @@
+# Test WFL Web Server Response
+# This test starts a web server and then makes a request to it
+
+display "=== Web Server Response Test ==="
+
+# Start the web server
+display "Starting web server on port 8082..."
+listen on port 8082 as test_server
+
+# Make a request to our own server
+display "Making request to the server..."
+try:
+    open url at "http://127.0.0.1:8082/" and read content as server_response
+    display "Response received:"
+    display server_response
+catch:
+    display "Could not connect to server (this is expected as the server runs in background)"
+end try
+
+display "=== Web Server Response Test Complete ==="

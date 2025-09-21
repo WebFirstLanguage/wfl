@@ -45,6 +45,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
+use warp::Filter;
 
 // Helper functions for execution logging
 #[cfg(debug_assertions)]
@@ -2865,8 +2866,6 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // For now, just create a placeholder server value
-                // TODO: Implement actual web server functionality
                 let port_val = self.evaluate_expression(port, Rc::clone(&env)).await?;
                 let port_num = match &port_val {
                     Value::Number(n) => *n as u16,
@@ -2879,12 +2878,36 @@ impl Interpreter {
                     }
                 };
 
-                // Create a placeholder server object
-                let server_value = Value::Text(Rc::from(format!("WebServer::{}", port_num)));
+                // Create a basic web server using warp
+                let routes = warp::path::end()
+                    .map(|| "Hello from WFL Web Server!");
 
-                match env.borrow_mut().define(server_name, server_value) {
-                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                    Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                // Start the server in a background task
+                let server_task = warp::serve(routes)
+                    .try_bind_ephemeral(([127, 0, 0, 1], port_num));
+
+                match server_task {
+                    Ok((addr, server)) => {
+                        // Spawn the server in the background
+                        tokio::spawn(server);
+
+                        // Create a server value with the actual address
+                        let server_value = Value::Text(Rc::from(format!("WebServer::{}:{}", addr.ip(), addr.port())));
+
+                        println!("Server is listening on port {}", addr.port());
+
+                        match env.borrow_mut().define(server_name, server_value) {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                        }
+                    }
+                    Err(e) => {
+                        Err(RuntimeError::new(
+                            format!("Failed to start web server on port {}: {}", port_num, e),
+                            *line,
+                            *column,
+                        ))
+                    }
                 }
             }
             Statement::WaitForRequestStatement {
