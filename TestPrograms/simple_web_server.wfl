@@ -1,0 +1,29 @@
+# Simple WFL Web Server Example
+# Demonstrates basic web server functionality with natural language syntax
+
+display "=== Simple WFL Web Server ==="
+display "Starting web server on port 8080..."
+
+# Start the web server
+listen on port 8080 as web_server
+
+display "✓ Web server started successfully!"
+display "Server is listening on port 8080"
+display "You can test it by visiting http://127.0.0.1:8080 in your browser"
+display "The server will respond with: 'Hello from WFL Web Server!'"
+
+display ""
+display "=== Testing the server with a request ==="
+
+# Test the server by making a request to it
+try:
+    open url at "http://127.0.0.1:8080/" and read content as response_content
+    display "✓ Server responded successfully!"
+    display "Response: " with response_content
+catch:
+    display "✗ Could not connect to server"
+end try
+
+display ""
+display "=== Simple Web Server Demo Complete ==="
+display "The server is running in the background and will continue to serve requests."
