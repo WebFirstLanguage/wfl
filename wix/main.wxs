@@ -122,7 +122,7 @@
                                 DiskId='1'
                                 Source='$(var.CargoTargetBinDir)\wfl.exe'
                                 KeyPath='yes'/>
-                            
+
                             <!-- Add file association for .wfl files -->
                             <ProgId Id='wfl.wflfile' Description='WFL Script File' Icon='exe0' IconIndex='0'>
                                 <Extension Id='wfl' ContentType='application/x-wfl'>
@@ -131,6 +131,55 @@
                                 </Extension>
                             </ProgId>
                         </Component>
+
+                        <!-- LSP Server Component (Optional) -->
+                        <Component Id='LSPServer' Guid='*'>
+                            <File
+                                Id='lsp_exe'
+                                Name='wfl-lsp.exe'
+                                DiskId='1'
+                                Source='$(var.CargoTargetBinDir)\..\..\..\target\release\wfl-lsp.exe'
+                                KeyPath='yes'/>
+                        </Component>
+                    </Directory>
+
+                    <!-- VS Code Extension Directory (Optional) -->
+                    <Directory Id='VSCodeExtension' Name='vscode-extension'>
+                        <Component Id='VSCodeExtensionFiles' Guid='*'>
+                            <File
+                                Id='extension_package'
+                                Name='package.json'
+                                DiskId='1'
+                                Source='vscode-extension\package.json'
+                                KeyPath='yes'/>
+                            <File
+                                Id='extension_vsix'
+                                Name='vscode-wfl-0.1.0.vsix'
+                                DiskId='1'
+                                Source='vscode-extension\vscode-wfl-0.1.0.vsix'/>
+                        </Component>
+
+                        <Directory Id='ExtensionOut' Name='out'>
+                            <Component Id='VSCodeExtensionOut' Guid='*'>
+                                <File
+                                Id='extension_js'
+                                Name='extension.js'
+                                DiskId='1'
+                                Source='vscode-extension\out\extension.js'
+                                KeyPath='yes'/>
+                            </Component>
+                        </Directory>
+
+                        <Directory Id='ExtensionSyntaxes' Name='syntaxes'>
+                            <Component Id='VSCodeExtensionSyntaxes' Guid='*'>
+                                <File
+                                Id='syntax_json'
+                                Name='wfl.tmLanguage.json'
+                                DiskId='1'
+                                Source='vscode-extension\syntaxes\wfl.tmLanguage.json'
+                                KeyPath='yes'/>
+                            </Component>
+                        </Directory>
                     </Directory>
                 </Directory>
             </Directory>
@@ -150,7 +199,7 @@
               the license sidecar file from the installer.
             -->
             <ComponentRef Id='License'/>
-            
+
             <ComponentRef Id='binary0'/>
 
             <Feature
@@ -160,6 +209,28 @@
                 Level='1'
                 Absent='allow'>
                 <ComponentRef Id='Path'/>
+            </Feature>
+
+            <!-- LSP Server Feature (Optional) -->
+            <Feature
+                Id='LSPServerFeature'
+                Title='LSP Server'
+                Description='Install the Language Server Protocol (LSP) server for editor integration. Provides syntax highlighting, code completion, and error checking in supported editors.'
+                Level='2'
+                Absent='allow'>
+                <ComponentRef Id='LSPServer'/>
+            </Feature>
+
+            <!-- VS Code Extension Feature (Optional) -->
+            <Feature
+                Id='VSCodeExtensionFeature'
+                Title='VS Code Extension'
+                Description='Install the Visual Studio Code extension for WFL. Provides syntax highlighting, IntelliSense, and integrated development experience.'
+                Level='2'
+                Absent='allow'>
+                <ComponentRef Id='VSCodeExtensionFiles'/>
+                <ComponentRef Id='VSCodeExtensionOut'/>
+                <ComponentRef Id='VSCodeExtensionSyntaxes'/>
             </Feature>
         </Feature>
 
@@ -181,6 +252,33 @@
              `Property` tag to a valid URL.
         -->
         <!--<Property Id='ARPHELPLINK' Value='ChangeMe'/>-->
+
+        <!-- Custom Actions for Post-Installation Configuration -->
+        <CustomAction
+            Id='ConfigureLSPServer'
+            Directory='APPLICATIONFOLDER'
+            ExeCommand='powershell.exe -ExecutionPolicy Bypass -File "[APPLICATIONFOLDER]scripts\configure_lsp.ps1"'
+            Execute='deferred'
+            Return='ignore'
+            Impersonate='no'/>
+
+        <CustomAction
+            Id='InstallVSCodeExtension'
+            Directory='APPLICATIONFOLDER'
+            ExeCommand='powershell.exe -ExecutionPolicy Bypass -File "[APPLICATIONFOLDER]scripts\install_vscode_extension.ps1" "[APPLICATIONFOLDER]"'
+            Execute='deferred'
+            Return='ignore'
+            Impersonate='no'/>
+
+        <!-- Installation Sequence -->
+        <InstallExecuteSequence>
+            <Custom Action='ConfigureLSPServer' After='InstallFiles'>
+                <![CDATA[&LSPServerFeature=3]]>
+            </Custom>
+            <Custom Action='InstallVSCodeExtension' After='ConfigureLSPServer'>
+                <![CDATA[&VSCodeExtensionFeature=3]]>
+            </Custom>
+        </InstallExecuteSequence>
 
         <UI>
             <UIRef Id='WixUI_FeatureTree'/>

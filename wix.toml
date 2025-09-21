@@ -22,6 +22,7 @@ init_config = "scripts/init_config.ps1"
 
 # Features
 [package.features]
+lsp_server = "Install LSP Server for editor integration"
 vscode_extension = "Install VS Code Extension"
 
 # Environment variables
