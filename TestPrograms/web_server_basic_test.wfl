@@ -1,0 +1,21 @@
+// Basic WFL Web Server Test
+// This test should fail initially as web server functionality is not yet implemented
+// Following TDD approach - write failing test first
+
+display "=== Basic Web Server Test ==="
+
+// Test 1: Basic server startup
+display "Testing basic server startup..."
+
+try:
+    listen on port 8081 as test_server
+    display "✓ Server started successfully"
+    
+    // Test 2: Basic response
+    display "Server is listening on port 8081"
+    
+catch:
+    display "✗ Server startup failed (expected for now)"
+end try
+
+display "=== Basic Web Server Test Complete ==="

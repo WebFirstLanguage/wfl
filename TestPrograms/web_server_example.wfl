@@ -1,0 +1,204 @@
+// WFL Web Server Example
+// Demonstrates WFL's natural language web server capabilities
+// This program creates a simple HTTP web server with multiple features
+
+display "=== WFL Web Server Example ==="
+display ""
+
+// Configuration
+store server_port as 8080
+store server_host as "localhost"
+store static_directory as "public"
+
+display "Starting WFL web server..."
+display "Host: " with server_host
+display "Port: " with server_port
+display "Static files directory: " with static_directory
+display ""
+
+// Create static files directory if it doesn't exist
+check if directory exists at static_directory:
+    display "✓ Static directory exists"
+otherwise:
+    display "Creating static directory: " with static_directory
+    create directory at static_directory
+end check
+
+// Create a simple index.html file for testing
+store index_content as "<!DOCTYPE html>
+<html>
+<head>
+    <title>WFL Web Server</title>
+</head>
+<body>
+    <h1>Welcome to WFL Web Server!</h1>
+    <p>This page is served by a web server written in WebFirst Language (WFL).</p>
+    <p>Try these endpoints:</p>
+    <ul>
+        <li><a href=\"/\">Home (this page)</a></li>
+        <li><a href=\"/hello\">Hello endpoint</a></li>
+        <li><a href=\"/api/status\">API Status</a></li>
+        <li><a href=\"/api/time\">Current Time</a></li>
+    </ul>
+</body>
+</html>"
+
+try:
+    open file at static_directory with "/index.html" for writing as index_file
+    wait for write content index_content into index_file
+    close file index_file
+    display "✓ Created index.html in static directory"
+catch:
+    display "⚠ Could not create index.html file"
+end try
+
+display ""
+
+// Start the web server
+try:
+    display "🚀 Starting web server on " with server_host with ":" with server_port
+    listen on port server_port as web_server
+    
+    display "✓ Web server started successfully!"
+    display "✓ Server is ready to accept connections"
+    display "✓ Visit http://" with server_host with ":" with server_port with " in your browser"
+    display ""
+    
+    // Main server loop - handle incoming requests
+    main loop:
+        try:
+            // Wait for incoming request (this is async)
+            wait for request comes in on web_server as incoming_request
+            
+            // Log the request
+            display "📥 " with method of incoming_request with " " with path of incoming_request with " from " with client_ip of incoming_request
+            
+            // Route handling based on request path
+            store request_path as path of incoming_request
+            store request_method as method of incoming_request
+            
+            // Handle different routes
+            check if request_path is equal to "/":
+                // Serve the index page
+                try:
+                    open file at static_directory with "/index.html" for reading as index_file
+                    wait for store page_content as read content from index_file
+                    close file index_file
+                    
+                    respond to incoming_request with page_content and content_type "text/html"
+                    display "✓ Served index page"
+                catch:
+                    respond to incoming_request with "Error: Could not load index page" and status 500
+                    display "✗ Error serving index page"
+                end try
+                
+            otherwise check if request_path is equal to "/hello":
+                // Simple hello endpoint
+                store hello_response as "Hello from WFL Web Server! 👋"
+                respond to incoming_request with hello_response and content_type "text/plain"
+                display "✓ Served hello endpoint"
+                
+            otherwise check if request_path is equal to "/api/status":
+                // API status endpoint (JSON response)
+                store status_json as "{
+    \"status\": \"running\",
+    \"server\": \"WFL Web Server\",
+    \"version\": \"1.0.0\",
+    \"uptime\": \"" with uptime with "\",
+    \"requests_handled\": " with requests_count with "
+}"
+                respond to incoming_request with status_json and content_type "application/json"
+                display "✓ Served API status"
+                
+            otherwise check if request_path is equal to "/api/time":
+                // Current time endpoint
+                store current_time as current time formatted as "yyyy-MM-dd HH:mm:ss"
+                store time_json as "{\"current_time\": \"" with current_time with "\"}"
+                respond to incoming_request with time_json and content_type "application/json"
+                display "✓ Served current time"
+                
+            otherwise check if request_path starts with "/static/":
+                // Serve static files
+                store file_path as static_directory with substring of request_path from 8
+                
+                check if file exists at file_path:
+                    try:
+                        open file at file_path for reading as static_file
+                        wait for store file_content as read content from static_file
+                        close file static_file
+                        
+                        // Determine content type based on file extension
+                        store content_type as "text/plain"
+                        check if file_path ends with ".html":
+                            change content_type to "text/html"
+                        otherwise check if file_path ends with ".css":
+                            change content_type to "text/css"
+                        otherwise check if file_path ends with ".js":
+                            change content_type to "application/javascript"
+                        otherwise check if file_path ends with ".json":
+                            change content_type to "application/json"
+                        end check
+                        
+                        respond to incoming_request with file_content and content_type content_type
+                        display "✓ Served static file: " with file_path
+                    catch:
+                        respond to incoming_request with "Error reading file" and status 500
+                        display "✗ Error reading static file: " with file_path
+                    end try
+                otherwise:
+                    respond to incoming_request with "File not found" and status 404
+                    display "✗ Static file not found: " with file_path
+                end check
+                
+            otherwise:
+                // 404 Not Found
+                store not_found_html as "<!DOCTYPE html>
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+    <h1>404 - Page Not Found</h1>
+    <p>The requested path <code>" with request_path with "</code> was not found on this server.</p>
+    <p><a href=\"/\">Return to home page</a></p>
+</body>
+</html>"
+                respond to incoming_request with not_found_html and status 404 and content_type "text/html"
+                display "✗ 404 Not Found: " with request_path
+            end check
+            
+            // Increment request counter
+            add 1 to requests_count
+            
+        catch:
+            display "✗ Error handling request: " with error_message
+            
+            // Try to send error response if possible
+            try:
+                respond to incoming_request with "Internal Server Error" and status 500
+            catch:
+                display "✗ Could not send error response"
+            end try
+        end try
+        
+        // Check for shutdown signal (Ctrl+C handling would be ideal)
+        check if shutdown_requested:
+            display ""
+            display "🛑 Shutdown requested, stopping server..."
+            break
+        end check
+        
+    end loop
+    
+catch:
+    display "✗ Failed to start web server"
+    display "Error: " with error_message
+    display ""
+    display "Common issues:"
+    display "- Port " with server_port with " might already be in use"
+    display "- Try a different port number"
+    display "- Check if another web server is running"
+end try
+
+display ""
+display "🏁 Web server stopped"
+display "Total requests handled: " with requests_count
+display "=== WFL Web Server Example Complete ==="
