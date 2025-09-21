@@ -1218,6 +1218,80 @@ impl TypeChecker {
                 }
                 // The time will be added to the environment at runtime
             }
+            Statement::ListenStatement {
+                port,
+                server_name: _server_name,
+                line: _line,
+                column: _column,
+            } => {
+                let port_type = self.infer_expression_type(port);
+                if port_type != Type::Number && port_type != Type::Unknown && port_type != Type::Error {
+                    self.type_error(
+                        "Port must be a number".to_string(),
+                        Some(Type::Number),
+                        Some(port_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
+            Statement::WaitForRequestStatement {
+                server: _server,
+                request_name: _request_name,
+                line: _line,
+                column: _column,
+            } => {
+                // TODO: Add type checking for server expression
+                // For now, just accept any type
+            }
+            Statement::RespondStatement {
+                request: _request,
+                content,
+                status,
+                content_type,
+                line: _line,
+                column: _column,
+            } => {
+                // Check content type (should be text)
+                let content_type_result = self.infer_expression_type(content);
+                if content_type_result != Type::Text && content_type_result != Type::Unknown && content_type_result != Type::Error {
+                    self.type_error(
+                        "Response content must be text".to_string(),
+                        Some(Type::Text),
+                        Some(content_type_result),
+                        *_line,
+                        *_column,
+                    );
+                }
+
+                // Check status if provided (should be number)
+                if let Some(status_expr) = status {
+                    let status_type = self.infer_expression_type(status_expr);
+                    if status_type != Type::Number && status_type != Type::Unknown && status_type != Type::Error {
+                        self.type_error(
+                            "HTTP status must be a number".to_string(),
+                            Some(Type::Number),
+                            Some(status_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+
+                // Check content_type if provided (should be text)
+                if let Some(ct_expr) = content_type {
+                    let ct_type = self.infer_expression_type(ct_expr);
+                    if ct_type != Type::Text && ct_type != Type::Unknown && ct_type != Type::Error {
+                        self.type_error(
+                            "Content type must be text".to_string(),
+                            Some(Type::Text),
+                            Some(ct_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+            }
         }
     }
 

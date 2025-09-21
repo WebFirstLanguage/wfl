@@ -120,6 +120,15 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::PatternDefinition { name, .. } => {
             format!("PatternDefinition '{name}'")
         }
+        Statement::ListenStatement { server_name, .. } => {
+            format!("ListenStatement '{server_name}'")
+        }
+        Statement::WaitForRequestStatement { request_name, .. } => {
+            format!("WaitForRequestStatement '{request_name}'")
+        }
+        Statement::RespondStatement { .. } => {
+            "RespondStatement".to_string()
+        }
     }
 }
 
@@ -905,6 +914,9 @@ impl Interpreter {
             Statement::EventHandler { line, column, .. } => (*line, *column),
             Statement::ParentMethodCall { line, column, .. } => (*line, *column),
             Statement::PatternDefinition { line, column, .. } => (*line, *column),
+            Statement::ListenStatement { line, column, .. } => (*line, *column),
+            Statement::WaitForRequestStatement { line, column, .. } => (*line, *column),
+            Statement::RespondStatement { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {
@@ -2846,6 +2858,62 @@ impl Interpreter {
                         column: *column,
                     }),
                 }
+            }
+            Statement::ListenStatement {
+                port,
+                server_name,
+                line,
+                column,
+            } => {
+                // For now, just create a placeholder server value
+                // TODO: Implement actual web server functionality
+                let port_val = self.evaluate_expression(port, Rc::clone(&env)).await?;
+                let port_num = match &port_val {
+                    Value::Number(n) => *n as u16,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected number for port, got {port_val:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Create a placeholder server object
+                let server_value = Value::Text(Rc::from(format!("WebServer::{}", port_num)));
+
+                match env.borrow_mut().define(server_name, server_value) {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                }
+            }
+            Statement::WaitForRequestStatement {
+                server: _server,
+                request_name: _request_name,
+                line,
+                column,
+            } => {
+                // For now, return an error indicating this is not yet implemented
+                Err(RuntimeError::new(
+                    "Web server request handling is not yet implemented".to_string(),
+                    *line,
+                    *column,
+                ))
+            }
+            Statement::RespondStatement {
+                request: _request,
+                content: _content,
+                status: _status,
+                content_type: _content_type,
+                line,
+                column,
+            } => {
+                // For now, return an error indicating this is not yet implemented
+                Err(RuntimeError::new(
+                    "Web server response handling is not yet implemented".to_string(),
+                    *line,
+                    *column,
+                ))
             }
         };
 

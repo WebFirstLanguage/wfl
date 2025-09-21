@@ -808,6 +808,9 @@ impl Analyzer {
                             Statement::MapCreation { line, .. } => *line,
                             Statement::CreateDateStatement { line, .. } => *line,
                             Statement::CreateTimeStatement { line, .. } => *line,
+                            Statement::ListenStatement { line, .. } => *line,
+                            Statement::WaitForRequestStatement { line, .. } => *line,
+                            Statement::RespondStatement { line, .. } => *line,
                         },
                         column: match statement {
                             Statement::VariableDeclaration { column, .. } => *column,
@@ -858,6 +861,9 @@ impl Analyzer {
                             Statement::MapCreation { column, .. } => *column,
                             Statement::CreateDateStatement { column, .. } => *column,
                             Statement::CreateTimeStatement { column, .. } => *column,
+                            Statement::ListenStatement { column, .. } => *column,
+                            Statement::WaitForRequestStatement { column, .. } => *column,
+                            Statement::RespondStatement { column, .. } => *column,
                         },
                     });
                     stmt_nodes.push(node_idx);
@@ -936,6 +942,9 @@ impl Analyzer {
                                 Statement::MapCreation { line, .. } => *line,
                                 Statement::CreateDateStatement { line, .. } => *line,
                                 Statement::CreateTimeStatement { line, .. } => *line,
+                                Statement::ListenStatement { line, .. } => *line,
+                                Statement::WaitForRequestStatement { line, .. } => *line,
+                                Statement::RespondStatement { line, .. } => *line,
                             },
                             column: match stmt {
                                 Statement::VariableDeclaration { column, .. } => *column,
@@ -986,6 +995,9 @@ impl Analyzer {
                                 Statement::MapCreation { column, .. } => *column,
                                 Statement::CreateDateStatement { column, .. } => *column,
                                 Statement::CreateTimeStatement { column, .. } => *column,
+                                Statement::ListenStatement { column, .. } => *column,
+                                Statement::WaitForRequestStatement { column, .. } => *column,
+                                Statement::RespondStatement { column, .. } => *column,
                             },
                         });
                         then_nodes.push(then_node_idx);
@@ -1052,6 +1064,9 @@ impl Analyzer {
                                     Statement::MapCreation { line, .. } => *line,
                                     Statement::CreateDateStatement { line, .. } => *line,
                                     Statement::CreateTimeStatement { line, .. } => *line,
+                                    Statement::ListenStatement { line, .. } => *line,
+                                    Statement::WaitForRequestStatement { line, .. } => *line,
+                                    Statement::RespondStatement { line, .. } => *line,
                                 },
                                 column: match stmt {
                                     Statement::VariableDeclaration { column, .. } => *column,
@@ -1102,6 +1117,9 @@ impl Analyzer {
                                     Statement::MapCreation { column, .. } => *column,
                                     Statement::CreateDateStatement { column, .. } => *column,
                                     Statement::CreateTimeStatement { column, .. } => *column,
+                                    Statement::ListenStatement { column, .. } => *column,
+                                    Statement::WaitForRequestStatement { column, .. } => *column,
+                                    Statement::RespondStatement { column, .. } => *column,
                                 },
                             });
                             else_nodes.push(else_node_idx);

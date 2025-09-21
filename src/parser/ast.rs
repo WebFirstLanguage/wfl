@@ -374,6 +374,27 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    // Web server statements
+    ListenStatement {
+        port: Expression,
+        server_name: String,
+        line: usize,
+        column: usize,
+    },
+    WaitForRequestStatement {
+        server: Expression,
+        request_name: String,
+        line: usize,
+        column: usize,
+    },
+    RespondStatement {
+        request: Expression,
+        content: Expression,
+        status: Option<Expression>,
+        content_type: Option<Expression>,
+        line: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

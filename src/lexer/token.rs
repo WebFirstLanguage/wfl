@@ -117,6 +117,22 @@ pub enum Token {
     KeywordDatabase,
     #[token("at")]
     KeywordAt,
+    #[token("listen")]
+    KeywordListen,
+    #[token("port")]
+    KeywordPort,
+    #[token("server")]
+    KeywordServer,
+    #[token("request")]
+    KeywordRequest,
+    #[token("response")]
+    KeywordResponse,
+    #[token("respond")]
+    KeywordRespond,
+    #[token("comes")]
+    KeywordComes,
+    #[token("status")]
+    KeywordStatus,
     #[token("least")]
     KeywordLeast,
     #[token("most")]

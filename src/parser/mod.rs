@@ -1166,6 +1166,8 @@ impl<'a> Parser<'a> {
                 Token::KeywordDelete => self.parse_delete_statement(),
                 Token::KeywordWrite => self.parse_write_to_statement(),
                 Token::KeywordWait => self.parse_wait_for_statement(),
+                Token::KeywordListen => self.parse_listen_statement(),
+                Token::KeywordRespond => self.parse_respond_statement(),
                 Token::KeywordGive | Token::KeywordReturn => self.parse_return_statement(),
                 Token::Identifier(id) if id == "main" => {
                     // Check if next token is "loop"
@@ -4191,6 +4193,45 @@ impl<'a> Parser<'a> {
                     self.tokens.next(); // Consume "write" identifier
                     crate::parser::ast::WriteMode::Overwrite
                 }
+                Token::KeywordRequest => {
+                    // Handle "wait for request comes in on server as request_name"
+                    self.tokens.next(); // Consume "request"
+
+                    // Expect "comes"
+                    if let Some(token) = self.tokens.peek() {
+                        if token.token == Token::KeywordComes {
+                            self.tokens.next(); // Consume "comes"
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected 'comes' after 'request'".to_string(),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                    }
+
+                    // Expect "in"
+                    self.expect_token(Token::KeywordIn, "Expected 'in' after 'comes'")?;
+
+                    // Expect "on"
+                    self.expect_token(Token::KeywordOn, "Expected 'on' after 'in'")?;
+
+                    // Parse server expression
+                    let server = self.parse_expression()?;
+
+                    // Expect "as"
+                    self.expect_token(Token::KeywordAs, "Expected 'as' after server")?;
+
+                    // Parse request name
+                    let request_name = self.parse_variable_name_simple()?;
+
+                    return Ok(Statement::WaitForRequestStatement {
+                        server,
+                        request_name,
+                        line: wait_token_pos.line,
+                        column: wait_token_pos.column,
+                    });
+                }
                 _ => {
                     let inner = Box::new(self.parse_statement()?);
                     return Ok(Statement::WaitForStatement {
@@ -6298,6 +6339,104 @@ impl<'a> Parser<'a> {
             list_name,
             line: clear_token.line,
             column: clear_token.column,
+        })
+    }
+
+    // Web server parsing methods
+    fn parse_listen_statement(&mut self) -> Result<Statement, ParseError> {
+        let listen_token = self.tokens.next().unwrap(); // Consume "listen"
+
+        // Expect "on"
+        self.expect_token(Token::KeywordOn, "Expected 'on' after 'listen'")?;
+
+        // Expect "port"
+        self.expect_token(Token::KeywordPort, "Expected 'port' after 'listen on'")?;
+
+        // Parse port expression
+        let port = self.parse_expression()?;
+
+        // Expect "as"
+        self.expect_token(Token::KeywordAs, "Expected 'as' after port")?;
+
+        // Parse server name
+        let server_name = self.parse_variable_name_simple()?;
+
+        Ok(Statement::ListenStatement {
+            port,
+            server_name,
+            line: listen_token.line,
+            column: listen_token.column,
+        })
+    }
+
+    fn parse_respond_statement(&mut self) -> Result<Statement, ParseError> {
+        let respond_token = self.tokens.next().unwrap(); // Consume "respond"
+
+        // Expect "to"
+        self.expect_token(Token::KeywordTo, "Expected 'to' after 'respond'")?;
+
+        // Parse request expression
+        let request = self.parse_expression()?;
+
+        // Expect "with"
+        self.expect_token(Token::KeywordWith, "Expected 'with' after request")?;
+
+        // Parse content expression
+        let content = self.parse_expression()?;
+
+        // Optional status and content_type
+        let mut status = None;
+        let mut content_type = None;
+
+        // Check for "and status"
+        if let Some(token) = self.tokens.peek() {
+            if token.token == Token::KeywordAnd {
+                self.tokens.next(); // Consume "and"
+
+                if let Some(token) = self.tokens.peek() {
+                    if token.token == Token::KeywordStatus {
+                        self.tokens.next(); // Consume "status"
+                        status = Some(self.parse_expression()?);
+                    }
+                }
+            }
+        }
+
+        // Check for "and content_type" or "and content type"
+        if let Some(token) = self.tokens.peek() {
+            if token.token == Token::KeywordAnd {
+                self.tokens.next(); // Consume "and"
+
+                if let Some(token) = self.tokens.peek() {
+                    if let Token::Identifier(id) = &token.token {
+                        if id == "content_type" || id == "content" {
+                            self.tokens.next(); // Consume "content_type" or "content"
+
+                            // If it was "content", expect "type" next
+                            if id == "content" {
+                                if let Some(token) = self.tokens.peek() {
+                                    if let Token::Identifier(type_id) = &token.token {
+                                        if type_id == "type" {
+                                            self.tokens.next(); // Consume "type"
+                                        }
+                                    }
+                                }
+                            }
+
+                            content_type = Some(self.parse_expression()?);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Statement::RespondStatement {
+            request,
+            content,
+            status,
+            content_type,
+            line: respond_token.line,
+            column: respond_token.column,
         })
     }
 }
