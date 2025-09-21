@@ -78,3 +78,107 @@ Currently, installers are built without code signing. When code signing certific
 1. Windows MSI: The EV code-signing certificate (PFX) will be added to GitHub Secrets
 2. macOS pkg: The Developer ID Installer certificate (.p12) will be added to GitHub Secrets
 3. The SIGNING_SKIP environment variable will be set to false in the workflow
+
+## Enhanced MSI Installer
+
+The Windows MSI installer has been enhanced to support optional component installation, providing users with flexibility in choosing which components to install.
+
+### Available Components
+
+The MSI installer includes the following components:
+
+| Component | Description | Default | Required |
+|-----------|-------------|---------|----------|
+| **WFL Core** | Main WFL compiler and runtime | ✓ | Yes |
+| **PATH Environment** | Add WFL to system PATH | ✓ | No |
+| **LSP Server** | Language Server Protocol server for editor integration | ✗ | No |
+| **VS Code Extension** | Visual Studio Code extension with syntax highlighting and IntelliSense | ✗ | No |
+
+### Building Enhanced MSI
+
+To build the MSI installer with component options:
+
+```bash
+# Build with all components (interactive selection)
+python Tools/launch_msi_build.py --interactive
+
+# Build with specific components
+python Tools/launch_msi_build.py --include-lsp --include-vscode
+
+# Build core only (default behavior)
+python Tools/launch_msi_build.py
+
+# Build with verbose output
+python Tools/launch_msi_build.py --include-lsp --verbose
+```
+
+### Command Line Options
+
+The enhanced MSI build script supports the following options:
+
+```
+Version Management:
+  --bump-version        Increment the build number
+  --version-override    Override version (format: YYYY.MM)
+
+Build Options:
+  --output-dir          Custom output directory for the MSI file
+  --skip-tests          Skip running tests before building
+
+Component Installation:
+  --include-lsp         Include LSP server installation
+  --include-vscode      Include VS Code extension installation
+  --interactive         Use interactive mode to select components
+
+Output Options:
+  --verbose             Show detailed output
+```
+
+### Interactive Mode
+
+Interactive mode provides a user-friendly way to select components:
+
+```bash
+python Tools/launch_msi_build.py --interactive
+```
+
+This will prompt you to select which optional components to include:
+
+```
+=== Component Installation Options ===
+Select which additional components to include in the MSI installer:
+Include LSP Server for editor integration? [y/N]: y
+Include VS Code Extension? [y/N]: n
+```
+
+### Post-Installation Configuration
+
+When optional components are selected, the installer automatically:
+
+1. **LSP Server**:
+   - Validates the LSP server binary
+   - Creates registry entries for editor integration
+   - Generates VS Code settings template
+
+2. **VS Code Extension**:
+   - Detects VS Code installation
+   - Installs the WFL extension automatically
+   - Configures language associations
+
+### Dependencies
+
+Building with optional components requires:
+
+- **LSP Server**: Rust toolchain (cargo)
+- **VS Code Extension**: Node.js (npm)
+
+The build script will check for these dependencies and provide clear error messages if they're missing.
+
+### Backward Compatibility
+
+The enhanced MSI installer maintains full backward compatibility:
+
+- Existing build commands work unchanged
+- Default behavior installs core WFL only
+- All existing command-line arguments are preserved
+- Legacy MSI functionality remains intact

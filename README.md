@@ -70,6 +70,33 @@ end count
 
 ### Installation
 
+#### Windows MSI Installer (Recommended)
+
+WFL provides an enhanced MSI installer for Windows with optional components:
+
+```bash
+# Download and run the latest MSI installer from GitHub Releases
+# The installer includes options for:
+# - WFL Core (required)
+# - LSP Server for editor integration (optional)
+# - VS Code Extension with syntax highlighting (optional)
+```
+
+**Building Custom MSI**: For developers who want to build a custom MSI with specific components:
+
+```bash
+# Interactive component selection
+python Tools/launch_msi_build.py --interactive
+
+# Include all components
+python Tools/launch_msi_build.py --include-lsp --include-vscode
+
+# Core only (default)
+python Tools/launch_msi_build.py
+```
+
+#### From Source
+
 ```bash
 # Clone the repository
 git clone https://github.com/WebFirstLanguage/wfl.git
