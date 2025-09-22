@@ -197,9 +197,9 @@ mod wflhash_security_tests {
                 panic!("Large input should be rejected");
             }
             Err(e) => {
-                // Should fail with size limit error
+                // Should fail with generic size limit error (improved error handling)
                 assert!(
-                    e.message.contains("too large") || e.message.contains("size limit"),
+                    e.message.contains("exceeds maximum") || e.message.contains("too large") || e.message.contains("size limit"),
                     "Should fail with size limit error, got: {}",
                     e.message
                 );
