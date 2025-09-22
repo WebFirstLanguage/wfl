@@ -1,11 +1,10 @@
 // TDD Tests for WFLHASH Cryptographic Hash Functions
 // These tests MUST FAIL FIRST before implementation
 
+use wfl::interpreter::Interpreter;
 use wfl::interpreter::value::Value;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::interpreter::Interpreter;
-use tokio;
 
 #[cfg(test)]
 mod crypto_function_tests {
@@ -15,10 +14,15 @@ mod crypto_function_tests {
     async fn run_wfl_code(code: &str) -> Result<Value, String> {
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
-        let ast = parser.parse().map_err(|e| format!("Parse error: {:?}", e))?;
+        let ast = parser
+            .parse()
+            .map_err(|e| format!("Parse error: {:?}", e))?;
 
         let mut interpreter = Interpreter::new();
-        let _ = interpreter.interpret(&ast).await.map_err(|e| format!("Runtime error: {:?}", e))?;
+        let _ = interpreter
+            .interpret(&ast)
+            .await
+            .map_err(|e| format!("Runtime error: {:?}", e))?;
 
         // Extract the result from the 'result' variable
         if let Some(result_value) = interpreter.global_env().borrow().get("result") {
@@ -36,12 +40,22 @@ mod crypto_function_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "wflhash256 function should be available and work");
+        assert!(
+            result.is_ok(),
+            "wflhash256 function should be available and work"
+        );
 
         if let Ok(Value::Text(hash)) = result {
             // WFLHASH-256 should produce a 64-character hex string (256 bits = 32 bytes = 64 hex chars)
-            assert_eq!(hash.len(), 64, "WFLHASH-256 should produce 64-character hex string");
-            assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "Hash should be valid hexadecimal");
+            assert_eq!(
+                hash.len(),
+                64,
+                "WFLHASH-256 should produce 64-character hex string"
+            );
+            assert!(
+                hash.chars().all(|c| c.is_ascii_hexdigit()),
+                "Hash should be valid hexadecimal"
+            );
         } else {
             panic!("wflhash256 should return a text value");
         }
@@ -57,8 +71,15 @@ mod crypto_function_tests {
         assert!(result.is_ok(), "wflhash256 should handle empty input");
 
         if let Ok(Value::Text(hash)) = result {
-            assert_eq!(hash.len(), 64, "Empty input should still produce 64-character hash");
-            assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "Hash should be valid hexadecimal");
+            assert_eq!(
+                hash.len(),
+                64,
+                "Empty input should still produce 64-character hash"
+            );
+            assert!(
+                hash.chars().all(|c| c.is_ascii_hexdigit()),
+                "Hash should be valid hexadecimal"
+            );
         }
     }
 
@@ -75,8 +96,15 @@ mod crypto_function_tests {
         let result1 = run_wfl_code(code1).await;
         let result2 = run_wfl_code(code2).await;
 
-        assert!(result1.is_ok() && result2.is_ok(), "Both hash operations should succeed");
-        assert_eq!(result1.unwrap(), result2.unwrap(), "Same input should produce same hash");
+        assert!(
+            result1.is_ok() && result2.is_ok(),
+            "Both hash operations should succeed"
+        );
+        assert_eq!(
+            result1.unwrap(),
+            result2.unwrap(),
+            "Same input should produce same hash"
+        );
     }
 
     #[tokio::test]
@@ -91,8 +119,15 @@ mod crypto_function_tests {
         let result1 = run_wfl_code(code1).await;
         let result2 = run_wfl_code(code2).await;
 
-        assert!(result1.is_ok() && result2.is_ok(), "Both hash operations should succeed");
-        assert_ne!(result1.unwrap(), result2.unwrap(), "Different inputs should produce different hashes");
+        assert!(
+            result1.is_ok() && result2.is_ok(),
+            "Both hash operations should succeed"
+        );
+        assert_ne!(
+            result1.unwrap(),
+            result2.unwrap(),
+            "Different inputs should produce different hashes"
+        );
     }
 
     #[tokio::test]
@@ -108,19 +143,30 @@ mod crypto_function_tests {
         let result1 = run_wfl_code(code1).await;
         let result2 = run_wfl_code(code2).await;
 
-        assert!(result1.is_ok() && result2.is_ok(), "Both hash operations should succeed");
+        assert!(
+            result1.is_ok() && result2.is_ok(),
+            "Both hash operations should succeed"
+        );
 
         if let (Ok(Value::Text(hash1)), Ok(Value::Text(hash2))) = (result1, result2) {
-            assert_ne!(hash1, hash2, "Single character change should produce different hash");
+            assert_ne!(
+                hash1, hash2,
+                "Single character change should produce different hash"
+            );
 
             // Count different characters (should be roughly 50% for good avalanche effect)
-            let diff_count = hash1.chars()
+            let diff_count = hash1
+                .chars()
                 .zip(hash2.chars())
                 .filter(|(c1, c2)| c1 != c2)
                 .count();
 
             // For a good hash function, at least 25% of bits should change
-            assert!(diff_count >= 16, "Avalanche effect: at least 16 characters should differ, got {}", diff_count);
+            assert!(
+                diff_count >= 16,
+                "Avalanche effect: at least 16 characters should differ, got {}",
+                diff_count
+            );
         }
     }
 
@@ -132,12 +178,22 @@ mod crypto_function_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "wflhash512 function should be available and work");
+        assert!(
+            result.is_ok(),
+            "wflhash512 function should be available and work"
+        );
 
         if let Ok(Value::Text(hash)) = result {
             // WFLHASH-512 should produce a 128-character hex string (512 bits = 64 bytes = 128 hex chars)
-            assert_eq!(hash.len(), 128, "WFLHASH-512 should produce 128-character hex string");
-            assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "Hash should be valid hexadecimal");
+            assert_eq!(
+                hash.len(),
+                128,
+                "WFLHASH-512 should produce 128-character hex string"
+            );
+            assert!(
+                hash.chars().all(|c| c.is_ascii_hexdigit()),
+                "Hash should be valid hexadecimal"
+            );
         } else {
             panic!("wflhash512 should return a text value");
         }
@@ -156,10 +212,17 @@ mod crypto_function_tests {
         let result256 = run_wfl_code(code256).await;
         let result512 = run_wfl_code(code512).await;
 
-        assert!(result256.is_ok() && result512.is_ok(), "Both hash operations should succeed");
+        assert!(
+            result256.is_ok() && result512.is_ok(),
+            "Both hash operations should succeed"
+        );
 
         if let (Ok(Value::Text(h256)), Ok(Value::Text(h512))) = (result256, result512) {
-            assert_ne!(h256.as_ref(), &h512[..64], "Different variants should produce different hashes");
+            assert_ne!(
+                h256.as_ref(),
+                &h512[..64],
+                "Different variants should produce different hashes"
+            );
         }
     }
 }

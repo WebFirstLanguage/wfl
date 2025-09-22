@@ -4485,7 +4485,10 @@ impl<'a> Parser<'a> {
         while let Some(token) = self.tokens.peek().cloned() {
             if matches!(
                 token.token,
-                Token::KeywordWhen | Token::KeywordCatch | Token::KeywordOtherwise | Token::KeywordEnd
+                Token::KeywordWhen
+                    | Token::KeywordCatch
+                    | Token::KeywordOtherwise
+                    | Token::KeywordEnd
             ) {
                 break;
             }
@@ -4553,7 +4556,10 @@ impl<'a> Parser<'a> {
                     while let Some(token) = self.tokens.peek().cloned() {
                         if matches!(
                             token.token,
-                            Token::KeywordWhen | Token::KeywordCatch | Token::KeywordOtherwise | Token::KeywordEnd
+                            Token::KeywordWhen
+                                | Token::KeywordCatch
+                                | Token::KeywordOtherwise
+                                | Token::KeywordEnd
                         ) {
                             break;
                         }
@@ -4597,7 +4603,10 @@ impl<'a> Parser<'a> {
                     while let Some(token) = self.tokens.peek().cloned() {
                         if matches!(
                             token.token,
-                            Token::KeywordWhen | Token::KeywordCatch | Token::KeywordOtherwise | Token::KeywordEnd
+                            Token::KeywordWhen
+                                | Token::KeywordCatch
+                                | Token::KeywordOtherwise
+                                | Token::KeywordEnd
                         ) {
                             break;
                         }
@@ -6389,44 +6398,41 @@ impl<'a> Parser<'a> {
         let mut content_type = None;
 
         // Check for "and status"
-        if let Some(token) = self.tokens.peek() {
-            if token.token == Token::KeywordAnd {
-                self.tokens.next(); // Consume "and"
+        if let Some(token) = self.tokens.peek()
+            && token.token == Token::KeywordAnd
+        {
+            self.tokens.next(); // Consume "and"
 
-                if let Some(token) = self.tokens.peek() {
-                    if token.token == Token::KeywordStatus {
-                        self.tokens.next(); // Consume "status"
-                        status = Some(self.parse_expression()?);
-                    }
-                }
+            if let Some(token) = self.tokens.peek()
+                && token.token == Token::KeywordStatus
+            {
+                self.tokens.next(); // Consume "status"
+                status = Some(self.parse_expression()?);
             }
         }
 
         // Check for "and content_type" or "and content type"
-        if let Some(token) = self.tokens.peek() {
-            if token.token == Token::KeywordAnd {
-                self.tokens.next(); // Consume "and"
+        if let Some(token) = self.tokens.peek()
+            && token.token == Token::KeywordAnd
+        {
+            self.tokens.next(); // Consume "and"
 
-                if let Some(token) = self.tokens.peek() {
-                    if let Token::Identifier(id) = &token.token {
-                        if id == "content_type" || id == "content" {
-                            self.tokens.next(); // Consume "content_type" or "content"
+            if let Some(token) = self.tokens.peek()
+                && let Token::Identifier(id) = &token.token
+                && (id == "content_type" || id == "content")
+            {
+                self.tokens.next(); // Consume "content_type" or "content"
 
-                            // If it was "content", expect "type" next
-                            if id == "content" {
-                                if let Some(token) = self.tokens.peek() {
-                                    if let Token::Identifier(type_id) = &token.token {
-                                        if type_id == "type" {
-                                            self.tokens.next(); // Consume "type"
-                                        }
-                                    }
-                                }
-                            }
-
-                            content_type = Some(self.parse_expression()?);
-                        }
-                    }
+                // If it was "content", expect "type" next
+                if id == "content"
+                    && let Some(token) = self.tokens.peek()
+                    && let Token::Identifier(type_id) = &token.token
+                    && type_id == "type"
+                {
+                    self.tokens.next(); // Consume "type"
                 }
+
+                content_type = Some(self.parse_expression()?);
             }
         }
 

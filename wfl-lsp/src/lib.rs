@@ -324,8 +324,12 @@ impl WflLanguageServer {
         use wfl::parser::ast::Statement;
 
         for statement in &program.statements {
-            if let Statement::ActionDefinition { name, parameters, .. } = statement {
-                let param_list = parameters.iter()
+            if let Statement::ActionDefinition {
+                name, parameters, ..
+            } = statement
+            {
+                let param_list = parameters
+                    .iter()
                     .map(|p| p.name.clone())
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -334,8 +338,11 @@ impl WflLanguageServer {
                     label: name.clone(),
                     kind: Some(CompletionItemKind::FUNCTION),
                     detail: Some(format!("Function: {}({})", name, param_list)),
-                    insert_text: Some(format!("{}({})", name,
-                        parameters.iter()
+                    insert_text: Some(format!(
+                        "{}({})",
+                        name,
+                        parameters
+                            .iter()
                             .enumerate()
                             .map(|(i, p)| format!("${{{}:{}}}", i + 1, p.name))
                             .collect::<Vec<_>>()
@@ -351,40 +358,104 @@ impl WflLanguageServer {
     fn add_stdlib_completions(&self, items: &mut Vec<CompletionItem>) {
         let stdlib_functions = [
             // Core functions
-            ("length of", "length of ${1:collection}", "Get the length of a collection"),
-            ("first of", "first of ${1:collection}", "Get the first item of a collection"),
-            ("last of", "last of ${1:collection}", "Get the last item of a collection"),
-            ("add", "add ${1:item} to ${2:collection}", "Add an item to a collection"),
-            ("remove", "remove ${1:item} from ${2:collection}", "Remove an item from a collection"),
-            ("contains", "${1:collection} contains ${2:item}", "Check if collection contains item"),
-
+            (
+                "length of",
+                "length of ${1:collection}",
+                "Get the length of a collection",
+            ),
+            (
+                "first of",
+                "first of ${1:collection}",
+                "Get the first item of a collection",
+            ),
+            (
+                "last of",
+                "last of ${1:collection}",
+                "Get the last item of a collection",
+            ),
+            (
+                "add",
+                "add ${1:item} to ${2:collection}",
+                "Add an item to a collection",
+            ),
+            (
+                "remove",
+                "remove ${1:item} from ${2:collection}",
+                "Remove an item from a collection",
+            ),
+            (
+                "contains",
+                "${1:collection} contains ${2:item}",
+                "Check if collection contains item",
+            ),
             // Text functions
-            ("uppercase", "uppercase ${1:text}", "Convert text to uppercase"),
-            ("lowercase", "lowercase ${1:text}", "Convert text to lowercase"),
+            (
+                "uppercase",
+                "uppercase ${1:text}",
+                "Convert text to uppercase",
+            ),
+            (
+                "lowercase",
+                "lowercase ${1:text}",
+                "Convert text to lowercase",
+            ),
             ("trim", "trim ${1:text}", "Remove whitespace from text"),
-            ("replace", "replace ${1:old} with ${2:new} in ${3:text}", "Replace text"),
-            ("substring", "substring of ${1:text} from ${2:start} to ${3:end}", "Extract substring"),
-            ("join", "join ${1:collection} with ${2:separator}", "Join collection with separator"),
-            ("split", "split ${1:text} by ${2:separator}", "Split text by separator"),
-
+            (
+                "replace",
+                "replace ${1:old} with ${2:new} in ${3:text}",
+                "Replace text",
+            ),
+            (
+                "substring",
+                "substring of ${1:text} from ${2:start} to ${3:end}",
+                "Extract substring",
+            ),
+            (
+                "join",
+                "join ${1:collection} with ${2:separator}",
+                "Join collection with separator",
+            ),
+            (
+                "split",
+                "split ${1:text} by ${2:separator}",
+                "Split text by separator",
+            ),
             // Math functions
             ("random", "random number", "Generate random number"),
-            ("random between", "random number between ${1:min} and ${2:max}", "Random number in range"),
-            ("round", "round ${1:number}", "Round number to nearest integer"),
+            (
+                "random between",
+                "random number between ${1:min} and ${2:max}",
+                "Random number in range",
+            ),
+            (
+                "round",
+                "round ${1:number}",
+                "Round number to nearest integer",
+            ),
             ("floor", "floor ${1:number}", "Round number down"),
             ("ceiling", "ceiling ${1:number}", "Round number up"),
-            ("absolute", "absolute value of ${1:number}", "Get absolute value"),
-
+            (
+                "absolute",
+                "absolute value of ${1:number}",
+                "Get absolute value",
+            ),
             // List functions
             ("sort", "sort ${1:list}", "Sort a list"),
             ("reverse", "reverse ${1:list}", "Reverse a list"),
             ("clear", "clear ${1:list}", "Clear all items from list"),
-
             // Time functions
             ("today", "today", "Get current date"),
             ("now", "now", "Get current time"),
-            ("format date", "format ${1:date} as ${2:format}", "Format date"),
-            ("format time", "format ${1:time} as ${2:format}", "Format time"),
+            (
+                "format date",
+                "format ${1:date} as ${2:format}",
+                "Format date",
+            ),
+            (
+                "format time",
+                "format ${1:time} as ${2:format}",
+                "Format time",
+            ),
         ];
 
         for (label, snippet, description) in &stdlib_functions {
@@ -399,7 +470,12 @@ impl WflLanguageServer {
         }
     }
 
-    fn add_context_aware_completions(&self, document_text: &str, position: Position, items: &mut Vec<CompletionItem>) {
+    fn add_context_aware_completions(
+        &self,
+        document_text: &str,
+        position: Position,
+        items: &mut Vec<CompletionItem>,
+    ) {
         // Get the line where completion is requested
         let lines: Vec<&str> = document_text.lines().collect();
         if position.line as usize >= lines.len() {
@@ -407,16 +483,23 @@ impl WflLanguageServer {
         }
 
         let current_line = lines[position.line as usize];
-        let line_prefix = &current_line[..position.character.min(current_line.len() as u32) as usize];
+        let line_prefix =
+            &current_line[..position.character.min(current_line.len() as u32) as usize];
 
         // Context-aware completions based on what comes before the cursor
         if line_prefix.trim_end().ends_with("if") || line_prefix.contains("if ") {
             // After 'if', suggest comparison patterns
             let comparisons = [
                 ("is equal to", "${1:variable} is equal to ${2:value}"),
-                ("is greater than", "${1:variable} is greater than ${2:value}"),
+                (
+                    "is greater than",
+                    "${1:variable} is greater than ${2:value}",
+                ),
                 ("is less than", "${1:variable} is less than ${2:value}"),
-                ("is not equal to", "${1:variable} is not equal to ${2:value}"),
+                (
+                    "is not equal to",
+                    "${1:variable} is not equal to ${2:value}",
+                ),
                 ("contains", "${1:collection} contains ${2:item}"),
                 ("is empty", "${1:collection} is empty"),
                 ("is not empty", "${1:collection} is not empty"),
@@ -467,7 +550,9 @@ impl WflLanguageServer {
         match parser.parse() {
             Ok(program) => {
                 // Look for symbols at the position
-                if let Some(symbol_info) = self.find_symbol_at_position(&program, document_text, position) {
+                if let Some(symbol_info) =
+                    self.find_symbol_at_position(&program, document_text, position)
+                {
                     Some(self.format_hover_info(&symbol_info))
                 } else {
                     // Check for keywords or stdlib functions at position
@@ -481,7 +566,12 @@ impl WflLanguageServer {
         }
     }
 
-    fn find_symbol_at_position(&self, program: &Program, document_text: &str, position: Position) -> Option<SymbolInfo> {
+    fn find_symbol_at_position(
+        &self,
+        program: &Program,
+        document_text: &str,
+        position: Position,
+    ) -> Option<SymbolInfo> {
         use wfl::parser::ast::Statement;
 
         // Get the word at the cursor position
@@ -497,8 +587,11 @@ impl WflLanguageServer {
                         value: self.get_variable_value(statement),
                     });
                 }
-                Statement::ActionDefinition { name, parameters, .. } if name == &word_at_position => {
-                    let param_names: Vec<String> = parameters.iter().map(|p| p.name.clone()).collect();
+                Statement::ActionDefinition {
+                    name, parameters, ..
+                } if name == &word_at_position => {
+                    let param_names: Vec<String> =
+                        parameters.iter().map(|p| p.name.clone()).collect();
                     return Some(SymbolInfo::Function {
                         name: name.clone(),
                         parameters: param_names,
@@ -548,42 +641,46 @@ impl WflLanguageServer {
     }
 
     fn infer_variable_type(&self, statement: &wfl::parser::ast::Statement) -> String {
-        use wfl::parser::ast::{Statement, Expression, Literal};
+        use wfl::parser::ast::{Expression, Literal, Statement};
 
         match statement {
-            Statement::VariableDeclaration { value, .. } => {
-                match value {
-                    Expression::Literal(Literal::String(_), _, _) => "text".to_string(),
-                    Expression::Literal(Literal::Integer(_), _, _) => "number".to_string(),
-                    Expression::Literal(Literal::Float(_), _, _) => "number".to_string(),
-                    Expression::Literal(Literal::Boolean(_), _, _) => "boolean".to_string(),
-                    Expression::Literal(Literal::Nothing, _, _) => "nothing".to_string(),
-                    _ => "any".to_string(),
-                }
-            }
+            Statement::VariableDeclaration { value, .. } => match value {
+                Expression::Literal(Literal::String(_), _, _) => "text".to_string(),
+                Expression::Literal(Literal::Integer(_), _, _) => "number".to_string(),
+                Expression::Literal(Literal::Float(_), _, _) => "number".to_string(),
+                Expression::Literal(Literal::Boolean(_), _, _) => "boolean".to_string(),
+                Expression::Literal(Literal::Nothing, _, _) => "nothing".to_string(),
+                _ => "any".to_string(),
+            },
             _ => "unknown".to_string(),
         }
     }
 
     fn get_variable_value(&self, statement: &wfl::parser::ast::Statement) -> Option<String> {
-        use wfl::parser::ast::{Statement, Expression, Literal};
+        use wfl::parser::ast::{Expression, Literal, Statement};
 
         match statement {
-            Statement::VariableDeclaration { value, .. } => {
-                match value {
-                    Expression::Literal(Literal::String(s), _, _) => Some(format!("\"{}\"", s)),
-                    Expression::Literal(Literal::Integer(i), _, _) => Some(i.to_string()),
-                    Expression::Literal(Literal::Float(f), _, _) => Some(f.to_string()),
-                    Expression::Literal(Literal::Boolean(b), _, _) => Some(if *b { "yes".to_string() } else { "no".to_string() }),
-                    Expression::Literal(Literal::Nothing, _, _) => Some("nothing".to_string()),
-                    _ => None,
-                }
-            }
+            Statement::VariableDeclaration { value, .. } => match value {
+                Expression::Literal(Literal::String(s), _, _) => Some(format!("\"{}\"", s)),
+                Expression::Literal(Literal::Integer(i), _, _) => Some(i.to_string()),
+                Expression::Literal(Literal::Float(f), _, _) => Some(f.to_string()),
+                Expression::Literal(Literal::Boolean(b), _, _) => Some(if *b {
+                    "yes".to_string()
+                } else {
+                    "no".to_string()
+                }),
+                Expression::Literal(Literal::Nothing, _, _) => Some("nothing".to_string()),
+                _ => None,
+            },
             _ => None,
         }
     }
 
-    fn get_keyword_or_stdlib_hover(&self, document_text: &str, position: Position) -> Option<String> {
+    fn get_keyword_or_stdlib_hover(
+        &self,
+        document_text: &str,
+        position: Position,
+    ) -> Option<String> {
         let word = self.get_word_at_position(document_text, position)?;
 
         // Check for WFL keywords
@@ -601,11 +698,17 @@ impl WflLanguageServer {
 
     fn get_keyword_info(&self, word: &str) -> Option<SymbolInfo> {
         let keywords = [
-            ("if", "Conditional statement - executes code block if condition is true"),
+            (
+                "if",
+                "Conditional statement - executes code block if condition is true",
+            ),
             ("then", "Marks the beginning of the if block"),
             ("otherwise", "Alternative block for if statement (else)"),
             ("end", "Marks the end of a code block"),
-            ("count", "Loop statement - repeats code block for a range of values"),
+            (
+                "count",
+                "Loop statement - repeats code block for a range of values",
+            ),
             ("from", "Specifies the start of a count loop"),
             ("to", "Specifies the end of a count loop"),
             ("store", "Creates a new variable and assigns a value"),
@@ -643,7 +746,11 @@ impl WflLanguageServer {
         None
     }
 
-    fn get_stdlib_function_info(&self, document_text: &str, position: Position) -> Option<SymbolInfo> {
+    fn get_stdlib_function_info(
+        &self,
+        document_text: &str,
+        position: Position,
+    ) -> Option<SymbolInfo> {
         let lines: Vec<&str> = document_text.lines().collect();
         if position.line as usize >= lines.len() {
             return None;
@@ -654,27 +761,103 @@ impl WflLanguageServer {
 
         // Look for multi-word stdlib functions around the cursor
         let stdlib_functions = [
-            ("length of", "length of collection", "Returns the number of items in a collection"),
-            ("first of", "first of collection", "Returns the first item in a collection"),
-            ("last of", "last of collection", "Returns the last item in a collection"),
+            (
+                "length of",
+                "length of collection",
+                "Returns the number of items in a collection",
+            ),
+            (
+                "first of",
+                "first of collection",
+                "Returns the first item in a collection",
+            ),
+            (
+                "last of",
+                "last of collection",
+                "Returns the last item in a collection",
+            ),
             ("uppercase", "uppercase text", "Converts text to uppercase"),
             ("lowercase", "lowercase text", "Converts text to lowercase"),
-            ("trim", "trim text", "Removes whitespace from the beginning and end of text"),
-            ("random", "random number", "Generates a random number between 0 and 1"),
-            ("round", "round number", "Rounds a number to the nearest integer"),
-            ("floor", "floor number", "Rounds a number down to the nearest integer"),
-            ("ceiling", "ceiling number", "Rounds a number up to the nearest integer"),
-            ("absolute", "absolute value of number", "Returns the absolute value of a number"),
-            ("join", "join collection with separator", "Joins collection items with a separator"),
-            ("split", "split text by separator", "Splits text into a collection using a separator"),
-            ("replace", "replace old with new in text", "Replaces occurrences of old text with new text"),
-            ("substring", "substring of text from start to end", "Extracts a portion of text"),
-            ("contains", "collection contains item", "Checks if a collection contains an item"),
-            ("add", "add item to collection", "Adds an item to a collection"),
-            ("remove", "remove item from collection", "Removes an item from a collection"),
-            ("sort", "sort collection", "Sorts a collection in ascending order"),
-            ("reverse", "reverse collection", "Reverses the order of items in a collection"),
-            ("clear", "clear collection", "Removes all items from a collection"),
+            (
+                "trim",
+                "trim text",
+                "Removes whitespace from the beginning and end of text",
+            ),
+            (
+                "random",
+                "random number",
+                "Generates a random number between 0 and 1",
+            ),
+            (
+                "round",
+                "round number",
+                "Rounds a number to the nearest integer",
+            ),
+            (
+                "floor",
+                "floor number",
+                "Rounds a number down to the nearest integer",
+            ),
+            (
+                "ceiling",
+                "ceiling number",
+                "Rounds a number up to the nearest integer",
+            ),
+            (
+                "absolute",
+                "absolute value of number",
+                "Returns the absolute value of a number",
+            ),
+            (
+                "join",
+                "join collection with separator",
+                "Joins collection items with a separator",
+            ),
+            (
+                "split",
+                "split text by separator",
+                "Splits text into a collection using a separator",
+            ),
+            (
+                "replace",
+                "replace old with new in text",
+                "Replaces occurrences of old text with new text",
+            ),
+            (
+                "substring",
+                "substring of text from start to end",
+                "Extracts a portion of text",
+            ),
+            (
+                "contains",
+                "collection contains item",
+                "Checks if a collection contains an item",
+            ),
+            (
+                "add",
+                "add item to collection",
+                "Adds an item to a collection",
+            ),
+            (
+                "remove",
+                "remove item from collection",
+                "Removes an item from a collection",
+            ),
+            (
+                "sort",
+                "sort collection",
+                "Sorts a collection in ascending order",
+            ),
+            (
+                "reverse",
+                "reverse collection",
+                "Reverses the order of items in a collection",
+            ),
+            (
+                "clear",
+                "clear collection",
+                "Removes all items from a collection",
+            ),
             ("today", "today", "Returns the current date"),
             ("now", "now", "Returns the current time"),
         ];
@@ -701,14 +884,22 @@ impl WflLanguageServer {
 
     fn format_hover_info(&self, symbol_info: &SymbolInfo) -> String {
         match symbol_info {
-            SymbolInfo::Variable { name, var_type, value } => {
+            SymbolInfo::Variable {
+                name,
+                var_type,
+                value,
+            } => {
                 let mut info = format!("**Variable:** `{}`\n\n**Type:** `{}`", name, var_type);
                 if let Some(val) = value {
                     info.push_str(&format!("\n\n**Value:** `{}`", val));
                 }
                 info
             }
-            SymbolInfo::Function { name, parameters, return_type } => {
+            SymbolInfo::Function {
+                name,
+                parameters,
+                return_type,
+            } => {
                 let params = parameters.join(", ");
                 let mut info = format!("**Function:** `{}({})`", name, params);
                 if let Some(ret_type) = return_type {
@@ -720,8 +911,15 @@ impl WflLanguageServer {
             SymbolInfo::Keyword { name, description } => {
                 format!("**WFL Keyword:** `{}`\n\n{}", name, description)
             }
-            SymbolInfo::StdlibFunction { name: _, description, signature } => {
-                format!("**WFL Standard Library**\n\n`{}`\n\n{}", signature, description)
+            SymbolInfo::StdlibFunction {
+                name: _,
+                description,
+                signature,
+            } => {
+                format!(
+                    "**WFL Standard Library**\n\n`{}`\n\n{}",
+                    signature, description
+                )
             }
         }
     }
@@ -729,10 +927,25 @@ impl WflLanguageServer {
 
 #[derive(Debug, Clone)]
 enum SymbolInfo {
-    Variable { name: String, var_type: String, value: Option<String> },
-    Function { name: String, parameters: Vec<String>, return_type: Option<String> },
-    Keyword { name: String, description: String },
-    StdlibFunction { name: String, description: String, signature: String },
+    Variable {
+        name: String,
+        var_type: String,
+        value: Option<String>,
+    },
+    Function {
+        name: String,
+        parameters: Vec<String>,
+        return_type: Option<String>,
+    },
+    Keyword {
+        name: String,
+        description: String,
+    },
+    StdlibFunction {
+        name: String,
+        description: String,
+        signature: String,
+    },
 }
 
 #[tower_lsp::async_trait]

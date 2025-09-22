@@ -16,6 +16,7 @@ use self::value::{
     ContainerDefinitionValue, ContainerEventValue, ContainerInstanceValue, ContainerMethodValue,
     EventHandler, FunctionValue, InterfaceDefinitionValue, Value,
 };
+use crate::builtins::get_function_arity;
 use crate::debug_report::CallFrame;
 #[cfg(debug_assertions)]
 use crate::exec_block_enter;
@@ -37,7 +38,6 @@ use crate::logging::IndentGuard;
 use crate::parser::ast::{
     Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
 };
-use crate::builtins::get_function_arity;
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
 use std::cell::RefCell;
@@ -127,9 +127,7 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::WaitForRequestStatement { request_name, .. } => {
             format!("WaitForRequestStatement '{request_name}'")
         }
-        Statement::RespondStatement { .. } => {
-            "RespondStatement".to_string()
-        }
+        Statement::RespondStatement { .. } => "RespondStatement".to_string(),
     }
 }
 
@@ -2879,12 +2877,11 @@ impl Interpreter {
                 };
 
                 // Create a basic web server using warp
-                let routes = warp::path::end()
-                    .map(|| "Hello from WFL Web Server!");
+                let routes = warp::path::end().map(|| "Hello from WFL Web Server!");
 
                 // Start the server in a background task
-                let server_task = warp::serve(routes)
-                    .try_bind_ephemeral(([127, 0, 0, 1], port_num));
+                let server_task =
+                    warp::serve(routes).try_bind_ephemeral(([127, 0, 0, 1], port_num));
 
                 match server_task {
                     Ok((addr, server)) => {
@@ -2892,7 +2889,11 @@ impl Interpreter {
                         tokio::spawn(server);
 
                         // Create a server value with the actual address
-                        let server_value = Value::Text(Rc::from(format!("WebServer::{}:{}", addr.ip(), addr.port())));
+                        let server_value = Value::Text(Rc::from(format!(
+                            "WebServer::{}:{}",
+                            addr.ip(),
+                            addr.port()
+                        )));
 
                         println!("Server is listening on port {}", addr.port());
 
@@ -2901,13 +2902,11 @@ impl Interpreter {
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                         }
                     }
-                    Err(e) => {
-                        Err(RuntimeError::new(
-                            format!("Failed to start web server on port {}: {}", port_num, e),
-                            *line,
-                            *column,
-                        ))
-                    }
+                    Err(e) => Err(RuntimeError::new(
+                        format!("Failed to start web server on port {}: {}", port_num, e),
+                        *line,
+                        *column,
+                    )),
                 }
             }
             Statement::WaitForRequestStatement {
@@ -3262,7 +3261,7 @@ impl Interpreter {
                                 Ok(value)
                             }
                         }
-                        _ => Ok(value)
+                        _ => Ok(value),
                     }
                 } else if name == "count" {
                     // If 'count' is not found and we're not in a count loop, provide helpful error

@@ -65,8 +65,6 @@ pub fn native_ceil(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Number(x.ceil()))
 }
 
-
-
 pub fn native_clamp(args: Vec<Value>) -> Result<Value, RuntimeError> {
     if args.len() != 3 {
         return Err(RuntimeError::new(

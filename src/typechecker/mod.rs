@@ -1225,7 +1225,10 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let port_type = self.infer_expression_type(port);
-                if port_type != Type::Number && port_type != Type::Unknown && port_type != Type::Error {
+                if port_type != Type::Number
+                    && port_type != Type::Unknown
+                    && port_type != Type::Error
+                {
                     self.type_error(
                         "Port must be a number".to_string(),
                         Some(Type::Number),
@@ -1254,7 +1257,10 @@ impl TypeChecker {
             } => {
                 // Check content type (should be text)
                 let content_type_result = self.infer_expression_type(content);
-                if content_type_result != Type::Text && content_type_result != Type::Unknown && content_type_result != Type::Error {
+                if content_type_result != Type::Text
+                    && content_type_result != Type::Unknown
+                    && content_type_result != Type::Error
+                {
                     self.type_error(
                         "Response content must be text".to_string(),
                         Some(Type::Text),
@@ -1267,7 +1273,10 @@ impl TypeChecker {
                 // Check status if provided (should be number)
                 if let Some(status_expr) = status {
                     let status_type = self.infer_expression_type(status_expr);
-                    if status_type != Type::Number && status_type != Type::Unknown && status_type != Type::Error {
+                    if status_type != Type::Number
+                        && status_type != Type::Unknown
+                        && status_type != Type::Error
+                    {
                         self.type_error(
                             "HTTP status must be a number".to_string(),
                             Some(Type::Number),

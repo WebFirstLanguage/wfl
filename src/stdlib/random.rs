@@ -1,9 +1,9 @@
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use rand::SeedableRng;
 use rand::prelude::*;
 use rand::rngs::StdRng;
-use rand::SeedableRng;
 use std::cell::RefCell;
 
 // Global random number generator state - initialized with entropy
@@ -44,25 +44,38 @@ pub fn native_random_between(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let min = match &args[0] {
         Value::Number(n) => *n,
-        _ => return Err(RuntimeError::new(
-            format!("random_between expects numbers, got {}", args[0].type_name()),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                format!(
+                    "random_between expects numbers, got {}",
+                    args[0].type_name()
+                ),
+                0,
+                0,
+            ));
+        }
     };
 
     let max = match &args[1] {
         Value::Number(n) => *n,
-        _ => return Err(RuntimeError::new(
-            format!("random_between expects numbers, got {}", args[1].type_name()),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                format!(
+                    "random_between expects numbers, got {}",
+                    args[1].type_name()
+                ),
+                0,
+                0,
+            ));
+        }
     };
 
     if min > max {
         return Err(RuntimeError::new(
-            format!("random_between: min ({}) cannot be greater than max ({})", min, max),
+            format!(
+                "random_between: min ({}) cannot be greater than max ({})",
+                min, max
+            ),
             0,
             0,
         ));
@@ -87,25 +100,32 @@ pub fn native_random_int(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let min = match &args[0] {
         Value::Number(n) => *n as i64,
-        _ => return Err(RuntimeError::new(
-            format!("random_int expects numbers, got {}", args[0].type_name()),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                format!("random_int expects numbers, got {}", args[0].type_name()),
+                0,
+                0,
+            ));
+        }
     };
 
     let max = match &args[1] {
         Value::Number(n) => *n as i64,
-        _ => return Err(RuntimeError::new(
-            format!("random_int expects numbers, got {}", args[1].type_name()),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                format!("random_int expects numbers, got {}", args[1].type_name()),
+                0,
+                0,
+            ));
+        }
     };
 
     if min > max {
         return Err(RuntimeError::new(
-            format!("random_int: min ({}) cannot be greater than max ({})", min, max),
+            format!(
+                "random_int: min ({}) cannot be greater than max ({})",
+                min, max
+            ),
             0,
             0,
         ));
@@ -182,11 +202,13 @@ pub fn native_random_seed(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let seed = match &args[0] {
         Value::Number(n) => *n as u64,
-        _ => return Err(RuntimeError::new(
-            format!("random_seed expects a number, got {}", args[0].type_name()),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                format!("random_seed expects a number, got {}", args[0].type_name()),
+                0,
+                0,
+            ));
+        }
     };
 
     RNG.with(|rng| {
@@ -199,11 +221,26 @@ pub fn native_random_seed(args: Vec<Value>) -> Result<Value, RuntimeError> {
 /// Register all random functions in the environment
 pub fn register_random(env: &mut Environment) {
     let _ = env.define("random", Value::NativeFunction("random", native_random));
-    let _ = env.define("random_between", Value::NativeFunction("random_between", native_random_between));
-    let _ = env.define("random_int", Value::NativeFunction("random_int", native_random_int));
-    let _ = env.define("random_boolean", Value::NativeFunction("random_boolean", native_random_boolean));
-    let _ = env.define("random_from", Value::NativeFunction("random_from", native_random_from));
-    let _ = env.define("random_seed", Value::NativeFunction("random_seed", native_random_seed));
+    let _ = env.define(
+        "random_between",
+        Value::NativeFunction("random_between", native_random_between),
+    );
+    let _ = env.define(
+        "random_int",
+        Value::NativeFunction("random_int", native_random_int),
+    );
+    let _ = env.define(
+        "random_boolean",
+        Value::NativeFunction("random_boolean", native_random_boolean),
+    );
+    let _ = env.define(
+        "random_from",
+        Value::NativeFunction("random_from", native_random_from),
+    );
+    let _ = env.define(
+        "random_seed",
+        Value::NativeFunction("random_seed", native_random_seed),
+    );
 }
 
 #[cfg(test)]
@@ -214,9 +251,9 @@ mod tests {
     fn test_random_generates_values() {
         let result = native_random(vec![]);
         assert!(result.is_ok());
-        
+
         if let Ok(Value::Number(n)) = result {
-            assert!(n >= 0.0 && n <= 1.0);
+            assert!((0.0..=1.0).contains(&n));
         } else {
             panic!("Expected number from random");
         }
@@ -224,14 +261,11 @@ mod tests {
 
     #[test]
     fn test_random_between_validates_range() {
-        let result = native_random_between(vec![
-            Value::Number(5.0),
-            Value::Number(10.0),
-        ]);
+        let result = native_random_between(vec![Value::Number(5.0), Value::Number(10.0)]);
         assert!(result.is_ok());
-        
+
         if let Ok(Value::Number(n)) = result {
-            assert!(n >= 5.0 && n <= 10.0);
+            assert!((5.0..=10.0).contains(&n));
         } else {
             panic!("Expected number from random_between");
         }
@@ -239,14 +273,11 @@ mod tests {
 
     #[test]
     fn test_random_int_produces_integers() {
-        let result = native_random_int(vec![
-            Value::Number(1.0),
-            Value::Number(10.0),
-        ]);
+        let result = native_random_int(vec![Value::Number(1.0), Value::Number(10.0)]);
         assert!(result.is_ok());
-        
+
         if let Ok(Value::Number(n)) = result {
-            assert!(n >= 1.0 && n <= 10.0);
+            assert!((1.0..=10.0).contains(&n));
             assert_eq!(n.fract(), 0.0, "Should be an integer");
         } else {
             panic!("Expected number from random_int");
@@ -257,9 +288,9 @@ mod tests {
     fn test_random_boolean_produces_bool() {
         let result = native_random_boolean(vec![]);
         assert!(result.is_ok());
-        
+
         match result.unwrap() {
-            Value::Bool(_) => {}, // Success
+            Value::Bool(_) => {} // Success
             _ => panic!("Expected boolean from random_boolean"),
         }
     }
@@ -269,11 +300,11 @@ mod tests {
         // Set seed and generate value
         let _ = native_random_seed(vec![Value::Number(42.0)]);
         let result1 = native_random(vec![]).unwrap();
-        
+
         // Reset same seed and generate again
         let _ = native_random_seed(vec![Value::Number(42.0)]);
         let result2 = native_random(vec![]).unwrap();
-        
+
         assert_eq!(result1, result2, "Same seed should produce same values");
     }
 }
