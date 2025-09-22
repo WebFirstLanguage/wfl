@@ -458,7 +458,7 @@ fn test_store_with_keyword_as_variable_name() {
 
     if let Err(e) = result {
         assert!(
-            e[0].message.contains("Cannot use keyword"),
+            e[0].message.contains("Cannot use reserved keyword"),
             "Got error: {}",
             e[0]
         );

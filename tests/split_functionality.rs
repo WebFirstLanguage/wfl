@@ -7,7 +7,7 @@ fn run_wfl(code: &str) -> String {
     fs::write(temp_file, code).expect("Failed to write temp file");
 
     // Run the WFL interpreter
-    let output = Command::new("./target/release/wfl.exe")
+    let output = Command::new("target/release/wfl.exe")
         .arg(temp_file)
         .output()
         .expect("Failed to execute WFL");
