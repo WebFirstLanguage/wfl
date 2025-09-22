@@ -1,0 +1,3 @@
+// Test list as variable name
+store list as 100
+display "List value: " with list

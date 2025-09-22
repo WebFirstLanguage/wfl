@@ -25,7 +25,7 @@ impl WflHashState {
         self.state[0][1] = params.key_length as u64;
         self.state[0][2] = params.mode_flags as u64;
         self.state[0][3] = 0x6A09E667F3BCC908u64; // SHA-2 constant as placeholder
-        
+
         // Fill remaining state with constants (simplified)
         for i in 1..4 {
             for j in 0..4 {
@@ -93,33 +93,45 @@ impl WflHashState {
     /// Extract rate portion of state (first 8 words = 512 bits)
     fn extract_rate(&self) -> [u64; 8] {
         [
-            self.state[0][0], self.state[0][1], self.state[0][2], self.state[0][3],
-            self.state[1][0], self.state[1][1], self.state[1][2], self.state[1][3],
+            self.state[0][0],
+            self.state[0][1],
+            self.state[0][2],
+            self.state[0][3],
+            self.state[1][0],
+            self.state[1][1],
+            self.state[1][2],
+            self.state[1][3],
         ]
     }
 
     /// Absorb data into the sponge
     fn absorb(&mut self, data: &[u8]) {
         let chunks = data.chunks(64); // 512 bits = 64 bytes
-        
+
         for chunk in chunks {
             // Pad chunk to 64 bytes if necessary
             let mut padded = [0u8; 64];
             padded[..chunk.len()].copy_from_slice(chunk);
-            
+
             // XOR chunk into rate portion
             for (i, chunk_u64) in padded.chunks(8).enumerate() {
                 if i < 8 {
                     let value = u64::from_le_bytes([
-                        chunk_u64[0], chunk_u64[1], chunk_u64[2], chunk_u64[3],
-                        chunk_u64[4], chunk_u64[5], chunk_u64[6], chunk_u64[7],
+                        chunk_u64[0],
+                        chunk_u64[1],
+                        chunk_u64[2],
+                        chunk_u64[3],
+                        chunk_u64[4],
+                        chunk_u64[5],
+                        chunk_u64[6],
+                        chunk_u64[7],
                     ]);
                     let row = i / 4;
                     let col = i % 4;
                     self.state[row][col] ^= value;
                 }
             }
-            
+
             // Apply permutation
             self.permute();
         }
@@ -128,27 +140,27 @@ impl WflHashState {
     /// Squeeze output from the sponge
     fn squeeze(&mut self, output_bytes: usize) -> Vec<u8> {
         let mut output = Vec::new();
-        
+
         while output.len() < output_bytes {
             // Extract rate portion
             let rate = self.extract_rate();
-            
+
             // Convert to bytes
             for &word in &rate {
                 let bytes = word.to_le_bytes();
                 output.extend_from_slice(&bytes);
-                
+
                 if output.len() >= output_bytes {
                     break;
                 }
             }
-            
+
             // Apply permutation for next block
             if output.len() < output_bytes {
                 self.permute();
             }
         }
-        
+
         output.truncate(output_bytes);
         output
     }
@@ -160,6 +172,7 @@ struct WflHashParams {
     digest_length: usize,
     key_length: usize,
     mode_flags: u32,
+    #[allow(dead_code)] // Reserved for future use
     personalization: [u8; 16],
 }
 
@@ -178,23 +191,21 @@ impl WflHashParams {
 fn wflhash_core(input: &[u8], params: &WflHashParams) -> Vec<u8> {
     let mut state = WflHashState::new();
     state.initialize(params);
-    
+
     // Absorb input
     state.absorb(input);
-    
+
     // Add padding (simplified - real implementation would be more complex)
     let padding = [0x80u8]; // Simple padding
     state.absorb(&padding);
-    
+
     // Squeeze output
     state.squeeze(params.digest_length)
 }
 
 /// Convert bytes to hexadecimal string
 fn bytes_to_hex(bytes: &[u8]) -> String {
-    bytes.iter()
-        .map(|b| format!("{:02x}", b))
-        .collect()
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 /// WFLHASH-256 implementation
@@ -209,11 +220,13 @@ pub fn native_wflhash256(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let input = match &args[0] {
         Value::Text(text) => text.as_bytes(),
-        _ => return Err(RuntimeError::new(
-            format!("wflhash256 expects text input, got {}", args[0].type_name()),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                format!("wflhash256 expects text input, got {}", args[0].type_name()),
+                0,
+                0,
+            ));
+        }
     };
 
     let params = WflHashParams::new(32); // 256 bits = 32 bytes
@@ -235,11 +248,13 @@ pub fn native_wflhash512(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let input = match &args[0] {
         Value::Text(text) => text.as_bytes(),
-        _ => return Err(RuntimeError::new(
-            format!("wflhash512 expects text input, got {}", args[0].type_name()),
-            0,
-            0,
-        )),
+        _ => {
+            return Err(RuntimeError::new(
+                format!("wflhash512 expects text input, got {}", args[0].type_name()),
+                0,
+                0,
+            ));
+        }
     };
 
     let params = WflHashParams::new(64); // 512 bits = 64 bytes
@@ -251,8 +266,14 @@ pub fn native_wflhash512(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Register all crypto functions in the environment
 pub fn register_crypto(env: &mut Environment) {
-    let _ = env.define("wflhash256", Value::NativeFunction("wflhash256", native_wflhash256));
-    let _ = env.define("wflhash512", Value::NativeFunction("wflhash512", native_wflhash512));
+    let _ = env.define(
+        "wflhash256",
+        Value::NativeFunction("wflhash256", native_wflhash256),
+    );
+    let _ = env.define(
+        "wflhash512",
+        Value::NativeFunction("wflhash512", native_wflhash512),
+    );
 }
 
 #[cfg(test)]
@@ -289,7 +310,7 @@ mod tests {
     fn test_wflhash256_basic() {
         let result = native_wflhash256(vec![Value::Text(Rc::from("hello"))]);
         assert!(result.is_ok());
-        
+
         if let Ok(Value::Text(hash)) = result {
             assert_eq!(hash.len(), 64); // 32 bytes = 64 hex chars
             assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
@@ -300,7 +321,7 @@ mod tests {
     fn test_wflhash512_basic() {
         let result = native_wflhash512(vec![Value::Text(Rc::from("hello"))]);
         assert!(result.is_ok());
-        
+
         if let Ok(Value::Text(hash)) = result {
             assert_eq!(hash.len(), 128); // 64 bytes = 128 hex chars
             assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));

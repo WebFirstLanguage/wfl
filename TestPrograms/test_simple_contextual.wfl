@@ -1,0 +1,31 @@
+// Simple test for contextual keywords as variables
+
+// Test 1: count as variable
+store count as 5
+display count
+
+// Test 2: files as variable
+store files as 10
+display files
+
+// Test 3: extension as variable
+store extension as ".txt"
+display extension
+
+// Test 4: contains as variable (skip for now - complex case)
+// store contains as "test"
+// display contains
+
+// Test 5: list as variable
+store list as 100
+display list
+
+// Test 6: map as variable
+store map as 200
+display map
+
+// Test 7: text as variable
+store text as "hello"
+display text
+
+display "All simple contextual keyword tests passed!"

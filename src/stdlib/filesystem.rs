@@ -310,6 +310,55 @@ pub fn native_is_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Bool(path.is_dir()))
 }
 
+pub fn native_count_lines(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("count_lines expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str);
+
+    if !path.exists() {
+        return Err(RuntimeError::new(
+            format!("File does not exist: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
+    if !path.is_file() {
+        return Err(RuntimeError::new(
+            format!("Path is not a file: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
+    let content = fs::read_to_string(path)
+        .map_err(|e| RuntimeError::new(format!("Failed to read file '{path_str}': {e}"), 0, 0))?;
+
+    // Count lines by splitting on newline characters
+    // Handle edge case: empty file has 0 lines
+    // Handle edge case: file without trailing newline still counts all lines
+    let line_count = if content.is_empty() {
+        0
+    } else {
+        // Count newlines and add 1 if the content doesn't end with a newline
+        let newline_count = content.matches('\n').count();
+        if content.ends_with('\n') {
+            newline_count
+        } else {
+            newline_count + 1
+        }
+    };
+
+    Ok(Value::Number(line_count as f64))
+}
+
 pub fn register_filesystem(env: &mut crate::interpreter::environment::Environment) {
     let _ = env.define(
         "list_dir",
@@ -343,6 +392,10 @@ pub fn register_filesystem(env: &mut crate::interpreter::environment::Environmen
     );
     let _ = env.define("is_file", Value::NativeFunction("is_file", native_is_file));
     let _ = env.define("is_dir", Value::NativeFunction("is_dir", native_is_dir));
+    let _ = env.define(
+        "count_lines",
+        Value::NativeFunction("count_lines", native_count_lines),
+    );
 }
 
 #[cfg(test)]
@@ -561,5 +614,117 @@ mod tests {
         let result = native_is_dir(vec![Value::Bool(true)]);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("Expected text"));
+    }
+
+    #[test]
+    fn test_native_count_lines_success() {
+        use std::fs::File;
+        use std::io::Write;
+
+        let temp_dir = TempDir::new().unwrap();
+        let test_file_path = temp_dir.path().join("test_lines.txt");
+
+        // Create test file with known line count
+        let test_content = "Line 1\nLine 2\nLine 3\n";
+        let mut file = File::create(&test_file_path).unwrap();
+        file.write_all(test_content.as_bytes()).unwrap();
+
+        let args = vec![Value::Text(Rc::from(
+            test_file_path.to_string_lossy().as_ref(),
+        ))];
+        let result = native_count_lines(args).unwrap();
+
+        if let Value::Number(count) = result {
+            assert_eq!(count, 3.0);
+        } else {
+            panic!("Expected Number value");
+        }
+    }
+
+    #[test]
+    fn test_native_count_lines_empty_file() {
+        use std::fs::File;
+
+        let temp_dir = TempDir::new().unwrap();
+        let test_file_path = temp_dir.path().join("empty.txt");
+
+        // Create empty file
+        File::create(&test_file_path).unwrap();
+
+        let args = vec![Value::Text(Rc::from(
+            test_file_path.to_string_lossy().as_ref(),
+        ))];
+        let result = native_count_lines(args).unwrap();
+
+        if let Value::Number(count) = result {
+            assert_eq!(count, 0.0);
+        } else {
+            panic!("Expected Number value");
+        }
+    }
+
+    #[test]
+    fn test_native_count_lines_no_trailing_newline() {
+        use std::fs::File;
+        use std::io::Write;
+
+        let temp_dir = TempDir::new().unwrap();
+        let test_file_path = temp_dir.path().join("no_trailing_newline.txt");
+
+        // Create file without trailing newline
+        let test_content = "Line 1\nLine 2\nLine 3";
+        let mut file = File::create(&test_file_path).unwrap();
+        file.write_all(test_content.as_bytes()).unwrap();
+
+        let args = vec![Value::Text(Rc::from(
+            test_file_path.to_string_lossy().as_ref(),
+        ))];
+        let result = native_count_lines(args).unwrap();
+
+        if let Value::Number(count) = result {
+            assert_eq!(count, 3.0);
+        } else {
+            panic!("Expected Number value");
+        }
+    }
+
+    #[test]
+    fn test_native_count_lines_file_not_found() {
+        let args = vec![Value::Text(Rc::from("/nonexistent/file.txt"))];
+        let result = native_count_lines(args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("does not exist"));
+    }
+
+    #[test]
+    fn test_native_count_lines_wrong_argument_count() {
+        let result = native_count_lines(vec![]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("expects 1 argument"));
+
+        let result = native_count_lines(vec![
+            Value::Text(Rc::from("file1.txt")),
+            Value::Text(Rc::from("file2.txt")),
+        ]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("expects 1 argument"));
+    }
+
+    #[test]
+    fn test_native_count_lines_wrong_argument_type() {
+        let result = native_count_lines(vec![Value::Number(42.0)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("Expected text"));
+    }
+
+    #[test]
+    fn test_native_count_lines_directory_not_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let dir_path = temp_dir.path();
+
+        let args = vec![Value::Text(Rc::from(dir_path.to_string_lossy().as_ref()))];
+        let result = native_count_lines(args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("not a file"));
     }
 }

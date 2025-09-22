@@ -1,0 +1,40 @@
+AST output for: TestPrograms/test_list_keyword.wfl
+==============================================
+
+Program with 2 statements:
+
+Statement #1: VariableDeclaration {
+    name: "list",
+    value: Literal(
+        Integer(
+            100,
+        ),
+        2,
+        15,
+    ),
+    is_constant: false,
+    line: 2,
+    column: 1,
+}
+
+Statement #2: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "List value: ",
+            ),
+            3,
+            9,
+        ),
+        right: Variable(
+            "list",
+            3,
+            29,
+        ),
+        line: 3,
+        column: 24,
+    },
+    line: 3,
+    column: 24,
+}
+

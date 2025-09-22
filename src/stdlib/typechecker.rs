@@ -32,6 +32,7 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
 
     register_wflhash256(analyzer);
     register_wflhash512(analyzer);
+    register_count_lines(analyzer);
 }
 
 fn register_print(analyzer: &mut Analyzer) {
@@ -217,4 +218,11 @@ fn register_wflhash512(analyzer: &mut Analyzer) {
     let param_types = vec![Type::Text];
 
     analyzer.register_builtin_function("wflhash512", param_types, return_type);
+}
+
+fn register_count_lines(analyzer: &mut Analyzer) {
+    let return_type = Type::Number;
+    let param_types = vec![Type::Text]; // Takes a file path as text
+
+    analyzer.register_builtin_function("count_lines", param_types, return_type);
 }

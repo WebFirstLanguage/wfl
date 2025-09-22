@@ -8,6 +8,148 @@ use ast::*;
 use std::iter::Peekable;
 use std::slice::Iter;
 
+/// Checks if a pattern name conflicts with reserved keywords in WFL
+fn is_reserved_pattern_name(name: &str) -> bool {
+    matches!(
+        name,
+        "url"
+            | "digit"
+            | "letter"
+            | "file"
+            | "database"
+            | "data"
+            | "date"
+            | "time"
+            | "text"
+            | "pattern"
+            | "character"
+            | "whitespace"
+            | "unicode"
+            | "category"
+            | "script"
+            | "greedy"
+            | "lazy"
+            | "zero"
+            | "one"
+            | "any"
+            | "optional"
+            | "between"
+            | "start"
+            | "ahead"
+            | "behind"
+            | "not"
+            | "is"
+            | "than"
+            | "same"
+            | "greater"
+            | "less"
+            | "equal"
+            | "above"
+            | "below"
+            | "contains"
+            | "matches"
+            | "find"
+            | "replace"
+            | "split"
+            | "capture"
+            | "captured"
+            | "more"
+            | "exactly"
+            | "push"
+            | "add"
+            | "subtract"
+            | "multiply"
+            | "divide"
+            | "plus"
+            | "minus"
+            | "times"
+            | "divided"
+            | "by"
+            | "open"
+            | "close"
+            | "read"
+            | "write"
+            | "append"
+            | "content"
+            | "wait"
+            | "try"
+            | "error"
+            | "exists"
+            | "list"
+            | "map"
+            | "remove"
+            | "clear"
+            | "files"
+            | "found"
+            | "permission"
+            | "denied"
+            | "recursively"
+            | "extension"
+            | "extensions"
+            | "at"
+            | "least"
+            | "most"
+            | "into"
+            | "when"
+            | "store"
+            | "create"
+            | "display"
+            | "change"
+            | "if"
+            | "check"
+            | "otherwise"
+            | "then"
+            | "end"
+            | "as"
+            | "to"
+            | "from"
+            | "with"
+            | "and"
+            | "or"
+            | "count"
+            | "for"
+            | "each"
+            | "in"
+            | "reversed"
+            | "repeat"
+            | "while"
+            | "until"
+            | "forever"
+            | "skip"
+            | "continue"
+            | "break"
+            | "exit"
+            | "loop"
+            | "define"
+            | "action"
+            | "called"
+            | "needs"
+            | "give"
+            | "back"
+            | "return"
+            | "directory"
+            | "delete"
+            | "container"
+            | "property"
+            | "extends"
+            | "implements"
+            | "interface"
+            | "requires"
+            | "event"
+            | "trigger"
+            | "on"
+            | "static"
+            | "public"
+            | "private"
+            | "parent"
+            | "new"
+            | "constant"
+            | "must"
+            | "defaults"
+            | "of"
+    )
+}
+
 pub struct Parser<'a> {
     tokens: Peekable<Iter<'a, TokenWithPosition>>,
     errors: Vec<ParseError>,
@@ -20,6 +162,42 @@ impl<'a> Parser<'a> {
             tokens: tokens.iter().peekable(),
             errors: Vec::with_capacity(4),
             known_actions: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Helper method to get text representation of contextual keywords
+    fn get_token_text(&self, token: &Token) -> String {
+        match token {
+            Token::KeywordCount => "count".to_string(),
+            Token::KeywordPattern => "pattern".to_string(),
+            Token::KeywordFiles => "files".to_string(),
+            Token::KeywordExtension => "extension".to_string(),
+            Token::KeywordExtensions => "extensions".to_string(),
+            Token::KeywordContains => "contains".to_string(),
+            Token::KeywordList => "list".to_string(),
+            Token::KeywordMap => "map".to_string(),
+            Token::KeywordText => "text".to_string(),
+            Token::KeywordCreate => "create".to_string(),
+            Token::KeywordNew => "new".to_string(),
+            Token::KeywordParent => "parent".to_string(),
+            Token::KeywordRead => "read".to_string(),
+            Token::KeywordPush => "push".to_string(),
+            Token::KeywordSkip => "skip".to_string(),
+            Token::KeywordGive => "give".to_string(),
+            Token::KeywordBack => "back".to_string(),
+            Token::KeywordCalled => "called".to_string(),
+            Token::KeywordNeeds => "needs".to_string(),
+            Token::KeywordChange => "change".to_string(),
+            Token::KeywordReversed => "reversed".to_string(),
+            Token::KeywordAt => "at".to_string(),
+            Token::KeywordLeast => "least".to_string(),
+            Token::KeywordMost => "most".to_string(),
+            Token::KeywordThan => "than".to_string(),
+            Token::KeywordZero => "zero".to_string(),
+            Token::KeywordAny => "any".to_string(),
+            Token::KeywordMust => "must".to_string(),
+            Token::KeywordDefaults => "defaults".to_string(),
+            _ => format!("{:?}", token),
         }
     }
 
@@ -1317,12 +1495,21 @@ impl<'a> Parser<'a> {
                         token.column,
                     ));
                 }
-                _ if token.token.is_keyword() => {
+                _ if token.token.is_structural_keyword() => {
                     return Err(ParseError::new(
-                        format!("Cannot use keyword '{:?}' as a variable name", token.token),
+                        format!(
+                            "Cannot use reserved keyword '{:?}' as a variable name",
+                            token.token
+                        ),
                         token.line,
                         token.column,
                     ));
+                }
+                _ if token.token.is_contextual_keyword() => {
+                    // Contextual keywords can be used as variable names
+                    let name = self.get_token_text(&token.token);
+                    self.tokens.next(); // Consume the contextual keyword
+                    name_parts.push(name);
                 }
                 _ => {
                     return Err(ParseError::new(
@@ -1419,6 +1606,47 @@ impl<'a> Parser<'a> {
                 0,
                 0,
             ))
+        }
+    }
+
+    /// Consumes all tokens until "end pattern" is found to prevent cascading errors
+    /// when a pattern definition fails early (e.g., due to reserved name)
+    fn consume_pattern_body_on_error(&mut self) {
+        // First, skip the colon if present
+        if let Some(token) = self.tokens.peek()
+            && token.token == Token::Colon
+        {
+            self.tokens.next();
+        }
+
+        let mut depth = 1; // We're inside one pattern block
+
+        while let Some(token) = self.tokens.next() {
+            match token.token {
+                Token::KeywordEnd => {
+                    // Check if this is "end pattern"
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::KeywordPattern
+                    {
+                        depth -= 1;
+                        if depth == 0 {
+                            self.tokens.next(); // Consume "pattern"
+                            break;
+                        }
+                    }
+                }
+                Token::KeywordCreate => {
+                    // Check if this is nested "create pattern"
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::KeywordPattern
+                    {
+                        depth += 1;
+                    }
+                }
+                _ => {
+                    // Continue consuming tokens
+                }
+            }
         }
     }
 
@@ -1812,37 +2040,63 @@ impl<'a> Parser<'a> {
                 Token::KeywordSplit => {
                     self.tokens.next(); // Consume "split"
 
-                    // Handle "split text on pattern name" syntax
+                    // Parse the text expression to split
                     let text_expr = self.parse_binary_expression(precedence + 1)?;
 
-                    if let Some(on_token) = self.tokens.peek().cloned()
-                        && matches!(on_token.token, Token::KeywordOn)
-                    {
-                        self.tokens.next(); // Consume "on"
+                    // Check for "by" (string split) or "on" (pattern split)
+                    if let Some(next_token) = self.tokens.peek().cloned() {
+                        match next_token.token {
+                            Token::KeywordBy => {
+                                // Handle "split text by delimiter" syntax
+                                self.tokens.next(); // Consume "by"
+                                let delimiter_expr =
+                                    self.parse_binary_expression(precedence + 1)?;
 
-                        // Check if next token is "pattern" keyword (optional)
-                        if let Some(pattern_token) = self.tokens.peek().cloned()
-                            && matches!(pattern_token.token, Token::KeywordPattern)
-                        {
-                            self.tokens.next(); // Consume "pattern"
+                                left = Expression::StringSplit {
+                                    text: Box::new(text_expr),
+                                    delimiter: Box::new(delimiter_expr),
+                                    line,
+                                    column,
+                                };
+                                continue;
+                            }
+                            Token::KeywordOn => {
+                                // Handle "split text on pattern name" syntax
+                                self.tokens.next(); // Consume "on"
+
+                                // Check if next token is "pattern" keyword (optional)
+                                if let Some(pattern_token) = self.tokens.peek().cloned()
+                                    && matches!(pattern_token.token, Token::KeywordPattern)
+                                {
+                                    self.tokens.next(); // Consume "pattern"
+                                }
+
+                                let pattern_expr = self.parse_binary_expression(precedence + 1)?;
+
+                                left = Expression::PatternSplit {
+                                    text: Box::new(text_expr),
+                                    pattern: Box::new(pattern_expr),
+                                    line,
+                                    column,
+                                };
+                                continue;
+                            }
+                            _ => {
+                                return Err(ParseError::new(
+                                    "Expected 'by' or 'on' after text in split operation"
+                                        .to_string(),
+                                    line,
+                                    column,
+                                ));
+                            }
                         }
-
-                        let pattern_expr = self.parse_binary_expression(precedence + 1)?;
-
-                        left = Expression::PatternSplit {
-                            text: Box::new(text_expr),
-                            pattern: Box::new(pattern_expr),
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected 'by' or 'on' after text in split operation".to_string(),
                             line,
                             column,
-                        };
-                        continue; // Skip the rest of the loop since we've already updated left
+                        ));
                     }
-
-                    return Err(ParseError::new(
-                        "Expected 'on' after text in split operation".to_string(),
-                        line,
-                        column,
-                    ));
                 }
                 Token::KeywordContains => {
                     self.tokens.next(); // Consume "contains"
@@ -1961,13 +2215,14 @@ impl<'a> Parser<'a> {
                             ));
                         } else if next_token.token == Token::KeywordAnd
                             || next_token.token == Token::Colon
+                            || next_token.token == Token::Comma
                         {
                             self.tokens.next(); // Consume separator
                             elements.push(self.parse_list_element()?);
                         } else {
                             return Err(ParseError::new(
                                 format!(
-                                    "Expected ']' or 'and' in list literal, found {:?}",
+                                    "Expected ']', ',' or 'and' in list literal, found {:?}",
                                     next_token.token
                                 ),
                                 next_token.line,
@@ -2535,21 +2790,211 @@ impl<'a> Parser<'a> {
                 Token::KeywordSplit => {
                     self.tokens.next(); // Consume "split"
                     let text_expr = self.parse_expression()?;
-                    self.expect_token(
-                        Token::KeywordOn,
-                        "Expected 'on' after text in split expression",
-                    )?;
-                    self.expect_token(
-                        Token::KeywordPattern,
-                        "Expected 'pattern' after 'on' in split expression",
-                    )?;
-                    let pattern_expr = self.parse_expression()?;
-                    Ok(Expression::PatternSplit {
-                        text: Box::new(text_expr),
-                        pattern: Box::new(pattern_expr),
-                        line: token.line,
-                        column: token.column,
-                    })
+
+                    // Check for "by" (string split) or "on" (pattern split)
+                    if let Some(next_token) = self.tokens.peek().cloned() {
+                        match next_token.token {
+                            Token::KeywordBy => {
+                                // Handle "split text by delimiter" syntax
+                                self.tokens.next(); // Consume "by"
+                                let delimiter_expr = self.parse_expression()?;
+                                Ok(Expression::StringSplit {
+                                    text: Box::new(text_expr),
+                                    delimiter: Box::new(delimiter_expr),
+                                    line: token.line,
+                                    column: token.column,
+                                })
+                            }
+                            Token::KeywordOn => {
+                                // Handle "split text on pattern name" syntax
+                                self.tokens.next(); // Consume "on"
+                                self.expect_token(
+                                    Token::KeywordPattern,
+                                    "Expected 'pattern' after 'on' in split expression",
+                                )?;
+                                let pattern_expr = self.parse_expression()?;
+                                Ok(Expression::PatternSplit {
+                                    text: Box::new(text_expr),
+                                    pattern: Box::new(pattern_expr),
+                                    line: token.line,
+                                    column: token.column,
+                                })
+                            }
+                            _ => Err(ParseError::new(
+                                "Expected 'by' or 'on' after text in split expression".to_string(),
+                                token.line,
+                                token.column,
+                            )),
+                        }
+                    } else {
+                        Err(ParseError::new(
+                            "Expected 'by' or 'on' after text in split expression".to_string(),
+                            token.line,
+                            token.column,
+                        ))
+                    }
+                }
+                _ if token.token.is_contextual_keyword() => {
+                    // Special handling for "create list" expression
+                    if token.token == Token::KeywordCreate {
+                        self.tokens.next(); // Consume "create"
+                        let token_line = token.line;
+                        let token_column = token.column;
+
+                        // Check if next token is "list"
+                        if let Some(next_token) = self.tokens.peek()
+                            && next_token.token == Token::KeywordList
+                        {
+                            self.tokens.next(); // Consume "list"
+                            // Return an empty list literal
+                            return Ok(Expression::Literal(
+                                Literal::List(Vec::new()),
+                                token_line,
+                                token_column,
+                            ));
+                        } else {
+                            // Not "create list", treat "create" as a variable
+                            return Ok(Expression::Variable(
+                                "create".to_string(),
+                                token_line,
+                                token_column,
+                            ));
+                        }
+                    }
+
+                    // Special handling for "contains X in Y" syntax or "contains of X and Y"
+                    if token.token == Token::KeywordContains {
+                        self.tokens.next(); // Consume "contains"
+                        let token_line = token.line;
+                        let token_column = token.column;
+
+                        // Check if next token is "of" for old syntax
+                        if let Some(next_token) = self.tokens.peek()
+                            && next_token.token == Token::KeywordOf
+                        {
+                            // Old syntax: "contains of X and Y"
+                            // Set as variable and let postfix operators handle "of"
+                            Ok(Expression::Variable(
+                                "contains".to_string(),
+                                token_line,
+                                token_column,
+                            ))
+                        } else {
+                            // Try to parse as "contains X in Y"
+                            // Parse the needle expression
+                            let needle = self.parse_primary_expression()?;
+
+                            // Check if next token is "in"
+                            if let Some(in_token) = self.tokens.peek()
+                                && in_token.token == Token::KeywordIn
+                            {
+                                self.tokens.next(); // Consume "in"
+
+                                // Parse the haystack expression
+                                let haystack = self.parse_primary_expression()?;
+
+                                // Create a function call expression for contains
+                                Ok(Expression::FunctionCall {
+                                    function: Box::new(Expression::Variable(
+                                        "contains".to_string(),
+                                        token_line,
+                                        token_column,
+                                    )),
+                                    arguments: vec![
+                                        Argument {
+                                            name: None,
+                                            value: haystack,
+                                        },
+                                        Argument {
+                                            name: None,
+                                            value: needle,
+                                        },
+                                    ],
+                                    line: token_line,
+                                    column: token_column,
+                                })
+                            } else {
+                                // Not "contains X in Y", treat as error
+                                // We already parsed an expression after contains
+                                Err(ParseError::new(
+                                    "Expected 'in' after expression in contains".to_string(),
+                                    token_line,
+                                    token_column,
+                                ))
+                            }
+                        }
+                    } else {
+                        // Handle other contextual keywords as variables/identifiers
+                        let name = self.get_token_text(&token.token);
+                        self.tokens.next(); // Consume the contextual keyword
+                        let token_line = token.line;
+                        let token_column = token.column;
+
+                        // Check for property access (dot notation) - same as identifier handling
+                        if let Some(next_token) = self.tokens.peek().cloned() {
+                            if next_token.token == Token::Dot {
+                                self.tokens.next(); // Consume '.'
+
+                                if let Some(property_token) = self.tokens.peek().cloned()
+                                    && let Token::Identifier(property_name) = &property_token.token
+                                {
+                                    self.tokens.next(); // Consume property name
+
+                                    // Check for method call with parentheses
+                                    if let Some(paren_token) = self.tokens.peek().cloned()
+                                        && paren_token.token == Token::LeftParen
+                                    {
+                                        // Handle method call - similar to identifier method handling
+                                        // For now, just return property access
+                                        return Ok(Expression::PropertyAccess {
+                                            object: Box::new(Expression::Variable(
+                                                name,
+                                                token_line,
+                                                token_column,
+                                            )),
+                                            property: property_name.clone(),
+                                            line: token_line,
+                                            column: token_column,
+                                        });
+                                    }
+
+                                    return Ok(Expression::PropertyAccess {
+                                        object: Box::new(Expression::Variable(
+                                            name,
+                                            token_line,
+                                            token_column,
+                                        )),
+                                        property: property_name.clone(),
+                                        line: token_line,
+                                        column: token_column,
+                                    });
+                                }
+                            } else if next_token.token == Token::LeftBracket {
+                                // Handle array indexing
+                                self.tokens.next(); // Consume '['
+                                let index = self.parse_expression()?;
+
+                                self.expect_token(
+                                    Token::RightBracket,
+                                    "Expected ']' after array index",
+                                )?;
+
+                                return Ok(Expression::IndexAccess {
+                                    collection: Box::new(Expression::Variable(
+                                        name,
+                                        token_line,
+                                        token_column,
+                                    )),
+                                    index: Box::new(index),
+                                    line: token_line,
+                                    column: token_column,
+                                });
+                            }
+                        }
+
+                        // Return as a simple variable
+                        Ok(Expression::Variable(name, token_line, token_column))
+                    }
                 }
                 _ => Err(ParseError::new(
                     format!("Unexpected token in expression: {:?}", token.token),
@@ -2838,6 +3283,11 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Expression::PatternSplit { line, column, .. } => Ok(Statement::DisplayStatement {
+                    value: expr,
+                    line,
+                    column,
+                }),
+                Expression::StringSplit { line, column, .. } => Ok(Statement::DisplayStatement {
                     value: expr,
                     line,
                     column,
@@ -4485,7 +4935,10 @@ impl<'a> Parser<'a> {
         while let Some(token) = self.tokens.peek().cloned() {
             if matches!(
                 token.token,
-                Token::KeywordWhen | Token::KeywordCatch | Token::KeywordOtherwise | Token::KeywordEnd
+                Token::KeywordWhen
+                    | Token::KeywordCatch
+                    | Token::KeywordOtherwise
+                    | Token::KeywordEnd
             ) {
                 break;
             }
@@ -4553,7 +5006,10 @@ impl<'a> Parser<'a> {
                     while let Some(token) = self.tokens.peek().cloned() {
                         if matches!(
                             token.token,
-                            Token::KeywordWhen | Token::KeywordCatch | Token::KeywordOtherwise | Token::KeywordEnd
+                            Token::KeywordWhen
+                                | Token::KeywordCatch
+                                | Token::KeywordOtherwise
+                                | Token::KeywordEnd
                         ) {
                             break;
                         }
@@ -4597,7 +5053,10 @@ impl<'a> Parser<'a> {
                     while let Some(token) = self.tokens.peek().cloned() {
                         if matches!(
                             token.token,
-                            Token::KeywordWhen | Token::KeywordCatch | Token::KeywordOtherwise | Token::KeywordEnd
+                            Token::KeywordWhen
+                                | Token::KeywordCatch
+                                | Token::KeywordOtherwise
+                                | Token::KeywordEnd
                         ) {
                             break;
                         }
@@ -4967,15 +5426,31 @@ impl<'a> Parser<'a> {
         let create_token = self.tokens.next().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordPattern, "Expected 'pattern' after 'create'")?;
 
-        let pattern_name = if let Some(token) = self.tokens.next() {
-            if let Token::Identifier(name) = &token.token {
-                name.clone()
-            } else {
-                return Err(ParseError::new(
-                    "Expected pattern name after 'create pattern'".to_string(),
-                    token.line,
-                    token.column,
-                ));
+        let (pattern_name, pattern_token) = if let Some(token) = self.tokens.next() {
+            match &token.token {
+                Token::Identifier(name) => (name.clone(), token.clone()),
+                Token::KeywordUrl => ("url".to_string(), token.clone()),
+                Token::KeywordDigit => ("digit".to_string(), token.clone()),
+                Token::KeywordLetter => ("letter".to_string(), token.clone()),
+                Token::KeywordFile => ("file".to_string(), token.clone()),
+                Token::KeywordDatabase => ("database".to_string(), token.clone()),
+                Token::KeywordData => ("data".to_string(), token.clone()),
+                Token::KeywordDate => ("date".to_string(), token.clone()),
+                Token::KeywordTime => ("time".to_string(), token.clone()),
+                Token::KeywordText => ("text".to_string(), token.clone()),
+                Token::KeywordPattern => ("pattern".to_string(), token.clone()),
+                Token::KeywordCharacter => ("character".to_string(), token.clone()),
+                Token::KeywordWhitespace => ("whitespace".to_string(), token.clone()),
+                Token::KeywordUnicode => ("unicode".to_string(), token.clone()),
+                Token::KeywordCategory => ("category".to_string(), token.clone()),
+                Token::KeywordScript => ("script".to_string(), token.clone()),
+                _ => {
+                    return Err(ParseError::new(
+                        "Expected pattern name after 'create pattern'".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
             }
         } else {
             return Err(ParseError::new(
@@ -4984,6 +5459,21 @@ impl<'a> Parser<'a> {
                 create_token.column,
             ));
         };
+
+        // Check if pattern name is a reserved keyword
+        if is_reserved_pattern_name(&pattern_name) {
+            // Consume tokens until we find "end pattern" to prevent cascading errors
+            self.consume_pattern_body_on_error();
+
+            return Err(ParseError::new(
+                format!(
+                    "'{}' is a predefined pattern in WFL. Please choose a different name.",
+                    pattern_name
+                ),
+                pattern_token.line,
+                pattern_token.column,
+            ));
+        }
 
         self.expect_token(Token::Colon, "Expected ':' after pattern name")?;
 
@@ -5947,6 +6437,12 @@ impl<'a> Parser<'a> {
                 Self::parse_pattern_sequence(inner_tokens, &mut inner_i)?
             }
 
+            // List references - identifiers that reference list variables
+            Token::Identifier(name) => {
+                *i += 1;
+                PatternExpression::ListReference(name.clone())
+            }
+
             _ => {
                 return Err(ParseError::new(
                     format!("Unexpected token in pattern: {:?}", token.token),
@@ -6389,44 +6885,41 @@ impl<'a> Parser<'a> {
         let mut content_type = None;
 
         // Check for "and status"
-        if let Some(token) = self.tokens.peek() {
-            if token.token == Token::KeywordAnd {
-                self.tokens.next(); // Consume "and"
+        if let Some(token) = self.tokens.peek()
+            && token.token == Token::KeywordAnd
+        {
+            self.tokens.next(); // Consume "and"
 
-                if let Some(token) = self.tokens.peek() {
-                    if token.token == Token::KeywordStatus {
-                        self.tokens.next(); // Consume "status"
-                        status = Some(self.parse_expression()?);
-                    }
-                }
+            if let Some(token) = self.tokens.peek()
+                && token.token == Token::KeywordStatus
+            {
+                self.tokens.next(); // Consume "status"
+                status = Some(self.parse_expression()?);
             }
         }
 
         // Check for "and content_type" or "and content type"
-        if let Some(token) = self.tokens.peek() {
-            if token.token == Token::KeywordAnd {
-                self.tokens.next(); // Consume "and"
+        if let Some(token) = self.tokens.peek()
+            && token.token == Token::KeywordAnd
+        {
+            self.tokens.next(); // Consume "and"
 
-                if let Some(token) = self.tokens.peek() {
-                    if let Token::Identifier(id) = &token.token {
-                        if id == "content_type" || id == "content" {
-                            self.tokens.next(); // Consume "content_type" or "content"
+            if let Some(token) = self.tokens.peek()
+                && let Token::Identifier(id) = &token.token
+                && (id == "content_type" || id == "content")
+            {
+                self.tokens.next(); // Consume "content_type" or "content"
 
-                            // If it was "content", expect "type" next
-                            if id == "content" {
-                                if let Some(token) = self.tokens.peek() {
-                                    if let Token::Identifier(type_id) = &token.token {
-                                        if type_id == "type" {
-                                            self.tokens.next(); // Consume "type"
-                                        }
-                                    }
-                                }
-                            }
-
-                            content_type = Some(self.parse_expression()?);
-                        }
-                    }
+                // If it was "content", expect "type" next
+                if id == "content"
+                    && let Some(token) = self.tokens.peek()
+                    && let Token::Identifier(type_id) = &token.token
+                    && type_id == "type"
+                {
+                    self.tokens.next(); // Consume "type"
                 }
+
+                content_type = Some(self.parse_expression()?);
             }
         }
 

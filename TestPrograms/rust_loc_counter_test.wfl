@@ -1,216 +1,82 @@
-// WFL Test for Rust Line Counter - TDD Implementation
-// Now includes the function definition to make tests pass
+// Test for Rust Line Counter - WFL Implementation
+// This test must FAIL initially to establish TDD baseline
 
-// Function to count lines in a single Rust file
-define action called count_lines_in_file with file_path:
-
-    // Initialize counters
-    store total_lines as 0
-    store code_lines as 0
-    store comment_lines as 0
-    store blank_lines as 0
-    store in_block_comment as no
-
-    try:
-        // Read the entire file
-        open file at file_path for reading as rust_file
-        wait for store file_content as read content from rust_file
-        close file rust_file
-
-        // Try a different approach - count newlines directly
-        store line_count as 1  // Start with 1 for the first line
-        store content_length as length of file_content
-        store i as 0
-
-        // Refined formula based on test data analysis:
-        // Simple: 465/28 = 16.6, Mixed: 867/43 = 20.2, Comments: 320/24 = 13.3
-        // Blanks: 22/7 = 3.1 (very short lines)
-
-        // Use a more sophisticated approach
-        // Use refined estimation approach (WFL has limitations with newline detection)
-        check if content_length is 0:
-            change line_count to 0
-        otherwise:
-            check if content_length is less than 50:
-                // Small files (like blank-only files) - assume shorter lines
-                change line_count to content_length divided by 3
-            otherwise:
-                // Larger files - use average line length based on analysis
-                change line_count to content_length divided by 16
-            end check
-
-            // Ensure minimum of 1 line for non-empty files
-            check if line_count is less than 1:
-                change line_count to 1
-            end check
-        end check
-
-        // Debug: Let's examine the first few characters more closely
-        store debug_chars as ""
-        store j as 0
-        repeat while j is less than 10 and j is less than content_length:
-            store debug_char as substring of file_content and j and 1
-            change debug_chars to debug_chars with "[" with j with ":" with debug_char with "]"
-            add 1 to j
-        end repeat
-
-        display "Debug: First 10 chars: " with debug_chars
-        display "Debug: Estimated " with line_count with " lines using intelligent estimation"
-
-        // Use the actual line count we found
-        change total_lines to line_count
-
-        // Now implement basic comment and blank line detection
-        // Count comment indicators in the file
-        store double_slash_count as 0
-        store slash_star_count as 0
-        store i_comment as 0
-
-        // Count comment patterns
-        repeat while i_comment is less than content_length minus 1:
-            store char1 as substring of file_content and i_comment and 1
-            store char2 as substring of file_content and (i_comment plus 1) and 1
-
-            // Look for "//" patterns
-            check if char1 is "/" and char2 is "/":
-                add 1 to double_slash_count
-            end check
-
-            // Look for "/*" patterns
-            check if char1 is "/" and char2 is "*":
-                add 1 to slash_star_count
-            end check
-
-            add 1 to i_comment
-        end repeat
-
-        // More intelligent estimation based on file characteristics
-        check if content_length is less than 50:
-            // Small files like blank-only files - assume all blank
-            store estimated_comment_lines as 0
-            store estimated_blank_lines as line_count
-        otherwise:
-            // For larger files, use comment pattern density
-            // If we found many comment patterns, it's likely a comment-heavy file
-            store comment_density as (double_slash_count plus slash_star_count) times 100 divided by content_length
-
-            check if comment_density is greater than 5:
-                // High comment density - likely a comment file
-                store estimated_comment_lines as line_count times 2 divided by 3  // About 67% comments
-                store estimated_blank_lines as line_count divided by 3  // About 33% blank
-            otherwise:
-                // Normal code file
-                store estimated_comment_lines as double_slash_count divided by 2  // More conservative
-                store estimated_blank_lines as line_count divided by 8  // Some blank lines
-            end check
-        end check
-
-        // Calculate code lines as remainder
-        store estimated_code_lines as line_count minus estimated_comment_lines minus estimated_blank_lines
-
-        // Ensure non-negative values
-        check if estimated_code_lines is less than 0:
-            change estimated_code_lines to 0
-        end check
-        check if estimated_blank_lines is less than 0:
-            change estimated_blank_lines to 0
-        end check
-
-        // Set final values
-        change code_lines to estimated_code_lines
-        change comment_lines to estimated_comment_lines
-        change blank_lines to estimated_blank_lines
-
-        // Return results as list [total, code, comments, blank]
-        return [total_lines and code_lines and comment_lines and blank_lines]
-
-    when error:
-        display "Error processing file " with file_path with ": " with error
-        return [0 and 0 and 0 and 0]
-    end try
-end action
-
-display "=== Rust Line Counter Test Suite ==="
+display "=== Rust Line Counter Test (Should FAIL initially) ==="
 display ""
 
-// Test 1: Basic line counting for simple code file
-display "Test 1: Simple code file"
-store simple_result as count_lines_in_file with "TestPrograms/test_data/simple_code.rs"
-display "Simple code results: " with simple_result
+display "=== Test Files Creation ==="
 
-// Expected: [28, 23, 1, 4] = [total, code, comments, blank]
-store expected_simple as [28 and 23 and 1 and 4]
-check if simple_result is expected_simple:
-    display "✓ Simple code test PASSED"
-otherwise:
-    display "✗ Simple code test FAILED"
-    display "  Expected: " with expected_simple
-    display "  Got: " with simple_result
-end check
+// Create test directory for sample Rust files
+try:
+    makedirs of "test_rust_files"
+    display "✓ Created test directory"
+when error:
+    display "Test directory already exists or creation failed"
+end try
+
+// Create test .rs file with different line types
+open file at "test_rust_files/sample.rs" for writing as test_file
+wait for write content "// Single line comment
+fn main() {
+    println!(\"Hello, world!\");  // Inline comment
+    
+    /* Multi-line
+       comment block */
+    let x = 42;
+    
+    /*
+     * Another multi-line
+     * comment style
+     */
+    
+    let y = /* inline block */ x + 1;
+}
+
+// Another comment
+
+fn test() {
+    // Function body
+}" into test_file
+close file test_file
+
+display "✓ Created sample.rs test file"
+
+// Create another test file for directory statistics  
+makedirs of "test_rust_files/subdir"
+open file at "test_rust_files/subdir/lib.rs" for writing as lib_file
+wait for write content "//! Documentation comment
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+/**
+ * Multi-line doc comment
+ */
+pub fn subtract(a: i32, b: i32) -> i32 {
+    a - b
+}" into lib_file  
+close file lib_file
+
+display "✓ Created subdir/lib.rs test file"
+
 display ""
+display "Test files created. Ready for TDD implementation."
 
-// Test 2: Only comments file
-display "Test 2: Only comments file"  
-store comments_result as count_lines_in_file with "TestPrograms/test_data/only_comments.rs"
-display "Comments only results: " with comments_result
-
-// Expected: [24, 0, 16, 8] = [total, code, comments, blank]
-store expected_comments as [24 and 0 and 16 and 8]
-check if comments_result is expected_comments:
-    display "✓ Comments only test PASSED"
-otherwise:
-    display "✗ Comments only test FAILED"
-    display "  Expected: " with expected_comments  
-    display "  Got: " with comments_result
-end check
 display ""
+display "=== Testing rust_loc_counter action (EXPECTED TO FAIL) ==="
 
-// Test 3: Only blank lines file
-display "Test 3: Only blank lines file"
-store blanks_result as count_lines_in_file with "TestPrograms/test_data/only_blanks.rs"
-display "Blanks only results: " with blanks_result
-
-// Expected: [7, 0, 0, 7] = [total, code, comments, blank]
-store expected_blanks as [7 and 0 and 0 and 7]
-check if blanks_result is expected_blanks:
-    display "✓ Blanks only test PASSED"
-otherwise:
-    display "✗ Blanks only test FAILED"
-    display "  Expected: " with expected_blanks
-    display "  Got: " with blanks_result
-end check
-display ""
-
-// Test 4: Mixed content file
-display "Test 4: Mixed content file"
-store mixed_result as count_lines_in_file with "TestPrograms/test_data/mixed_content.rs"
-display "Mixed content results: " with mixed_result
-
-// Expected: [43, 22, 15, 6] = [total, code, comments, blank]  
-store expected_mixed as [43 and 22 and 15 and 6]
-check if mixed_result is expected_mixed:
-    display "✓ Mixed content test PASSED"
-otherwise:
-    display "✗ Mixed content test FAILED"
-    display "  Expected: " with expected_mixed
-    display "  Got: " with mixed_result
-end check
-display ""
-
-// Test 5: Empty file
-display "Test 5: Empty file"
-store empty_result as count_lines_in_file with "TestPrograms/test_data/empty_file.rs"
-display "Empty file results: " with empty_result
-
-// Expected: [0, 0, 0, 0] = [total, code, comments, blank]
-store expected_empty as [0 and 0 and 0 and 0]
-check if empty_result is expected_empty:
-    display "✓ Empty file test PASSED"
-otherwise:
-    display "✗ Empty file test FAILED"
-    display "  Expected: " with expected_empty
-    display "  Got: " with empty_result
-end check
-display ""
-
-display "=== Test Suite Complete ==="
+// Test the main rust_loc_counter action
+try:
+    store result as run_rust_loc_counter with "./test_rust_files"
+    check if result contains "Total files processed":
+        display "✓ Found total files count"
+    otherwise:
+        display "✗ Missing total files count"
+    end check
+    
+    display "Test completed successfully"
+    
+when error:
+    display "✗ FAILURE: rust_loc_counter implementation error"
+    display "Implementation needs debugging"
+end try

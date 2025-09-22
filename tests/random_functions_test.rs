@@ -1,12 +1,10 @@
 // TDD Tests for Random Number Generation Functions
 // These tests MUST FAIL FIRST before implementation
 
-use wfl::interpreter::error::RuntimeError;
+use wfl::interpreter::Interpreter;
 use wfl::interpreter::value::Value;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::interpreter::Interpreter;
-use tokio;
 
 #[cfg(test)]
 mod random_function_tests {
@@ -16,10 +14,15 @@ mod random_function_tests {
     async fn run_wfl_code(code: &str) -> Result<Value, String> {
         let tokens = lex_wfl_with_positions(code);
         let mut parser = Parser::new(&tokens);
-        let ast = parser.parse().map_err(|e| format!("Parse error: {:?}", e))?;
+        let ast = parser
+            .parse()
+            .map_err(|e| format!("Parse error: {:?}", e))?;
 
         let mut interpreter = Interpreter::new();
-        let _ = interpreter.interpret(&ast).await.map_err(|e| format!("Runtime error: {:?}", e))?;
+        let _ = interpreter
+            .interpret(&ast)
+            .await
+            .map_err(|e| format!("Runtime error: {:?}", e))?;
 
         // Extract the result from the 'result' variable
         if let Some(result_value) = interpreter.global_env().borrow().get("result") {
@@ -33,8 +36,13 @@ mod random_function_tests {
     fn assert_number_in_range(value: &Value, min: f64, max: f64) {
         match value {
             Value::Number(n) => {
-                assert!(*n >= min && *n <= max,
-                    "Expected number between {} and {}, got {}", min, max, n);
+                assert!(
+                    *n >= min && *n <= max,
+                    "Expected number between {} and {}, got {}",
+                    min,
+                    max,
+                    n
+                );
             }
             _ => panic!("Expected number, got {:?}", value),
         }
@@ -49,7 +57,10 @@ mod random_function_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "random_between function should exist and work");
+        assert!(
+            result.is_ok(),
+            "random_between function should exist and work"
+        );
     }
 
     #[tokio::test]
@@ -81,7 +92,11 @@ mod random_function_tests {
         for (code_fragment, min, max) in test_cases {
             let code = format!("store result as {}", code_fragment);
             let result = run_wfl_code(&code).await;
-            assert!(result.is_ok(), "random_between should handle edge case: {}", code_fragment);
+            assert!(
+                result.is_ok(),
+                "random_between should handle edge case: {}",
+                code_fragment
+            );
 
             if let Ok(value) = result {
                 assert_number_in_range(&value, min, max);
@@ -112,8 +127,17 @@ mod random_function_tests {
             let result = run_wfl_code(code).await.unwrap();
             match result {
                 Value::Number(n) => {
-                    assert_eq!(n.fract(), 0.0, "random_int should produce integers, got {}", n);
-                    assert!(n >= 1.0 && n <= 10.0, "random_int should be in range [1,10], got {}", n);
+                    assert_eq!(
+                        n.fract(),
+                        0.0,
+                        "random_int should produce integers, got {}",
+                        n
+                    );
+                    assert!(
+                        (1.0..=10.0).contains(&n),
+                        "random_int should be in range [1,10], got {}",
+                        n
+                    );
                 }
                 _ => panic!("Expected number from random_int, got {:?}", result),
             }
@@ -129,7 +153,10 @@ mod random_function_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "random_boolean function should exist and work");
+        assert!(
+            result.is_ok(),
+            "random_boolean function should exist and work"
+        );
     }
 
     #[tokio::test]
@@ -154,7 +181,10 @@ mod random_function_tests {
 
         // Both true and false should occur (with high probability)
         assert!(true_count > 0, "random_boolean should produce true values");
-        assert!(false_count > 0, "random_boolean should produce false values");
+        assert!(
+            false_count > 0,
+            "random_boolean should produce false values"
+        );
     }
 
     #[tokio::test]
@@ -178,14 +208,17 @@ mod random_function_tests {
             store result as random_from of items
         "#;
 
-        let valid_items = vec!["apple", "banana", "cherry", "date"];
+        let valid_items = ["apple", "banana", "cherry", "date"];
 
         for _ in 0..20 {
             let result = run_wfl_code(code).await.unwrap();
             match result {
                 Value::Text(text) => {
-                    assert!(valid_items.contains(&text.as_ref()),
-                        "random_from should select from list items, got '{}'", text);
+                    assert!(
+                        valid_items.contains(&text.as_ref()),
+                        "random_from should select from list items, got '{}'",
+                        text
+                    );
                 }
                 _ => panic!("Expected text from random_from, got {:?}", result),
             }
@@ -221,7 +254,10 @@ mod random_function_tests {
         let result1 = run_wfl_code(code1).await.unwrap();
         let result2 = run_wfl_code(code2).await.unwrap();
 
-        assert_eq!(result1, result2, "Same seed should produce same random values");
+        assert_eq!(
+            result1, result2,
+            "Same seed should produce same random values"
+        );
     }
 
     #[tokio::test]
@@ -241,7 +277,10 @@ mod random_function_tests {
         let result2 = run_wfl_code(code_seed2).await.unwrap();
 
         // Different seeds should (very likely) produce different values
-        assert_ne!(result1, result2, "Different seeds should produce different random values");
+        assert_ne!(
+            result1, result2,
+            "Different seeds should produce different random values"
+        );
     }
 
     #[tokio::test]
@@ -255,7 +294,11 @@ mod random_function_tests {
         assert!(result.is_ok(), "Existing random function should still work");
 
         if let Ok(Value::Number(n)) = result {
-            assert!(n >= 0.0 && n <= 1.0, "random should return value between 0 and 1, got {}", n);
+            assert!(
+                (0.0..=1.0).contains(&n),
+                "random should return value between 0 and 1, got {}",
+                n
+            );
         } else {
             panic!("random should return a number");
         }
@@ -278,15 +321,23 @@ mod random_function_tests {
 
         // Basic statistical tests - values should be distributed
         let mean = values.iter().sum::<f64>() / values.len() as f64;
-        assert!(mean > 0.3 && mean < 0.7, "Random values should be roughly centered around 0.5, got mean {}", mean);
+        assert!(
+            mean > 0.3 && mean < 0.7,
+            "Random values should be roughly centered around 0.5, got mean {}",
+            mean
+        );
 
         // Check for obvious patterns (consecutive identical values)
         let mut consecutive_identical = 0;
         for i in 1..values.len() {
-            if (values[i] - values[i-1]).abs() < 0.0001 {
+            if (values[i] - values[i - 1]).abs() < 0.0001 {
                 consecutive_identical += 1;
             }
         }
-        assert!(consecutive_identical < 5, "Too many consecutive identical values: {}", consecutive_identical);
+        assert!(
+            consecutive_identical < 5,
+            "Too many consecutive identical values: {}",
+            consecutive_identical
+        );
     }
 }

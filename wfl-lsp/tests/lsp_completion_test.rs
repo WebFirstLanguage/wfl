@@ -21,11 +21,11 @@ display username
 
     let mut diagnostic_reporter = DiagnosticReporter::new();
     let _file_id = diagnostic_reporter.add_file("test.wfl", document_text.to_string());
-    
+
     // Parse the document to extract declared variables
     let tokens = lex_wfl_with_positions(document_text);
     let mut parser = Parser::new(&tokens);
-    
+
     match parser.parse() {
         Ok(program) => {
             let mut analyzer = Analyzer::new();
@@ -33,21 +33,27 @@ display username
                 Ok(_) => {
                     // Extract variable names from the program
                     let mut declared_variables = Vec::new();
-                    
+
                     for statement in &program.statements {
                         if let Some(var_name) = extract_variable_declaration(statement) {
                             declared_variables.push(var_name);
                         }
                     }
-                    
+
                     // This test should fail initially because we don't have real completion
-                    assert!(declared_variables.contains(&"username".to_string()), 
-                           "Should find username variable declaration");
-                    assert!(declared_variables.contains(&"age".to_string()), 
-                           "Should find age variable declaration");
-                    assert!(declared_variables.contains(&"active".to_string()), 
-                           "Should find active variable declaration");
-                    
+                    assert!(
+                        declared_variables.contains(&"username".to_string()),
+                        "Should find username variable declaration"
+                    );
+                    assert!(
+                        declared_variables.contains(&"age".to_string()),
+                        "Should find age variable declaration"
+                    );
+                    assert!(
+                        declared_variables.contains(&"active".to_string()),
+                        "Should find active variable declaration"
+                    );
+
                     println!("Found declared variables: {:?}", declared_variables);
                 }
                 Err(errors) => {
@@ -70,17 +76,40 @@ async fn test_completion_should_include_wfl_keywords() {
 "#;
 
     let expected_keywords = vec![
-        "store", "create", "display", "if", "otherwise", "end", 
-        "count", "from", "to", "try", "catch", "when", "error",
-        "function", "return", "call", "with", "as", "is", "and", "or", "not"
+        "store",
+        "create",
+        "display",
+        "if",
+        "otherwise",
+        "end",
+        "count",
+        "from",
+        "to",
+        "try",
+        "catch",
+        "when",
+        "error",
+        "function",
+        "return",
+        "call",
+        "with",
+        "as",
+        "is",
+        "and",
+        "or",
+        "not",
     ];
-    
+
     // This test validates that we have the expected keywords available
     // The actual LSP completion should include these
     for keyword in &expected_keywords {
-        assert!(!keyword.is_empty(), "Keyword should not be empty: {}", keyword);
+        assert!(
+            !keyword.is_empty(),
+            "Keyword should not be empty: {}",
+            keyword
+        );
     }
-    
+
     println!("Expected keywords for completion: {:?}", expected_keywords);
 }
 
@@ -97,17 +126,38 @@ store numbers as [1, 2, 3, 4, 5]
 "#;
 
     let expected_stdlib_functions = vec![
-        "length of", "first of", "last of", "add", "remove", 
-        "contains", "join", "split", "uppercase", "lowercase",
-        "trim", "replace", "substring", "random", "round", "floor", "ceiling"
+        "length of",
+        "first of",
+        "last of",
+        "add",
+        "remove",
+        "contains",
+        "join",
+        "split",
+        "uppercase",
+        "lowercase",
+        "trim",
+        "replace",
+        "substring",
+        "random",
+        "round",
+        "floor",
+        "ceiling",
     ];
-    
+
     // This test validates that we know what stdlib functions should be available
     for function in &expected_stdlib_functions {
-        assert!(!function.is_empty(), "Function should not be empty: {}", function);
+        assert!(
+            !function.is_empty(),
+            "Function should not be empty: {}",
+            function
+        );
     }
-    
-    println!("Expected stdlib functions for completion: {:?}", expected_stdlib_functions);
+
+    println!(
+        "Expected stdlib functions for completion: {:?}",
+        expected_stdlib_functions
+    );
 }
 
 #[tokio::test]
@@ -134,14 +184,25 @@ store
     let contexts = vec![
         ("after_if", "Should suggest comparison operators and values"),
         ("after_display", "Should suggest variables and expressions"),
-        ("after_store", "Should suggest variable names and 'as' keyword"),
+        (
+            "after_store",
+            "Should suggest variable names and 'as' keyword",
+        ),
     ];
-    
+
     for (context, description) in &contexts {
-        assert!(!context.is_empty(), "Context should not be empty: {}", context);
-        assert!(!description.is_empty(), "Description should not be empty: {}", description);
+        assert!(
+            !context.is_empty(),
+            "Context should not be empty: {}",
+            context
+        );
+        assert!(
+            !description.is_empty(),
+            "Description should not be empty: {}",
+            description
+        );
     }
-    
+
     println!("Completion contexts to implement: {:?}", contexts);
 }
 
@@ -171,7 +232,7 @@ display
 
     let tokens = lex_wfl_with_positions(document_text);
     let mut parser = Parser::new(&tokens);
-    
+
     match parser.parse() {
         Ok(program) => {
             let mut analyzer = Analyzer::new();
@@ -179,12 +240,20 @@ display
                 Ok(_) => {
                     // This test validates that we can parse nested scope structures
                     // The actual completion implementation should handle scope correctly
-                    assert!(!program.statements.is_empty(), "Should have parsed statements");
-                    println!("Successfully parsed nested scope program with {} statements", 
-                            program.statements.len());
+                    assert!(
+                        !program.statements.is_empty(),
+                        "Should have parsed statements"
+                    );
+                    println!(
+                        "Successfully parsed nested scope program with {} statements",
+                        program.statements.len()
+                    );
                 }
                 Err(errors) => {
-                    println!("Analysis errors (may be expected for complex scoping): {:?}", errors);
+                    println!(
+                        "Analysis errors (may be expected for complex scoping): {:?}",
+                        errors
+                    );
                     // Even with analysis errors, we should be able to provide basic completion
                 }
             }
@@ -200,31 +269,36 @@ display
 async fn test_completion_performance() {
     // Test that completion performs well with larger documents
     let mut large_document = String::new();
-    
+
     // Create a large document with many variable declarations
     for i in 0..100 {
         large_document.push_str(&format!("store var_{} as {}\n", i, i));
     }
-    
+
     large_document.push_str("\n// Completion should work efficiently here\ndisplay ");
-    
+
     let start_time = std::time::Instant::now();
-    
+
     let tokens = lex_wfl_with_positions(&large_document);
     let mut parser = Parser::new(&tokens);
-    
+
     match parser.parse() {
         Ok(program) => {
             let mut analyzer = Analyzer::new();
             let _analysis_result = analyzer.analyze(&program);
-            
+
             let parse_time = start_time.elapsed();
-            println!("Completion analysis took: {:?} for {} statements", 
-                    parse_time, program.statements.len());
-            
+            println!(
+                "Completion analysis took: {:?} for {} statements",
+                parse_time,
+                program.statements.len()
+            );
+
             // Performance assertion - completion analysis should be fast
-            assert!(parse_time.as_millis() < 500, 
-                   "Completion analysis should be under 500ms for large documents");
+            assert!(
+                parse_time.as_millis() < 500,
+                "Completion analysis should be under 500ms for large documents"
+            );
         }
         Err(errors) => {
             println!("Parse errors in large document: {} errors", errors.len());
@@ -237,7 +311,7 @@ async fn test_completion_performance() {
 // This is a simplified version - the real implementation would be more comprehensive
 fn extract_variable_declaration(statement: &wfl::parser::ast::Statement) -> Option<String> {
     use wfl::parser::ast::Statement;
-    
+
     match statement {
         Statement::VariableDeclaration { name, .. } => Some(name.clone()),
         Statement::CreateListStatement { name, .. } => Some(name.clone()),
@@ -264,7 +338,7 @@ store items as [1, 2, 3]       // list type
 
     let tokens = lex_wfl_with_positions(document_text);
     let mut parser = Parser::new(&tokens);
-    
+
     match parser.parse() {
         Ok(program) => {
             let mut analyzer = Analyzer::new();
@@ -272,10 +346,13 @@ store items as [1, 2, 3]       // list type
                 Ok(_) => {
                     // This test validates that we can analyze types for completion
                     println!("Successfully analyzed program for type-aware completion");
-                    
+
                     // The real completion implementation should use type information
                     // to provide more relevant suggestions
-                    assert!(!program.statements.is_empty(), "Should have statements to analyze");
+                    assert!(
+                        !program.statements.is_empty(),
+                        "Should have statements to analyze"
+                    );
                 }
                 Err(errors) => {
                     println!("Analysis errors: {:?}", errors);

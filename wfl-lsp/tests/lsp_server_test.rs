@@ -1,4 +1,3 @@
-
 // Integration tests for WFL LSP Server
 // These tests focus on testing the core LSP functionality without mocking the client
 // We'll test the document analysis, completion, and hover functionality directly
@@ -28,15 +27,24 @@ async fn test_wfl_document_analysis_with_valid_syntax() {
             // Test analyzer
             let mut analyzer = Analyzer::new();
             let analysis_result = analyzer.analyze(&program);
-            assert!(analysis_result.is_ok(), "Valid WFL code should analyze without errors");
+            assert!(
+                analysis_result.is_ok(),
+                "Valid WFL code should analyze without errors"
+            );
 
             // Test type checker
             let mut type_checker = TypeChecker::new();
             let type_result = type_checker.check_types(&program);
-            assert!(type_result.is_ok(), "Valid WFL code should type check without errors");
+            assert!(
+                type_result.is_ok(),
+                "Valid WFL code should type check without errors"
+            );
         }
         Err(errors) => {
-            panic!("Valid WFL code should parse successfully, got errors: {:?}", errors);
+            panic!(
+                "Valid WFL code should parse successfully, got errors: {:?}",
+                errors
+            );
         }
     }
 }
@@ -58,11 +66,17 @@ async fn test_wfl_document_analysis_with_syntax_errors() {
         }
         Err(errors) => {
             // Should have parse errors
-            assert!(!errors.is_empty(), "Invalid WFL code should produce parse errors");
+            assert!(
+                !errors.is_empty(),
+                "Invalid WFL code should produce parse errors"
+            );
 
             // Convert to diagnostics to test LSP diagnostic conversion
             let wfl_diag = diagnostic_reporter.convert_parse_error(file_id, &errors[0]);
-            assert!(!wfl_diag.message.is_empty(), "Diagnostic should have a message");
+            assert!(
+                !wfl_diag.message.is_empty(),
+                "Diagnostic should have a message"
+            );
             assert_eq!(wfl_diag.severity, wfl::diagnostics::Severity::Error);
         }
     }
@@ -91,16 +105,25 @@ async fn test_wfl_semantic_analysis_errors() {
                 }
                 Err(errors) => {
                     // Should have semantic errors
-                    assert!(!errors.is_empty(), "Undefined variable should produce semantic errors");
+                    assert!(
+                        !errors.is_empty(),
+                        "Undefined variable should produce semantic errors"
+                    );
 
                     // Convert to diagnostics to test LSP diagnostic conversion
                     let wfl_diag = diagnostic_reporter.convert_semantic_error(file_id, &errors[0]);
-                    assert!(!wfl_diag.message.is_empty(), "Diagnostic should have a message");
+                    assert!(
+                        !wfl_diag.message.is_empty(),
+                        "Diagnostic should have a message"
+                    );
                 }
             }
         }
         Err(errors) => {
-            panic!("Valid syntax should parse successfully, got errors: {:?}", errors);
+            panic!(
+                "Valid syntax should parse successfully, got errors: {:?}",
+                errors
+            );
         }
     }
 }
@@ -131,16 +154,25 @@ async fn test_wfl_type_checking_errors() {
                 }
                 Err(errors) => {
                     // Should have type errors
-                    assert!(!errors.is_empty(), "Type mismatch should produce type errors");
+                    assert!(
+                        !errors.is_empty(),
+                        "Type mismatch should produce type errors"
+                    );
 
                     // Convert to diagnostics to test LSP diagnostic conversion
                     let wfl_diag = diagnostic_reporter.convert_type_error(file_id, &errors[0]);
-                    assert!(!wfl_diag.message.is_empty(), "Diagnostic should have a message");
+                    assert!(
+                        !wfl_diag.message.is_empty(),
+                        "Diagnostic should have a message"
+                    );
                 }
             }
         }
         Err(errors) => {
-            panic!("Valid syntax should parse successfully, got errors: {:?}", errors);
+            panic!(
+                "Valid syntax should parse successfully, got errors: {:?}",
+                errors
+            );
         }
     }
 }
@@ -153,14 +185,27 @@ async fn test_wfl_lexer_with_positions() {
     let tokens = lex_wfl_with_positions(document_text);
 
     // Should have tokens
-    assert!(!tokens.is_empty(), "Lexer should produce tokens for valid WFL code");
+    assert!(
+        !tokens.is_empty(),
+        "Lexer should produce tokens for valid WFL code"
+    );
 
     // Check that we have the expected token types by examining the token enum variants
-    let has_store = tokens.iter().any(|t| matches!(t.token, wfl::lexer::token::Token::KeywordStore));
-    let has_as = tokens.iter().any(|t| matches!(t.token, wfl::lexer::token::Token::KeywordAs));
-    let has_display = tokens.iter().any(|t| matches!(t.token, wfl::lexer::token::Token::KeywordDisplay));
-    let has_number = tokens.iter().any(|t| matches!(t.token, wfl::lexer::token::Token::IntLiteral(_)));
-    let has_identifier = tokens.iter().any(|t| matches!(t.token, wfl::lexer::token::Token::Identifier(_)));
+    let has_store = tokens
+        .iter()
+        .any(|t| matches!(t.token, wfl::lexer::token::Token::KeywordStore));
+    let has_as = tokens
+        .iter()
+        .any(|t| matches!(t.token, wfl::lexer::token::Token::KeywordAs));
+    let has_display = tokens
+        .iter()
+        .any(|t| matches!(t.token, wfl::lexer::token::Token::KeywordDisplay));
+    let has_number = tokens
+        .iter()
+        .any(|t| matches!(t.token, wfl::lexer::token::Token::IntLiteral(_)));
+    let has_identifier = tokens
+        .iter()
+        .any(|t| matches!(t.token, wfl::lexer::token::Token::Identifier(_)));
 
     assert!(has_store, "Should have 'store' keyword");
     assert!(has_as, "Should have 'as' keyword");
@@ -179,7 +224,8 @@ async fn test_wfl_lexer_with_positions() {
 #[tokio::test]
 async fn test_wfl_parser_ast_generation() {
     // Test that the parser correctly generates AST for WFL code
-    let document_text = "store x as 5\nif x is greater than 3 then\n  display \"x is large\"\nend if";
+    let document_text =
+        "store x as 5\nif x is greater than 3 then\n  display \"x is large\"\nend if";
 
     let tokens = lex_wfl_with_positions(document_text);
     let mut parser = Parser::new(&tokens);
@@ -187,16 +233,28 @@ async fn test_wfl_parser_ast_generation() {
     match parser.parse() {
         Ok(program) => {
             // Should have statements
-            assert!(!program.statements.is_empty(), "Parser should generate AST statements");
+            assert!(
+                !program.statements.is_empty(),
+                "Parser should generate AST statements"
+            );
 
             // Check that we have the expected statement types
-            assert!(program.statements.len() >= 2, "Should have at least 2 statements (store and if)");
+            assert!(
+                program.statements.len() >= 2,
+                "Should have at least 2 statements (store and if)"
+            );
 
             // This tests that the parser can handle complex WFL constructs
-            println!("Successfully parsed {} statements", program.statements.len());
+            println!(
+                "Successfully parsed {} statements",
+                program.statements.len()
+            );
         }
         Err(errors) => {
-            panic!("Valid WFL code should parse successfully, got errors: {:?}", errors);
+            panic!(
+                "Valid WFL code should parse successfully, got errors: {:?}",
+                errors
+            );
         }
     }
 }
@@ -221,13 +279,19 @@ async fn test_wfl_error_recovery_and_diagnostics() {
         }
         Err(errors) => {
             // Should have parse errors
-            assert!(!errors.is_empty(), "Invalid syntax should produce parse errors");
+            assert!(
+                !errors.is_empty(),
+                "Invalid syntax should produce parse errors"
+            );
 
             // Should be able to convert errors to diagnostics without panicking
             for error in &errors {
                 let wfl_diag = diagnostic_reporter.convert_parse_error(file_id, error);
                 assert!(!wfl_diag.message.is_empty(), "Error should have a message");
-                assert!(!wfl_diag.labels.is_empty(), "Error should have location information");
+                assert!(
+                    !wfl_diag.labels.is_empty(),
+                    "Error should have location information"
+                );
             }
         }
     }

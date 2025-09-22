@@ -1,0 +1,14 @@
+// Test file listing
+display "Testing file listing..."
+
+try:
+    wait for store file_list as list files in "src"
+    display "Found files in src:"
+    for each f in file_list:
+        display "  " with f
+    end for
+when error:
+    display "Error listing files"
+end try
+
+display "Done"

@@ -168,6 +168,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "path_exists",
     "is_file",
     "is_dir",
+    "count_lines",
     // File system functions recognized by TypeChecker but not yet implemented
     "read_file",
     "write_file",
@@ -273,7 +274,7 @@ pub fn get_function_arity(name: &str) -> usize {
         // Single argument functions
         "list_dir" | "path_basename" | "path_dirname" | "makedirs" | "file_mtime"
         | "path_exists" | "is_file" | "is_dir" | "read_file" | "file_exists" | "delete_file"
-        | "create_directory" | "list_directory" | "is_directory" => 1,
+        | "create_directory" | "list_directory" | "is_directory" | "count_lines" => 1,
         // Two argument functions
         "glob" | "rglob" | "path_join" | "write_file" => 2,
 

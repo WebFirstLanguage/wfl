@@ -335,6 +335,155 @@ action find_newest_file with files:
 end
 ```
 
+---
+
+### `count_lines(path)`
+
+Counts the number of lines in a text file.
+
+**Parameters:**
+- `path` (Text): Path to the file to count lines in
+
+**Returns:** Number (total line count)
+
+**Examples:**
+
+```wfl
+// Count lines in a text file
+store line_count as count_lines of "data.txt"
+display "File has " with line_count with " lines"
+
+// Process files based on line count
+store config_lines as count_lines of "config.txt"
+check if config_lines > 100:
+    display "Large configuration file detected"
+    // Process large file differently
+otherwise:
+    display "Small configuration file"
+    // Standard processing
+end
+
+// Find largest file by line count
+action find_largest_file_by_lines with files:
+    store largest_file as ""
+    store max_lines as 0
+    
+    count filename in files:
+        store current_lines as count_lines of filename
+        check if current_lines > max_lines:
+            store max_lines as current_lines
+            store largest_file as filename
+        end
+    end
+    
+    return largest_file
+end
+
+// Validate file size before processing
+action validate_file_size with filepath:
+    store lines as count_lines of filepath
+    check if lines > 10000:
+        display "Warning: File has " with lines with " lines (very large)"
+        return no
+    check if lines is 0:
+        display "Warning: File is empty"
+        return no
+    otherwise:
+        display "File size acceptable: " with lines with " lines"
+        return yes
+    end
+end
+```
+
+**Natural Language Variants:**
+```wfl
+// All equivalent ways to count lines
+store lines1 as count_lines of path
+store lines2 as line count of path
+store lines3 as lines in path
+```
+
+**Practical Use Cases:**
+
+```wfl
+// Log file monitoring
+action check_log_size with log_file:
+    store log_lines as count_lines of log_file
+    check if log_lines > 5000:
+        display "Log file is getting large: " with log_lines with " lines"
+        display "Consider rotating the log file"
+    end
+    return log_lines
+end
+
+// Data validation
+action validate_csv_data with csv_file:
+    store data_lines as count_lines of csv_file
+    store expected_lines as 1000  // Expected number of records + header
+    
+    check if data_lines < expected_lines:
+        display "Warning: CSV file has only " with data_lines with " lines"
+        display "Expected at least " with expected_lines with " lines"
+        return no
+    otherwise:
+        display "CSV validation passed: " with data_lines with " lines"
+        return yes
+    end
+end
+
+// Code analysis
+action analyze_source_files with source_dir:
+    store source_files as rglob of "*.wfl" and source_dir
+    store total_lines as 0
+    
+    count source_file in source_files:
+        store file_lines as count_lines of source_file
+        store total_lines as total_lines + file_lines
+        display source_file with ": " with file_lines with " lines"
+    end
+    
+    display "Total project size: " with total_lines with " lines across " with length of source_files with " files"
+    return total_lines
+end
+```
+
+**Error Handling:**
+
+```wfl
+// Safe line counting with error handling
+action safe_count_lines with filepath:
+    check if not path_exists of filepath:
+        display "Error: File does not exist: " with filepath
+        return -1
+    end
+    
+    check if not is_file of filepath:
+        display "Error: Path is not a file: " with filepath
+        return -1
+    end
+    
+    try:
+        store line_count as count_lines of filepath
+        return line_count
+    when error:
+        display "Error reading file: " with filepath
+        return -1
+    end try
+end
+```
+
+**Edge Cases:**
+- Empty files return 0 lines
+- Files without trailing newlines are counted correctly
+- Binary files may produce unexpected results
+- Very large files will work but may use significant memory
+
+**Performance Notes:**
+- The function reads the entire file into memory
+- For very large files (> 100MB), consider alternative approaches
+- Line counting is performed by counting newline characters
+- Performance is generally excellent for typical text files
+
 ## Path Manipulation
 
 ### `path_join(component1, component2, ...)`

@@ -16,6 +16,7 @@ use self::value::{
     ContainerDefinitionValue, ContainerEventValue, ContainerInstanceValue, ContainerMethodValue,
     EventHandler, FunctionValue, InterfaceDefinitionValue, Value,
 };
+use crate::builtins::get_function_arity;
 use crate::debug_report::CallFrame;
 #[cfg(debug_assertions)]
 use crate::exec_block_enter;
@@ -37,7 +38,6 @@ use crate::logging::IndentGuard;
 use crate::parser::ast::{
     Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
 };
-use crate::builtins::get_function_arity;
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
 use std::cell::RefCell;
@@ -127,9 +127,7 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::WaitForRequestStatement { request_name, .. } => {
             format!("WaitForRequestStatement '{request_name}'")
         }
-        Statement::RespondStatement { .. } => {
-            "RespondStatement".to_string()
-        }
+        Statement::RespondStatement { .. } => "RespondStatement".to_string(),
     }
 }
 
@@ -160,6 +158,7 @@ fn expr_type(expr: &Expression) -> String {
         Expression::PatternFind { .. } => "PatternFind".to_string(),
         Expression::PatternReplace { .. } => "PatternReplace".to_string(),
         Expression::PatternSplit { .. } => "PatternSplit".to_string(),
+        Expression::StringSplit { .. } => "StringSplit".to_string(),
         Expression::AwaitExpression { .. } => "AwaitExpression".to_string(),
         // Container-related expressions
         Expression::StaticMemberAccess {
@@ -2841,8 +2840,12 @@ impl Interpreter {
                 column,
                 ..
             } => {
-                // Compile the pattern AST into bytecode
-                match CompiledPattern::compile(pattern) {
+                // Compile the pattern AST into bytecode with environment access for list references
+                let compiled_pattern = {
+                    let env_borrow = env.borrow();
+                    CompiledPattern::compile_with_env(pattern, &env_borrow)
+                };
+                match compiled_pattern {
                     Ok(compiled_pattern) => {
                         // Store the compiled pattern in the environment
                         let pattern_value = Value::Pattern(Rc::new(compiled_pattern));
@@ -2879,12 +2882,11 @@ impl Interpreter {
                 };
 
                 // Create a basic web server using warp
-                let routes = warp::path::end()
-                    .map(|| "Hello from WFL Web Server!");
+                let routes = warp::path::end().map(|| "Hello from WFL Web Server!");
 
                 // Start the server in a background task
-                let server_task = warp::serve(routes)
-                    .try_bind_ephemeral(([127, 0, 0, 1], port_num));
+                let server_task =
+                    warp::serve(routes).try_bind_ephemeral(([127, 0, 0, 1], port_num));
 
                 match server_task {
                     Ok((addr, server)) => {
@@ -2892,7 +2894,11 @@ impl Interpreter {
                         tokio::spawn(server);
 
                         // Create a server value with the actual address
-                        let server_value = Value::Text(Rc::from(format!("WebServer::{}:{}", addr.ip(), addr.port())));
+                        let server_value = Value::Text(Rc::from(format!(
+                            "WebServer::{}:{}",
+                            addr.ip(),
+                            addr.port()
+                        )));
 
                         println!("Server is listening on port {}", addr.port());
 
@@ -2901,13 +2907,11 @@ impl Interpreter {
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                         }
                     }
-                    Err(e) => {
-                        Err(RuntimeError::new(
-                            format!("Failed to start web server on port {}: {}", port_num, e),
-                            *line,
-                            *column,
-                        ))
-                    }
+                    Err(e) => Err(RuntimeError::new(
+                        format!("Failed to start web server on port {}: {}", port_num, e),
+                        *line,
+                        *column,
+                    )),
                 }
             }
             Statement::WaitForRequestStatement {
@@ -3262,7 +3266,7 @@ impl Interpreter {
                                 Ok(value)
                             }
                         }
-                        _ => Ok(value)
+                        _ => Ok(value),
                     }
                 } else if name == "count" {
                     // If 'count' is not found and we're not in a count loop, provide helpful error
@@ -3672,6 +3676,34 @@ impl Interpreter {
 
                 let args = vec![text_val, pattern_val];
                 crate::stdlib::pattern::native_pattern_split(args, *_line, *_column)
+            }
+            Expression::StringSplit {
+                text,
+                delimiter,
+                line: _line,
+                column: _column,
+            } => {
+                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
+                let delimiter_val = self.evaluate_expression(delimiter, Rc::clone(&env)).await?;
+
+                // Validate types
+                if !matches!(text_val, Value::Text(_)) {
+                    return Err(RuntimeError::new(
+                        format!("Cannot split {} - expected text", text_val.type_name()),
+                        *_line,
+                        *_column,
+                    ));
+                }
+                if !matches!(delimiter_val, Value::Text(_)) {
+                    return Err(RuntimeError::new(
+                        format!("Delimiter must be text - got {}", delimiter_val.type_name()),
+                        *_line,
+                        *_column,
+                    ));
+                }
+
+                let args = vec![text_val, delimiter_val];
+                crate::stdlib::text::native_string_split(args)
             }
             Expression::PropertyAccess {
                 object,

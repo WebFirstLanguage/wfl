@@ -1,0 +1,4 @@
+// Test old contains syntax
+store filename as "test.rs"
+store result as contains of filename and ".rs"
+display "Old syntax result: " with result

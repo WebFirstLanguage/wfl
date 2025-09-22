@@ -1,0 +1,5 @@
+store text as "hello world test"
+store parts as split text by " "
+display parts[0]
+display parts[1]
+display parts[2]

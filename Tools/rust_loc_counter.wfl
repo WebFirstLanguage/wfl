@@ -1,0 +1,329 @@
+// Rust Line Counter - WFL Implementation
+// Analyzes Rust source files and generates line count statistics
+// 
+// This is a WebFirst Language implementation of the rust_loc_counter.py tool
+// It recursively scans .rs files and provides accurate counts of:
+// - Total lines
+// - Code lines  
+// - Comment lines
+// - Blank lines
+//
+// Usage: wfl rust_loc_counter.wfl [directory]
+// Default directory: ./src
+
+// Function to check if a line is blank (empty or only whitespace)
+define action called is_blank_line with line:
+    store trimmed as line
+    // WFL doesn't have trim, so check if empty
+    check if length of line is 0:
+        return true
+    end check
+    return false
+end action
+
+// Function to check if a line starts with a single-line comment
+define action called is_single_line_comment with line:
+    // Check if line starts with //
+    check if length of line is greater than 1:
+        store first_two as line[0] with line[1]
+        check if first_two is "//":
+            return true
+        end check
+    end check
+    return false
+end action
+
+// Function to analyze a single Rust file
+define action called analyze_rust_file with file_path:
+    store stats as []
+    
+    try:
+        // Get total line count
+        store total_lines as count_lines of file_path
+        
+        // Read file content to analyze each line
+        open file at file_path for reading as rust_file
+        wait for store file_content as read content from rust_file
+        close file rust_file
+        
+        // Split content into lines
+        store lines as split file_content by "\n"
+        
+        // Initialize counters
+        store code_lines as 0
+        store comment_lines as 0
+        store blank_lines as 0
+        store in_block_comment as false
+        
+        // Process each line
+        for each line in lines:
+            store is_blank as true
+            store is_comment as false
+            store is_code as false
+            
+            // Check if line has any non-whitespace content
+            check if length of line is greater than 0:
+                store is_blank as false
+                
+                // Handle block comments
+                check if in_block_comment is true:
+                    add 1 to comment_lines
+                    store is_comment as true
+                    
+                    // Check for end of block comment
+                    store has_end as contains of line and "*/"
+                    check if has_end is true:
+                        change in_block_comment to false
+                        
+                        // Check if there's code after the block comment
+                        store parts as split line by "*/"
+                        check if length of parts is greater than 1:
+                            store after_comment as parts[1]
+                            check if length of after_comment is greater than 0:
+                                // Check if it's not another comment
+                                store is_comment_after as is_single_line_comment with after_comment
+                                check if is_comment_after is false:
+                                    add 1 to code_lines
+                                    store is_code as true
+                                end check
+                            end check
+                        end check
+                    end check
+                else:
+                    // Check for start of block comment
+                    store has_start as contains of line and "/*"
+                    check if has_start is true:
+                        add 1 to comment_lines
+                        store is_comment as true
+                        
+                        // Check if block comment ends on same line
+                        store has_end_same as contains of line and "*/"
+                        check if has_end_same is false:
+                            change in_block_comment to true
+                        end check
+                    else:
+                        // Check for single-line comment
+                        store is_single_comment as is_single_line_comment with line
+                        check if is_single_comment is true:
+                            add 1 to comment_lines
+                            store is_comment as true
+                        else:
+                            // Skip truly empty lines
+                            store trimmed_line as line
+                            store i as 0
+                            store has_content as false
+                            
+                            count from 0 to length of line:
+                                store char as line[i]
+                                check if char is not " ":
+                                    check if char is not "\t":
+                                        change has_content to true
+                                    end check
+                                end check
+                                add 1 to i
+                            end count
+                            
+                            check if has_content is true:
+                                add 1 to code_lines
+                                store is_code as true
+                            else:
+                                add 1 to blank_lines
+                                store is_blank as true
+                            end check
+                        end check
+                    end check
+                end check
+            else:
+                add 1 to blank_lines
+            end check
+        end for
+        
+        // Return statistics as a list
+        add total_lines to stats
+        add code_lines to stats
+        add comment_lines to stats
+        add blank_lines to stats
+        
+    when error:
+        display "Error analyzing file: " with file_path
+        add 0 to stats
+        add 0 to stats
+        add 0 to stats
+        add 0 to stats
+    end try
+    
+    return stats
+end action
+
+// Main action to run the line counter
+define action called run_rust_loc_counter with target_dir:
+    display "=========================================="
+    display "RUST CODE LINE COUNT REPORT"
+    display "Target directory: " with target_dir
+    display "=========================================="
+    display ""
+    
+    // Initialize totals
+    store total_files as 0
+    store total_lines as 0
+    store total_code as 0
+    store total_comments as 0  
+    store total_blank as 0
+    
+    // Store file statistics
+    store file_stats as []
+    
+    // Get all files in the directory
+    try:
+        wait for store all_files as list files recursively in target_dir
+        
+        // Process each .rs file
+        for each file_path in all_files:
+            store has_rs as contains of file_path and ".rs"
+            check if has_rs is true:
+                // Make sure it ends with .rs
+                store path_length as length of file_path
+                check if path_length is greater than 3:
+                    store last_three as file_path[path_length - 3] with file_path[path_length - 2] with file_path[path_length - 1]
+                    check if last_three is ".rs":
+                        add 1 to total_files
+                        
+                        // Analyze the file
+                        store file_result as analyze_rust_file with file_path
+                        
+                        // Extract statistics
+                        store file_total as file_result[0]
+                        store file_code as file_result[1]
+                        store file_comments as file_result[2]
+                        store file_blank as file_result[3]
+                        
+                        // Update totals
+                        add file_total to total_lines
+                        add file_code to total_code
+                        add file_comments to total_comments
+                        add file_blank to total_blank
+                        
+                        // Store for detailed report
+                        store file_info as []
+                        add file_path to file_info
+                        add file_total to file_info
+                        add file_code to file_info
+                        add file_comments to file_info
+                        add file_blank to file_info
+                        add file_info to file_stats
+                        
+                        display "Processed: " with file_path with " (" with file_total with " lines)"
+                    end check
+                end check
+            end check
+        end for
+        
+    when error:
+        display "Error listing files in: " with target_dir
+    end try
+    
+    // Calculate percentages
+    store code_percent as 0
+    store comment_percent as 0
+    store blank_percent as 0
+    
+    check if total_lines is greater than 0:
+        store code_percent as total_code
+        multiply code_percent by 100
+        divide code_percent by total_lines
+        
+        store comment_percent as total_comments
+        multiply comment_percent by 100
+        divide comment_percent by total_lines
+        
+        store blank_percent as total_blank
+        multiply blank_percent by 100
+        divide blank_percent by total_lines
+    end check
+    
+    // Display overall statistics
+    display ""
+    display "OVERALL STATISTICS:"
+    display "Total files processed: " with total_files
+    display "Total lines: " with total_lines
+    display "Code lines: " with total_code with " (" with code_percent with "%)"
+    display "Comment lines: " with total_comments with " (" with comment_percent with "%)"
+    display "Blank lines: " with total_blank with " (" with blank_percent with "%)"
+    
+    // Display detailed file statistics
+    display ""
+    display "LINES BY FILE:"
+    display "File                                              Total      Code       Comments   Blank"
+    display "-------------------------------------------------------------------------"
+    
+    for each file_info in file_stats:
+        store file_name as file_info[0]
+        store file_total as file_info[1]
+        store file_code as file_info[2]
+        store file_comments as file_info[3]
+        store file_blank as file_info[4]
+        
+        // Format output (simplified due to WFL limitations)
+        display file_name with "  " with file_total with "  " with file_code with "  " with file_comments with "  " with file_blank
+    end for
+    
+    // Generate markdown report
+    display ""
+    display "Generating markdown report..."
+    
+    try:
+        store markdown_report as "# Rust Code Line Count Report
+
+*Generated by WFL Rust Line Counter*
+
+## Overall Statistics
+
+- **Total files processed:** "
+        change markdown_report to markdown_report with total_files with "
+- **Total lines:** " with total_lines with "
+- **Code lines:** " with total_code with " (" with code_percent with "%)
+- **Comment lines:** " with total_comments with " (" with comment_percent with "%)
+- **Blank lines:** " with total_blank with " (" with blank_percent with "%)
+
+## Lines by File
+
+| File | Total | Code | Comments | Blank |
+| ---- | ----- | ---- | -------- | ----- |
+"
+        
+        // Add file entries to markdown
+        for each file_info in file_stats:
+            store file_name as file_info[0]
+            store file_total as file_info[1]
+            store file_code as file_info[2]
+            store file_comments as file_info[3]
+            store file_blank as file_info[4]
+            
+            change markdown_report to markdown_report with "| " with file_name with " | " with file_total with " | " with file_code with " | " with file_comments with " | " with file_blank with " |
+"
+        end for
+        
+        change markdown_report to markdown_report with "
+
+---
+_Generated by WFL Rust Line Counter_
+"
+        
+        // Write markdown report
+        open file at "./Docs/rust_loc_report.md" for writing as md_file
+        wait for write content markdown_report into md_file
+        close file md_file
+        
+        display "✓ Markdown report written to ./Docs/rust_loc_report.md"
+        
+    when error:
+        display "✗ Could not write markdown report"
+    end try
+    
+    return "Analysis complete: " with total_files with " files, " with total_lines with " total lines"
+end action
+
+// Run the line counter on the src directory by default
+store result as run_rust_loc_counter with "./src"
+display ""
+display result

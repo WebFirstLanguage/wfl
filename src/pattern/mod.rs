@@ -50,7 +50,8 @@ pub use compiler::PatternCompiler;
 pub use instruction::{Instruction, Program as PatternProgram};
 pub use vm::{MatchResult, PatternVM};
 
-use crate::parser::ast::PatternExpression;
+// Re-export PatternExpression for public API
+pub use crate::parser::ast::PatternExpression;
 
 /// Error types for pattern compilation and execution.
 ///
@@ -143,6 +144,43 @@ impl CompiledPattern {
     pub fn compile(pattern: &PatternExpression) -> Result<Self, PatternError> {
         let mut compiler = PatternCompiler::new();
         let program = compiler.compile(pattern)?;
+        let capture_names = compiler.capture_names();
+        Ok(Self::new(program, capture_names))
+    }
+
+    /// Compile a pattern with access to environment variables for list references.
+    ///
+    /// This method allows patterns to reference list variables defined in the environment.
+    /// List references are resolved at compile time and converted to alternative patterns.
+    ///
+    /// # Arguments
+    /// * `pattern` - The pattern AST to compile
+    /// * `env` - Environment containing variable definitions including lists
+    ///
+    /// # Returns
+    /// * `Ok(CompiledPattern)` - Successfully compiled pattern
+    /// * `Err(PatternError)` - Compilation failed due to invalid pattern or undefined list
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use wfl::pattern::{CompiledPattern, PatternExpression};
+    /// # use wfl::interpreter::environment::Environment;
+    /// # fn example() -> Result<(), wfl::pattern::PatternError> {
+    /// let env = Environment::new_global();
+    /// let pattern = PatternExpression::ListReference("protocols".to_string());
+    /// let env_borrowed = env.borrow();
+    /// let compiled = CompiledPattern::compile_with_env(&pattern, &*env_borrowed)?;
+    /// // Note: This will likely fail at runtime since "protocols" list doesn't exist
+    /// // but it demonstrates the correct API usage
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn compile_with_env(
+        pattern: &PatternExpression,
+        env: &crate::interpreter::environment::Environment,
+    ) -> Result<Self, PatternError> {
+        let mut compiler = PatternCompiler::new();
+        let program = compiler.compile_with_env(pattern, env)?;
         let capture_names = compiler.capture_names();
         Ok(Self::new(program, capture_names))
     }

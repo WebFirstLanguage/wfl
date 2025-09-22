@@ -1,0 +1,7 @@
+
+        store text as "a,b,c"
+        store parts as split text by ","
+        display parts[0]
+        display parts[1]
+        display parts[2]
+    
