@@ -310,7 +310,9 @@ pub fn native_pattern_split(
         };
 
         // Add the text before this match
-        if match_result.start > last_end_char || (match_result.start == last_end_char && last_end_char == 0) {
+        if match_result.start > last_end_char
+            || (match_result.start == last_end_char && last_end_char == 0)
+        {
             let part = &text[last_end_byte..start_byte];
             parts.push(Value::Text(Rc::from(part)));
         } else if match_result.start == last_end_char && last_end_char > 0 {

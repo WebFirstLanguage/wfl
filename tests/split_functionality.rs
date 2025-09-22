@@ -4,7 +4,10 @@ use std::process::Command;
 fn run_wfl(code: &str) -> String {
     // Write temporary WFL file with unique name
     use std::time::{SystemTime, UNIX_EPOCH};
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let temp_file = format!("temp_test_split_{}.wfl", timestamp);
     fs::write(&temp_file, code).expect("Failed to write temp file");
 
@@ -25,7 +28,7 @@ fn run_wfl(code: &str) -> String {
     // Combine stdout and stderr for complete output
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    
+
     if !stderr.is_empty() {
         format!("{}{}", stdout, stderr)
     } else {
