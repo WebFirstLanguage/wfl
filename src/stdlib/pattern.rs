@@ -287,25 +287,43 @@ pub fn native_pattern_split(
         return Ok(Value::List(Rc::new(RefCell::new(parts))));
     }
 
+    // Build character-to-byte index mapping
+    let char_to_byte: Vec<usize> = text.char_indices().map(|(byte_idx, _)| byte_idx).collect();
+    let mut char_to_byte = char_to_byte;
+    char_to_byte.push(text.len()); // Add final byte position
+
     // Split the text at match positions
     let mut parts = Vec::new();
-    let mut last_end = 0;
+    let mut last_end_char = 0;
 
     for match_result in matches {
+        // Convert character indices to byte indices
+        let start_byte = if match_result.start < char_to_byte.len() {
+            char_to_byte[match_result.start]
+        } else {
+            text.len()
+        };
+        let last_end_byte = if last_end_char < char_to_byte.len() {
+            char_to_byte[last_end_char]
+        } else {
+            text.len()
+        };
+
         // Add the text before this match
-        if match_result.start > last_end || (match_result.start == last_end && last_end == 0) {
-            let part = &text[last_end..match_result.start];
+        if match_result.start > last_end_char || (match_result.start == last_end_char && last_end_char == 0) {
+            let part = &text[last_end_byte..start_byte];
             parts.push(Value::Text(Rc::from(part)));
-        } else if match_result.start == last_end && last_end > 0 {
+        } else if match_result.start == last_end_char && last_end_char > 0 {
             // Add empty string for consecutive matches
             parts.push(Value::Text(Rc::from("")));
         }
-        last_end = match_result.end;
+        last_end_char = match_result.end;
     }
 
     // Add any remaining text after the last match
-    if last_end <= text.len() {
-        let part = &text[last_end..];
+    if last_end_char < char_to_byte.len() {
+        let last_end_byte = char_to_byte[last_end_char];
+        let part = &text[last_end_byte..];
         parts.push(Value::Text(Rc::from(part)));
     }
 
