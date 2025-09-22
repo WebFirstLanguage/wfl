@@ -41,11 +41,48 @@ use crate::parser::ast::{
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::{mpsc, oneshot};
 use warp::Filter;
+use uuid;
+
+// Web server data structures
+#[derive(Debug, Clone)]
+pub struct WflHttpRequest {
+    pub id: String,
+    pub method: String,
+    pub path: String,
+    pub client_ip: String,
+    pub body: String,
+    pub headers: HashMap<String, String>,
+    pub response_sender: Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WflHttpResponse {
+    pub content: String,
+    pub status: u16,
+    pub content_type: String,
+    pub headers: HashMap<String, String>,
+}
+
+#[derive(Debug)]
+pub struct WflWebServer {
+    pub request_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflHttpRequest>>>,
+    pub request_sender: mpsc::UnboundedSender<WflHttpRequest>,
+    pub server_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+// Custom error type for warp rejections
+#[derive(Debug)]
+pub struct ServerError(String);
+
+impl warp::reject::Reject for ServerError {}
 
 // Helper functions for execution logging
 #[cfg(debug_assertions)]
@@ -175,7 +212,7 @@ fn expr_type(expr: &Expression) -> String {
     }
 }
 
-use std::collections::HashMap;
+
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncWriteExt;
@@ -194,6 +231,8 @@ pub struct Interpreter {
     io_client: Rc<IoClient>,
     step_mode: bool,          // Controls single-step execution mode
     script_args: Vec<String>, // Command-line arguments passed to the script
+    web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
+    pending_responses: RefCell<HashMap<String, Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>>>, // Pending response senders by request ID
 }
 
 #[allow(dead_code)]
@@ -489,6 +528,8 @@ impl Interpreter {
             io_client: Rc::new(IoClient::new()),
             step_mode: false,        // Default to non-step mode
             script_args: Vec::new(), // Initialize empty, will be set later
+            web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
+            pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
         }
     }
 
@@ -2881,17 +2922,107 @@ impl Interpreter {
                     }
                 };
 
-                // Create a basic web server using warp
-                let routes = warp::path::end().map(|| "Hello from WFL Web Server!");
+                // Create request/response channels
+                let (request_sender, request_receiver) = mpsc::unbounded_channel::<WflHttpRequest>();
+                let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
 
-                // Start the server in a background task
-                let server_task =
-                    warp::serve(routes).try_bind_ephemeral(([127, 0, 0, 1], port_num));
+                // Create warp routes that handle all HTTP methods and paths
+                let request_sender_clone = request_sender.clone();
+                let routes = warp::any()
+                    .and(warp::method())
+                    .and(warp::path::full())
+                    .and(warp::header::headers_cloned())
+                    .and(warp::body::bytes())
+                    .and(warp::addr::remote())
+                    .and_then(move |method: warp::http::Method,
+                                   path: warp::path::FullPath,
+                                   headers: warp::http::HeaderMap,
+                                   body: bytes::Bytes,
+                                   remote_addr: Option<std::net::SocketAddr>| {
+                        let sender = request_sender_clone.clone();
+                        async move {
+                            // Generate unique request ID
+                            let request_id = uuid::Uuid::new_v4().to_string();
+
+                            // Extract client IP
+                            let client_ip = remote_addr
+                                .map(|addr| addr.ip().to_string())
+                                .unwrap_or_else(|| "unknown".to_string());
+
+                            // Convert headers to HashMap
+                            let mut header_map = HashMap::new();
+                            for (name, value) in headers.iter() {
+                                if let Ok(value_str) = value.to_str() {
+                                    header_map.insert(name.to_string(), value_str.to_string());
+                                }
+                            }
+
+                            // Convert body to string
+                            let body_str = String::from_utf8_lossy(&body).to_string();
+
+                            // Create response channel
+                            let (response_sender, response_receiver) = oneshot::channel::<WflHttpResponse>();
+
+                            // Create WFL request
+                            let wfl_request = WflHttpRequest {
+                                id: request_id,
+                                method: method.to_string(),
+                                path: path.as_str().to_string(),
+                                client_ip,
+                                body: body_str,
+                                headers: header_map,
+                                response_sender: Arc::new(tokio::sync::Mutex::new(Some(response_sender))),
+                            };
+
+                            // Send request to WFL interpreter
+                            if let Err(_) = sender.send(wfl_request) {
+                                return Err(warp::reject::custom(ServerError("Request channel closed".to_string())));
+                            }
+
+                            // Wait for response
+                            match response_receiver.await {
+                                Ok(response) => {
+                                    let status_code = warp::http::StatusCode::from_u16(response.status)
+                                        .unwrap_or(warp::http::StatusCode::OK);
+
+                                    let mut reply_builder = warp::http::Response::builder()
+                                        .status(status_code)
+                                        .header("content-type", response.content_type);
+
+                                    // Add additional headers
+                                    for (name, value) in response.headers {
+                                        reply_builder = reply_builder.header(name, value);
+                                    }
+
+                                    match reply_builder.body(response.content) {
+                                        Ok(response) => Ok(response),
+                                        Err(_) => Err(warp::reject::custom(ServerError("Failed to build response".to_string())))
+                                    }
+                                }
+                                Err(_) => {
+                                    Err(warp::reject::custom(ServerError("Response channel closed".to_string())))
+                                }
+                            }
+                        }
+                    });
+
+                // Start the server
+                let server_task = warp::serve(routes).try_bind_ephemeral(([127, 0, 0, 1], port_num));
 
                 match server_task {
                     Ok((addr, server)) => {
                         // Spawn the server in the background
-                        tokio::spawn(server);
+                        let server_handle = tokio::spawn(server);
+
+                        // Create WFL web server object
+                        let wfl_server = WflWebServer {
+                            request_receiver: request_receiver.clone(),
+                            request_sender: request_sender.clone(),
+                            server_handle: Some(server_handle),
+                        };
+
+                        // Store the server in the interpreter
+                        self.web_servers.borrow_mut().insert(server_name.clone(), wfl_server);
 
                         // Create a server value with the actual address
                         let server_value = Value::Text(Rc::from(format!(
@@ -2920,13 +3051,120 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // For now, return an error indicating this is not yet implemented
-                // TODO: Implement proper request handling with warp
-                Err(RuntimeError::new(
-                    "Web server request handling is not yet implemented - requires async request queue".to_string(),
-                    *line,
-                    *column,
-                ))
+                // Look up the server by name
+                let server_name = match self.evaluate_expression(server, Rc::clone(&env)).await? {
+                    Value::Text(name) => {
+                        // Extract server name from "WebServer::host:port" format
+                        let name_str = name.as_ref();
+                        if name_str.starts_with("WebServer::") {
+                            // Find the original server name in our web_servers map
+                            let web_servers = self.web_servers.borrow();
+                            if let Some((found_name, _)) = web_servers.iter().next() {
+                                found_name.clone()
+                            } else {
+                                return Err(RuntimeError::new(
+                                    "No web servers found".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        } else {
+                            name_str.to_string()
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Expected server name as text".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Get the server's request receiver
+                let request_receiver = {
+                    let web_servers = self.web_servers.borrow();
+                    if let Some(server) = web_servers.get(&server_name) {
+                        server.request_receiver.clone()
+                    } else {
+                        return Err(RuntimeError::new(
+                            format!("Web server '{}' not found", server_name),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Wait for a request to come in
+                let request = {
+                    let mut receiver = request_receiver.lock().await;
+                    match receiver.recv().await {
+                        Some(req) => req,
+                        None => {
+                            return Err(RuntimeError::new(
+                                "Request channel closed".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                };
+
+                // Store the request in a global map for RespondStatement to access
+                {
+                    let mut pending_responses = self.pending_responses.borrow_mut();
+                    pending_responses.insert(request.id.clone(), request.response_sender);
+                }
+
+                // Define individual variables for request properties (more natural for WFL)
+                let mut env_mut = env.borrow_mut();
+
+                // Define the main request variable (for use in respond statements)
+                let mut request_properties = HashMap::new();
+                request_properties.insert("_response_sender".to_string(), Value::Text(Rc::from(request.id.clone())));
+                let request_object = Value::Object(Rc::new(RefCell::new(request_properties)));
+
+                match env_mut.define(request_name, request_object) {
+                    Ok(_) => {},
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                // Define individual request property variables
+                match env_mut.define("method", Value::Text(Rc::from(request.method.clone()))) {
+                    Ok(_) => {},
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                match env_mut.define("path", Value::Text(Rc::from(request.path.clone()))) {
+                    Ok(_) => {},
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                match env_mut.define("client_ip", Value::Text(Rc::from(request.client_ip.clone()))) {
+                    Ok(_) => {},
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                match env_mut.define("body", Value::Text(Rc::from(request.body.clone()))) {
+                    Ok(_) => {},
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                // Convert headers to WFL object and define as headers variable
+                let mut headers_map = HashMap::new();
+                for (key, value) in request.headers.iter() {
+                    headers_map.insert(key.clone(), Value::Text(Rc::from(value.clone())));
+                }
+                let headers_object = Value::Object(Rc::new(RefCell::new(headers_map)));
+
+                match env_mut.define("headers", headers_object) {
+                    Ok(_) => {},
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                drop(env_mut); // Release the borrow
+
+                Ok((Value::Null, ControlFlow::None))
             }
             Statement::RespondStatement {
                 request,
@@ -2936,13 +3174,114 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // For now, return an error indicating this is not yet implemented
-                // TODO: Implement proper response handling with warp
-                Err(RuntimeError::new(
-                    "Web server response handling is not yet implemented - requires async response channel".to_string(),
-                    *line,
-                    *column,
-                ))
+                // Get the request object
+                let request_val = self.evaluate_expression(request, Rc::clone(&env)).await?;
+                let request_id = match &request_val {
+                    Value::Object(obj) => {
+                        let obj_ref = obj.borrow();
+                        match obj_ref.get("_response_sender") {
+                            Some(Value::Text(id)) => id.as_ref().to_string(),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    "Request object missing response sender ID".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Expected request object".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Evaluate response content
+                let content_val = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                let content_str = match &content_val {
+                    Value::Text(text) => text.as_ref().to_string(),
+                    Value::Number(n) => n.to_string(),
+                    Value::Bool(b) => b.to_string(),
+                    _ => format!("{:?}", content_val),
+                };
+
+                // Evaluate status code (optional)
+                let status_code = if let Some(status_expr) = status {
+                    let status_val = self.evaluate_expression(status_expr, Rc::clone(&env)).await?;
+                    match &status_val {
+                        Value::Number(n) => *n as u16,
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Status code must be a number".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    200 // Default to 200 OK
+                };
+
+                // Evaluate content type (optional)
+                let content_type_str = if let Some(ct_expr) = content_type {
+                    let ct_val = self.evaluate_expression(ct_expr, Rc::clone(&env)).await?;
+                    match &ct_val {
+                        Value::Text(text) => text.as_ref().to_string(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Content type must be text".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    "text/plain".to_string() // Default content type
+                };
+
+                // Create response
+                let response = WflHttpResponse {
+                    content: content_str,
+                    status: status_code,
+                    content_type: content_type_str,
+                    headers: HashMap::new(), // TODO: Add support for custom headers
+                };
+
+                // Send response
+                let response_sender = {
+                    let mut pending = self.pending_responses.borrow_mut();
+                    pending.remove(&request_id)
+                };
+
+                if let Some(sender_arc) = response_sender {
+                    let mut sender_opt = sender_arc.lock().await;
+                    if let Some(sender) = sender_opt.take() {
+                        if let Err(_) = sender.send(response) {
+                            return Err(RuntimeError::new(
+                                "Failed to send response - client may have disconnected".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    } else {
+                        return Err(RuntimeError::new(
+                            "Response already sent for this request".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                } else {
+                    return Err(RuntimeError::new(
+                        "Request ID not found - response may have already been sent".to_string(),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                Ok((Value::Null, ControlFlow::None))
             }
         };
 

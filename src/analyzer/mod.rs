@@ -1282,6 +1282,95 @@ impl Analyzer {
                 }
             }
 
+            Statement::ListenStatement {
+                port,
+                server_name,
+                line,
+                column,
+            } => {
+                // Analyze the port expression
+                self.analyze_expression(port);
+
+                // Define the server variable
+                let server_symbol = Symbol {
+                    name: server_name.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: Some(Type::Text), // Server is represented as text
+                    line: *line,
+                    column: *column,
+                };
+
+                if let Err(error) = self.current_scope.define(server_symbol) {
+                    self.errors.push(error);
+                }
+            }
+
+            Statement::WaitForRequestStatement {
+                server,
+                request_name,
+                line,
+                column,
+            } => {
+                // Analyze the server expression
+                self.analyze_expression(server);
+
+                // Define the request variable
+                let request_symbol = Symbol {
+                    name: request_name.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: Some(Type::Custom("Request".to_string())), // Request is a custom object type
+                    line: *line,
+                    column: *column,
+                };
+
+                if let Err(error) = self.current_scope.define(request_symbol) {
+                    self.errors.push(error);
+                }
+
+                // Define individual request property variables
+                let request_properties = [
+                    ("method", Type::Text),
+                    ("path", Type::Text),
+                    ("client_ip", Type::Text),
+                    ("body", Type::Text),
+                    ("headers", Type::Custom("Headers".to_string())),
+                ];
+
+                for (prop_name, prop_type) in request_properties.iter() {
+                    let prop_symbol = Symbol {
+                        name: prop_name.to_string(),
+                        kind: SymbolKind::Variable { mutable: false },
+                        symbol_type: Some(prop_type.clone()),
+                        line: *line,
+                        column: *column,
+                    };
+
+                    if let Err(error) = self.current_scope.define(prop_symbol) {
+                        self.errors.push(error);
+                    }
+                }
+            }
+
+            Statement::RespondStatement {
+                request,
+                content,
+                status,
+                content_type,
+                ..
+            } => {
+                // Analyze all expressions
+                self.analyze_expression(request);
+                self.analyze_expression(content);
+
+                if let Some(status_expr) = status {
+                    self.analyze_expression(status_expr);
+                }
+
+                if let Some(ct_expr) = content_type {
+                    self.analyze_expression(ct_expr);
+                }
+            }
+
             _ => {}
         }
     }

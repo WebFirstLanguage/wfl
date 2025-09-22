@@ -28,9 +28,9 @@ try:
         display "✓ Request received successfully"
         
         // Test request properties
-        display "Request method: " with method of incoming_request
-        display "Request path: " with path of incoming_request
-        display "Request client IP: " with client_ip of incoming_request
+        display "Request method: " with method
+        display "Request path: " with path
+        display "Request client IP: " with client_ip
         
         // Test 2: Basic response handling
         display ""
@@ -43,12 +43,12 @@ try:
             
         catch:
             display "✗ EXPECTED FAILURE: Response handling not implemented"
-            display "Error: " with error_message
+            display "Error: " with error
         end try
         
     catch:
         display "✗ EXPECTED FAILURE: Request handling not implemented"
-        display "Error: " with error_message
+        display "Error: " with error
     end try
     
     // Test 3: Single additional request test
@@ -58,10 +58,10 @@ try:
     try:
         wait for request comes in on test_server as test_request2
         display "Processing additional request"
-        display "Path: " with path of test_request2
+        display "Path: " with path
 
         // Test different response types
-        check if path of test_request2 is equal to "/json":
+        check if path is equal to "/json":
             store json_response as "{\"message\": \"Hello JSON\"}"
             respond to test_request2 with json_response and content_type "application/json"
             display "✓ JSON response sent"
@@ -74,12 +74,12 @@ try:
 
     catch:
         display "✗ EXPECTED FAILURE: Additional request handling not working"
-        display "Error: " with error_message
+        display "Error: " with error
     end try
     
 catch:
     display "✗ EXPECTED FAILURE: Server startup or basic functionality failed"
-    display "Error: " with error_message
+    display "Error: " with error
 end try
 
 display ""

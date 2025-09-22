@@ -1,0 +1,21 @@
+// Simple static file test
+display "=== Simple Static File Test ==="
+
+// Start server
+listen on port 8098 as static_server
+display "Server started on port 8098"
+
+// Wait for request
+wait for request comes in on static_server as request1
+display "Got request: " with method with " " with path
+
+// Simple response based on path
+check if path is equal to "/":
+    respond to request1 with "Hello from WFL static server!" and content_type "text/html"
+    display "✓ Served root page"
+otherwise:
+    respond to request1 with "File not found" and status 404
+    display "❌ 404 response sent"
+end check
+
+display "=== Test Complete ==="
