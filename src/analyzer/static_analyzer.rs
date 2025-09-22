@@ -725,7 +725,9 @@ impl Analyzer {
                 self.mark_used_in_expression(text, usages);
                 self.mark_used_in_expression(pattern, usages);
             }
-            Expression::StringSplit { text, delimiter, .. } => {
+            Expression::StringSplit {
+                text, delimiter, ..
+            } => {
                 self.mark_used_in_expression(text, usages);
                 self.mark_used_in_expression(delimiter, usages);
             }

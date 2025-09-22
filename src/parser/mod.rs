@@ -10,30 +10,143 @@ use std::slice::Iter;
 
 /// Checks if a pattern name conflicts with reserved keywords in WFL
 fn is_reserved_pattern_name(name: &str) -> bool {
-    matches!(name, 
-        "url" | "digit" | "letter" | "file" | "database" | "data" | 
-        "date" | "time" | "text" | "pattern" | "character" | "whitespace" |
-        "unicode" | "category" | "script" | "greedy" | "lazy" | "zero" |
-        "one" | "any" | "optional" | "between" | "start" | "ahead" |
-        "behind" | "not" | "is" | "than" | "same" | "greater" | "less" |
-        "equal" | "above" | "below" | "contains" | "matches" | "find" |
-        "replace" | "split" | "capture" | "captured" | "more" | "exactly" |
-        "push" | "add" | "subtract" | "multiply" | "divide" | "plus" |
-        "minus" | "times" | "divided" | "by" | "open" | "close" |
-        "read" | "write" | "append" | "content" | "wait" | "try" |
-        "error" | "exists" | "list" | "map" | "remove" | "clear" |
-        "files" | "found" | "permission" | "denied" | "recursively" |
-        "extension" | "extensions" | "at" | "least" | "most" | "into" |
-        "when" | "store" | "create" | "display" | "change" | "if" |
-        "check" | "otherwise" | "then" | "end" | "as" | "to" | "from" |
-        "with" | "and" | "or" | "count" | "for" | "each" | "in" |
-        "reversed" | "repeat" | "while" | "until" | "forever" |
-        "skip" | "continue" | "break" | "exit" | "loop" | "define" |
-        "action" | "called" | "needs" | "give" | "back" | "return" |
-        "directory" | "delete" | "container" | "property" | "extends" |
-        "implements" | "interface" | "requires" | "event" | "trigger" |
-        "on" | "static" | "public" | "private" | "parent" | "new" |
-        "constant" | "must" | "defaults" | "of"
+    matches!(
+        name,
+        "url"
+            | "digit"
+            | "letter"
+            | "file"
+            | "database"
+            | "data"
+            | "date"
+            | "time"
+            | "text"
+            | "pattern"
+            | "character"
+            | "whitespace"
+            | "unicode"
+            | "category"
+            | "script"
+            | "greedy"
+            | "lazy"
+            | "zero"
+            | "one"
+            | "any"
+            | "optional"
+            | "between"
+            | "start"
+            | "ahead"
+            | "behind"
+            | "not"
+            | "is"
+            | "than"
+            | "same"
+            | "greater"
+            | "less"
+            | "equal"
+            | "above"
+            | "below"
+            | "contains"
+            | "matches"
+            | "find"
+            | "replace"
+            | "split"
+            | "capture"
+            | "captured"
+            | "more"
+            | "exactly"
+            | "push"
+            | "add"
+            | "subtract"
+            | "multiply"
+            | "divide"
+            | "plus"
+            | "minus"
+            | "times"
+            | "divided"
+            | "by"
+            | "open"
+            | "close"
+            | "read"
+            | "write"
+            | "append"
+            | "content"
+            | "wait"
+            | "try"
+            | "error"
+            | "exists"
+            | "list"
+            | "map"
+            | "remove"
+            | "clear"
+            | "files"
+            | "found"
+            | "permission"
+            | "denied"
+            | "recursively"
+            | "extension"
+            | "extensions"
+            | "at"
+            | "least"
+            | "most"
+            | "into"
+            | "when"
+            | "store"
+            | "create"
+            | "display"
+            | "change"
+            | "if"
+            | "check"
+            | "otherwise"
+            | "then"
+            | "end"
+            | "as"
+            | "to"
+            | "from"
+            | "with"
+            | "and"
+            | "or"
+            | "count"
+            | "for"
+            | "each"
+            | "in"
+            | "reversed"
+            | "repeat"
+            | "while"
+            | "until"
+            | "forever"
+            | "skip"
+            | "continue"
+            | "break"
+            | "exit"
+            | "loop"
+            | "define"
+            | "action"
+            | "called"
+            | "needs"
+            | "give"
+            | "back"
+            | "return"
+            | "directory"
+            | "delete"
+            | "container"
+            | "property"
+            | "extends"
+            | "implements"
+            | "interface"
+            | "requires"
+            | "event"
+            | "trigger"
+            | "on"
+            | "static"
+            | "public"
+            | "private"
+            | "parent"
+            | "new"
+            | "constant"
+            | "must"
+            | "defaults"
+            | "of"
     )
 }
 
@@ -1384,7 +1497,10 @@ impl<'a> Parser<'a> {
                 }
                 _ if token.token.is_structural_keyword() => {
                     return Err(ParseError::new(
-                        format!("Cannot use reserved keyword '{:?}' as a variable name", token.token),
+                        format!(
+                            "Cannot use reserved keyword '{:?}' as a variable name",
+                            token.token
+                        ),
                         token.line,
                         token.column,
                     ));
@@ -1497,34 +1613,34 @@ impl<'a> Parser<'a> {
     /// when a pattern definition fails early (e.g., due to reserved name)
     fn consume_pattern_body_on_error(&mut self) {
         // First, skip the colon if present
-        if let Some(token) = self.tokens.peek() {
-            if token.token == Token::Colon {
-                self.tokens.next();
-            }
+        if let Some(token) = self.tokens.peek()
+            && token.token == Token::Colon
+        {
+            self.tokens.next();
         }
-        
+
         let mut depth = 1; // We're inside one pattern block
-        
+
         while let Some(token) = self.tokens.next() {
             match token.token {
                 Token::KeywordEnd => {
                     // Check if this is "end pattern"
-                    if let Some(next_token) = self.tokens.peek() {
-                        if next_token.token == Token::KeywordPattern {
-                            depth -= 1;
-                            if depth == 0 {
-                                self.tokens.next(); // Consume "pattern"
-                                break;
-                            }
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::KeywordPattern
+                    {
+                        depth -= 1;
+                        if depth == 0 {
+                            self.tokens.next(); // Consume "pattern"
+                            break;
                         }
                     }
                 }
                 Token::KeywordCreate => {
                     // Check if this is nested "create pattern"
-                    if let Some(next_token) = self.tokens.peek() {
-                        if next_token.token == Token::KeywordPattern {
-                            depth += 1;
-                        }
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::KeywordPattern
+                    {
+                        depth += 1;
                     }
                 }
                 _ => {
@@ -1933,8 +2049,9 @@ impl<'a> Parser<'a> {
                             Token::KeywordBy => {
                                 // Handle "split text by delimiter" syntax
                                 self.tokens.next(); // Consume "by"
-                                let delimiter_expr = self.parse_binary_expression(precedence + 1)?;
-                                
+                                let delimiter_expr =
+                                    self.parse_binary_expression(precedence + 1)?;
+
                                 left = Expression::StringSplit {
                                     text: Box::new(text_expr),
                                     delimiter: Box::new(delimiter_expr),
@@ -1966,7 +2083,8 @@ impl<'a> Parser<'a> {
                             }
                             _ => {
                                 return Err(ParseError::new(
-                                    "Expected 'by' or 'on' after text in split operation".to_string(),
+                                    "Expected 'by' or 'on' after text in split operation"
+                                        .to_string(),
                                     line,
                                     column,
                                 ));
@@ -2672,7 +2790,7 @@ impl<'a> Parser<'a> {
                 Token::KeywordSplit => {
                     self.tokens.next(); // Consume "split"
                     let text_expr = self.parse_expression()?;
-                    
+
                     // Check for "by" (string split) or "on" (pattern split)
                     if let Some(next_token) = self.tokens.peek().cloned() {
                         match next_token.token {
@@ -2706,7 +2824,7 @@ impl<'a> Parser<'a> {
                                 "Expected 'by' or 'on' after text in split expression".to_string(),
                                 token.line,
                                 token.column,
-                            ))
+                            )),
                         }
                     } else {
                         Err(ParseError::new(
@@ -2722,7 +2840,7 @@ impl<'a> Parser<'a> {
                         self.tokens.next(); // Consume "create"
                         let token_line = token.line;
                         let token_column = token.column;
-                        
+
                         // Check if next token is "list"
                         if let Some(next_token) = self.tokens.peek()
                             && next_token.token == Token::KeywordList
@@ -2743,13 +2861,13 @@ impl<'a> Parser<'a> {
                             ));
                         }
                     }
-                    
+
                     // Special handling for "contains X in Y" syntax or "contains of X and Y"
                     if token.token == Token::KeywordContains {
                         self.tokens.next(); // Consume "contains"
                         let token_line = token.line;
                         let token_column = token.column;
-                        
+
                         // Check if next token is "of" for old syntax
                         if let Some(next_token) = self.tokens.peek()
                             && next_token.token == Token::KeywordOf
@@ -2765,16 +2883,16 @@ impl<'a> Parser<'a> {
                             // Try to parse as "contains X in Y"
                             // Parse the needle expression
                             let needle = self.parse_primary_expression()?;
-                            
+
                             // Check if next token is "in"
                             if let Some(in_token) = self.tokens.peek()
                                 && in_token.token == Token::KeywordIn
                             {
                                 self.tokens.next(); // Consume "in"
-                                
+
                                 // Parse the haystack expression
                                 let haystack = self.parse_primary_expression()?;
-                                
+
                                 // Create a function call expression for contains
                                 Ok(Expression::FunctionCall {
                                     function: Box::new(Expression::Variable(
@@ -2783,8 +2901,14 @@ impl<'a> Parser<'a> {
                                         token_column,
                                     )),
                                     arguments: vec![
-                                        Argument { name: None, value: haystack },
-                                        Argument { name: None, value: needle },
+                                        Argument {
+                                            name: None,
+                                            value: haystack,
+                                        },
+                                        Argument {
+                                            name: None,
+                                            value: needle,
+                                        },
                                     ],
                                     line: token_line,
                                     column: token_column,
@@ -2805,34 +2929,23 @@ impl<'a> Parser<'a> {
                         self.tokens.next(); // Consume the contextual keyword
                         let token_line = token.line;
                         let token_column = token.column;
-                        
+
                         // Check for property access (dot notation) - same as identifier handling
                         if let Some(next_token) = self.tokens.peek().cloned() {
                             if next_token.token == Token::Dot {
                                 self.tokens.next(); // Consume '.'
-                                
-                                if let Some(property_token) = self.tokens.peek().cloned() {
-                                    if let Token::Identifier(property_name) = &property_token.token {
-                                        self.tokens.next(); // Consume property name
-                                        
-                                        // Check for method call with parentheses
-                                        if let Some(paren_token) = self.tokens.peek().cloned()
-                                            && paren_token.token == Token::LeftParen
-                                        {
-                                            // Handle method call - similar to identifier method handling
-                                            // For now, just return property access
-                                            return Ok(Expression::PropertyAccess {
-                                                object: Box::new(Expression::Variable(
-                                                    name,
-                                                    token_line,
-                                                    token_column,
-                                                )),
-                                                property: property_name.clone(),
-                                                line: token_line,
-                                                column: token_column,
-                                            });
-                                        }
-                                        
+
+                                if let Some(property_token) = self.tokens.peek().cloned()
+                                    && let Token::Identifier(property_name) = &property_token.token
+                                {
+                                    self.tokens.next(); // Consume property name
+
+                                    // Check for method call with parentheses
+                                    if let Some(paren_token) = self.tokens.peek().cloned()
+                                        && paren_token.token == Token::LeftParen
+                                    {
+                                        // Handle method call - similar to identifier method handling
+                                        // For now, just return property access
                                         return Ok(Expression::PropertyAccess {
                                             object: Box::new(Expression::Variable(
                                                 name,
@@ -2844,17 +2957,28 @@ impl<'a> Parser<'a> {
                                             column: token_column,
                                         });
                                     }
+
+                                    return Ok(Expression::PropertyAccess {
+                                        object: Box::new(Expression::Variable(
+                                            name,
+                                            token_line,
+                                            token_column,
+                                        )),
+                                        property: property_name.clone(),
+                                        line: token_line,
+                                        column: token_column,
+                                    });
                                 }
                             } else if next_token.token == Token::LeftBracket {
                                 // Handle array indexing
                                 self.tokens.next(); // Consume '['
                                 let index = self.parse_expression()?;
-                                
+
                                 self.expect_token(
                                     Token::RightBracket,
                                     "Expected ']' after array index",
                                 )?;
-                                
+
                                 return Ok(Expression::IndexAccess {
                                     collection: Box::new(Expression::Variable(
                                         name,
@@ -2867,7 +2991,7 @@ impl<'a> Parser<'a> {
                                 });
                             }
                         }
-                        
+
                         // Return as a simple variable
                         Ok(Expression::Variable(name, token_line, token_column))
                     }
@@ -5340,9 +5464,12 @@ impl<'a> Parser<'a> {
         if is_reserved_pattern_name(&pattern_name) {
             // Consume tokens until we find "end pattern" to prevent cascading errors
             self.consume_pattern_body_on_error();
-            
+
             return Err(ParseError::new(
-                format!("'{}' is a predefined pattern in WFL. Please choose a different name.", pattern_name),
+                format!(
+                    "'{}' is a predefined pattern in WFL. Please choose a different name.",
+                    pattern_name
+                ),
                 pattern_token.line,
                 pattern_token.column,
             ));
