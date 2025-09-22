@@ -2,7 +2,7 @@
   "name": "vscode-wfl",
   "displayName": "WebFirst Language",
   "description": "WebFirst Language (WFL) support for VS Code",
-  "version": "25.9.2",
+  "version": "25.9.3",
   "publisher": "wfl",
   "license": "MIT",
   "engines": {
