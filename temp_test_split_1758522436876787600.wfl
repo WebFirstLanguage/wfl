@@ -1,7 +1,0 @@
-
-        create pattern comma:
-            ","
-        end pattern
-        store parts as split "x,y,z" on pattern comma
-        display length of parts
-    

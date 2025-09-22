@@ -1,8 +1,0 @@
-
-        store text as "hello  world  test"
-        create pattern spaces:
-            one or more " "
-        end pattern
-        store parts as split text on pattern spaces
-        display length of parts
-    

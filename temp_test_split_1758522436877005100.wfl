@@ -1,6 +1,0 @@
-
-        store text as "hello"
-        store parts as split text by ","
-        display length of parts
-        display parts[0]
-    

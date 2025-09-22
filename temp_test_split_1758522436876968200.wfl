@@ -1,5 +1,0 @@
-
-        store text as ""
-        store parts as split text by ","
-        display length of parts
-    

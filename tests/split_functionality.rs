@@ -1,15 +1,31 @@
 use std::fs;
 use std::process::Command;
+use tempfile::NamedTempFile;
+
+/// Robust temporary file cleanup wrapper
+struct TempWflFile {
+    _file: NamedTempFile, // Keep file alive for automatic cleanup
+    path: String,
+}
+
+impl TempWflFile {
+    fn new(code: &str) -> Result<Self, std::io::Error> {
+        let file = NamedTempFile::with_suffix(".wfl")?;
+        fs::write(file.path(), code)?;
+        let path = file.path().to_string_lossy().to_string();
+        Ok(TempWflFile { _file: file, path })
+    }
+
+    fn path(&self) -> &str {
+        &self.path
+    }
+}
+
+// Drop automatically cleans up the file when TempWflFile goes out of scope
 
 fn run_wfl(code: &str) -> String {
-    // Write temporary WFL file with unique name
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let temp_file = format!("temp_test_split_{}.wfl", timestamp);
-    fs::write(&temp_file, code).expect("Failed to write temp file");
+    // Create temporary WFL file with automatic cleanup
+    let temp_file = TempWflFile::new(code).expect("Failed to create temp file");
 
     // Run the WFL interpreter
     let wfl_exe = if cfg!(target_os = "windows") {
@@ -17,22 +33,39 @@ fn run_wfl(code: &str) -> String {
     } else {
         "target/release/wfl"
     };
+
     let output = Command::new(wfl_exe)
-        .arg(&temp_file)
+        .arg(temp_file.path())
         .output()
         .expect("Failed to execute WFL");
-
-    // Clean up
-    fs::remove_file(&temp_file).ok();
 
     // Combine stdout and stderr for complete output
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
+    // Clean up any potential debug files created by WFL
+    cleanup_debug_files(temp_file.path());
+
     if !stderr.is_empty() {
         format!("{}{}", stdout, stderr)
     } else {
         stdout.to_string()
+    }
+    // TempWflFile automatically cleans up when it goes out of scope
+}
+
+/// Clean up debug files that may be created during WFL execution
+fn cleanup_debug_files(wfl_file_path: &str) {
+    use std::path::Path;
+
+    let path = Path::new(wfl_file_path);
+    if let Some(stem) = path.file_stem() {
+        let debug_file = path.parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join(format!("{}_debug.txt", stem.to_string_lossy()));
+
+        // Try to remove debug file if it exists, ignore errors
+        let _ = fs::remove_file(debug_file);
     }
 }
 
