@@ -25,15 +25,81 @@ jobs:
     name: Build, Test, Clippy
     runs-on: ubuntu-latest
     needs: fmt
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Build
+
+      # Cache Cargo registry and target directory for faster builds
+      - name: Cache Cargo registry and target directory
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-build-cache
+
+      # Build debug version first (for development workflow compatibility)
+      - name: Build (Debug)
         run: cargo build --verbose
+
+      # Build release version (required for integration tests)
+      - name: Build (Release)
+        run: cargo build --release --verbose
+
+      # Run tests (integration tests now have access to release binary)
       - name: Run Tests
         run: cargo test --verbose
+
+      # Run Clippy for code quality
       - name: Run Clippy
         run: cargo clippy --all-targets -- -D warnings
+
+  # Cross-platform integration test verification
+  integration-tests:
+    name: Integration Tests
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    needs: fmt
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Cache Cargo registry and target directory for faster builds
+      - name: Cache Cargo registry and target directory
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: integration-${{ matrix.os }}
+
+      # Build release version (required for integration tests)
+      - name: Build Release Binary
+        run: cargo build --release --verbose
+
+      # Verify release binary exists (platform-specific paths)
+      - name: Verify Release Binary (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          if [ ! -f "target/release/wfl" ]; then
+            echo "::error::Release binary not found at target/release/wfl"
+            exit 1
+          fi
+          echo "✓ Release binary found: target/release/wfl"
+
+      - name: Verify Release Binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (!(Test-Path "target/release/wfl.exe")) {
+            Write-Host "::error::Release binary not found at target/release/wfl.exe"
+            exit 1
+          }
+          Write-Host "✓ Release binary found: target/release/wfl.exe"
+
+      # Run integration tests specifically
+      - name: Run Integration Tests
+        run: cargo test --test split_functionality --verbose
+
+      # Run all integration tests to ensure comprehensive coverage
+      - name: Run All Integration Tests
+        run: cargo test --test '*' --verbose

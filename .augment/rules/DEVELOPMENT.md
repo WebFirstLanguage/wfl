@@ -235,6 +235,14 @@ cargo test --package wfl --lib module_name
 ./target/release/wfl.exe TestPrograms/simple_test.wfl
 
 # Run all test programs (MANDATORY before commit)
+# Use the integration test scripts (recommended):
+# Windows PowerShell:
+.\scripts\run_integration_tests.ps1
+
+# Linux/macOS:
+./scripts/run_integration_tests.sh
+
+# Or run manually:
 # Windows PowerShell:
 Get-ChildItem TestPrograms\*.wfl | ForEach-Object { .\target\release\wfl.exe $_.FullName }
 

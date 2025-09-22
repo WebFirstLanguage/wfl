@@ -306,8 +306,16 @@ Integration tests require the WFL binary to be built in release mode (`target/re
 
 **Prevention Tips**:
 - Always run `cargo build --release` before executing integration tests
+- Use the provided integration test scripts that automatically handle release builds:
+  ```bash
+  # Windows PowerShell
+  .\scripts\run_integration_tests.ps1
+
+  # Linux/macOS
+  ./scripts/run_integration_tests.sh
+  ```
 - Include release builds in your development workflow when working with integration tests
-- Consider adding release builds to your CI/CD pipeline before running tests
+- The CI/CD pipeline now automatically builds release binaries before running tests
 - When setting up a new development environment, build both debug and release versions:
   ```bash
   cargo build          # Debug build
@@ -525,7 +533,14 @@ cargo test -- --nocapture
 # Test specific module
 cargo test --package wfl --lib module_name
 
-# Run all test programs (Windows PowerShell)
+# Run integration tests with automatic release build (recommended)
+# Windows PowerShell:
+.\scripts\run_integration_tests.ps1
+
+# Linux/macOS:
+./scripts/run_integration_tests.sh
+
+# Run all test programs manually (Windows PowerShell)
 Get-ChildItem TestPrograms\*.wfl | ForEach-Object { .\target\release\wfl.exe $_.FullName }
 
 # Run all test programs (Linux/macOS)
