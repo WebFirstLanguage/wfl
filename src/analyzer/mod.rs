@@ -1526,6 +1526,10 @@ impl Analyzer {
                 self.analyze_expression(text);
                 self.analyze_expression(pattern);
             }
+            Expression::StringSplit { text, delimiter, .. } => {
+                self.analyze_expression(text);
+                self.analyze_expression(delimiter);
+            }
             Expression::ActionCall {
                 name,
                 arguments,

@@ -1,0 +1,42 @@
+// Test natural 'contains' syntax
+// These more natural forms should work after the parser fix
+
+// Test 1: Natural contains syntax for strings
+store filename as "test.rs"
+store has_rust_ext as contains ".rs" in filename
+display "Has .rs extension: " with has_rust_ext
+
+// Test 2: Natural contains for checking substring
+store text as "Hello, World!"
+store has_hello as contains "Hello" in text
+store has_goodbye as contains "Goodbye" in text
+display "Has Hello: " with has_hello with ", Has Goodbye: " with has_goodbye
+
+// Test 3: Natural contains for lists
+store items as ["apple", "banana", "orange"]
+store has_apple as contains "apple" in items
+store has_grape as contains "grape" in items  
+display "Has apple: " with has_apple with ", Has grape: " with has_grape
+
+// Test 4: Contains in conditional
+store path as "/usr/local/bin/program"
+check if contains "/usr" in path:
+    display "Path is in /usr directory"
+end check
+
+// Test 5: Multiple contains checks
+store email as "user@example.com"
+store valid_email as contains "@" in email and contains "." in email
+display "Valid email format: " with valid_email
+
+// Test 6: Contains with variable needle
+store search_term as "test"
+store mycontent as "This is a test string"
+store myfound as contains search_term in mycontent
+display "Found search term: " with myfound
+
+// Also test that the old syntax still works for backward compatibility
+store old_style as contains of filename and ".rs"
+display "Old style contains still works: " with old_style
+
+display "All natural contains syntax tests passed!"

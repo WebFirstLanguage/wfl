@@ -1,0 +1,39 @@
+// Test that 'create list' can be used as an expression
+// This should work after the parser fix
+
+// Test 1: Basic create list as expression
+store my_list as create list
+display "Created empty list: " with my_list
+
+// Test 2: Create list and immediately use it
+store numbers as create list
+add 1 to numbers
+add 2 to numbers
+add 3 to numbers
+display "Numbers: " with numbers
+
+// Test 3: Create list in conditional expression
+store mydata as null
+check if true:
+    store mydata as create list
+    add "item1" to mydata
+end check
+display "Data list: " with mydata
+
+// Test 4: Create list as function argument
+function process_list with list_param:
+    add "processed" to list_param
+    return list_param
+end function
+
+store result as process_list with create list
+display "Processed list: " with result
+
+// Test 5: Multiple create list expressions
+store list1 as create list
+store list2 as create list
+add "a" to list1
+add "b" to list2
+display "List1: " with list1 with ", List2: " with list2
+
+display "All create list expression tests passed!"

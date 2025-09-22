@@ -1,0 +1,48 @@
+// Test that common words can be used as variable names
+// These should all work after the parser fix
+
+// Test 1: Using 'count' as a variable name
+store count as 0
+display "Count is: " with count
+
+// Test 2: Using 'files' as a variable name  
+store files as ["file1.txt", "file2.txt", "file3.txt"]
+display "Files list: " with files
+
+// Test 3: Using 'extension' as a variable name
+store extension as ".rs"
+display "Extension is: " with extension
+
+// Test 4: Using 'contains' as a variable name
+store contains as "test string"
+display "Contains variable: " with contains
+
+// Test 5: Using 'pattern' as a variable name
+store pattern as "[0-9]+"
+display "Pattern is: " with pattern
+
+// Test 6: Using 'list' as a variable name
+store list as [1, 2, 3]
+display "List variable: " with list
+
+// Test 7: Using 'map' as a variable name
+store map as "location map"
+display "Map variable: " with map
+
+// Test 8: Multiple contextual keywords in same scope
+store count as 10
+store files as []
+store extension as ".wfl"
+display "Count: " with count with ", Files: " with files with ", Extension: " with extension
+
+// Test 9: Using contextual keywords in expressions
+store total_count as count + 5
+store file_extension as "file" with extension
+display "Total: " with total_count with ", Full ext: " with file_extension
+
+// Test 10: Keywords should still work in their keyword context
+count from 1 to 3:
+    display "Loop iteration"
+end count
+
+display "All tests passed!"

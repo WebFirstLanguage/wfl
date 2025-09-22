@@ -950,8 +950,14 @@ impl CodeFixer {
             Expression::PatternSplit { text, pattern, .. } => {
                 output.push_str("split ");
                 self.pretty_print_expression(text, output, indent_level, summary);
-                output.push_str(" by ");
+                output.push_str(" on pattern ");
                 self.pretty_print_expression(pattern, output, indent_level, summary);
+            }
+            Expression::StringSplit { text, delimiter, .. } => {
+                output.push_str("split ");
+                self.pretty_print_expression(text, output, indent_level, summary);
+                output.push_str(" by ");
+                self.pretty_print_expression(delimiter, output, indent_level, summary);
             }
             Expression::AwaitExpression {
                 expression: expr, ..

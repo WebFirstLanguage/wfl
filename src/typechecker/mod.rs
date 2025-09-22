@@ -1906,6 +1906,32 @@ impl TypeChecker {
 
                 Type::List(Box::new(Type::Text))
             }
+            Expression::StringSplit { text, delimiter, line, column } => {
+                let text_type = self.infer_expression_type(text);
+                let delimiter_type = self.infer_expression_type(delimiter);
+
+                if text_type != Type::Text {
+                    self.type_error(
+                        format!("Expected Text for string splitting, got {text_type}"),
+                        Some(Type::Text),
+                        Some(text_type),
+                        *line,
+                        *column,
+                    );
+                }
+
+                if delimiter_type != Type::Text {
+                    self.type_error(
+                        format!("Expected Text for delimiter, got {delimiter_type}"),
+                        Some(Type::Text),
+                        Some(delimiter_type),
+                        *line,
+                        *column,
+                    );
+                }
+
+                Type::List(Box::new(Type::Text))
+            }
             Expression::AwaitExpression {
                 expression,
                 line,

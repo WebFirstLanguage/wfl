@@ -1042,3 +1042,126 @@ fn test_bracket_array_indexing_with_expression() {
         panic!("Expected DisplayStatement, got: {result:?}");
     }
 }
+
+/// Tests that reserved pattern names show helpful error messages instead of generic parsing errors.
+///
+/// Verifies that when a user tries to create a pattern with a reserved keyword name like 'url',
+/// the parser returns a specific error message indicating that the name is predefined.
+#[test]
+fn test_reserved_pattern_name_error_message() {
+    // Test with 'url' - should show helpful error
+    let input_url = r#"create pattern url:
+    "test"
+end pattern"#;
+
+    let tokens = lex_wfl_with_positions(input_url);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_err(), "Expected parsing to fail for reserved name 'url'");
+    
+    let error = result.unwrap_err();
+    assert!(error.message.contains("'url' is a predefined pattern in WFL"), 
+        "Expected helpful error message, got: {}", error.message);
+
+    // Test with 'digit' - should show helpful error  
+    let input_digit = r#"create pattern digit:
+    "0" or "1"
+end pattern"#;
+
+    let tokens = lex_wfl_with_positions(input_digit);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_err(), "Expected parsing to fail for reserved name 'digit'");
+    
+    let error = result.unwrap_err();
+    assert!(error.message.contains("'digit' is a predefined pattern in WFL"), 
+        "Expected helpful error message, got: {}", error.message);
+
+    // Test with valid name - should work fine
+    let input_valid = r#"create pattern my_url:
+    "test"
+end pattern"#;
+
+    let tokens = lex_wfl_with_positions(input_valid);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Expected parsing to succeed for valid name 'my_url'");
+}
+
+/// Tests that reserved pattern names only produce one error, not cascading errors
+/// from the pattern body being parsed as regular statements.
+#[test]
+fn test_reserved_pattern_single_error() {
+    let input = r#"create pattern url:
+    "test"
+    "://"
+    one or more letter or digit or "-" or "."
+    "/"
+end pattern
+
+display "This should work""#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse();
+    assert!(result.is_err(), "Expected parsing to fail for reserved name 'url'");
+    
+    let errors = result.unwrap_err();
+    // Should only have one error (the reserved pattern name), not multiple
+    assert_eq!(errors.len(), 1, "Expected exactly one error, got: {:?}", errors);
+    
+    assert!(errors[0].message.contains("'url' is a predefined pattern in WFL"), 
+        "Expected helpful error message, got: {}", errors[0].message);
+}
+
+/// Tests that list references in patterns are parsed correctly as ListReference AST nodes.
+#[test]
+fn test_pattern_list_reference_parsing() {
+    let input = r#"create pattern my_pattern:
+    my_list
+    "://"
+    another_list
+end pattern"#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Expected parsing to succeed for list references");
+    
+    if let Ok(Statement::PatternDefinition { pattern, .. }) = result {
+        // The pattern should be a sequence containing list references and a literal
+        if let PatternExpression::Sequence(elements) = pattern {
+            assert_eq!(elements.len(), 3, "Expected 3 elements in pattern sequence");
+            
+            // First element should be a list reference
+            if let PatternExpression::ListReference(name) = &elements[0] {
+                assert_eq!(name, "my_list", "Expected list reference to 'my_list'");
+            } else {
+                panic!("Expected first element to be ListReference, got: {:?}", elements[0]);
+            }
+            
+            // Second element should be a literal
+            if let PatternExpression::Literal(text) = &elements[1] {
+                assert_eq!(text, "://", "Expected literal ':://'");
+            } else {
+                panic!("Expected second element to be Literal, got: {:?}", elements[1]);
+            }
+            
+            // Third element should be another list reference
+            if let PatternExpression::ListReference(name) = &elements[2] {
+                assert_eq!(name, "another_list", "Expected list reference to 'another_list'");
+            } else {
+                panic!("Expected third element to be ListReference, got: {:?}", elements[2]);
+            }
+        } else {
+            panic!("Expected pattern to be a Sequence, got: {:?}", pattern);
+        }
+    } else {
+        panic!("Expected PatternDefinition statement, got: {:?}", result);
+    }
+}

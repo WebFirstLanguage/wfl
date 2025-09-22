@@ -1,0 +1,59 @@
+# Test pattern-based split functionality
+
+# Test 1: Split CSV data using comma pattern
+store csv_data as "name,age,city"
+create pattern comma:
+    ","
+end pattern
+store fields as split csv_data on pattern comma
+display "CSV fields count: " with length of fields
+display "Name: " with fields[0]
+display "Age: " with fields[1]
+display "City: " with fields[2]
+
+# Test 2: Split on space literal pattern
+store input_text as "hello world test"
+create pattern spaces:
+    " "
+end pattern
+store tokens as split input_text on pattern spaces
+display "Token count: " with length of tokens
+display "First token: " with tokens[0]
+display "Last token: " with tokens[2]
+
+# Test 3: Split on digit pattern
+store mixed as "abc123def456ghi"
+create pattern digits:
+    one or more digit
+end pattern
+store parts as split mixed on pattern digits
+display "Non-digit parts count: " with length of parts
+display "First part: " with parts[0]
+display "Second part: " with parts[1]
+display "Third part: " with parts[2]
+
+# Test 4: Split on word boundary pattern
+store sentence as "Hello, world! How are you?"
+create pattern punctuation:
+    "," or "!" or "?"
+end pattern
+store words as split sentence on pattern punctuation
+display "Word groups count: " with length of words
+display "First group: " with words[0]
+display "Second group: " with words[1]
+
+# Expected output:
+# CSV fields count: 3
+# Name: name
+# Age: age
+# City: city
+# Token count: 3
+# First token: hello
+# Last token: test
+# Non-digit parts count: 3
+# First part: abc
+# Second part: def
+# Third part: ghi
+# Word groups count: 4
+# First group: Hello
+# Second group:  world

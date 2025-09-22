@@ -46,7 +46,8 @@
       "Bash(git tag:*)",
       "Bash(targetreleasewfl.exe TestProgramsfile_io_comprehensive.wfl)",
       "Bash(.targetdebugwfl.exe TestProgramsfile_io_comprehensive.wfl)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "WebSearch"
     ],
     "deny": []
   }

@@ -1,0 +1,51 @@
+# Test edge cases for string split functionality
+
+# Test 1: Empty string
+store empty as ""
+store empty_result as split empty by ","
+display "Empty string split count: " with length of empty_result
+
+# Test 2: String with no delimiter
+store no_delim as "hello"
+store no_delim_result as split no_delim by ","
+display "No delimiter count: " with length of no_delim_result
+display "No delimiter result: " with no_delim_result[0]
+
+# Test 3: Adjacent delimiters
+store adjacent as "a,,b"
+store adjacent_result as split adjacent by ","
+display "Adjacent delimiter count: " with length of adjacent_result
+display "First: " with adjacent_result[0]
+display "Second (empty): '" with adjacent_result[1] with "'"
+display "Third: " with adjacent_result[2]
+
+# Test 4: Trailing delimiter
+store trailing as "a,b,"
+store trailing_result as split trailing by ","
+display "Trailing delimiter count: " with length of trailing_result
+display "Last element (empty): '" with trailing_result[2] with "'"
+
+# Test 5: Leading delimiter
+store leading as ",a,b"
+store leading_result as split leading by ","
+display "Leading delimiter count: " with length of leading_result
+display "First element (empty): '" with leading_result[0] with "'"
+
+# Test 6: Only delimiters
+store only_delim as ",,,"
+store only_delim_result as split only_delim by ","
+display "Only delimiters count: " with length of only_delim_result
+
+# Expected output:
+# Empty string split count: 1
+# No delimiter count: 1
+# No delimiter result: hello
+# Adjacent delimiter count: 3
+# First: a
+# Second (empty): ''
+# Third: b
+# Trailing delimiter count: 3
+# Last element (empty): ''
+# Leading delimiter count: 3
+# First element (empty): ''
+# Only delimiters count: 4
