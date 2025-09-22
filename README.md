@@ -21,6 +21,7 @@
 - [🚀 Quick Start](#-quick-start)
 - [📚 Language Overview](#-language-overview)
 - [🛠️ Development Tools](#️-development-tools)
+- [🔧 Troubleshooting](#-troubleshooting)
 - [📦 Standard Library](#-standard-library)
 - [⚙️ Configuration](#️-configuration)
 - [🏗️ Architecture](#️-architecture)
@@ -250,6 +251,90 @@ Install the extension:
 ```powershell
 scripts/install_vscode_extension.ps1
 ```
+
+## 🔧 Troubleshooting
+
+This section covers common issues you might encounter while developing with WFL and their solutions.
+
+### Integration Tests Failing with "Path Not Found" Error
+
+**Problem**: Integration tests (particularly split functionality tests) fail with error:
+```
+Os { code: 3, kind: NotFound, message: "The system cannot find the path specified." }
+```
+
+**Symptoms**:
+- Tests in `tests/split_functionality.rs` and other integration test files fail
+- Error occurs when tests try to execute WFL programs
+- Debug binary exists at `target/debug/wfl.exe` but tests still fail
+- Error message indicates a file or path cannot be found
+
+**Root Cause**:
+Integration tests require the WFL binary to be built in release mode (`target/release/wfl.exe` on Windows, `target/release/wfl` on other platforms). The test infrastructure in files like `tests/split_functionality.rs` uses the `run_wfl()` helper function which is hardcoded to execute the release binary. If only the debug binary has been built, the tests will fail with a "path not found" error.
+
+**Resolution Steps**:
+
+1. **Build the release binary**:
+   ```bash
+   cargo build --release
+   ```
+
+2. **Verify the binary exists**:
+   ```bash
+   # Windows
+   ls target/release/wfl.exe
+
+   # Linux/macOS
+   ls target/release/wfl
+   ```
+
+3. **Run the tests again**:
+   ```bash
+   # Run specific integration test
+   cargo test --test split_functionality
+
+   # Or run all tests
+   cargo test
+   ```
+
+4. **Verify all quality checks pass**:
+   ```bash
+   cargo clippy --all-targets --all-features -- -D warnings
+   cargo fmt --all -- --check
+   cargo test --all --verbose
+   ```
+
+**Prevention Tips**:
+- Always run `cargo build --release` before executing integration tests
+- Include release builds in your development workflow when working with integration tests
+- Consider adding release builds to your CI/CD pipeline before running tests
+- When setting up a new development environment, build both debug and release versions:
+  ```bash
+  cargo build          # Debug build
+  cargo build --release # Release build
+  ```
+
+**Alternative Solutions**:
+If you frequently work with integration tests, you can modify the test infrastructure to check for debug binaries as a fallback, though this is not recommended for consistency reasons.
+
+### Other Common Issues
+
+**Issue**: WFL programs run slowly or hang
+- **Solution**: Check for infinite loops, use `--time` flag to measure execution, set appropriate timeouts in `.wflcfg`
+
+**Issue**: Syntax highlighting not working in VS Code
+- **Solution**: Reinstall the extension using `scripts/install_vscode_extension.ps1`
+
+**Issue**: Configuration file not being recognized
+- **Solution**: Ensure `.wflcfg` is in the correct directory, run `wfl --configCheck` to validate
+
+**Issue**: Memory usage issues with large programs
+- **Solution**: Use `--features dhat-heap` for memory profiling, optimize data structures
+
+For additional help:
+- Check the [Development Guide](.augment/rules/DEVELOPMENT.md) for detailed troubleshooting
+- Review [GitHub Issues](https://github.com/WebFirstLanguage/wfl/issues) for similar problems
+- Create a new issue with detailed error information and steps to reproduce
 
 ## 📦 Standard Library
 
