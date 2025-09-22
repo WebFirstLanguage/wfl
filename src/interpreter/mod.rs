@@ -2915,29 +2915,31 @@ impl Interpreter {
                 }
             }
             Statement::WaitForRequestStatement {
-                server: _server,
-                request_name: _request_name,
+                server,
+                request_name,
                 line,
                 column,
             } => {
                 // For now, return an error indicating this is not yet implemented
+                // TODO: Implement proper request handling with warp
                 Err(RuntimeError::new(
-                    "Web server request handling is not yet implemented".to_string(),
+                    "Web server request handling is not yet implemented - requires async request queue".to_string(),
                     *line,
                     *column,
                 ))
             }
             Statement::RespondStatement {
-                request: _request,
-                content: _content,
-                status: _status,
-                content_type: _content_type,
+                request,
+                content,
+                status,
+                content_type,
                 line,
                 column,
             } => {
                 // For now, return an error indicating this is not yet implemented
+                // TODO: Implement proper response handling with warp
                 Err(RuntimeError::new(
-                    "Web server response handling is not yet implemented".to_string(),
+                    "Web server response handling is not yet implemented - requires async response channel".to_string(),
                     *line,
                     *column,
                 ))

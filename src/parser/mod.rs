@@ -6871,56 +6871,56 @@ impl<'a> Parser<'a> {
         // Expect "to"
         self.expect_token(Token::KeywordTo, "Expected 'to' after 'respond'")?;
 
-        // Parse request expression
-        let request = self.parse_expression()?;
+        // Parse request expression (use primary to avoid consuming "with")
+        let request = self.parse_primary_expression()?;
 
         // Expect "with"
         self.expect_token(Token::KeywordWith, "Expected 'with' after request")?;
 
-        // Parse content expression
-        let content = self.parse_expression()?;
+        // Parse content expression (use primary to avoid consuming "and")
+        let content = self.parse_primary_expression()?;
 
         // Optional status and content_type
         let mut status = None;
         let mut content_type = None;
 
-        // Check for "and status"
-        if let Some(token) = self.tokens.peek()
-            && token.token == Token::KeywordAnd
-        {
-            self.tokens.next(); // Consume "and"
-
+        // Check for optional "and" clauses (status and/or content_type)
+        loop {
             if let Some(token) = self.tokens.peek()
-                && token.token == Token::KeywordStatus
+                && token.token == Token::KeywordAnd
             {
-                self.tokens.next(); // Consume "status"
-                status = Some(self.parse_expression()?);
-            }
-        }
+                // Look ahead to see what comes after "and"
+                let mut tokens_clone = self.tokens.clone();
+                tokens_clone.next(); // Skip "and"
 
-        // Check for "and content_type" or "and content type"
-        if let Some(token) = self.tokens.peek()
-            && token.token == Token::KeywordAnd
-        {
-            self.tokens.next(); // Consume "and"
+                if let Some(next_token) = tokens_clone.peek() {
+                    if next_token.token == Token::KeywordStatus {
+                        self.tokens.next(); // Consume "and"
+                        self.tokens.next(); // Consume "status"
+                        status = Some(self.parse_expression()?);
+                        continue;
+                    }
+                    else if let Token::Identifier(id) = &next_token.token
+                        && (id == "content_type" || id == "content")
+                    {
+                        self.tokens.next(); // Consume "and"
+                        self.tokens.next(); // Consume "content_type" or "content"
 
-            if let Some(token) = self.tokens.peek()
-                && let Token::Identifier(id) = &token.token
-                && (id == "content_type" || id == "content")
-            {
-                self.tokens.next(); // Consume "content_type" or "content"
+                        // If it was "content", expect "type" next
+                        if id == "content"
+                            && let Some(type_token) = self.tokens.peek()
+                            && let Token::Identifier(type_id) = &type_token.token
+                            && type_id == "type"
+                        {
+                            self.tokens.next(); // Consume "type"
+                        }
 
-                // If it was "content", expect "type" next
-                if id == "content"
-                    && let Some(token) = self.tokens.peek()
-                    && let Token::Identifier(type_id) = &token.token
-                    && type_id == "type"
-                {
-                    self.tokens.next(); // Consume "type"
+                        content_type = Some(self.parse_expression()?);
+                        continue;
+                    }
                 }
-
-                content_type = Some(self.parse_expression()?);
             }
+            break;
         }
 
         Ok(Statement::RespondStatement {

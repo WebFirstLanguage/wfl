@@ -1,0 +1,18 @@
+// Simple test to isolate respond statement parsing issue
+display "=== Simple Respond Test ==="
+
+// This should fail because the functionality isn't implemented, but should parse correctly
+try:
+    listen on port 8094 as simple_server
+    display "Server started"
+    
+    // Try a simple respond statement
+    wait for request comes in on simple_server as test_request
+    respond to test_request with "Hello World" and content_type "text/plain"
+    display "Response sent"
+    
+catch:
+    display "Expected failure - functionality not implemented"
+end try
+
+display "=== Simple Respond Test Complete ==="
