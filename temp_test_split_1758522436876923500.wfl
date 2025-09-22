@@ -1,0 +1,5 @@
+
+        store text as "a,,b"
+        store parts as split text by ","
+        display length of parts
+    

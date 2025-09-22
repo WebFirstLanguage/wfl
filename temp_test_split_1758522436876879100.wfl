@@ -1,0 +1,4 @@
+
+        store num as 123
+        store parts as split num by ","
+    

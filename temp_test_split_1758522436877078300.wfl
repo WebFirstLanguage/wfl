@@ -1,0 +1,4 @@
+
+        store text as "a,b,c"
+        store parts as split text by 123
+    
