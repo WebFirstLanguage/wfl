@@ -140,9 +140,10 @@ impl PatternCompiler {
     /// # use wfl::interpreter::environment::Environment;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut compiler = PatternCompiler::new();
-    /// let mut env = Environment::new();
+    /// let env = Environment::new_global();
     /// let ast = PatternExpression::ListReference("my_list".to_string());
-    /// let program = compiler.compile_with_env(&ast, &env)?;
+    /// let env_borrowed = env.borrow();
+    /// let program = compiler.compile_with_env(&ast, &*env_borrowed)?;
     /// # Ok(())
     /// # }
     /// ```
