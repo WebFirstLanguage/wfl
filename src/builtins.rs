@@ -32,6 +32,8 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     // Crypto functions (implemented in stdlib/crypto.rs)
     "wflhash256",
     "wflhash512",
+    "wflhash256_with_salt",
+    "wflmac256",
     // Math functions recognized by TypeChecker but not yet implemented
     "min",
     "max",

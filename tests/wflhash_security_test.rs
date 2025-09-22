@@ -2,12 +2,10 @@
 // These tests are designed to FAIL with the current implementation
 // and PASS after security fixes are implemented
 
-use wfl::interpreter::environment::Environment;
-use wfl::interpreter::error::RuntimeError;
-use wfl::interpreter::value::Value;
-use wfl::stdlib::crypto::{native_wflhash256, native_wflhash512, native_wflhash256_with_salt};
 use std::rc::Rc;
 use std::time::Instant;
+use wfl::interpreter::value::Value;
+use wfl::stdlib::crypto::{native_wflhash256, native_wflhash256_with_salt};
 
 #[cfg(test)]
 mod wflhash_security_tests {
@@ -29,13 +27,20 @@ mod wflhash_security_tests {
         if let Value::Text(h1) = hash1 {
             // Hash should be 64 hex characters (256 bits)
             assert_eq!(h1.len(), 64, "Hash should be 64 hex characters");
-            assert!(h1.chars().all(|c| c.is_ascii_hexdigit()), "Hash should be valid hex");
+            assert!(
+                h1.chars().all(|c| c.is_ascii_hexdigit()),
+                "Hash should be valid hex"
+            );
 
             // Hash should not be all zeros or other predictable patterns
-            assert_ne!(&*h1, "0000000000000000000000000000000000000000000000000000000000000000",
-                      "Hash should not be all zeros");
-            assert_ne!(&*h1, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                      "Hash should not be all ones");
+            assert_ne!(
+                &*h1, "0000000000000000000000000000000000000000000000000000000000000000",
+                "Hash should not be all zeros"
+            );
+            assert_ne!(
+                &*h1, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "Hash should not be all ones"
+            );
         }
     }
 
@@ -51,8 +56,8 @@ mod wflhash_security_tests {
         let hash2 = native_wflhash256(vec![Value::Text(Rc::from(input2))]).unwrap();
 
         if let (Value::Text(h1), Value::Text(h2)) = (hash1, hash2) {
-            let h1_bytes = hex::decode(&*h1).unwrap();
-            let h2_bytes = hex::decode(&*h2).unwrap();
+            let h1_bytes = hex::decode(&h1).unwrap();
+            let h2_bytes = hex::decode(&h2).unwrap();
 
             // Count differing bits (Hamming distance)
             let mut differing_bits = 0;
@@ -64,12 +69,16 @@ mod wflhash_security_tests {
             let difference_ratio = differing_bits as f64 / total_bits as f64;
 
             // With 24 rounds, avalanche effect should be good (close to 50%)
-            assert!(difference_ratio > 0.4,
-                   "Avalanche effect should be good with 24 rounds: got {:.2}%",
-                   difference_ratio * 100.0);
-            assert!(difference_ratio < 0.6,
-                   "Avalanche effect should not be too high: got {:.2}%",
-                   difference_ratio * 100.0);
+            assert!(
+                difference_ratio > 0.4,
+                "Avalanche effect should be good with 24 rounds: got {:.2}%",
+                difference_ratio * 100.0
+            );
+            assert!(
+                difference_ratio < 0.6,
+                "Avalanche effect should not be too high: got {:.2}%",
+                difference_ratio * 100.0
+            );
         }
     }
 
@@ -88,7 +97,10 @@ mod wflhash_security_tests {
 
         if let (Value::Text(h1), Value::Text(h2)) = (hash1, hash2) {
             // With proper padding, these should be different
-            assert_ne!(h1, h2, "Different length inputs should produce different hashes");
+            assert_ne!(
+                h1, h2,
+                "Different length inputs should produce different hashes"
+            );
         }
 
         // Test another scenario
@@ -99,7 +111,10 @@ mod wflhash_security_tests {
         let hash_b = native_wflhash256(vec![Value::Text(Rc::from(msg_b))]).unwrap();
 
         if let (Value::Text(ha), Value::Text(hb)) = (hash_a, hash_b) {
-            assert_ne!(ha, hb, "Messages of different lengths should have different hashes");
+            assert_ne!(
+                ha, hb,
+                "Messages of different lengths should have different hashes"
+            );
         }
 
         // Test empty vs non-empty
@@ -110,7 +125,10 @@ mod wflhash_security_tests {
         let hash_non_empty = native_wflhash256(vec![Value::Text(Rc::from(non_empty))]).unwrap();
 
         if let (Value::Text(he), Value::Text(hne)) = (hash_empty, hash_non_empty) {
-            assert_ne!(he, hne, "Empty and non-empty inputs should have different hashes");
+            assert_ne!(
+                he, hne,
+                "Empty and non-empty inputs should have different hashes"
+            );
         }
     }
 
@@ -133,8 +151,11 @@ mod wflhash_security_tests {
 
         // Verify all hashes are different
         for i in 0..hashes.len() {
-            for j in i+1..hashes.len() {
-                assert_ne!(hashes[i], hashes[j], "Different inputs should produce different hashes");
+            for j in i + 1..hashes.len() {
+                assert_ne!(
+                    hashes[i], hashes[j],
+                    "Different inputs should produce different hashes"
+                );
 
                 let h1_bytes = hex::decode(&hashes[i]).unwrap();
                 let h2_bytes = hex::decode(&hashes[j]).unwrap();
@@ -149,9 +170,11 @@ mod wflhash_security_tests {
 
                 // With strong round constants, most positions should be different
                 let difference_ratio = different_positions as f64 / h1_bytes.len() as f64;
-                assert!(difference_ratio > 0.7,
-                       "Strong round constants should cause high difference ratio: got {:.2}%",
-                       difference_ratio * 100.0);
+                assert!(
+                    difference_ratio > 0.7,
+                    "Strong round constants should cause high difference ratio: got {:.2}%",
+                    difference_ratio * 100.0
+                );
             }
         }
     }
@@ -175,8 +198,11 @@ mod wflhash_security_tests {
             }
             Err(e) => {
                 // Should fail with size limit error
-                assert!(e.message.contains("too large") || e.message.contains("size limit"),
-                       "Should fail with size limit error, got: {}", e.message);
+                assert!(
+                    e.message.contains("too large") || e.message.contains("size limit"),
+                    "Should fail with size limit error, got: {}",
+                    e.message
+                );
             }
         }
 
@@ -207,12 +233,14 @@ mod wflhash_security_tests {
 
         // Calculate timing statistics
         let mean = timings.iter().sum::<u128>() / timings.len() as u128;
-        let variance = timings.iter()
+        let variance = timings
+            .iter()
             .map(|&t| {
-                let diff = if t > mean { t - mean } else { mean - t };
+                let diff = t.abs_diff(mean);
                 diff * diff
             })
-            .sum::<u128>() / timings.len() as u128;
+            .sum::<u128>()
+            / timings.len() as u128;
 
         let std_dev = (variance as f64).sqrt();
         let coefficient_of_variation = std_dev / mean as f64;
@@ -220,9 +248,11 @@ mod wflhash_security_tests {
         // With timing-safe measures, variation should be reasonable
         // (Not perfect constant-time, but better than before)
         // Note: Timing tests are inherently unreliable, so we use a generous threshold
-        assert!(coefficient_of_variation < 1.0,
-               "Timing variation should be reasonable: got {:.2}%",
-               coefficient_of_variation * 100.0);
+        assert!(
+            coefficient_of_variation < 1.0,
+            "Timing variation should be reasonable: got {:.2}%",
+            coefficient_of_variation * 100.0
+        );
 
         // Test that function completes in reasonable time
         assert!(mean < 10_000_000, "Hash should complete in reasonable time"); // 10ms
@@ -241,8 +271,8 @@ mod wflhash_security_tests {
         let hash2 = native_wflhash256(vec![Value::Text(Rc::from(input2))]).unwrap();
 
         if let (Value::Text(h1), Value::Text(h2)) = (hash1, hash2) {
-            let h1_bytes = hex::decode(&*h1).unwrap();
-            let h2_bytes = hex::decode(&*h2).unwrap();
+            let h1_bytes = hex::decode(&h1).unwrap();
+            let h2_bytes = hex::decode(&h2).unwrap();
 
             // Count differing bits
             let mut differing_bits = 0;
@@ -254,12 +284,16 @@ mod wflhash_security_tests {
             let difference_ratio = differing_bits as f64 / total_bits as f64;
 
             // Good hash should have ~50% bit difference for single input change
-            assert!(difference_ratio > 0.4,
-                   "Avalanche effect should be strong: got {:.2}%",
-                   difference_ratio * 100.0);
-            assert!(difference_ratio < 0.6,
-                   "Avalanche effect should not be too extreme: got {:.2}%",
-                   difference_ratio * 100.0);
+            assert!(
+                difference_ratio > 0.4,
+                "Avalanche effect should be strong: got {:.2}%",
+                difference_ratio * 100.0
+            );
+            assert!(
+                difference_ratio < 0.6,
+                "Avalanche effect should not be too extreme: got {:.2}%",
+                difference_ratio * 100.0
+            );
         }
     }
 
@@ -280,22 +314,33 @@ mod wflhash_security_tests {
         // Test hash with salt1 (using the new function we added)
         let hash_salt1 = native_wflhash256_with_salt(vec![
             Value::Text(Rc::from(input)),
-            Value::Text(Rc::from(salt1))
-        ]).unwrap();
+            Value::Text(Rc::from(salt1)),
+        ])
+        .unwrap();
 
         // Test hash with salt2
         let hash_salt2 = native_wflhash256_with_salt(vec![
             Value::Text(Rc::from(input)),
-            Value::Text(Rc::from(salt2))
-        ]).unwrap();
+            Value::Text(Rc::from(salt2)),
+        ])
+        .unwrap();
 
         if let (Value::Text(h_basic), Value::Text(h_salt1), Value::Text(h_salt2)) =
-            (hash_basic, hash_salt1, hash_salt2) {
-
+            (hash_basic, hash_salt1, hash_salt2)
+        {
             // All hashes should be different
-            assert_ne!(h_basic, h_salt1, "Hash with salt should differ from basic hash");
-            assert_ne!(h_basic, h_salt2, "Hash with different salt should differ from basic hash");
-            assert_ne!(h_salt1, h_salt2, "Different salts should produce different hashes");
+            assert_ne!(
+                h_basic, h_salt1,
+                "Hash with salt should differ from basic hash"
+            );
+            assert_ne!(
+                h_basic, h_salt2,
+                "Hash with different salt should differ from basic hash"
+            );
+            assert_ne!(
+                h_salt1, h_salt2,
+                "Different salts should produce different hashes"
+            );
 
             // All should be valid hex strings
             assert_eq!(h_basic.len(), 64, "Basic hash should be 64 hex chars");
@@ -311,7 +356,7 @@ mod hex {
         if s.len() % 2 != 0 {
             return Err("Odd length");
         }
-        
+
         let mut result = Vec::new();
         for chunk in s.as_bytes().chunks(2) {
             let hex_str = std::str::from_utf8(chunk).map_err(|_| "Invalid UTF-8")?;

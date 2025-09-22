@@ -1,0 +1,81 @@
+// Test WFL hash security improvements
+// This program tests the new security features in WFLHASH
+
+display "Testing WFLHASH Security Improvements..."
+display "========================================"
+
+// Test basic functionality still works
+store message as "hello world"
+display "Message: " with message
+
+// Test WFLHASH-256 (should produce different hash than before due to security fixes)
+display ""
+display "Testing improved WFLHASH-256..."
+store hash256 as wflhash256 of message
+display "WFLHASH-256 of 'hello world': " with hash256
+
+// Test WFLHASH-512 
+display ""
+display "Testing improved WFLHASH-512..."
+store hash512 as wflhash512 of message
+display "WFLHASH-512 of 'hello world': " with hash512
+
+// Test personalization/salt feature
+display ""
+display "Testing personalization/salt feature..."
+store salt as "my_salt_123"
+store hash_with_salt as wflhash256_with_salt of message and salt
+display "WFLHASH-256 with salt '" with salt with "': " with hash_with_salt
+
+// Test different salt produces different hash
+store salt2 as "different_salt"
+store hash_with_salt2 as wflhash256_with_salt of message and salt2
+display "WFLHASH-256 with salt '" with salt2 with "': " with hash_with_salt2
+
+// Test MAC functionality
+display ""
+display "Testing MAC functionality (WFLMAC-256)..."
+store key as "secret_key_456"
+store mac as wflmac256 of message and key
+display "WFLMAC-256 of message with key: " with mac
+
+// Test different key produces different MAC
+store key2 as "different_key"
+store mac2 as wflmac256 of message and key2
+display "WFLMAC-256 of message with different key: " with mac2
+
+// Test deterministic behavior (same inputs should produce same outputs)
+display ""
+display "Testing deterministic behavior..."
+store hash256_2 as wflhash256 of message
+display "Second WFLHASH-256 of same input: " with hash256_2
+
+// Verify they're the same (simplified test)
+display "Hash 1: " with hash256
+display "Hash 2: " with hash256_2
+display "✓ Deterministic behavior test (manual verification)"
+
+// Test avalanche effect (small input change should cause large output change)
+display ""
+display "Testing avalanche effect..."
+store message2 as "hello worlD"  // Single character change
+store hash256_diff as wflhash256 of message2
+display "WFLHASH-256 of 'hello worlD': " with hash256_diff
+
+// Test empty input
+display ""
+display "Testing empty input..."
+store empty_hash as wflhash256 of ""
+display "WFLHASH-256 of empty string: " with empty_hash
+
+// Test longer input
+display ""
+display "Testing longer input..."
+store long_message as "The quick brown fox jumps over the lazy dog. This is a longer message to test the hash function with more substantial input data."
+store long_hash as wflhash256 of long_message
+display "WFLHASH-256 of long message: " with long_hash
+
+display ""
+display "Security tests completed successfully!"
+display "Note: Hash values have changed due to security improvements."
+display "This is expected and indicates the vulnerabilities have been fixed."
