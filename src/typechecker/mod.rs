@@ -257,6 +257,26 @@ impl TypeChecker {
             } => {
                 self.check_statement_types(inner);
             }
+            Statement::WaitForDurationStatement {
+                duration,
+                line: _line,
+                column: _column,
+                ..
+            } => {
+                let duration_type = self.infer_expression_type(duration);
+                if duration_type != Type::Number
+                    && duration_type != Type::Unknown
+                    && duration_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected a number for wait duration".to_string(),
+                        Some(Type::Number),
+                        Some(duration_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
             Statement::TryStatement {
                 body,
                 when_clauses,
@@ -887,6 +907,28 @@ impl TypeChecker {
                     );
                 }
             }
+            Statement::WriteContentStatement {
+                content,
+                target,
+                line: _line,
+                column: _column,
+            } => {
+                let _content_type = self.infer_expression_type(content); // Content can be any type
+                let target_type = self.infer_expression_type(target);
+                if target_type != Type::Custom("File".to_string())
+                    && target_type != Type::Text  // Allow string file handles
+                    && target_type != Type::Unknown
+                    && target_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected a file handle or string".to_string(),
+                        Some(Type::Custom("File".to_string())),
+                        Some(target_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
             Statement::CreateListStatement {
                 name,
                 initial_values,
@@ -1241,6 +1283,7 @@ impl TypeChecker {
             Statement::WaitForRequestStatement {
                 server: _server,
                 request_name: _request_name,
+                timeout: _timeout,
                 line: _line,
                 column: _column,
             } => {
@@ -1300,6 +1343,32 @@ impl TypeChecker {
                         );
                     }
                 }
+            }
+            // Graceful shutdown and signal handling statements
+            Statement::RegisterSignalHandlerStatement {
+                signal_type: _signal_type,
+                handler_name: _handler_name,
+                line: _line,
+                column: _column,
+            } => {
+                // TODO: Add type checking for signal handler registration
+                // For now, just accept any signal type and handler name
+            }
+            Statement::StopAcceptingConnectionsStatement {
+                server: _server,
+                line: _line,
+                column: _column,
+            } => {
+                // TODO: Add type checking for server expression
+                // For now, just accept any type
+            }
+            Statement::CloseServerStatement {
+                server: _server,
+                line: _line,
+                column: _column,
+            } => {
+                // TODO: Add type checking for server expression
+                // For now, just accept any type
             }
         }
     }
@@ -2374,6 +2443,9 @@ impl TypeChecker {
             Expression::ReadContent { .. } => Type::Text,
             Expression::ListFilesRecursive { .. } => Type::List(Box::new(Type::Text)),
             Expression::ListFilesFiltered { .. } => Type::List(Box::new(Type::Text)),
+            Expression::HeaderAccess { .. } => Type::Text,
+            Expression::CurrentTimeMilliseconds { .. } => Type::Number,
+            Expression::CurrentTimeFormatted { .. } => Type::Text,
         }
     }
 

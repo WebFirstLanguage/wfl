@@ -1,0 +1,31 @@
+// Wait Duration Test
+// Tests the "wait for X milliseconds" statement
+
+display "=== Wait Duration Test ==="
+display "Testing wait for duration statement"
+display ""
+
+// Test 1: Wait for milliseconds
+display "Test 1: Waiting for 500 milliseconds..."
+store start_time as current time in milliseconds
+wait for 500 milliseconds
+store end_time as current time in milliseconds
+store elapsed as end_time minus start_time
+
+display "✓ Waited successfully"
+display "Elapsed time: " with elapsed with " ms (should be ~500ms)"
+display ""
+
+// Test 2: Wait for different duration
+display "Test 2: Waiting for 1000 milliseconds..."
+store start_time2 as current time in milliseconds
+wait for 1000 milliseconds
+store end_time2 as current time in milliseconds
+store elapsed2 as end_time2 minus start_time2
+
+display "✓ Waited successfully"
+display "Elapsed time: " with elapsed2 with " ms (should be ~1000ms)"
+display ""
+
+display "=== Wait Duration Test Complete ==="
+display "✓ Wait for duration statement working!"

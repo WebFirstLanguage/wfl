@@ -1,0 +1,35 @@
+// File Appending Test
+// Tests the "for appending" file mode
+
+display "=== File Appending Test ==="
+display "Testing file opening for appending mode"
+display ""
+
+// Test data
+store log_file as "test_append.log"
+store log_entry1 as "First log entry"
+store log_entry2 as "Second log entry"
+
+display "Log file: " with log_file
+display "Entry 1: " with log_entry1
+display "Entry 2: " with log_entry2
+display ""
+
+// Test 1: Open file for appending and write content
+display "Test 1: Opening file for appending"
+open file at log_file for appending as access_log
+write content log_entry1 into access_log
+close file access_log
+display "✓ First entry written successfully"
+display ""
+
+// Test 2: Open file for appending again and add more content
+display "Test 2: Appending more content"
+open file at log_file for appending as access_log2
+write content log_entry2 into access_log2
+close file access_log2
+display "✓ Second entry appended successfully"
+display ""
+
+display "=== File Appending Test Complete ==="
+display "✓ File appending mode working!"

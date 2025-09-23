@@ -1,0 +1,37 @@
+// Time Functions Test
+// Tests the current time functionality
+
+display "=== Time Functions Test ==="
+display "Testing current time functionality"
+display ""
+
+// Test current time in milliseconds
+display "Test 1: Current time in milliseconds"
+store timestamp as current time in milliseconds
+display "Current timestamp: " with timestamp
+display "✓ Current time in milliseconds working"
+display ""
+
+// Test current time formatted
+display "Test 2: Current time formatted"
+store formatted_time as current time formatted as "yyyy-MM-dd HH:mm:ss"
+display "Formatted time: " with formatted_time
+display "✓ Current time formatted working"
+display ""
+
+// Test different format
+display "Test 3: Different time format"
+store simple_time as current time formatted as "HH:mm:ss"
+display "Simple time: " with simple_time
+display "✓ Different time format working"
+display ""
+
+// Test date only format
+display "Test 4: Date only format"
+store date_only as current time formatted as "yyyy-MM-dd"
+display "Date only: " with date_only
+display "✓ Date only format working"
+display ""
+
+display "=== Time Functions Test Complete ==="
+display "✓ All time functions working!"

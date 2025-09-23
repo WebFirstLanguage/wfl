@@ -248,6 +248,12 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    WaitForDurationStatement {
+        duration: Expression,
+        unit: String, // "milliseconds", "seconds", etc.
+        line: usize,
+        column: usize,
+    },
     TryStatement {
         body: Vec<Statement>,
         when_clauses: Vec<WhenClause>,
@@ -384,6 +390,7 @@ pub enum Statement {
     WaitForRequestStatement {
         server: Expression,
         request_name: String,
+        timeout: Option<Expression>,
         line: usize,
         column: usize,
     },
@@ -392,6 +399,29 @@ pub enum Statement {
         content: Expression,
         status: Option<Expression>,
         content_type: Option<Expression>,
+        line: usize,
+        column: usize,
+    },
+    // Graceful shutdown and signal handling statements
+    RegisterSignalHandlerStatement {
+        signal_type: String, // SIGINT, SIGTERM, etc.
+        handler_name: String,
+        line: usize,
+        column: usize,
+    },
+    StopAcceptingConnectionsStatement {
+        server: Expression,
+        line: usize,
+        column: usize,
+    },
+    CloseServerStatement {
+        server: Expression,
+        line: usize,
+        column: usize,
+    },
+    WriteContentStatement {
+        content: Expression,
+        target: Expression,
         line: usize,
         column: usize,
     },
@@ -497,6 +527,23 @@ pub enum Expression {
     PropertyAccess {
         object: Box<Expression>,
         property: String,
+        line: usize,
+        column: usize,
+    },
+    // Web server specific expressions
+    HeaderAccess {
+        header_name: String,
+        request: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    // Time expressions
+    CurrentTimeMilliseconds {
+        line: usize,
+        column: usize,
+    },
+    CurrentTimeFormatted {
+        format: String,
         line: usize,
         column: usize,
     },

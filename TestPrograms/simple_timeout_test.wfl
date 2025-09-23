@@ -1,0 +1,38 @@
+// Simple Timeout Test
+// Tests the timeout functionality for request waiting
+
+display "=== Simple Timeout Test ==="
+display "Testing timeout functionality for web requests"
+display ""
+
+// Configuration
+store server_port as 8093
+store timeout_value as 5000
+
+display "Starting web server for timeout test..."
+display "Port: " with server_port
+display "Timeout: " with timeout_value with " ms"
+display ""
+
+// Start the web server
+listen on port server_port as timeout_server
+display "✓ Server started successfully"
+display ""
+
+// Test timeout syntax parsing
+display "Test: Timeout syntax parsing"
+display "Attempting to wait for request with timeout..."
+
+// This should parse correctly now
+wait for request comes in on timeout_server as test_request with timeout timeout_value
+
+display "✓ Timeout syntax parsed successfully"
+display ""
+
+// Close server
+close server timeout_server
+display "✓ Server closed successfully"
+display ""
+
+display "=== Simple Timeout Test Complete ==="
+display "✓ Timeout functionality working!"

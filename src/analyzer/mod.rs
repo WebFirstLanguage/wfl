@@ -784,6 +784,11 @@ impl Analyzer {
                     self.current_scope = parent_mut;
                 }
             }
+
+            Statement::WaitForDurationStatement { duration, .. } => {
+                self.analyze_expression(duration);
+            }
+
             Statement::TryStatement {
                 body,
                 when_clauses,
@@ -925,6 +930,11 @@ impl Analyzer {
             Statement::WriteToStatement { content, file, .. } => {
                 self.analyze_expression(content);
                 self.analyze_expression(file);
+            }
+
+            Statement::WriteContentStatement { content, target, .. } => {
+                self.analyze_expression(content);
+                self.analyze_expression(target);
             }
 
             Statement::ContainerDefinition {
@@ -1308,6 +1318,7 @@ impl Analyzer {
             Statement::WaitForRequestStatement {
                 server,
                 request_name,
+                timeout,
                 line,
                 column,
             } => {
@@ -1697,6 +1708,20 @@ impl Analyzer {
                 for ext in extensions {
                     self.analyze_expression(ext);
                 }
+            }
+            Expression::HeaderAccess {
+                header_name: _header_name,
+                request,
+                line: _line,
+                column: _column,
+            } => {
+                self.analyze_expression(request);
+            }
+            Expression::CurrentTimeMilliseconds { line: _, column: _ } => {
+                // No sub-expressions to analyze
+            }
+            Expression::CurrentTimeFormatted { format: _, line: _, column: _ } => {
+                // No sub-expressions to analyze
             }
         }
     }

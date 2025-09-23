@@ -1,0 +1,31 @@
+// Complex Expression Catch Test
+// Tests if complex expressions before catch blocks cause parsing issues
+
+display "=== Complex Expression Catch Test ==="
+display "Testing complex expressions before catch blocks"
+display ""
+
+try:
+    display "Setting up variables..."
+    store request_timestamp as "2024-01-01 12:00:00"
+    store request_method as "GET"
+    store request_path as "/test"
+    store request_ip as "127.0.0.1"
+    store response_status as 200
+    store request_duration as 150
+    
+    display "Creating complex concatenation..."
+    // This mimics the complex line from the middleware test
+    store log_entry as request_timestamp with "," with request_method with "," with request_path with "," with request_ip with "," with response_status with "," with request_duration with "ms\n"
+    
+    display "Log entry: " with log_entry
+    display "Complex expression completed successfully"
+    
+catch:
+    display "Caught error in complex expression test"
+    display "Error: " with error_message
+end try
+
+display ""
+display "=== Complex Expression Catch Test Complete ==="
+display "✓ Complex expressions with catch working!"

@@ -1,0 +1,272 @@
+// TDD Test: Web Server Session Management
+// This test MUST FAIL initially because session management is not implemented
+// Following TDD approach - write failing test first
+
+display "=== Web Server Session Management Test ==="
+display "This test validates session handling, storage, security, and lifecycle management"
+display ""
+
+// Configuration
+store session_port as 8095
+store session_timeout as 1800000  // 30 minutes in milliseconds
+store session_storage as "memory"  // Options: memory, file, database
+store csrf_protection as true
+store secure_cookies as true
+
+display "Starting session management test server..."
+display "Port: " with session_port
+display "Session timeout: " with session_timeout with "ms"
+display "Storage backend: " with session_storage
+display "CSRF protection: " with csrf_protection
+display "Secure cookies: " with secure_cookies
+display ""
+
+try:
+    // Test 1: Session-Enabled Server Setup
+    display "Test 1: Session-Enabled Server Setup"
+    
+    try:
+        // This should fail because session management is not implemented
+        listen on port session_port as session_server with sessions enabled
+        display "✓ Session-enabled server started"
+        
+        // Configure session settings
+        configure sessions on session_server with timeout session_timeout and storage session_storage
+        enable csrf protection on session_server
+        enable secure cookies on session_server
+        display "✓ Session configuration applied"
+        
+    catch:
+        display "✗ EXPECTED FAILURE: Session-enabled server setup not implemented"
+        display "Error: " with error_message
+    end try
+    
+    display ""
+    display "Test 2: Session Creation and Storage"
+    
+    store active_sessions as create list
+    store session_counter as 0
+    
+    main loop:
+        check if session_counter is greater than or equal to 5:
+            break
+        end check
+        
+        try:
+            wait for request comes in on session_server as session_request
+            add 1 to session_counter
+            
+            store request_method as method of session_request
+            store request_path as path of session_request
+            store client_ip as client_ip of session_request
+            
+            display "📥 Request " with session_counter with ": " with request_method with " " with request_path with " from " with client_ip
+            
+            // Test session handling based on path
+            check if request_path is equal to "/login":
+                // Test session creation
+                display "Testing session creation..."
+                
+                // Create new session
+                store new_session as create session for session_request
+                store session_id as id of new_session
+                
+                // Store user data in session
+                set session value "user_id" to "user123" in new_session
+                set session value "username" to "testuser" in new_session
+                set session value "login_time" to current time in milliseconds in new_session
+                set session value "permissions" to create list with "read", "write" in new_session
+                
+                display "✓ Session created: " with session_id
+                add new_session to active_sessions
+                
+                // Generate CSRF token
+                store csrf_token as generate csrf token for new_session
+                set session value "csrf_token" to csrf_token in new_session
+                display "✓ CSRF token generated: " with csrf_token
+                
+                // Send login response with session cookie
+                store login_response as "{\"status\": \"success\", \"session_id\": \"" with session_id with "\", \"csrf_token\": \"" with csrf_token with "\"}"
+                respond to session_request with login_response and content_type "application/json" and set session new_session
+                display "✓ Login response sent with session cookie"
+                
+            otherwise check if request_path is equal to "/profile":
+                // Test session retrieval
+                display "Testing session retrieval..."
+                
+                store current_session as get session from session_request
+                
+                check if current_session is not null:
+                    store session_id as id of current_session
+                    store user_id as get session value "user_id" from current_session
+                    store username as get session value "username" from current_session
+                    store login_time as get session value "login_time" from current_session
+                    
+                    display "✓ Session retrieved: " with session_id
+                    display "  User ID: " with user_id
+                    display "  Username: " with username
+                    display "  Login time: " with login_time
+                    
+                    // Update session activity
+                    set session value "last_activity" to current time in milliseconds in current_session
+                    
+                    store profile_response as "{\"user_id\": \"" with user_id with "\", \"username\": \"" with username with "\", \"session_valid\": true}"
+                    respond to session_request with profile_response and content_type "application/json"
+                    display "✓ Profile response sent"
+                    
+                otherwise:
+                    display "✗ No valid session found"
+                    respond to session_request with "{\"error\": \"No valid session\"}" and status 401 and content_type "application/json"
+                end check
+                
+            otherwise check if request_path is equal to "/secure":
+                // Test CSRF protection
+                display "Testing CSRF protection..."
+                
+                store current_session as get session from session_request
+                
+                check if current_session is not null:
+                    store provided_csrf as header "X-CSRF-Token" of session_request
+                    store session_csrf as get session value "csrf_token" from current_session
+                    
+                    check if provided_csrf is equal to session_csrf:
+                        display "✓ CSRF token validated"
+                        respond to session_request with "{\"message\": \"Access granted to secure resource\"}" and content_type "application/json"
+                    otherwise:
+                        display "✗ CSRF token validation failed"
+                        respond to session_request with "{\"error\": \"CSRF token invalid\"}" and status 403 and content_type "application/json"
+                    end check
+                otherwise:
+                    display "✗ No session for CSRF validation"
+                    respond to session_request with "{\"error\": \"No session\"}" and status 401 and content_type "application/json"
+                end check
+                
+            otherwise check if request_path is equal to "/logout":
+                // Test session destruction
+                display "Testing session destruction..."
+                
+                store current_session as get session from session_request
+                
+                check if current_session is not null:
+                    store session_id as id of current_session
+                    
+                    // Remove session data
+                    destroy session current_session
+                    remove current_session from active_sessions
+                    
+                    display "✓ Session destroyed: " with session_id
+                    respond to session_request with "{\"status\": \"logged_out\"}" and content_type "application/json" and clear session
+                    
+                otherwise:
+                    display "✗ No session to destroy"
+                    respond to session_request with "{\"error\": \"No active session\"}" and status 400 and content_type "application/json"
+                end check
+                
+            otherwise check if request_path is equal to "/admin":
+                // Test session-based authorization
+                display "Testing session-based authorization..."
+                
+                store current_session as get session from session_request
+                
+                check if current_session is not null:
+                    store permissions as get session value "permissions" from current_session
+                    
+                    check if contains of permissions and "admin":
+                        respond to session_request with "{\"message\": \"Admin access granted\"}" and content_type "application/json"
+                        display "✓ Admin access granted"
+                    otherwise:
+                        respond to session_request with "{\"error\": \"Insufficient permissions\"}" and status 403 and content_type "application/json"
+                        display "✗ Admin access denied - insufficient permissions"
+                    end check
+                otherwise:
+                    respond to session_request with "{\"error\": \"Authentication required\"}" and status 401 and content_type "application/json"
+                    display "✗ Admin access denied - no session"
+                end check
+                
+            otherwise:
+                // Default response
+                respond to session_request with "Session test server - endpoints: /login, /profile, /secure, /logout, /admin" and content_type "text/plain"
+                display "✓ Default response sent"
+            end check
+            
+        catch:
+            display "✗ EXPECTED FAILURE: Session management functionality not implemented"
+            display "Error: " with error_message
+            break
+        end try
+    end loop
+    
+    display ""
+    display "Test 3: Session Expiration and Cleanup"
+    
+    try:
+        display "Testing session expiration and cleanup..."
+        
+        // Check for expired sessions
+        store expired_sessions as find expired sessions on session_server
+        display "Found " with length of expired_sessions with " expired sessions"
+        
+        // Clean up expired sessions
+        count through expired_sessions as expired_session:
+            store expired_id as id of expired_session
+            destroy session expired_session
+            display "✓ Cleaned up expired session: " with expired_id
+        end count
+        
+        // Get session statistics
+        store session_stats as get session statistics from session_server
+        display "Session statistics:"
+        display "- Active sessions: " with active_sessions of session_stats
+        display "- Total sessions created: " with total_created of session_stats
+        display "- Sessions expired: " with expired_count of session_stats
+        display "- Storage backend: " with storage_type of session_stats
+        
+    catch:
+        display "✗ EXPECTED FAILURE: Session expiration and cleanup not implemented"
+        display "Error: " with error_message
+    end try
+    
+    display ""
+    display "Test 4: Session Storage Backend Testing"
+    
+    try:
+        display "Testing session storage backend operations..."
+        
+        // Test direct storage operations
+        store test_session_data as create object with "test_key" as "test_value" and "timestamp" as current time in milliseconds
+        
+        // Store session data
+        store session_data to storage with key "test_session_123" and data test_session_data
+        display "✓ Session data stored to backend"
+        
+        // Retrieve session data
+        store retrieved_data as load session data from storage with key "test_session_123"
+        display "✓ Session data retrieved from backend"
+        display "Retrieved data: " with retrieved_data
+        
+        // Delete session data
+        delete session data from storage with key "test_session_123"
+        display "✓ Session data deleted from backend"
+        
+    catch:
+        display "✗ EXPECTED FAILURE: Session storage backend not implemented"
+        display "Error: " with error_message
+    end try
+    
+catch:
+    display "✗ EXPECTED FAILURE: Session management server functionality failed"
+    display "Error: " with error_message
+end try
+
+display ""
+display "=== Web Server Session Management Test Complete ==="
+display "Expected result: This test should FAIL until session management is implemented"
+display "Once implemented, this test should PASS and demonstrate:"
+display "- Session-enabled server setup and configuration"
+display "- Session creation, storage, and retrieval"
+display "- CSRF token generation and validation"
+display "- Session-based authentication and authorization"
+display "- Session lifecycle management (creation, update, destruction)"
+display "- Session expiration and automatic cleanup"
+display "- Multiple storage backend support (memory, file, database)"
+display "- Secure cookie handling and session security"

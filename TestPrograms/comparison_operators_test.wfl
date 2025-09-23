@@ -1,0 +1,58 @@
+// Comparison Operators Test
+// Tests the greater than or equal to comparison operator
+
+display "=== Comparison Operators Test ==="
+display "Testing greater than or equal to operator"
+display ""
+
+// Test data
+store value1 as 10
+store value2 as 5
+store value3 as 10
+store value4 as 15
+
+display "Test values:"
+display "value1: " with value1
+display "value2: " with value2
+display "value3: " with value3
+display "value4: " with value4
+display ""
+
+// Test 1: Greater than or equal to (true case - greater)
+display "Test 1: " with value1 with " is greater than or equal to " with value2
+check if value1 is greater than or equal to value2:
+    display "✓ PASS: 10 >= 5 is true"
+otherwise:
+    display "✗ FAIL: 10 >= 5 should be true"
+end check
+display ""
+
+// Test 2: Greater than or equal to (true case - equal)
+display "Test 2: " with value1 with " is greater than or equal to " with value3
+check if value1 is greater than or equal to value3:
+    display "✓ PASS: 10 >= 10 is true"
+otherwise:
+    display "✗ FAIL: 10 >= 10 should be true"
+end check
+display ""
+
+// Test 3: Greater than or equal to (false case)
+display "Test 3: " with value1 with " is greater than or equal to " with value4
+check if value1 is greater than or equal to value4:
+    display "✗ FAIL: 10 >= 15 should be false"
+otherwise:
+    display "✓ PASS: 10 >= 15 is false"
+end check
+display ""
+
+// Test 4: Alternative syntax without "to"
+display "Test 4: Alternative syntax (without 'to')"
+check if value1 is greater than or equal value2:
+    display "✓ PASS: Alternative syntax works"
+otherwise:
+    display "✗ FAIL: Alternative syntax should work"
+end check
+display ""
+
+display "=== Comparison Operators Test Complete ==="
+display "✓ Greater than or equal to operator working!"

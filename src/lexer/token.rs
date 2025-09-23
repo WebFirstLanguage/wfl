@@ -143,6 +143,8 @@ pub enum Token {
     KeywordWrite,
     #[token("append")]
     KeywordAppend,
+    #[token("appending")]
+    KeywordAppending,
     #[token("content")]
     KeywordContent,
     #[token("into")]
@@ -299,6 +301,30 @@ pub enum Token {
     KeywordMust,
     #[token("defaults")]
     KeywordDefaults,
+
+    // Web server and signal handling tokens
+    #[token("register")]
+    KeywordRegister,
+    #[token("signal")]
+    KeywordSignal,
+    #[token("handler")]
+    KeywordHandler,
+    #[token("stop")]
+    KeywordStop,
+    #[token("accepting")]
+    KeywordAccepting,
+    #[token("connections")]
+    KeywordConnections,
+    #[token("timeout")]
+    KeywordTimeout,
+    #[token("header")]
+    KeywordHeader,
+    #[token("current")]
+    KeywordCurrent,
+    #[token("milliseconds")]
+    KeywordMilliseconds,
+    #[token("formatted")]
+    KeywordFormatted,
 
     #[token(":")]
     Colon,

@@ -1,0 +1,224 @@
+// TDD Test: Web Server WebSocket Support
+// This test MUST FAIL initially because WebSocket functionality is not implemented
+// Following TDD approach - write failing test first
+
+display "=== Web Server WebSocket Support Test ==="
+display "This test validates WebSocket functionality with real-time bidirectional communication"
+display ""
+
+// Configuration
+store websocket_port as 8094
+store max_connections as 5
+store message_timeout as 5000  // 5 seconds
+store test_messages as create list with "Hello WebSocket", "Real-time message", "Broadcast test"
+
+display "Starting WebSocket server test..."
+display "Port: " with websocket_port
+display "Max connections: " with max_connections
+display "Message timeout: " with message_timeout with "ms"
+display ""
+
+try:
+    // Test 1: WebSocket Server Setup
+    display "Test 1: WebSocket Server Setup"
+    
+    try:
+        // This should fail because WebSocket server is not implemented
+        listen for websockets on port websocket_port as websocket_server
+        display "✓ WebSocket server started successfully"
+        
+        // Configure WebSocket server
+        set max connections on websocket_server to max_connections
+        set message timeout on websocket_server to message_timeout
+        display "✓ WebSocket server configured"
+        
+    catch:
+        display "✗ EXPECTED FAILURE: WebSocket server setup not implemented"
+        display "Error: " with error_message
+    end try
+    
+    display ""
+    display "Test 2: WebSocket Connection Handling"
+    
+    store connected_clients as create list
+    store connection_count as 0
+    
+    // Test connection event handling
+    try:
+        // Register WebSocket event handlers
+        on websocket connect to websocket_server as new_connection:
+            add 1 to connection_count
+            add new_connection to connected_clients
+            
+            store client_id as id of new_connection
+            store client_ip as ip of new_connection
+            
+            display "📥 WebSocket client connected: " with client_id with " from " with client_ip
+            display "Total connections: " with connection_count
+            
+            // Send welcome message
+            send websocket message "Welcome to WFL WebSocket server!" to new_connection
+            display "✓ Welcome message sent to " with client_id
+        end on
+        
+        on websocket disconnect from websocket_server as disconnected_connection:
+            subtract 1 from connection_count
+            remove disconnected_connection from connected_clients
+            
+            store client_id as id of disconnected_connection
+            display "📤 WebSocket client disconnected: " with client_id
+            display "Total connections: " with connection_count
+        end on
+        
+        display "✓ WebSocket event handlers registered"
+        
+    catch:
+        display "✗ EXPECTED FAILURE: WebSocket event handling not implemented"
+        display "Error: " with error_message
+    end try
+    
+    display ""
+    display "Test 3: WebSocket Message Handling"
+    
+    try:
+        // Register message handler
+        on websocket message from websocket_server as incoming_message:
+            store message_content as content of incoming_message
+            store sender_connection as sender of incoming_message
+            store sender_id as id of sender_connection
+            
+            display "📨 Message received from " with sender_id with ": " with message_content
+            
+            // Echo the message back
+            store echo_response as "Echo: " with message_content
+            send websocket message echo_response to sender_connection
+            display "✓ Echo response sent to " with sender_id
+            
+            // Broadcast to all other clients
+            check if message_content starts with "broadcast:":
+                store broadcast_content as substring of message_content from 10
+                
+                count through connected_clients as client:
+                    check if id of client is not equal to sender_id:
+                        send websocket message broadcast_content to client
+                        display "📡 Broadcast sent to " with id of client
+                    end check
+                end count
+                
+                display "✓ Message broadcasted to all clients"
+            end check
+        end on
+        
+        display "✓ WebSocket message handler registered"
+        
+    catch:
+        display "✗ EXPECTED FAILURE: WebSocket message handling not implemented"
+        display "Error: " with error_message
+    end try
+    
+    display ""
+    display "Test 4: WebSocket Client Simulation"
+    
+    try:
+        // Simulate WebSocket client connections and messages
+        display "Simulating WebSocket client interactions..."
+        
+        // Test message sending to all clients
+        count through test_messages as test_message:
+            display "Broadcasting test message: " with test_message
+            
+            // Broadcast to all connected clients
+            broadcast websocket message test_message to websocket_server
+            display "✓ Test message broadcasted"
+            
+            wait for 1000 milliseconds  // Wait 1 second between messages
+        end count
+        
+        // Test connection management
+        display "Testing connection management..."
+        
+        store server_stats as get websocket stats from websocket_server
+        display "Server statistics:"
+        display "- Active connections: " with active_connections of server_stats
+        display "- Total messages sent: " with messages_sent of server_stats
+        display "- Total messages received: " with messages_received of server_stats
+        display "- Uptime: " with uptime of server_stats with "ms"
+        
+    catch:
+        display "✗ EXPECTED FAILURE: WebSocket client simulation not implemented"
+        display "Error: " with error_message
+    end try
+    
+    display ""
+    display "Test 5: WebSocket Error Handling"
+    
+    try:
+        // Test error scenarios
+        display "Testing WebSocket error scenarios..."
+        
+        // Test invalid message handling
+        try:
+            send websocket message null to websocket_server
+            display "✗ Should have failed with null message"
+        catch:
+            display "✓ Null message properly rejected"
+        end try
+        
+        // Test connection limit
+        try:
+            store test_connections as create list
+            count from 1 to (max_connections plus 2) as i:
+                connect websocket client to websocket_server as test_client
+                add test_client to test_connections
+            end count
+            
+            display "✗ Should have enforced connection limit"
+        catch:
+            display "✓ Connection limit properly enforced"
+        end try
+        
+        // Clean up test connections
+        count through test_connections as test_conn:
+            disconnect websocket client test_conn
+        end count
+        
+    catch:
+        display "✗ EXPECTED FAILURE: WebSocket error handling not implemented"
+        display "Error: " with error_message
+    end try
+    
+    display ""
+    display "Test 6: WebSocket Server Shutdown"
+    
+    try:
+        display "Testing WebSocket server shutdown..."
+        
+        // Gracefully close all connections
+        close all websocket connections on websocket_server
+        display "✓ All WebSocket connections closed"
+        
+        // Stop the WebSocket server
+        stop websocket server websocket_server
+        display "✓ WebSocket server stopped"
+        
+    catch:
+        display "✗ EXPECTED FAILURE: WebSocket server shutdown not implemented"
+        display "Error: " with error_message
+    end try
+    
+catch:
+    display "✗ EXPECTED FAILURE: WebSocket server functionality failed"
+    display "Error: " with error_message
+end try
+
+display ""
+display "=== Web Server WebSocket Test Complete ==="
+display "Expected result: This test should FAIL until WebSocket support is implemented"
+display "Once implemented, this test should PASS and demonstrate:"
+display "- WebSocket server setup and configuration"
+display "- Connection event handling (connect/disconnect)"
+display "- Bidirectional message communication"
+display "- Message broadcasting to multiple clients"
+display "- Connection management and limits"
+display "- Error handling and validation"
+display "- Graceful server shutdown"

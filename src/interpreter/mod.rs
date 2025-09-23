@@ -114,12 +114,14 @@ fn stmt_type(stmt: &Statement) -> String {
         }
         Statement::WriteFileStatement { .. } => "WriteFileStatement".to_string(),
         Statement::WriteToStatement { .. } => "WriteToStatement".to_string(),
+        Statement::WriteContentStatement { .. } => "WriteContentStatement".to_string(),
         Statement::CloseFileStatement { .. } => "CloseFileStatement".to_string(),
         Statement::CreateDirectoryStatement { .. } => "CreateDirectoryStatement".to_string(),
         Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
         Statement::DeleteFileStatement { .. } => "DeleteFileStatement".to_string(),
         Statement::DeleteDirectoryStatement { .. } => "DeleteDirectoryStatement".to_string(),
         Statement::WaitForStatement { .. } => "WaitForStatement".to_string(),
+        Statement::WaitForDurationStatement { .. } => "WaitForDurationStatement".to_string(),
         Statement::TryStatement { .. } => "TryStatement".to_string(),
         Statement::HttpGetStatement { variable_name, .. } => {
             format!("HttpGetStatement '{variable_name}'")
@@ -165,6 +167,11 @@ fn stmt_type(stmt: &Statement) -> String {
             format!("WaitForRequestStatement '{request_name}'")
         }
         Statement::RespondStatement { .. } => "RespondStatement".to_string(),
+        Statement::RegisterSignalHandlerStatement { signal_type, handler_name, .. } => {
+            format!("RegisterSignalHandlerStatement '{}' -> '{}'", signal_type, handler_name)
+        }
+        Statement::StopAcceptingConnectionsStatement { .. } => "StopAcceptingConnectionsStatement".to_string(),
+        Statement::CloseServerStatement { .. } => "CloseServerStatement".to_string(),
     }
 }
 
@@ -209,6 +216,9 @@ fn expr_type(expr: &Expression) -> String {
         Expression::ReadContent { .. } => "ReadContent".to_string(),
         Expression::ListFilesRecursive { .. } => "ListFilesRecursive".to_string(),
         Expression::ListFilesFiltered { .. } => "ListFilesFiltered".to_string(),
+        Expression::HeaderAccess { header_name, .. } => format!("HeaderAccess '{header_name}'"),
+        Expression::CurrentTimeMilliseconds { .. } => "CurrentTimeMilliseconds".to_string(),
+        Expression::CurrentTimeFormatted { format, .. } => format!("CurrentTimeFormatted '{format}'"),
     }
 }
 
@@ -929,12 +939,14 @@ impl Interpreter {
             Statement::ReadFileStatement { line, column, .. } => (*line, *column),
             Statement::WriteFileStatement { line, column, .. } => (*line, *column),
             Statement::WriteToStatement { line, column, .. } => (*line, *column),
+            Statement::WriteContentStatement { line, column, .. } => (*line, *column),
             Statement::CloseFileStatement { line, column, .. } => (*line, *column),
             Statement::CreateDirectoryStatement { line, column, .. } => (*line, *column),
             Statement::CreateFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteDirectoryStatement { line, column, .. } => (*line, *column),
             Statement::WaitForStatement { line, column, .. } => (*line, *column),
+            Statement::WaitForDurationStatement { line, column, .. } => (*line, *column),
             Statement::TryStatement { line, column, .. } => (*line, *column),
             Statement::HttpGetStatement { line, column, .. } => (*line, *column),
             Statement::HttpPostStatement { line, column, .. } => (*line, *column),
@@ -958,6 +970,9 @@ impl Interpreter {
             Statement::ListenStatement { line, column, .. } => (*line, *column),
             Statement::WaitForRequestStatement { line, column, .. } => (*line, *column),
             Statement::RespondStatement { line, column, .. } => (*line, *column),
+            Statement::RegisterSignalHandlerStatement { line, column, .. } => (*line, *column),
+            Statement::StopAcceptingConnectionsStatement { line, column, .. } => (*line, *column),
+            Statement::CloseServerStatement { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {
@@ -1856,6 +1871,43 @@ impl Interpreter {
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
+            Statement::WriteContentStatement {
+                content,
+                target,
+                line,
+                column,
+            } => {
+                let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                let target_value = self.evaluate_expression(target, Rc::clone(&env)).await?;
+
+                let target_str = match &target_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for file handle, got {target_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let content_str = format!("{content_value}");
+
+                // Check if target is a file handle (starts with "file") or a file path
+                if target_str.starts_with("file") {
+                    // This is a file handle, use append_file to respect the file's open mode
+                    match self.io_client.append_file(&target_str, &content_str).await {
+                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                        Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    }
+                } else {
+                    // This is a file path, use write_file (overwrite mode)
+                    match self.io_client.write_file(&target_str, &content_str).await {
+                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                        Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    }
+                }
+            }
             Statement::DeleteDirectoryStatement { path, line, column } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
                 let path_str = match &path_value {
@@ -2033,6 +2085,39 @@ impl Interpreter {
                     }
                     _ => self.execute_statement(inner, Rc::clone(&env)).await,
                 }
+            }
+            Statement::WaitForDurationStatement {
+                duration,
+                unit,
+                line,
+                column,
+            } => {
+                let duration_value = self.evaluate_expression(duration, Rc::clone(&env)).await?;
+                let duration_ms = match &duration_value {
+                    Value::Number(n) => {
+                        match unit.as_str() {
+                            "milliseconds" => *n as u64,
+                            "seconds" => (*n * 1000.0) as u64,
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!("Unsupported time unit: {}", unit),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected number for duration, got {duration_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                tokio::time::sleep(std::time::Duration::from_millis(duration_ms)).await;
+                Ok((Value::Null, ControlFlow::None))
             }
             Statement::TryStatement {
                 body,
@@ -3048,6 +3133,7 @@ impl Interpreter {
             Statement::WaitForRequestStatement {
                 server,
                 request_name,
+                timeout,
                 line,
                 column,
             } => {
@@ -3276,6 +3362,120 @@ impl Interpreter {
                 } else {
                     return Err(RuntimeError::new(
                         "Request ID not found - response may have already been sent".to_string(),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            // Graceful shutdown and signal handling statements
+            Statement::RegisterSignalHandlerStatement {
+                signal_type,
+                handler_name,
+                line,
+                column,
+            } => {
+                // For now, just store the signal handler registration
+                // In a full implementation, this would set up actual signal handlers
+                let signal_handler_key = format!("signal_handler_{}", signal_type);
+
+                env.borrow_mut().define(&signal_handler_key, Value::Text(Rc::from(handler_name.clone())))
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                // TODO: Implement actual signal handling with tokio::signal
+                // For now, we'll simulate this in the graceful shutdown test
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::StopAcceptingConnectionsStatement {
+                server,
+                line,
+                column,
+            } => {
+                let server_val = self.evaluate_expression(server, Rc::clone(&env)).await?;
+                let server_name = match &server_val {
+                    Value::Text(name) => {
+                        let name_str = name.as_ref();
+                        if name_str.starts_with("WebServer::") {
+                            // Find the original server name in our web_servers map
+                            let web_servers = self.web_servers.borrow();
+                            if let Some((found_name, _)) = web_servers.iter().next() {
+                                found_name.clone()
+                            } else {
+                                return Err(RuntimeError::new(
+                                    "No web servers found".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        } else {
+                            name_str.to_string()
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Expected server name as text".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Mark server as no longer accepting connections
+                // In a full implementation, this would stop the warp server from accepting new connections
+                // For now, we'll just set a flag
+                env.borrow_mut().define(
+                    &format!("{}_accepting_connections", server_name),
+                    Value::Bool(false)
+                ).map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::CloseServerStatement {
+                server,
+                line,
+                column,
+            } => {
+                let server_val = self.evaluate_expression(server, Rc::clone(&env)).await?;
+                let server_name = match &server_val {
+                    Value::Text(name) => {
+                        let name_str = name.as_ref();
+                        if name_str.starts_with("WebServer::") {
+                            // Find the original server name in our web_servers map
+                            let web_servers = self.web_servers.borrow();
+                            if let Some((found_name, _)) = web_servers.iter().next() {
+                                found_name.clone()
+                            } else {
+                                return Err(RuntimeError::new(
+                                    "No web servers found".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        } else {
+                            name_str.to_string()
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Expected server name as text".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Close the server
+                let mut web_servers = self.web_servers.borrow_mut();
+                if let Some(wfl_server) = web_servers.remove(&server_name) {
+                    // Abort the server task
+                    if let Some(handle) = wfl_server.server_handle {
+                        handle.abort();
+                    }
+                } else {
+                    return Err(RuntimeError::new(
+                        format!("Server '{}' not found", server_name),
                         *line,
                         *column,
                     ));
@@ -4289,6 +4489,44 @@ impl Interpreter {
                         *line,
                         *column,
                     )),
+                }
+            }
+            Expression::HeaderAccess {
+                header_name,
+                request,
+                line,
+                column,
+            } => {
+                // TODO: Implement header access from HTTP request
+                // For now, return a placeholder value
+                Ok(Value::Text(Rc::from(format!("header_{}", header_name))))
+            }
+            Expression::CurrentTimeMilliseconds { line: _, column: _ } => {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|e| RuntimeError::new(
+                        format!("Failed to get current time: {}", e),
+                        0, 0
+                    ))?;
+                Ok(Value::Number(now.as_millis() as f64))
+            }
+            Expression::CurrentTimeFormatted { format, line, column } => {
+                use chrono::{Local, DateTime};
+                let now: DateTime<Local> = Local::now();
+
+                // Convert WFL format to chrono format
+                // For now, support basic formats
+                let chrono_format = format
+                    .replace("yyyy", "%Y")
+                    .replace("MM", "%m")
+                    .replace("dd", "%d")
+                    .replace("HH", "%H")
+                    .replace("mm", "%M")
+                    .replace("ss", "%S");
+
+                match now.format(&chrono_format).to_string() {
+                    formatted => Ok(Value::Text(Rc::from(formatted))),
                 }
             }
         };

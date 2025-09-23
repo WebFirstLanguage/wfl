@@ -1,0 +1,36 @@
+// Nested Catch Block Test
+// Tests nested try/catch functionality like in the middleware test
+
+display "=== Nested Catch Block Test ==="
+display "Testing nested try/catch syntax"
+display ""
+
+try:
+    display "Outer try block started"
+    
+    main loop:
+        display "Inside main loop"
+        
+        try:
+            display "Inner try block"
+            store test_value as "inner test"
+            display "Inner test value: " with test_value
+            break
+            
+        catch:
+            display "Inner catch block"
+            display "Error: " with error_message
+            break
+        end try
+    end loop
+    
+    display "After main loop"
+    
+catch:
+    display "Outer catch block"
+    display "Error: " with error_message
+end try
+
+display ""
+display "=== Nested Catch Block Test Complete ==="
+display "✓ Nested try/catch syntax working!"
