@@ -103,8 +103,8 @@ def update_cargo_toml(version):
     new_content = re.sub(r'(version = )"(\d+\.\d+\.\d+)"', f'\\1"{semver_version}"', content, count=1)
     
     # Update package.metadata.bundle version
-    new_content = re.sub(r'(\[package\.metadata\.bundle\][^\[]*version = )"([^"]*)"', 
-                         f'\\1"{semver_version}"', new_content)
+    new_content = re.sub(r'(\[package\.metadata\.bundle\].*?version = )"([^"]*)"',
+                         f'\\1"{semver_version}"', new_content, flags=re.DOTALL)
     
     # Write updated content
     with open(CARGO_TOML, "w") as f:
