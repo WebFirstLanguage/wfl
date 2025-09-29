@@ -5,6 +5,7 @@ edition = "2024"
 description = "WFL (WebFirst Language) is a programming language designed to be readable and intuitive using natural language constructs."
 license = "Apache-2.0"
 authors = ["Logbie LLC <info@logbie.com>"]
+default-run = "wfl"
 
 [package.metadata.bundle]
 name = "WFL"
