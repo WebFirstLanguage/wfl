@@ -1788,16 +1788,32 @@ impl<'a> Parser<'a> {
                                         if let Some(or_token) = self.tokens.peek().cloned() {
                                             if matches!(or_token.token, Token::KeywordOr) {
                                                 self.tokens.next(); // Consume "or"
-                                                if let Some(equal_token) = self.tokens.peek().cloned() {
-                                                    if matches!(equal_token.token, Token::KeywordEqual) {
+                                                if let Some(equal_token) =
+                                                    self.tokens.peek().cloned()
+                                                {
+                                                    if matches!(
+                                                        equal_token.token,
+                                                        Token::KeywordEqual
+                                                    ) {
                                                         self.tokens.next(); // Consume "equal"
                                                         // Optional "to"
-                                                        if let Some(to_token) = self.tokens.peek().cloned() {
-                                                            if matches!(to_token.token, Token::KeywordTo) {
+                                                        if let Some(to_token) =
+                                                            self.tokens.peek().cloned()
+                                                        {
+                                                            if matches!(
+                                                                to_token.token,
+                                                                Token::KeywordTo
+                                                            ) {
                                                                 self.tokens.next(); // Consume "to"
-                                                                Some((Operator::GreaterThanOrEqual, 0))
+                                                                Some((
+                                                                    Operator::GreaterThanOrEqual,
+                                                                    0,
+                                                                ))
                                                             } else {
-                                                                Some((Operator::GreaterThanOrEqual, 0)) // "or equal" without "to" is valid too
+                                                                Some((
+                                                                    Operator::GreaterThanOrEqual,
+                                                                    0,
+                                                                )) // "or equal" without "to" is valid too
                                                             }
                                                         } else {
                                                             Some((Operator::GreaterThanOrEqual, 0)) // "or equal" without "to" is valid too
@@ -2668,11 +2684,13 @@ impl<'a> Parser<'a> {
                     let header_name = if let Some(name_token) = self.tokens.next() {
                         match &name_token.token {
                             Token::StringLiteral(name) => name.clone(),
-                            _ => return Err(ParseError::new(
-                                "Expected string literal for header name".to_string(),
-                                name_token.line,
-                                name_token.column,
-                            )),
+                            _ => {
+                                return Err(ParseError::new(
+                                    "Expected string literal for header name".to_string(),
+                                    name_token.line,
+                                    name_token.column,
+                                ));
+                            }
                         }
                     } else {
                         return Err(ParseError::new(
@@ -2708,7 +2726,10 @@ impl<'a> Parser<'a> {
                         match next_token.token {
                             Token::KeywordIn => {
                                 self.tokens.next(); // Consume "in"
-                                self.expect_token(Token::KeywordMilliseconds, "Expected 'milliseconds' after 'in'")?;
+                                self.expect_token(
+                                    Token::KeywordMilliseconds,
+                                    "Expected 'milliseconds' after 'in'",
+                                )?;
                                 Ok(Expression::CurrentTimeMilliseconds {
                                     line: token_line,
                                     column: token_column,
@@ -2716,7 +2737,10 @@ impl<'a> Parser<'a> {
                             }
                             Token::KeywordFormatted => {
                                 self.tokens.next(); // Consume "formatted"
-                                self.expect_token(Token::KeywordAs, "Expected 'as' after 'formatted'")?;
+                                self.expect_token(
+                                    Token::KeywordAs,
+                                    "Expected 'as' after 'formatted'",
+                                )?;
 
                                 // Parse format string
                                 let format_token = self.tokens.next().ok_or_else(|| {
@@ -2729,11 +2753,13 @@ impl<'a> Parser<'a> {
 
                                 let format = match &format_token.token {
                                     Token::StringLiteral(fmt) => fmt.clone(),
-                                    _ => return Err(ParseError::new(
-                                        "Expected string literal for time format".to_string(),
-                                        format_token.line,
-                                        format_token.column,
-                                    )),
+                                    _ => {
+                                        return Err(ParseError::new(
+                                            "Expected string literal for time format".to_string(),
+                                            format_token.line,
+                                            format_token.column,
+                                        ));
+                                    }
                                 };
 
                                 Ok(Expression::CurrentTimeFormatted {
@@ -2743,14 +2769,16 @@ impl<'a> Parser<'a> {
                                 })
                             }
                             _ => Err(ParseError::new(
-                                "Expected 'in milliseconds' or 'formatted as' after 'current time'".to_string(),
+                                "Expected 'in milliseconds' or 'formatted as' after 'current time'"
+                                    .to_string(),
                                 next_token.line,
                                 next_token.column,
-                            ))
+                            )),
                         }
                     } else {
                         Err(ParseError::new(
-                            "Expected 'in milliseconds' or 'formatted as' after 'current time'".to_string(),
+                            "Expected 'in milliseconds' or 'formatted as' after 'current time'"
+                                .to_string(),
                             token_line,
                             token_column,
                         ))
@@ -3501,13 +3529,11 @@ impl<'a> Parser<'a> {
                         column,
                     })
                 }
-                Expression::HeaderAccess { line, column, .. } => {
-                    Ok(Statement::DisplayStatement {
-                        value: expr,
-                        line,
-                        column,
-                    })
-                }
+                Expression::HeaderAccess { line, column, .. } => Ok(Statement::DisplayStatement {
+                    value: expr,
+                    line,
+                    column,
+                }),
                 Expression::CurrentTimeMilliseconds { line, column } => {
                     Ok(Statement::DisplayStatement {
                         value: expr,
@@ -4846,7 +4872,10 @@ impl<'a> Parser<'a> {
                     let timeout = if let Some(token) = self.tokens.peek() {
                         if matches!(token.token, Token::KeywordWith) {
                             self.tokens.next(); // Consume "with"
-                            self.expect_token(Token::KeywordTimeout, "Expected 'timeout' after 'with'")?;
+                            self.expect_token(
+                                Token::KeywordTimeout,
+                                "Expected 'timeout' after 'with'",
+                            )?;
                             Some(self.parse_expression()?)
                         } else {
                             None
@@ -7145,8 +7174,7 @@ impl<'a> Parser<'a> {
                         self.tokens.next(); // Consume "status"
                         status = Some(self.parse_expression()?);
                         continue;
-                    }
-                    else if let Token::Identifier(id) = &next_token.token
+                    } else if let Token::Identifier(id) = &next_token.token
                         && (id == "content_type" || id == "content")
                     {
                         self.tokens.next(); // Consume "and"
@@ -7196,17 +7224,21 @@ impl<'a> Parser<'a> {
         let signal_type = match self.tokens.next() {
             Some(token) => match &token.token {
                 Token::Identifier(signal) => signal.clone(),
-                _ => return Err(ParseError::new(
-                    "Expected signal type (SIGINT, SIGTERM, etc.)".to_string(),
-                    token.line,
-                    token.column,
-                )),
+                _ => {
+                    return Err(ParseError::new(
+                        "Expected signal type (SIGINT, SIGTERM, etc.)".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
             },
-            None => return Err(ParseError::new(
-                "Expected signal type".to_string(),
-                register_token.line,
-                register_token.column,
-            )),
+            None => {
+                return Err(ParseError::new(
+                    "Expected signal type".to_string(),
+                    register_token.line,
+                    register_token.column,
+                ));
+            }
         };
 
         // Expect "as"
@@ -7230,7 +7262,10 @@ impl<'a> Parser<'a> {
         self.expect_token(Token::KeywordAccepting, "Expected 'accepting' after 'stop'")?;
 
         // Expect "connections"
-        self.expect_token(Token::KeywordConnections, "Expected 'connections' after 'accepting'")?;
+        self.expect_token(
+            Token::KeywordConnections,
+            "Expected 'connections' after 'accepting'",
+        )?;
 
         // Expect "on"
         self.expect_token(Token::KeywordOn, "Expected 'on' after 'connections'")?;

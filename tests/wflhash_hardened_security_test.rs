@@ -4,7 +4,10 @@
 
 use std::rc::Rc;
 use wfl::interpreter::value::Value;
-use wfl::stdlib::crypto::{native_wflhash256, native_wflhash256_with_salt, native_wflmac256, wflmac256_verify, native_wflhash256_binary};
+use wfl::stdlib::crypto::{
+    native_wflhash256, native_wflhash256_binary, native_wflhash256_with_salt, native_wflmac256,
+    wflmac256_verify,
+};
 
 #[cfg(test)]
 mod wflhash_hardened_security_tests {
@@ -22,13 +25,15 @@ mod wflhash_hardened_security_tests {
         // Both should work now with proper key derivation
         let mac1 = native_wflmac256(vec![
             Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(weak_key))
-        ]).expect("MAC with weak key should work with HKDF");
+            Value::Text(Rc::from(weak_key)),
+        ])
+        .expect("MAC with weak key should work with HKDF");
 
         let mac2 = native_wflmac256(vec![
             Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(strong_key))
-        ]).expect("MAC with strong key should work");
+            Value::Text(Rc::from(strong_key)),
+        ])
+        .expect("MAC with strong key should work");
 
         // MACs should be different (different derived keys)
         if let (Value::Text(m1), Value::Text(m2)) = (mac1, mac2) {
@@ -44,16 +49,24 @@ mod wflhash_hardened_security_tests {
     fn test_binary_data_support() {
         // Test various binary data patterns
         let binary_data = vec![0xFF, 0xFE, 0xFD, 0x00, 0x01, 0x02]; // Invalid UTF-8
-        let hash = native_wflhash256_binary(&binary_data).expect("Binary data should hash successfully");
+        let hash =
+            native_wflhash256_binary(&binary_data).expect("Binary data should hash successfully");
 
         assert_eq!(hash.len(), 64, "Hash should be 64 hex chars");
-        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "Hash should be valid hex");
+        assert!(
+            hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "Hash should be valid hex"
+        );
 
         // Test that different binary data produces different hashes
         let binary_data2 = vec![0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD];
-        let hash2 = native_wflhash256_binary(&binary_data2).expect("Different binary data should hash");
+        let hash2 =
+            native_wflhash256_binary(&binary_data2).expect("Different binary data should hash");
 
-        assert_ne!(hash, hash2, "Different binary data should produce different hashes");
+        assert_ne!(
+            hash, hash2,
+            "Different binary data should produce different hashes"
+        );
     }
 
     /// Test M2: Memory Cleanup Verification
@@ -70,27 +83,21 @@ mod wflhash_hardened_security_tests {
         // Create MAC and verify it cleans up properly
         let mac_result = native_wflmac256(vec![
             Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(sensitive_key))
+            Value::Text(Rc::from(sensitive_key)),
         ]);
 
         assert!(mac_result.is_ok(), "MAC generation should succeed");
 
         // Test constant-time MAC verification
         if let Ok(Value::Text(mac_hex)) = mac_result {
-            let verify_result = wflmac256_verify(
-                message.as_bytes(),
-                sensitive_key.as_bytes(),
-                &mac_hex
-            );
+            let verify_result =
+                wflmac256_verify(message.as_bytes(), sensitive_key.as_bytes(), &mac_hex);
             assert!(verify_result.unwrap(), "MAC verification should pass");
 
             // Test with wrong MAC
             let wrong_mac = "0".repeat(64);
-            let verify_wrong = wflmac256_verify(
-                message.as_bytes(),
-                sensitive_key.as_bytes(),
-                &wrong_mac
-            );
+            let verify_wrong =
+                wflmac256_verify(message.as_bytes(), sensitive_key.as_bytes(), &wrong_mac);
             assert!(!verify_wrong.unwrap(), "Wrong MAC should fail verification");
         }
     }
@@ -103,21 +110,30 @@ mod wflhash_hardened_security_tests {
         let result = native_wflhash256(vec![]);
         assert!(result.is_err(), "Should fail with wrong arg count");
         if let Err(e) = result {
-            assert_eq!(e.message, "Invalid argument count", "Error should be generic");
+            assert_eq!(
+                e.message, "Invalid argument count",
+                "Error should be generic"
+            );
         }
 
         // Test invalid argument type
         let result = native_wflhash256(vec![Value::Number(42.0)]);
         assert!(result.is_err(), "Should fail with wrong arg type");
         if let Err(e) = result {
-            assert_eq!(e.message, "Invalid argument type", "Error should be generic");
+            assert_eq!(
+                e.message, "Invalid argument type",
+                "Error should be generic"
+            );
         }
 
         // Test MAC with invalid args
         let result = native_wflmac256(vec![Value::Text(Rc::from("test"))]);
         assert!(result.is_err(), "MAC should fail with wrong arg count");
         if let Err(e) = result {
-            assert_eq!(e.message, "Invalid argument count", "Error should be generic");
+            assert_eq!(
+                e.message, "Invalid argument count",
+                "Error should be generic"
+            );
         }
     }
 
@@ -131,7 +147,10 @@ mod wflhash_hardened_security_tests {
 
         assert!(result.is_err(), "Large input should be rejected");
         if let Err(e) = result {
-            assert_eq!(e.message, "Input exceeds maximum allowed size", "Error should be generic");
+            assert_eq!(
+                e.message, "Input exceeds maximum allowed size",
+                "Error should be generic"
+            );
         }
 
         // Test that reasonable large inputs still work
@@ -154,7 +173,7 @@ mod wflhash_hardened_security_tests {
             "test-input-with-dashes",
             "test_input_with_numbers_123",
             "test_input_with_symbols_!@#$%",
-            "very_long_test_input_that_spans_multiple_blocks_to_test_proper_handling_of_longer_messages_in_the_hash_function"
+            "very_long_test_input_that_spans_multiple_blocks_to_test_proper_handling_of_longer_messages_in_the_hash_function",
         ];
 
         let mut hashes = Vec::new();
@@ -170,9 +189,11 @@ mod wflhash_hardened_security_tests {
         // Verify all hashes are unique (no collisions in test set)
         for i in 0..hashes.len() {
             for j in i + 1..hashes.len() {
-                assert_ne!(hashes[i], hashes[j],
+                assert_ne!(
+                    hashes[i], hashes[j],
                     "Collision detected between '{}' and '{}'",
-                    test_inputs[i], test_inputs[j]);
+                    test_inputs[i], test_inputs[j]
+                );
             }
         }
 
@@ -197,10 +218,16 @@ mod wflhash_hardened_security_tests {
             let difference_ratio = differing_bits as f64 / total_bits as f64;
 
             // Good avalanche effect should be close to 50%
-            assert!(difference_ratio > 0.35,
-                "Avalanche effect too low: {:.2}%", difference_ratio * 100.0);
-            assert!(difference_ratio < 0.65,
-                "Avalanche effect too high: {:.2}%", difference_ratio * 100.0);
+            assert!(
+                difference_ratio > 0.35,
+                "Avalanche effect too low: {:.2}%",
+                difference_ratio * 100.0
+            );
+            assert!(
+                difference_ratio < 0.65,
+                "Avalanche effect too high: {:.2}%",
+                difference_ratio * 100.0
+            );
         }
     }
 
@@ -216,25 +243,28 @@ mod wflhash_hardened_security_tests {
         // Generate hashes with different salts
         let hash_salt1 = native_wflhash256_with_salt(vec![
             Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(salt1))
-        ]).unwrap();
+            Value::Text(Rc::from(salt1)),
+        ])
+        .unwrap();
 
         let hash_salt2 = native_wflhash256_with_salt(vec![
             Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(salt2))
-        ]).unwrap();
+            Value::Text(Rc::from(salt2)),
+        ])
+        .unwrap();
 
         let hash_salt3 = native_wflhash256_with_salt(vec![
             Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(salt3))
-        ]).unwrap();
+            Value::Text(Rc::from(salt3)),
+        ])
+        .unwrap();
 
         let hash_no_salt = native_wflhash256(vec![Value::Text(Rc::from(message))]).unwrap();
 
         // Extract hash strings
         if let (Value::Text(h1), Value::Text(h2), Value::Text(h3), Value::Text(h_no_salt)) =
-            (hash_salt1, hash_salt2, hash_salt3, hash_no_salt) {
-
+            (hash_salt1, hash_salt2, hash_salt3, hash_no_salt)
+        {
             // All should be different
             assert_ne!(h1, h2, "Different salts should produce different hashes");
             assert_ne!(h1, h3, "Salt vs empty salt should be different");
@@ -258,52 +288,41 @@ mod wflhash_hardened_security_tests {
         // Generate MAC
         let mac_result = native_wflmac256(vec![
             Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(key))
-        ]).unwrap();
+            Value::Text(Rc::from(key)),
+        ])
+        .unwrap();
 
         if let Value::Text(correct_mac) = mac_result {
             // Test correct verification
-            let verify_correct = wflmac256_verify(
-                message.as_bytes(),
-                key.as_bytes(),
-                &correct_mac
-            ).unwrap();
+            let verify_correct =
+                wflmac256_verify(message.as_bytes(), key.as_bytes(), &correct_mac).unwrap();
             assert!(verify_correct, "Correct MAC should verify");
 
             // Test wrong key
-            let verify_wrong_key = wflmac256_verify(
-                message.as_bytes(),
-                wrong_key.as_bytes(),
-                &correct_mac
-            ).unwrap();
+            let verify_wrong_key =
+                wflmac256_verify(message.as_bytes(), wrong_key.as_bytes(), &correct_mac).unwrap();
             assert!(!verify_wrong_key, "Wrong key should fail verification");
 
             // Test wrong message
             let wrong_message = "different message";
-            let verify_wrong_msg = wflmac256_verify(
-                wrong_message.as_bytes(),
-                key.as_bytes(),
-                &correct_mac
-            ).unwrap();
+            let verify_wrong_msg =
+                wflmac256_verify(wrong_message.as_bytes(), key.as_bytes(), &correct_mac).unwrap();
             assert!(!verify_wrong_msg, "Wrong message should fail verification");
 
             // Test malformed MAC
             let malformed_mac = "invalid_mac_format";
-            let verify_malformed = wflmac256_verify(
-                message.as_bytes(),
-                key.as_bytes(),
-                malformed_mac
-            ).unwrap();
+            let verify_malformed =
+                wflmac256_verify(message.as_bytes(), key.as_bytes(), malformed_mac).unwrap();
             assert!(!verify_malformed, "Malformed MAC should fail verification");
 
             // Test wrong length MAC
             let wrong_length_mac = "a".repeat(32); // Too short
-            let verify_wrong_length = wflmac256_verify(
-                message.as_bytes(),
-                key.as_bytes(),
-                &wrong_length_mac
-            ).unwrap();
-            assert!(!verify_wrong_length, "Wrong length MAC should fail verification");
+            let verify_wrong_length =
+                wflmac256_verify(message.as_bytes(), key.as_bytes(), &wrong_length_mac).unwrap();
+            assert!(
+                !verify_wrong_length,
+                "Wrong length MAC should fail verification"
+            );
         }
     }
 }

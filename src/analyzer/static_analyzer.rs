@@ -1020,7 +1020,9 @@ impl Analyzer {
                                 Statement::WaitForRequestStatement { column, .. } => *column,
                                 Statement::RespondStatement { column, .. } => *column,
                                 Statement::RegisterSignalHandlerStatement { column, .. } => *column,
-                                Statement::StopAcceptingConnectionsStatement { column, .. } => *column,
+                                Statement::StopAcceptingConnectionsStatement { column, .. } => {
+                                    *column
+                                }
                                 Statement::CloseServerStatement { column, .. } => *column,
                                 Statement::WriteContentStatement { column, .. } => *column,
                                 Statement::WaitForDurationStatement { column, .. } => *column,
@@ -1094,7 +1096,9 @@ impl Analyzer {
                                     Statement::WaitForRequestStatement { line, .. } => *line,
                                     Statement::RespondStatement { line, .. } => *line,
                                     Statement::RegisterSignalHandlerStatement { line, .. } => *line,
-                                    Statement::StopAcceptingConnectionsStatement { line, .. } => *line,
+                                    Statement::StopAcceptingConnectionsStatement {
+                                        line, ..
+                                    } => *line,
                                     Statement::CloseServerStatement { line, .. } => *line,
                                     Statement::WriteContentStatement { line, .. } => *line,
                                     Statement::WaitForDurationStatement { line, .. } => *line,
@@ -1151,8 +1155,12 @@ impl Analyzer {
                                     Statement::ListenStatement { column, .. } => *column,
                                     Statement::WaitForRequestStatement { column, .. } => *column,
                                     Statement::RespondStatement { column, .. } => *column,
-                                    Statement::RegisterSignalHandlerStatement { column, .. } => *column,
-                                    Statement::StopAcceptingConnectionsStatement { column, .. } => *column,
+                                    Statement::RegisterSignalHandlerStatement {
+                                        column, ..
+                                    } => *column,
+                                    Statement::StopAcceptingConnectionsStatement {
+                                        column, ..
+                                    } => *column,
                                     Statement::CloseServerStatement { column, .. } => *column,
                                     Statement::WriteContentStatement { column, .. } => *column,
                                     Statement::WaitForDurationStatement { column, .. } => *column,

@@ -1,11 +1,11 @@
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use std::rc::Rc;
-use zeroize::Zeroize;
-use subtle::ConstantTimeEq;
 use hkdf::Hkdf;
 use sha2::Sha256;
+use std::rc::Rc;
+use subtle::ConstantTimeEq;
+use zeroize::Zeroize;
 
 /// Maximum input size for wflhash functions (100MB)
 const MAX_INPUT_SIZE: usize = 100 * 1024 * 1024;
@@ -325,7 +325,9 @@ impl WflHashParams {
                 params.mode_flags |= 0x01; // Set keyed mode flag
 
                 // Mix first 16 bytes of derived key into personalization
-                params.personalization.copy_from_slice(&params.derived_key[..16]);
+                params
+                    .personalization
+                    .copy_from_slice(&params.derived_key[..16]);
 
                 Ok(params)
             }
@@ -333,7 +335,7 @@ impl WflHashParams {
                 "Failed to derive MAC key".to_string(),
                 0,
                 0,
-            ))
+            )),
         }
     }
 }
@@ -390,11 +392,7 @@ fn wflhash_core(input: &[u8], params: &WflHashParams) -> Result<Vec<u8>, Runtime
 fn wflhash_core_text(input: &[u8], params: &WflHashParams) -> Result<Vec<u8>, RuntimeError> {
     // Validate UTF-8 for text mode
     if std::str::from_utf8(input).is_err() {
-        return Err(RuntimeError::new(
-            "Invalid text encoding".to_string(),
-            0,
-            0,
-        ));
+        return Err(RuntimeError::new("Invalid text encoding".to_string(), 0, 0));
     }
 
     wflhash_core(input, params)
@@ -418,11 +416,7 @@ pub fn native_wflhash256(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let input = match &args[0] {
         Value::Text(text) => text.as_bytes(),
         _ => {
-            return Err(RuntimeError::new(
-                "Invalid argument type".to_string(),
-                0,
-                0,
-            ));
+            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
         }
     };
 
@@ -446,11 +440,7 @@ pub fn native_wflhash512(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let input = match &args[0] {
         Value::Text(text) => text.as_bytes(),
         _ => {
-            return Err(RuntimeError::new(
-                "Invalid argument type".to_string(),
-                0,
-                0,
-            ));
+            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
         }
     };
 
@@ -474,22 +464,14 @@ pub fn native_wflhash256_with_salt(args: Vec<Value>) -> Result<Value, RuntimeErr
     let input = match &args[0] {
         Value::Text(text) => text.as_bytes(),
         _ => {
-            return Err(RuntimeError::new(
-                "Invalid argument type".to_string(),
-                0,
-                0,
-            ));
+            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
         }
     };
 
     let salt = match &args[1] {
         Value::Text(text) => text.as_bytes(),
         _ => {
-            return Err(RuntimeError::new(
-                "Invalid argument type".to_string(),
-                0,
-                0,
-            ));
+            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
         }
     };
 
@@ -514,22 +496,14 @@ pub fn native_wflmac256(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let input = match &args[0] {
         Value::Text(text) => text.as_bytes(),
         _ => {
-            return Err(RuntimeError::new(
-                "Invalid argument type".to_string(),
-                0,
-                0,
-            ));
+            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
         }
     };
 
     let key = match &args[1] {
         Value::Text(text) => text.as_bytes(),
         _ => {
-            return Err(RuntimeError::new(
-                "Invalid argument type".to_string(),
-                0,
-                0,
-            ));
+            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
         }
     };
 
@@ -549,7 +523,11 @@ pub fn native_wflhash256_binary(data: &[u8]) -> Result<String, RuntimeError> {
 }
 
 /// Constant-time MAC verification using subtle crate
-pub fn wflmac256_verify(message: &[u8], key: &[u8], expected_mac: &str) -> Result<bool, RuntimeError> {
+pub fn wflmac256_verify(
+    message: &[u8],
+    key: &[u8],
+    expected_mac: &str,
+) -> Result<bool, RuntimeError> {
     // Generate MAC for the message
     let params = WflHashParams::new_with_key(32, key)?;
     let computed_mac_bytes = wflhash_core(message, &params)?;

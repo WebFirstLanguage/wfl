@@ -60,7 +60,8 @@ fn cleanup_debug_files(wfl_file_path: &str) {
 
     let path = Path::new(wfl_file_path);
     if let Some(stem) = path.file_stem() {
-        let debug_file = path.parent()
+        let debug_file = path
+            .parent()
             .unwrap_or_else(|| Path::new(""))
             .join(format!("{}_debug.txt", stem.to_string_lossy()));
 

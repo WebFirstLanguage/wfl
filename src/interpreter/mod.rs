@@ -48,8 +48,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
-use warp::Filter;
 use uuid;
+use warp::Filter;
 
 // Web server data structures
 #[derive(Debug, Clone)]
@@ -167,10 +167,19 @@ fn stmt_type(stmt: &Statement) -> String {
             format!("WaitForRequestStatement '{request_name}'")
         }
         Statement::RespondStatement { .. } => "RespondStatement".to_string(),
-        Statement::RegisterSignalHandlerStatement { signal_type, handler_name, .. } => {
-            format!("RegisterSignalHandlerStatement '{}' -> '{}'", signal_type, handler_name)
+        Statement::RegisterSignalHandlerStatement {
+            signal_type,
+            handler_name,
+            ..
+        } => {
+            format!(
+                "RegisterSignalHandlerStatement '{}' -> '{}'",
+                signal_type, handler_name
+            )
         }
-        Statement::StopAcceptingConnectionsStatement { .. } => "StopAcceptingConnectionsStatement".to_string(),
+        Statement::StopAcceptingConnectionsStatement { .. } => {
+            "StopAcceptingConnectionsStatement".to_string()
+        }
         Statement::CloseServerStatement { .. } => "CloseServerStatement".to_string(),
     }
 }
@@ -218,10 +227,11 @@ fn expr_type(expr: &Expression) -> String {
         Expression::ListFilesFiltered { .. } => "ListFilesFiltered".to_string(),
         Expression::HeaderAccess { header_name, .. } => format!("HeaderAccess '{header_name}'"),
         Expression::CurrentTimeMilliseconds { .. } => "CurrentTimeMilliseconds".to_string(),
-        Expression::CurrentTimeFormatted { format, .. } => format!("CurrentTimeFormatted '{format}'"),
+        Expression::CurrentTimeFormatted { format, .. } => {
+            format!("CurrentTimeFormatted '{format}'")
+        }
     }
 }
-
 
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncSeekExt;
@@ -242,7 +252,8 @@ pub struct Interpreter {
     step_mode: bool,          // Controls single-step execution mode
     script_args: Vec<String>, // Command-line arguments passed to the script
     web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
-    pending_responses: RefCell<HashMap<String, Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>>>, // Pending response senders by request ID
+    pending_responses:
+        RefCell<HashMap<String, Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>>>, // Pending response senders by request ID
 }
 
 #[allow(dead_code)]
@@ -536,8 +547,8 @@ impl Interpreter {
             max_duration: Duration::from_secs(u64::MAX), // Effectively no timeout by default
             call_stack: RefCell::new(Vec::new()),
             io_client: Rc::new(IoClient::new()),
-            step_mode: false,        // Default to non-step mode
-            script_args: Vec::new(), // Initialize empty, will be set later
+            step_mode: false,                          // Default to non-step mode
+            script_args: Vec::new(),                   // Initialize empty, will be set later
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
         }
@@ -2094,19 +2105,17 @@ impl Interpreter {
             } => {
                 let duration_value = self.evaluate_expression(duration, Rc::clone(&env)).await?;
                 let duration_ms = match &duration_value {
-                    Value::Number(n) => {
-                        match unit.as_str() {
-                            "milliseconds" => *n as u64,
-                            "seconds" => (*n * 1000.0) as u64,
-                            _ => {
-                                return Err(RuntimeError::new(
-                                    format!("Unsupported time unit: {}", unit),
-                                    *line,
-                                    *column,
-                                ));
-                            }
+                    Value::Number(n) => match unit.as_str() {
+                        "milliseconds" => *n as u64,
+                        "seconds" => (*n * 1000.0) as u64,
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!("Unsupported time unit: {}", unit),
+                                *line,
+                                *column,
+                            ));
                         }
-                    }
+                    },
                     _ => {
                         return Err(RuntimeError::new(
                             format!("Expected number for duration, got {duration_value:?}"),
@@ -3008,7 +3017,8 @@ impl Interpreter {
                 };
 
                 // Create request/response channels
-                let (request_sender, request_receiver) = mpsc::unbounded_channel::<WflHttpRequest>();
+                let (request_sender, request_receiver) =
+                    mpsc::unbounded_channel::<WflHttpRequest>();
                 let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
 
                 // Create warp routes that handle all HTTP methods and paths
@@ -3019,80 +3029,91 @@ impl Interpreter {
                     .and(warp::header::headers_cloned())
                     .and(warp::body::bytes())
                     .and(warp::addr::remote())
-                    .and_then(move |method: warp::http::Method,
-                                   path: warp::path::FullPath,
-                                   headers: warp::http::HeaderMap,
-                                   body: bytes::Bytes,
-                                   remote_addr: Option<std::net::SocketAddr>| {
-                        let sender = request_sender_clone.clone();
-                        async move {
-                            // Generate unique request ID
-                            let request_id = uuid::Uuid::new_v4().to_string();
+                    .and_then(
+                        move |method: warp::http::Method,
+                              path: warp::path::FullPath,
+                              headers: warp::http::HeaderMap,
+                              body: bytes::Bytes,
+                              remote_addr: Option<std::net::SocketAddr>| {
+                            let sender = request_sender_clone.clone();
+                            async move {
+                                // Generate unique request ID
+                                let request_id = uuid::Uuid::new_v4().to_string();
 
-                            // Extract client IP
-                            let client_ip = remote_addr
-                                .map(|addr| addr.ip().to_string())
-                                .unwrap_or_else(|| "unknown".to_string());
+                                // Extract client IP
+                                let client_ip = remote_addr
+                                    .map(|addr| addr.ip().to_string())
+                                    .unwrap_or_else(|| "unknown".to_string());
 
-                            // Convert headers to HashMap
-                            let mut header_map = HashMap::new();
-                            for (name, value) in headers.iter() {
-                                if let Ok(value_str) = value.to_str() {
-                                    header_map.insert(name.to_string(), value_str.to_string());
-                                }
-                            }
-
-                            // Convert body to string
-                            let body_str = String::from_utf8_lossy(&body).to_string();
-
-                            // Create response channel
-                            let (response_sender, response_receiver) = oneshot::channel::<WflHttpResponse>();
-
-                            // Create WFL request
-                            let wfl_request = WflHttpRequest {
-                                id: request_id,
-                                method: method.to_string(),
-                                path: path.as_str().to_string(),
-                                client_ip,
-                                body: body_str,
-                                headers: header_map,
-                                response_sender: Arc::new(tokio::sync::Mutex::new(Some(response_sender))),
-                            };
-
-                            // Send request to WFL interpreter
-                            if let Err(_) = sender.send(wfl_request) {
-                                return Err(warp::reject::custom(ServerError("Request channel closed".to_string())));
-                            }
-
-                            // Wait for response
-                            match response_receiver.await {
-                                Ok(response) => {
-                                    let status_code = warp::http::StatusCode::from_u16(response.status)
-                                        .unwrap_or(warp::http::StatusCode::OK);
-
-                                    let mut reply_builder = warp::http::Response::builder()
-                                        .status(status_code)
-                                        .header("content-type", response.content_type);
-
-                                    // Add additional headers
-                                    for (name, value) in response.headers {
-                                        reply_builder = reply_builder.header(name, value);
-                                    }
-
-                                    match reply_builder.body(response.content) {
-                                        Ok(response) => Ok(response),
-                                        Err(_) => Err(warp::reject::custom(ServerError("Failed to build response".to_string())))
+                                // Convert headers to HashMap
+                                let mut header_map = HashMap::new();
+                                for (name, value) in headers.iter() {
+                                    if let Ok(value_str) = value.to_str() {
+                                        header_map.insert(name.to_string(), value_str.to_string());
                                     }
                                 }
-                                Err(_) => {
-                                    Err(warp::reject::custom(ServerError("Response channel closed".to_string())))
+
+                                // Convert body to string
+                                let body_str = String::from_utf8_lossy(&body).to_string();
+
+                                // Create response channel
+                                let (response_sender, response_receiver) =
+                                    oneshot::channel::<WflHttpResponse>();
+
+                                // Create WFL request
+                                let wfl_request = WflHttpRequest {
+                                    id: request_id,
+                                    method: method.to_string(),
+                                    path: path.as_str().to_string(),
+                                    client_ip,
+                                    body: body_str,
+                                    headers: header_map,
+                                    response_sender: Arc::new(tokio::sync::Mutex::new(Some(
+                                        response_sender,
+                                    ))),
+                                };
+
+                                // Send request to WFL interpreter
+                                if let Err(_) = sender.send(wfl_request) {
+                                    return Err(warp::reject::custom(ServerError(
+                                        "Request channel closed".to_string(),
+                                    )));
+                                }
+
+                                // Wait for response
+                                match response_receiver.await {
+                                    Ok(response) => {
+                                        let status_code =
+                                            warp::http::StatusCode::from_u16(response.status)
+                                                .unwrap_or(warp::http::StatusCode::OK);
+
+                                        let mut reply_builder = warp::http::Response::builder()
+                                            .status(status_code)
+                                            .header("content-type", response.content_type);
+
+                                        // Add additional headers
+                                        for (name, value) in response.headers {
+                                            reply_builder = reply_builder.header(name, value);
+                                        }
+
+                                        match reply_builder.body(response.content) {
+                                            Ok(response) => Ok(response),
+                                            Err(_) => Err(warp::reject::custom(ServerError(
+                                                "Failed to build response".to_string(),
+                                            ))),
+                                        }
+                                    }
+                                    Err(_) => Err(warp::reject::custom(ServerError(
+                                        "Response channel closed".to_string(),
+                                    ))),
                                 }
                             }
-                        }
-                    });
+                        },
+                    );
 
                 // Start the server
-                let server_task = warp::serve(routes).try_bind_ephemeral(([127, 0, 0, 1], port_num));
+                let server_task =
+                    warp::serve(routes).try_bind_ephemeral(([127, 0, 0, 1], port_num));
 
                 match server_task {
                     Ok((addr, server)) => {
@@ -3107,7 +3128,9 @@ impl Interpreter {
                         };
 
                         // Store the server in the interpreter
-                        self.web_servers.borrow_mut().insert(server_name.clone(), wfl_server);
+                        self.web_servers
+                            .borrow_mut()
+                            .insert(server_name.clone(), wfl_server);
 
                         // Create a server value with the actual address
                         let server_value = Value::Text(Rc::from(format!(
@@ -3207,32 +3230,38 @@ impl Interpreter {
 
                 // Define the main request variable (for use in respond statements)
                 let mut request_properties = HashMap::new();
-                request_properties.insert("_response_sender".to_string(), Value::Text(Rc::from(request.id.clone())));
+                request_properties.insert(
+                    "_response_sender".to_string(),
+                    Value::Text(Rc::from(request.id.clone())),
+                );
                 let request_object = Value::Object(Rc::new(RefCell::new(request_properties)));
 
                 match env_mut.define(request_name, request_object) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
                 // Define individual request property variables
                 match env_mut.define("method", Value::Text(Rc::from(request.method.clone()))) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
                 match env_mut.define("path", Value::Text(Rc::from(request.path.clone()))) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
-                match env_mut.define("client_ip", Value::Text(Rc::from(request.client_ip.clone()))) {
-                    Ok(_) => {},
+                match env_mut.define(
+                    "client_ip",
+                    Value::Text(Rc::from(request.client_ip.clone())),
+                ) {
+                    Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
                 match env_mut.define("body", Value::Text(Rc::from(request.body.clone()))) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
@@ -3244,7 +3273,7 @@ impl Interpreter {
                 let headers_object = Value::Object(Rc::new(RefCell::new(headers_map)));
 
                 match env_mut.define("headers", headers_object) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
@@ -3296,7 +3325,9 @@ impl Interpreter {
 
                 // Evaluate status code (optional)
                 let status_code = if let Some(status_expr) = status {
-                    let status_val = self.evaluate_expression(status_expr, Rc::clone(&env)).await?;
+                    let status_val = self
+                        .evaluate_expression(status_expr, Rc::clone(&env))
+                        .await?;
                     match &status_val {
                         Value::Number(n) => *n as u16,
                         _ => {
@@ -3347,7 +3378,8 @@ impl Interpreter {
                     if let Some(sender) = sender_opt.take() {
                         if let Err(_) = sender.send(response) {
                             return Err(RuntimeError::new(
-                                "Failed to send response - client may have disconnected".to_string(),
+                                "Failed to send response - client may have disconnected"
+                                    .to_string(),
                                 *line,
                                 *column,
                             ));
@@ -3380,7 +3412,11 @@ impl Interpreter {
                 // In a full implementation, this would set up actual signal handlers
                 let signal_handler_key = format!("signal_handler_{}", signal_type);
 
-                env.borrow_mut().define(&signal_handler_key, Value::Text(Rc::from(handler_name.clone())))
+                env.borrow_mut()
+                    .define(
+                        &signal_handler_key,
+                        Value::Text(Rc::from(handler_name.clone())),
+                    )
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
                 // TODO: Implement actual signal handling with tokio::signal
@@ -3425,10 +3461,12 @@ impl Interpreter {
                 // Mark server as no longer accepting connections
                 // In a full implementation, this would stop the warp server from accepting new connections
                 // For now, we'll just set a flag
-                env.borrow_mut().define(
-                    &format!("{}_accepting_connections", server_name),
-                    Value::Bool(false)
-                ).map_err(|e| RuntimeError::new(e, *line, *column))?;
+                env.borrow_mut()
+                    .define(
+                        &format!("{}_accepting_connections", server_name),
+                        Value::Bool(false),
+                    )
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -4503,16 +4541,17 @@ impl Interpreter {
             }
             Expression::CurrentTimeMilliseconds { line: _, column: _ } => {
                 use std::time::{SystemTime, UNIX_EPOCH};
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|e| RuntimeError::new(
-                        format!("Failed to get current time: {}", e),
-                        0, 0
-                    ))?;
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| {
+                    RuntimeError::new(format!("Failed to get current time: {}", e), 0, 0)
+                })?;
                 Ok(Value::Number(now.as_millis() as f64))
             }
-            Expression::CurrentTimeFormatted { format, line, column } => {
-                use chrono::{Local, DateTime};
+            Expression::CurrentTimeFormatted {
+                format,
+                line,
+                column,
+            } => {
+                use chrono::{DateTime, Local};
                 let now: DateTime<Local> = Local::now();
 
                 // Convert WFL format to chrono format

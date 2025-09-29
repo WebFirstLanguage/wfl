@@ -932,7 +932,9 @@ impl Analyzer {
                 self.analyze_expression(file);
             }
 
-            Statement::WriteContentStatement { content, target, .. } => {
+            Statement::WriteContentStatement {
+                content, target, ..
+            } => {
                 self.analyze_expression(content);
                 self.analyze_expression(target);
             }
@@ -1720,7 +1722,11 @@ impl Analyzer {
             Expression::CurrentTimeMilliseconds { line: _, column: _ } => {
                 // No sub-expressions to analyze
             }
-            Expression::CurrentTimeFormatted { format: _, line: _, column: _ } => {
+            Expression::CurrentTimeFormatted {
+                format: _,
+                line: _,
+                column: _,
+            } => {
                 // No sub-expressions to analyze
             }
         }

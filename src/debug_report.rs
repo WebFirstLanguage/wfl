@@ -306,8 +306,8 @@ pub fn cleanup_debug_files_in_dir(dir: &Path, max_age: Duration) -> Result<usize
 
         // Check if it's a debug file or temporary test file
         if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-            let is_debug_file = filename.ends_with("_debug.txt") ||
-                               filename.starts_with("temp_test_");
+            let is_debug_file =
+                filename.ends_with("_debug.txt") || filename.starts_with("temp_test_");
 
             if is_debug_file {
                 // Check file age
