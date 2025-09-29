@@ -46,9 +46,12 @@ python scripts/bump_version.py --update-wix-only
 
 The `.github/workflows/versioning.yml` workflow automatically:
 1. Runs the version bump script with `--update-all`
-2. Commits changes with `[skip ci]` to prevent infinite loops
-3. Tags the new version
-4. Pushes changes to the repository
+2. **Fails the build if cargo errors occur or versions don't synchronize**
+3. Commits changes with `[skip ci]` to prevent infinite loops
+4. Tags the new version
+5. Pushes changes to the repository
+
+**Critical**: The version bump script now uses `sys.exit(1)` on any cargo errors or version mismatches, ensuring CI failure rather than silent continuation.
 
 ## Manual Version Synchronization
 
@@ -145,6 +148,11 @@ The CI pipeline should validate version synchronization:
    - Check that all modified files are committed together
    - Verify regex patterns handle all version fields correctly
 
+5. **Script exits with code 1 in CI**
+   - This is the intended behavior for cargo errors or version mismatches
+   - Check CI logs for specific error messages
+   - Common causes: cargo not found, network issues, or corrupted Cargo.lock
+
 ### Verification Commands
 
 ```bash
@@ -165,6 +173,7 @@ python scripts/bump_version.py --skip-bump --update-all --skip-git --verbose
 3. **Commit atomically** - All version-related files should be committed together
 4. **Validate after changes** - Always run `cargo build` after version updates
 5. **Monitor CI/CD** - Watch for version-related failures in automated workflows
+6. **Expect CI failures on errors** - The script is designed to fail fast on any synchronization issues
 
 ## Related Files
 
