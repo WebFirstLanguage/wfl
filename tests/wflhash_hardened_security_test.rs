@@ -338,7 +338,7 @@ mod wflhash_hardened_security_tests {
 
     /// Helper function for hex decoding
     fn hex_decode(s: &str) -> Result<Vec<u8>, &'static str> {
-        if s.len() % 2 != 0 {
+        if !s.len().is_multiple_of(2) {
             return Err("Odd length");
         }
 
