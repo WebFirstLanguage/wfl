@@ -1,7 +1,7 @@
-# WFL AI Coding Guide
-## Comprehensive Reference for AI Agents Working with WebFirst Language
+# WFL Living AI Document
+## Constantly-Updated Cheat Sheet for AI Agents Building WFL Apps
 
-This document serves as a complete reference for AI agents to write correct, idiomatic WFL code without needing to explore the codebase or ask clarifying questions about basic language features.
+This living document serves as a comprehensive, constantly-updated reference for AI agents working with the WebFirst Language (WFL). It summarizes current language features, lists available modules, and provides guidance on composing WFL code using natural language syntax. This document is updated whenever the language or its specifications evolve.
 
 ## Table of Contents
 

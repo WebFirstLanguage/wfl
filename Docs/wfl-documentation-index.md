@@ -2,21 +2,33 @@
 
 Welcome to the WebFirst Language documentation! This index provides a comprehensive guide to all available documentation, organized for easy navigation according to the natural-language principles outlined in our [Foundation document](guides/wfl-foundation.md).
 
-## 📚 Language Reference
+## 🤖 AI Assistant Resources
 
-Core language documentation for learning and using WFL:
+Essential resources for AI agents and automated tools:
 
-- **[Language Specification](language-reference/wfl-spec.md)** - Complete formal specification of WFL syntax and semantics
-- **[Variables Guide](language-reference/wfl-variables.md)** - Creating and using variables in WFL
-- **[Control Flow](language-reference/wfl-control-flow.md)** - Conditionals, loops, and program flow
-- **[Actions (Functions)](language-reference/wfl-actions.md)** - Defining and using actions
-- **[Pattern Matching](language-reference/wfl-patterns.md)** - Comprehensive pattern matching with natural language syntax
-- **[Async Programming](language-reference/wfl-async.md)** - Asynchronous operations and concurrency
-- **[Container System](language-reference/wfl-containers.md)** - Object-oriented programming in WFL
-- **[Error Handling](language-reference/wfl-errors.md)** - Understanding and handling errors
-- **[I/O Operations](language-reference/wfl-io.md)** - File and network input/output
-- **[Main Loop](language-reference/wfl-main-loop.md)** - Event-driven programming
-- **[Loop Scoping](language-reference/loop-scoping.md)** - Loop variable scoping and iteration behavior
+- **[WFL Living AI Document](wfl-living-ai.md)** - Constantly-updated cheat sheet for AI agents building WFL apps
+
+## 📚 Core Language Features (WFLDocs)
+
+Implemented language features and syntax documentation:
+
+- **[Language Specification](wfldocs/WFL-spec.md)** - Complete formal specification of WFL syntax and semantics
+- **[Variables Guide](wfldocs/WFL-variables.md)** - Creating and using variables in WFL
+- **[Control Flow](wfldocs/WFL-control-flow.md)** - Conditionals, loops, and program flow
+- **[Actions (Functions)](wfldocs/WFL-actions.md)** - Defining and using actions
+- **[Pattern Matching](wfldocs/WFL-patterns.md)** - Comprehensive pattern matching with natural language syntax
+- **[Async Programming](wfldocs/WFL-async.md)** - Asynchronous operations and concurrency
+- **[Container System](wfldocs/WFL-containers.md)** - Object-oriented programming in WFL
+- **[Error Handling](wfldocs/WFL-errors.md)** - Understanding and handling errors
+- **[I/O Operations](wfldocs/WFL-io.md)** - File and network input/output
+- **[Main Loop](wfldocs/WFL-main-loop.md)** - Event-driven programming
+- **[Loop Scoping](wfldocs/WFL-loop-scoping.md)** - Loop variable scoping and iteration behavior
+
+## 🚧 Planned Features (WFLSpecs)
+
+Proposed and experimental features under development:
+
+- **[Web Server Implementation](wflspecs/SPEC-web-server.md)** - Planned web server functionality and API design
 
 ## 📖 Guides and Tutorials
 
@@ -81,6 +93,9 @@ Internal technical documentation for contributors and advanced users:
 ### Architecture
 - **[Architecture Diagram](technical/wfl-architecture-diagram.md)** - System architecture overview
 - **[LSP Architecture](technical/wfl-lsp-architecture.md)** - Language Server Protocol implementation details
+- **[Parser Limitations](technical/wfl_parser_limitations.md)** - Known parser limitations and workarounds
+- **[WFL Hash](technical/wflhash.md)** - Custom cryptographic hash function documentation
+- **[Error System](technical/error system.pdf)** - Error handling system design (PDF)
 
 ## 🔬 Development Notes
 
@@ -95,6 +110,10 @@ Internal development documentation (not for general users):
 - **[Integration Notes](dev-notes/wfl-int2.md)** - Integration with other systems
 - **[Rust LOC Report](dev-notes/wfl-rust-loc-report.md)** - Code metrics
 - **[Rust LOC Counter](dev-notes/wfl-rust-loc-counter.md)** - Line counting tool
+- **[Pattern Implementation Analysis](dev-notes/pattern-implementation-analysis.md)** - Pattern matching implementation details
+- **[Rust LOC Report (Simple)](dev-notes/rust_loc_report_simple.md)** - Simplified code metrics
+- **[Rust LOC Report (Detailed)](dev-notes/rust_loc_report.md)** - Detailed code analysis
+- **[WFL Rust LOC Report](dev-notes/wfl_rust_loc_report.md)** - WFL-specific code metrics
 
 ## 🚀 Quick Links
 
@@ -121,16 +140,18 @@ Internal development documentation (not for general users):
 When adding new documentation:
 
 1. **Choose the right location:**
-   - `language-reference/` - User-facing language documentation
+   - `wfldocs/` - Core language features (implemented) with `WFL-` prefix
+   - `wflspecs/` - Planned/experimental features with `SPEC-` prefix
    - `guides/` - Tutorials, how-tos, and best practices
    - `api/` - API and library reference
    - `technical/` - Internal technical documentation
    - `dev-notes/` - Development notes and temporary docs
 
 2. **Follow naming conventions:**
-   - Use clear, descriptive filenames
-   - Prefix with `wfl-` for consistency
-   - Use lowercase with hyphens
+   - Use `WFL-` prefix for core language features in `wfldocs/`
+   - Use `SPEC-` prefix for planned features in `wflspecs/`
+   - Use lowercase, hyphen-separated names
+   - Avoid cryptic abbreviations
 
 3. **Update this index** with a link to your new document
 
@@ -146,15 +167,17 @@ When adding new documentation:
 
 ## 📊 Documentation Statistics
 
-- **Language Reference:** 11 comprehensive guides
-- **User Guides:** 9 tutorials and how-tos
+- **Core Language Features (WFLDocs):** 11 comprehensive guides
+- **Planned Features (WFLSpecs):** 1 specification document
+- **User Guides:** 14 tutorials and how-tos
 - **IDE Integration:** 3 LSP and editor guides
 - **API Documentation:** 11 module references
-- **Technical Docs:** 16 internal documents (including LSP architecture)
-- **Dev Notes:** 9 development documents (including bug reports and optimization guides)
-- **Total Documentation:** 59 organized documents
+- **Technical Docs:** 19 internal documents (including moved files)
+- **Dev Notes:** 13 development documents (including moved LOC reports)
+- **AI Resources:** 1 living AI document
+- **Total Documentation:** 73 organized documents
 
-*Last updated: September 2025*
+*Last updated: September 2025 - Reorganized according to WFL documentation standards*
 
 ## 🔗 External Resources
 
