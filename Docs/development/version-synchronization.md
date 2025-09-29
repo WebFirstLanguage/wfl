@@ -5,12 +5,16 @@ This document explains how version synchronization works in the WFL project and 
 ## Overview
 
 The WFL project uses multiple files to track version information:
-- `Cargo.toml` - Main Rust package version
+- `Cargo.toml` - Main Rust package version AND `package.metadata.bundle` version
 - `Cargo.lock` - Lock file with exact dependency versions (including WFL itself)
 - `src/version.rs` - Runtime version constant
 - `.build_meta.json` - Build metadata with version tracking
 - Various package.json files for VS Code extensions
 - `wix.toml` - Windows installer version
+
+**Important**: The `Cargo.toml` file contains TWO version fields that must be synchronized:
+1. `[package] version = "X.Y.Z"` - Main package version
+2. `[package.metadata.bundle] version = "X.Y.Z"` - Bundle metadata version
 
 ## The Problem
 
@@ -61,8 +65,14 @@ cargo update
 
 ### Step 2: Verify Synchronization
 ```bash
-# Check that versions match
-grep 'version = ' Cargo.toml
+# Check that all versions match
+echo "Main package version:"
+grep '^version = ' Cargo.toml | head -1
+
+echo "Bundle metadata version:"
+grep -A10 '\[package\.metadata\.bundle\]' Cargo.toml | grep 'version = '
+
+echo "Cargo.lock version:"
 grep 'name = "wfl"' -A1 Cargo.lock
 
 # Build to ensure everything works
@@ -120,20 +130,27 @@ The CI pipeline should validate version synchronization:
 1. **Cargo.lock shows old version after Cargo.toml update**
    - Solution: Run `cargo update --package wfl`
 
-2. **Version bump script fails**
+2. **package.metadata.bundle version doesn't match main package version**
+   - This indicates a regex pattern issue in the version bump script
+   - Solution: Run the version bump script to synchronize both fields
+
+3. **Version bump script fails**
    - Check that all required files exist
    - Ensure cargo is in PATH
    - Verify git configuration
+   - Check regex patterns for multiline matching issues
 
-3. **CI/CD creates version drift**
+4. **CI/CD creates version drift**
    - Ensure the version bump script includes Cargo.lock updates
    - Check that all modified files are committed together
+   - Verify regex patterns handle all version fields correctly
 
 ### Verification Commands
 
 ```bash
 # Check current versions across files
-echo "Cargo.toml: $(grep '^version = ' Cargo.toml | head -1)"
+echo "Main package: $(grep '^version = ' Cargo.toml | head -1)"
+echo "Bundle metadata: $(grep -A10 '\[package\.metadata\.bundle\]' Cargo.toml | grep 'version = ')"
 echo "Cargo.lock: $(grep -A1 'name = "wfl"' Cargo.lock | grep version)"
 echo "Runtime: $(cargo run -- --version 2>/dev/null | grep version)"
 
