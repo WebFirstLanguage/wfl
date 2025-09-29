@@ -135,8 +135,14 @@ impl TypeChecker {
             "isnothing" | "is_nothing" => Type::Boolean,
 
             // Math functions
-            "abs" | "round" | "floor" | "ceil" | "random" | "clamp" | "min" | "max" | "power"
-            | "sqrt" | "sin" | "cos" | "tan" => Type::Number,
+            "abs" | "round" | "floor" | "ceil" | "clamp" | "min" | "max" | "power" | "sqrt"
+            | "sin" | "cos" | "tan" => Type::Number,
+
+            // Random functions
+            "random" | "random_between" | "random_int" => Type::Number,
+            "random_boolean" => Type::Boolean,
+            "random_from" => Type::Any, // Returns element from list, so type depends on list
+            "random_seed" => Type::Nothing, // Void function
 
             // Text functions
             "length" | "indexof" | "index_of" | "lastindexof" | "last_index_of" => Type::Number,
@@ -168,6 +174,9 @@ impl TypeChecker {
             "pattern" | "match" | "test" | "replace_pattern" | "extract" => Type::Text,
             "ismatch" | "is_match" => Type::Boolean,
             "findall" | "find_all" => Type::List(Box::new(Type::Text)),
+
+            // Crypto functions
+            "wflhash256" | "wflhash512" | "wflhash256_with_salt" | "wflmac256" => Type::Text,
 
             _ => Type::Unknown,
         }

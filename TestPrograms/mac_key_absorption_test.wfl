@@ -20,7 +20,7 @@ try:
     display "Test 1: Short key MAC"
     store short_key as "key"
     store test_message as "Hello, World!"
-    store short_mac as wflmac256 of test_message with short_key
+    store short_mac as wflmac256 of test_message and short_key
     display "Key: \"" with short_key with "\" (length: " with length of short_key with " bytes)"
     display "Message: \"" with test_message with "\""
     display "MAC: " with short_mac
@@ -29,7 +29,7 @@ try:
     // Test 2: Medium key MAC
     display "Test 2: Medium key MAC"
     store medium_key as "this_is_a_medium_length_key_for_testing"
-    store medium_mac as wflmac256 of test_message with medium_key
+    store medium_mac as wflmac256 of test_message and medium_key
     display "Key: \"" with medium_key with "\" (length: " with length of medium_key with " bytes)"
     display "Message: \"" with test_message with "\""
     display "MAC: " with medium_mac
@@ -38,7 +38,7 @@ try:
     // Test 3: Long key MAC (should use full derived key)
     display "Test 3: Long key MAC"
     store long_key as "this_is_a_very_long_key_that_should_demonstrate_the_full_key_derivation_process_and_absorption"
-    store long_mac as wflmac256 of test_message with long_key
+    store long_mac as wflmac256 of test_message and long_key
     display "Key: \"" with long_key with "\" (length: " with length of long_key with " bytes)"
     display "Message: \"" with test_message with "\""
     display "MAC: " with long_mac
@@ -50,8 +50,8 @@ try:
     
     store key1 as "secret_key_1"
     store key2 as "secret_key_2"
-    store mac1 as wflmac256 of test_message with key1
-    store mac2 as wflmac256 of test_message with key2
+    store mac1 as wflmac256 of test_message and key1
+    store mac2 as wflmac256 of test_message and key2
     
     display "Key 1: \"" with key1 with "\""
     display "MAC 1: " with mac1
@@ -76,8 +76,8 @@ try:
     store key_a as base_key with "ending_A_with_more_data_here"
     store key_b as base_key with "ending_B_with_more_data_here"
     
-    store mac_a as wflmac256 of test_message with key_a
-    store mac_b as wflmac256 of test_message with key_b
+    store mac_a as wflmac256 of test_message and key_a
+    store mac_b as wflmac256 of test_message and key_b
     
     display "Base: \"" with base_key with "\""
     display "Key A: \"" with key_a with "\""
@@ -142,7 +142,7 @@ try:
     store regression_message as "regression test message"
     
     for each reg_key in regression_keys:
-        store reg_mac as wflmac256 of regression_message with reg_key
+        store reg_mac as wflmac256 of regression_message and reg_key
         display "Key: \"" with reg_key with "\" -> MAC: " with reg_mac
     end for
     

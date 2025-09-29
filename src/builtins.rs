@@ -227,6 +227,12 @@ pub fn get_function_arity(name: &str) -> usize {
         // Two argument functions
         "random_between" | "random_int" => 2,
 
+        // === CRYPTO FUNCTIONS ===
+        // Single argument functions
+        "wflhash256" | "wflhash512" => 1,
+        // Two argument functions
+        "wflhash256_with_salt" | "wflmac256" => 2,
+
         // === TEXT FUNCTIONS ===
         // Single argument functions
         "length" | "touppercase" | "to_uppercase" | "tolowercase" | "to_lowercase" | "trim"
