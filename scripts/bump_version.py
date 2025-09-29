@@ -133,9 +133,19 @@ def update_cargo_lock():
         with open(CARGO_TOML, "r") as f:
             cargo_toml_content = f.read()
 
-        # Extract main package version
+        # Extract main package version from [package] section only
         import re
-        version_match = re.search(r'^version = "([^"]+)"', cargo_toml_content, re.MULTILINE)
+
+        # Find the [package] section
+        package_match = re.search(r'\[package\](.*?)(?:\n\[|$)', cargo_toml_content, re.DOTALL)
+        if not package_match:
+            print("Error: Could not find [package] section in Cargo.toml")
+            sys.exit(1)
+
+        package_section = package_match.group(1)
+
+        # Extract version from within the package section
+        version_match = re.search(r'^version = "([^"]+)"', package_section, re.MULTILINE)
         if not version_match:
             print("Error: Could not extract version from Cargo.toml")
             sys.exit(1)
@@ -149,7 +159,7 @@ def update_cargo_lock():
 
     # Run cargo update
     try:
-        result = subprocess.run(
+        subprocess.run(
             ["cargo", "update", "--package", "wfl"],
             capture_output=True,
             text=True,
