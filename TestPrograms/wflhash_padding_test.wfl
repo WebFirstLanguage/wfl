@@ -124,7 +124,7 @@ try:
         display "Length " with actual_length with ": " with test_hash
 
         // Calculate expected padding
-        store current_len_mod as actual_length modulo 64
+        store current_len_mod as actual_length % 64
         check if current_len_mod is less than 56:
             store expected_padding as 56 minus current_len_mod
         otherwise:

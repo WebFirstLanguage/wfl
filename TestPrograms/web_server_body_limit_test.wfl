@@ -54,7 +54,7 @@ try:
 
         // Progress indicator for large body creation
         check if counter is greater than 0:
-            store modulo_result as counter modulo 1000
+            store modulo_result as counter % 1000
             check if modulo_result is equal to 0:
                 display "Created " with counter with " chunks..."
             end check

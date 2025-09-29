@@ -3030,6 +3030,7 @@ impl Interpreter {
                     .and(warp::method())
                     .and(warp::path::full())
                     .and(warp::header::headers_cloned())
+                    .and(warp::body::content_length_limit(1_048_576)) // 1MB limit to prevent DoS
                     .and(warp::body::bytes())
                     .and(warp::addr::remote())
                     .and_then(
@@ -3169,9 +3170,27 @@ impl Interpreter {
                         // Extract server name from "WebServer::host:port" format
                         let name_str = name.as_ref();
                         if name_str.starts_with("WebServer::") {
-                            // Find the original server name in our web_servers map
+                            // Find the server by matching the exact server value
                             let web_servers = self.web_servers.borrow();
-                            if let Some((found_name, _)) = web_servers.iter().next() {
+
+                            // Search through all servers to find which one has this exact value
+                            let mut found_server = None;
+                            for (server_name, _) in web_servers.iter() {
+                                // Get the stored value for this server name
+                                if let Some(Value::Text(stored_text)) =
+                                    env.borrow().get(server_name)
+                                    && stored_text.as_ref() == name_str
+                                {
+                                    // Found the matching server
+                                    found_server = Some(server_name.clone());
+                                    break;
+                                }
+                            }
+
+                            // Return the found server or use first server as fallback
+                            if let Some(server_name) = found_server {
+                                server_name
+                            } else if let Some((found_name, _)) = web_servers.iter().next() {
                                 found_name.clone()
                             } else {
                                 return Err(RuntimeError::new(
@@ -3483,9 +3502,26 @@ impl Interpreter {
                     Value::Text(name) => {
                         let name_str = name.as_ref();
                         if name_str.starts_with("WebServer::") {
-                            // Find the original server name in our web_servers map
+                            // Find the server name that corresponds to this WebServer value
                             let web_servers = self.web_servers.borrow();
-                            if let Some((found_name, _)) = web_servers.iter().next() {
+
+                            // Search through all servers to find which one has this exact value
+                            let mut found_server = None;
+                            for (server_name, _) in web_servers.iter() {
+                                // Check if this server name's variable has the matching value
+                                if let Some(Value::Text(stored_text)) =
+                                    env.borrow().get(server_name)
+                                    && stored_text.as_ref() == name_str
+                                {
+                                    found_server = Some(server_name.clone());
+                                    break;
+                                }
+                            }
+
+                            // Return the found server or use first server as fallback
+                            if let Some(server_name) = found_server {
+                                server_name
+                            } else if let Some((found_name, _)) = web_servers.iter().next() {
                                 found_name.clone()
                             } else {
                                 return Err(RuntimeError::new(

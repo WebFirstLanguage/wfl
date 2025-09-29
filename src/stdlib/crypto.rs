@@ -119,6 +119,12 @@ impl WflHashState {
 
         // Apply one permutation to mix the parameters thoroughly
         self.permute();
+
+        // If this is MAC mode (keyed), absorb the full 64-byte derived key
+        if (params.mode_flags & 0x01) != 0 {
+            // Absorb the complete 64-byte derived key for proper MAC security
+            self.absorb(&params.derived_key);
+        }
     }
 
     /// Apply WFLHASH-P permutation function with proper security margin
@@ -324,7 +330,8 @@ impl WflHashParams {
                 params.key_length = key.len();
                 params.mode_flags |= 0x01; // Set keyed mode flag
 
-                // Mix first 16 bytes of derived key into personalization
+                // Mix first 16 bytes of derived key into personalization for parameter mixing
+                // The full 64-byte key will be absorbed during initialization
                 params
                     .personalization
                     .copy_from_slice(&params.derived_key[..16]);
@@ -346,11 +353,16 @@ fn apply_padding(state: &mut WflHashState, message_len: usize) {
     let mut padding = vec![0x80u8]; // Start with padding bit
 
     // Calculate how much padding we need
+    // We need to account for: message + 0x80 + zero_padding + 8_byte_length = multiple of 64
     let current_len = message_len % 64; // 64 bytes = 512 bits (rate)
-    let padding_len = if current_len < 56 {
-        56 - current_len
+    let used_after_0x80 = (current_len + 1) % 64; // +1 for the 0x80 byte we just added
+
+    let padding_len = if used_after_0x80 <= 56 {
+        // We can fit the length in the current block
+        56 - used_after_0x80
     } else {
-        120 - current_len
+        // We need to go to the next block
+        (64 - used_after_0x80) + 56
     };
 
     // Add zero padding
