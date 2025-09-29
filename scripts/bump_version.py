@@ -114,42 +114,91 @@ def update_cargo_toml(version):
     return True
 
 def update_cargo_lock():
-    """Update Cargo.lock to match Cargo.toml version by running cargo update."""
+    """Update Cargo.lock to match Cargo.toml version by running cargo update.
+
+    Raises SystemExit on any error to ensure CI failure.
+    """
     import subprocess
 
     CARGO_LOCK = "Cargo.lock"
 
     if not os.path.exists(CARGO_TOML):
-        print(f"Warning: {CARGO_TOML} not found, skipping Cargo.lock update")
-        return False
+        print(f"Error: {CARGO_TOML} not found, cannot update Cargo.lock")
+        sys.exit(1)
 
     print("Updating Cargo.lock to match Cargo.toml version...")
 
+    # Extract expected version from Cargo.toml
     try:
-        # Run cargo update to regenerate Cargo.lock with new version
+        with open(CARGO_TOML, "r") as f:
+            cargo_toml_content = f.read()
+
+        # Extract main package version
+        import re
+        version_match = re.search(r'^version = "([^"]+)"', cargo_toml_content, re.MULTILINE)
+        if not version_match:
+            print("Error: Could not extract version from Cargo.toml")
+            sys.exit(1)
+
+        expected_version = version_match.group(1)
+        print(f"Expected version: {expected_version}")
+
+    except Exception as e:
+        print(f"Error reading Cargo.toml: {e}")
+        sys.exit(1)
+
+    # Run cargo update
+    try:
         result = subprocess.run(
             ["cargo", "update", "--package", "wfl"],
             capture_output=True,
             text=True,
             check=True
         )
-
-        if os.path.exists(CARGO_LOCK):
-            MODIFIED_FILES.append(CARGO_LOCK)
-            print("Successfully updated Cargo.lock")
-            return True
-        else:
-            print(f"Warning: {CARGO_LOCK} not found after cargo update")
-            return False
+        print("Cargo update completed successfully")
 
     except subprocess.CalledProcessError as e:
         print(f"Error running cargo update: {e}")
         print(f"stdout: {e.stdout}")
         print(f"stderr: {e.stderr}")
-        return False
+        sys.exit(1)
     except FileNotFoundError:
         print("Error: cargo command not found. Make sure Rust/Cargo is installed.")
-        return False
+        sys.exit(1)
+
+    # Verify Cargo.lock exists and extract version
+    if not os.path.exists(CARGO_LOCK):
+        print(f"Error: {CARGO_LOCK} not found after cargo update")
+        sys.exit(1)
+
+    try:
+        # Extract version from Cargo.lock using cross-platform Python approach
+        with open(CARGO_LOCK, "r") as f:
+            cargo_lock_content = f.read()
+
+        # Find WFL package version specifically (equivalent to grep -A1 'name = "wfl"')
+        wfl_package_match = re.search(r'\[\[package\]\]\s*name = "wfl"\s*version = "([^"]+)"', cargo_lock_content, re.DOTALL)
+        if not wfl_package_match:
+            print("Error: Could not find WFL package version in Cargo.lock")
+            sys.exit(1)
+
+        actual_version = wfl_package_match.group(1)
+        print(f"Cargo.lock version: {actual_version}")
+
+        # Verify versions match
+        if expected_version != actual_version:
+            print(f"Error: Version mismatch!")
+            print(f"  Cargo.toml version: {expected_version}")
+            print(f"  Cargo.lock version: {actual_version}")
+            print("Cargo.lock was not properly synchronized")
+            sys.exit(1)
+
+        print(f"✓ Version synchronization verified: {expected_version}")
+        MODIFIED_FILES.append(CARGO_LOCK)
+
+    except Exception as e:
+        print(f"Error validating Cargo.lock: {e}")
+        sys.exit(1)
 
 def update_wix_toml(version):
     """Update version in wix.toml."""
