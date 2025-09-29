@@ -113,6 +113,44 @@ def update_cargo_toml(version):
     MODIFIED_FILES.append(CARGO_TOML)
     return True
 
+def update_cargo_lock():
+    """Update Cargo.lock to match Cargo.toml version by running cargo update."""
+    import subprocess
+
+    CARGO_LOCK = "Cargo.lock"
+
+    if not os.path.exists(CARGO_TOML):
+        print(f"Warning: {CARGO_TOML} not found, skipping Cargo.lock update")
+        return False
+
+    print("Updating Cargo.lock to match Cargo.toml version...")
+
+    try:
+        # Run cargo update to regenerate Cargo.lock with new version
+        result = subprocess.run(
+            ["cargo", "update", "--package", "wfl"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        if os.path.exists(CARGO_LOCK):
+            MODIFIED_FILES.append(CARGO_LOCK)
+            print("Successfully updated Cargo.lock")
+            return True
+        else:
+            print(f"Warning: {CARGO_LOCK} not found after cargo update")
+            return False
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error running cargo update: {e}")
+        print(f"stdout: {e.stdout}")
+        print(f"stderr: {e.stderr}")
+        return False
+    except FileNotFoundError:
+        print("Error: cargo command not found. Make sure Rust/Cargo is installed.")
+        return False
+
 def update_wix_toml(version):
     """Update version in wix.toml."""
     if not os.path.exists(WIX_TOML):
@@ -214,6 +252,8 @@ def main():
     # Update additional files based on arguments
     if args.update_all:
         update_cargo_toml(version)
+        # Update Cargo.lock after Cargo.toml to ensure version synchronization
+        update_cargo_lock()
         update_vscode_extensions(version)
         update_wix_toml(version)
         print(f"Updated all version references to {version}")
