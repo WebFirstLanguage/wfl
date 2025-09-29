@@ -311,17 +311,15 @@ pub fn cleanup_debug_files_in_dir(dir: &Path, max_age: Duration) -> Result<usize
 
             if is_debug_file {
                 // Check file age
-                if let Ok(metadata) = fs::metadata(&path) {
-                    if let Ok(modified) = metadata.modified() {
-                        if let Ok(age) = now.duration_since(modified) {
-                            if age > max_age {
-                                // Try to remove the file
-                                if fs::remove_file(&path).is_ok() {
-                                    cleaned_count += 1;
-                                    log::debug!("Cleaned up old debug file: {:?}", path);
-                                }
-                            }
-                        }
+                if let Ok(metadata) = fs::metadata(&path)
+                    && let Ok(modified) = metadata.modified()
+                    && let Ok(age) = now.duration_since(modified)
+                    && age > max_age
+                {
+                    // Try to remove the file
+                    if fs::remove_file(&path).is_ok() {
+                        cleaned_count += 1;
+                        log::debug!("Cleaned up old debug file: {:?}", path);
                     }
                 }
             }

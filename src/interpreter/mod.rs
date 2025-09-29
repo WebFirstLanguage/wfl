@@ -48,6 +48,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
+
+// Type alias for complex pending response type
+type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>;
 use uuid;
 use warp::Filter;
 
@@ -80,6 +83,7 @@ pub struct WflWebServer {
 
 // Custom error type for warp rejections
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ServerError(String);
 
 impl warp::reject::Reject for ServerError {}
@@ -252,8 +256,7 @@ pub struct Interpreter {
     step_mode: bool,          // Controls single-step execution mode
     script_args: Vec<String>, // Command-line arguments passed to the script
     web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
-    pending_responses:
-        RefCell<HashMap<String, Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>>>, // Pending response senders by request ID
+    pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
 }
 
 #[allow(dead_code)]
@@ -3074,7 +3077,7 @@ impl Interpreter {
                                 };
 
                                 // Send request to WFL interpreter
-                                if let Err(_) = sender.send(wfl_request) {
+                                if sender.send(wfl_request).is_err() {
                                     return Err(warp::reject::custom(ServerError(
                                         "Request channel closed".to_string(),
                                     )));
@@ -3156,7 +3159,7 @@ impl Interpreter {
             Statement::WaitForRequestStatement {
                 server,
                 request_name,
-                timeout,
+                timeout: _,
                 line,
                 column,
             } => {
@@ -3376,7 +3379,7 @@ impl Interpreter {
                 if let Some(sender_arc) = response_sender {
                     let mut sender_opt = sender_arc.lock().await;
                     if let Some(sender) = sender_opt.take() {
-                        if let Err(_) = sender.send(response) {
+                        if sender.send(response).is_err() {
                             return Err(RuntimeError::new(
                                 "Failed to send response - client may have disconnected"
                                     .to_string(),
@@ -4531,9 +4534,9 @@ impl Interpreter {
             }
             Expression::HeaderAccess {
                 header_name,
-                request,
-                line,
-                column,
+                request: _,
+                line: _,
+                column: _,
             } => {
                 // TODO: Implement header access from HTTP request
                 // For now, return a placeholder value
@@ -4548,8 +4551,8 @@ impl Interpreter {
             }
             Expression::CurrentTimeFormatted {
                 format,
-                line,
-                column,
+                line: _,
+                column: _,
             } => {
                 use chrono::{DateTime, Local};
                 let now: DateTime<Local> = Local::now();
@@ -4564,9 +4567,8 @@ impl Interpreter {
                     .replace("mm", "%M")
                     .replace("ss", "%S");
 
-                match now.format(&chrono_format).to_string() {
-                    formatted => Ok(Value::Text(Rc::from(formatted))),
-                }
+                let formatted = now.format(&chrono_format).to_string();
+                Ok(Value::Text(Rc::from(formatted)))
             }
         };
         self.assert_invariants();

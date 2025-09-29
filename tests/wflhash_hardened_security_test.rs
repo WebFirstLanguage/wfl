@@ -325,19 +325,19 @@ mod wflhash_hardened_security_tests {
             );
         }
     }
-}
 
-/// Helper function for hex decoding
-fn hex_decode(s: &str) -> Result<Vec<u8>, &'static str> {
-    if s.len() % 2 != 0 {
-        return Err("Odd length");
-    }
+    /// Helper function for hex decoding
+    fn hex_decode(s: &str) -> Result<Vec<u8>, &'static str> {
+        if s.len() % 2 != 0 {
+            return Err("Odd length");
+        }
 
-    let mut result = Vec::new();
-    for chunk in s.as_bytes().chunks(2) {
-        let hex_str = std::str::from_utf8(chunk).map_err(|_| "Invalid UTF-8")?;
-        let byte = u8::from_str_radix(hex_str, 16).map_err(|_| "Invalid hex")?;
-        result.push(byte);
+        let mut result = Vec::new();
+        for chunk in s.as_bytes().chunks(2) {
+            let hex_str = std::str::from_utf8(chunk).map_err(|_| "Invalid UTF-8")?;
+            let byte = u8::from_str_radix(hex_str, 16).map_err(|_| "Invalid hex")?;
+            result.push(byte);
+        }
+        Ok(result)
     }
-    Ok(result)
 }

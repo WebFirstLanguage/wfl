@@ -5061,26 +5061,26 @@ impl<'a> Parser<'a> {
         let token_pos = self.tokens.next().unwrap(); // Consume "write"
 
         // Check if next token is "content" for "write content X into Y" syntax
-        if let Some(next_token) = self.tokens.peek() {
-            if matches!(next_token.token, Token::KeywordContent) {
-                self.tokens.next(); // Consume "content"
+        if let Some(next_token) = self.tokens.peek()
+            && matches!(next_token.token, Token::KeywordContent)
+        {
+            self.tokens.next(); // Consume "content"
 
-                let content = self.parse_expression()?;
+            let content = self.parse_expression()?;
 
-                self.expect_token(
-                    Token::KeywordInto,
-                    "Expected 'into' after content in write content statement",
-                )?;
+            self.expect_token(
+                Token::KeywordInto,
+                "Expected 'into' after content in write content statement",
+            )?;
 
-                let target = self.parse_primary_expression()?;
+            let target = self.parse_primary_expression()?;
 
-                return Ok(Statement::WriteContentStatement {
-                    content,
-                    target,
-                    line: token_pos.line,
-                    column: token_pos.column,
-                });
-            }
+            return Ok(Statement::WriteContentStatement {
+                content,
+                target,
+                line: token_pos.line,
+                column: token_pos.column,
+            });
         }
 
         // Original "write X to Y" syntax

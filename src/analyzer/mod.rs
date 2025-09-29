@@ -1320,7 +1320,7 @@ impl Analyzer {
             Statement::WaitForRequestStatement {
                 server,
                 request_name,
-                timeout,
+                timeout: _,
                 line,
                 column,
             } => {
