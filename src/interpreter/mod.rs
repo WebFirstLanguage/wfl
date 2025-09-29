@@ -383,7 +383,17 @@ impl IoClient {
             Ok(_) => match file_clone.set_len(0).await {
                 Ok(_) => {
                     match AsyncWriteExt::write_all(&mut file_clone, content.as_bytes()).await {
-                        Ok(_) => Ok(()),
+                        Ok(_) => {
+                            // Flush the data to ensure it's written to disk
+                            match file_clone.flush().await {
+                                Ok(_) => {
+                                    // Try to sync to disk for durability, but don't fail if it's not supported
+                                    let _ = file_clone.sync_all().await;
+                                    Ok(())
+                                }
+                                Err(e) => Err(format!("Failed to flush file: {e}")),
+                            }
+                        }
                         Err(e) => Err(format!("Failed to write to file: {e}")),
                     }
                 }
@@ -403,8 +413,20 @@ impl IoClient {
             return Ok(());
         }
 
-        file_handles.remove(handle_id);
-        Ok(())
+        // Get the file handle before removing it
+        if let Some((_, mut file)) = file_handles.remove(handle_id) {
+            // Flush the file before closing to ensure all data is written to disk
+            match file.flush().await {
+                Ok(_) => {
+                    // Try to sync to disk for durability, but don't fail if it's not supported
+                    let _ = file.sync_all().await;
+                    Ok(())
+                }
+                Err(e) => Err(format!("Failed to flush file during close: {e}")),
+            }
+        } else {
+            Ok(())
+        }
     }
 
     #[allow(dead_code)]
@@ -418,7 +440,17 @@ impl IoClient {
 
         match AsyncSeekExt::seek(file, std::io::SeekFrom::End(0)).await {
             Ok(_) => match AsyncWriteExt::write_all(file, content.as_bytes()).await {
-                Ok(_) => Ok(()),
+                Ok(_) => {
+                    // Flush the data to ensure it's written to disk
+                    match file.flush().await {
+                        Ok(_) => {
+                            // Try to sync to disk for durability, but don't fail if it's not supported
+                            let _ = file.sync_all().await;
+                            Ok(())
+                        }
+                        Err(e) => Err(format!("Failed to flush appended data: {e}")),
+                    }
+                }
                 Err(e) => Err(format!("Failed to append to file: {e}")),
             },
             Err(e) => Err(format!("Failed to seek to end of file: {e}")),

@@ -255,19 +255,19 @@ mod file_io_concurrent_tests {
             open file at "large_concurrent_2.txt" for writing as file2
             open file at "large_concurrent_3.txt" for writing as file3
             open file at "large_concurrent_4.txt" for writing as file4
-            
+
             wait for write content "Content for file 0" into file0
             wait for write content "Content for file 1" into file1
             wait for write content "Content for file 2" into file2
             wait for write content "Content for file 3" into file3
             wait for write content "Content for file 4" into file4
-            
+
             close file file0
             close file file1
             close file file2
             close file file3
             close file file4
-            
+
             // Verify files were created
             store total_files as 0
             check if file exists at "large_concurrent_0.txt":
@@ -285,7 +285,7 @@ mod file_io_concurrent_tests {
             check if file exists at "large_concurrent_4.txt":
                 change total_files to total_files + 1
             end check
-            
+
             display "Created " with total_files with " files concurrently"
         "#;
 
@@ -315,5 +315,129 @@ mod file_io_concurrent_tests {
         }
 
         cleanup_test_files(&test_file_refs);
+    }
+
+    #[tokio::test]
+    async fn test_file_flush_race_condition() {
+        let test_files = ["flush_race_test.txt"];
+        cleanup_test_files(&test_files);
+
+        // This test specifically targets the race condition where file content
+        // might not be flushed to disk before the file is closed
+        let code = r#"
+            // Write content and immediately close - this should trigger the race condition
+            open file at "flush_race_test.txt" for writing as test_file
+            wait for write content "This content must be flushed to disk before close!" into test_file
+            close file test_file
+
+            // Immediately try to read the file - this should work if flushing is proper
+            open file at "flush_race_test.txt" for reading as read_file
+            wait for store file_content as read content from read_file
+            close file read_file
+
+            display "Read content: " with file_content
+        "#;
+
+        let result = execute_wfl_code(code).await;
+        assert!(
+            result.is_ok(),
+            "File flush race condition test failed: {:?}",
+            result.err()
+        );
+
+        // Verify the file content was properly written and flushed
+        let content =
+            fs::read_to_string("flush_race_test.txt").expect("Could not read flush test file");
+        assert_eq!(
+            content.trim(),
+            "This content must be flushed to disk before close!",
+            "File content was not properly flushed to disk - race condition detected!"
+        );
+
+        cleanup_test_files(&test_files);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_rapid_write_close_cycles() {
+        let test_files = [
+            "rapid_cycle_1.txt",
+            "rapid_cycle_2.txt",
+            "rapid_cycle_3.txt",
+        ];
+        cleanup_test_files(&test_files);
+
+        // This test performs multiple rapid write-close cycles to stress test flushing
+        let code = r#"
+            // Rapid write-close cycles that should all succeed
+            open file at "rapid_cycle_1.txt" for writing as file1
+            wait for write content "Rapid content 1" into file1
+            close file file1
+
+            open file at "rapid_cycle_2.txt" for writing as file2
+            wait for write content "Rapid content 2" into file2
+            close file file2
+
+            open file at "rapid_cycle_3.txt" for writing as file3
+            wait for write content "Rapid content 3" into file3
+            close file file3
+
+            // Verify all files exist and have correct content
+            store success_count as 0
+
+            open file at "rapid_cycle_1.txt" for reading as read1
+            wait for store content1 as read content from read1
+            close file read1
+            check if content1 is "Rapid content 1":
+                change success_count to success_count + 1
+            end check
+
+            open file at "rapid_cycle_2.txt" for reading as read2
+            wait for store content2 as read content from read2
+            close file read2
+            check if content2 is "Rapid content 2":
+                change success_count to success_count + 1
+            end check
+
+            open file at "rapid_cycle_3.txt" for reading as read3
+            wait for store content3 as read content from read3
+            close file read3
+            check if content3 is "Rapid content 3":
+                change success_count to success_count + 1
+            end check
+
+            display "Successful rapid cycles: " with success_count
+        "#;
+
+        let result = execute_wfl_code(code).await;
+        assert!(
+            result.is_ok(),
+            "Multiple rapid write-close cycles failed: {:?}",
+            result.err()
+        );
+
+        // Verify all files have correct content
+        for (file, expected) in [
+            ("rapid_cycle_1.txt", "Rapid content 1"),
+            ("rapid_cycle_2.txt", "Rapid content 2"),
+            ("rapid_cycle_3.txt", "Rapid content 3"),
+        ]
+        .iter()
+        {
+            assert!(
+                Path::new(file).exists(),
+                "Rapid cycle file {} was not created",
+                file
+            );
+            let content = fs::read_to_string(file)
+                .unwrap_or_else(|_| panic!("Could not read rapid cycle file {}", file));
+            assert_eq!(
+                content.trim(),
+                *expected,
+                "Rapid cycle file {} content mismatch - possible flush race condition",
+                file
+            );
+        }
+
+        cleanup_test_files(&test_files);
     }
 }

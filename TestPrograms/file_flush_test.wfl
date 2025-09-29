@@ -1,0 +1,101 @@
+// Test program to verify file flushing fix
+// This program tests the race condition fix for concurrent file I/O
+
+display "=== File Flush Race Condition Test ==="
+display ""
+
+// Test 1: Basic write-close-read cycle
+display "Test 1: Basic write-close-read cycle"
+open file at "flush_test_1.txt" for writing as test_file1
+wait for write content "Test content that must be flushed!" into test_file1
+close file test_file1
+
+// Immediately read the file - this should work if flushing is proper
+open file at "flush_test_1.txt" for reading as read_file1
+wait for store content1 as read content from read_file1
+close file read_file1
+
+display "Content read: " with content1
+check if content1 is "Test content that must be flushed!":
+    display "✓ Test 1 PASSED - Content was properly flushed"
+otherwise:
+    display "✗ Test 1 FAILED - Content was not flushed properly"
+end check
+display ""
+
+// Test 2: Multiple rapid write-close cycles
+display "Test 2: Multiple rapid write-close cycles"
+store success_count as 0
+
+// Rapid cycle 1
+open file at "flush_test_2a.txt" for writing as file2a
+wait for write content "Rapid content A" into file2a
+close file file2a
+
+open file at "flush_test_2a.txt" for reading as read2a
+wait for store content2a as read content from read2a
+close file read2a
+
+check if content2a is "Rapid content A":
+    change success_count to success_count + 1
+end check
+
+// Rapid cycle 2
+open file at "flush_test_2b.txt" for writing as file2b
+wait for write content "Rapid content B" into file2b
+close file file2b
+
+open file at "flush_test_2b.txt" for reading as read2b
+wait for store content2b as read content from read2b
+close file read2b
+
+check if content2b is "Rapid content B":
+    change success_count to success_count + 1
+end check
+
+// Rapid cycle 3
+open file at "flush_test_2c.txt" for writing as file2c
+wait for write content "Rapid content C" into file2c
+close file file2c
+
+open file at "flush_test_2c.txt" for reading as read2c
+wait for store content2c as read content from read2c
+close file read2c
+
+check if content2c is "Rapid content C":
+    change success_count to success_count + 1
+end check
+
+display "Successful rapid cycles: " with success_count with "/3"
+check if success_count is 3:
+    display "✓ Test 2 PASSED - All rapid cycles worked correctly"
+otherwise:
+    display "✗ Test 2 FAILED - Some rapid cycles failed"
+end check
+display ""
+
+// Test 3: Append operations with flushing
+display "Test 3: Append operations with flushing"
+open file at "flush_test_3.txt" for writing as file3
+wait for write content "Line 1" into file3
+close file file3
+
+open file at "flush_test_3.txt" for append as append_file3
+wait for append content "\nLine 2" into append_file3
+close file append_file3
+
+open file at "flush_test_3.txt" for reading as read_file3
+wait for store content3 as read content from read_file3
+close file read_file3
+
+display "Appended content: " with content3
+check if content3 contains "Line 1" and content3 contains "Line 2":
+    display "✓ Test 3 PASSED - Append operations were properly flushed"
+otherwise:
+    display "✗ Test 3 FAILED - Append operations were not flushed properly"
+end check
+display ""
+
+display "=== File Flush Test Complete ==="
+display "All tests verify that file operations are properly flushed to disk"
+display "before files are closed, preventing race conditions."
