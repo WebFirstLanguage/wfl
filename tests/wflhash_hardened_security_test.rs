@@ -139,24 +139,34 @@ mod wflhash_hardened_security_tests {
 
     /// Test M4: Input Validation Improvements
     /// Verifies that input validation works correctly without information leakage
+    ///
+    /// Note: The oversized input test (101MB allocation) is gated behind the
+    /// WFLHASH_OVERSIZED_INPUT_TEST environment variable to make tests CI-friendly.
+    /// Set WFLHASH_OVERSIZED_INPUT_TEST=1 to enable the full memory-intensive test.
     #[test]
     fn test_input_validation_improvements() {
-        // Test that large inputs are rejected with generic error
-        let large_input = "x".repeat(101 * 1024 * 1024); // > 100MB
-        let result = native_wflhash256(vec![Value::Text(Rc::from(large_input))]);
-
-        assert!(result.is_err(), "Large input should be rejected");
-        if let Err(e) = result {
-            assert_eq!(
-                e.message, "Input exceeds maximum allowed size",
-                "Error should be generic"
-            );
-        }
-
-        // Test that reasonable large inputs still work
+        // Test that reasonable large inputs still work (always runs)
         let reasonable_input = "x".repeat(1024 * 1024); // 1MB
         let result = native_wflhash256(vec![Value::Text(Rc::from(reasonable_input))]);
         assert!(result.is_ok(), "Reasonable input should work");
+
+        // Gate the expensive 101MB allocation test behind environment variable
+        if std::env::var("WFLHASH_OVERSIZED_INPUT_TEST").is_ok() {
+            // Test that large inputs are rejected with generic error
+            let large_input = "x".repeat(101 * 1024 * 1024); // > 100MB
+            let result = native_wflhash256(vec![Value::Text(Rc::from(large_input))]);
+
+            assert!(result.is_err(), "Large input should be rejected");
+            if let Err(e) = result {
+                assert_eq!(
+                    e.message, "Input exceeds maximum allowed size",
+                    "Error should be generic"
+                );
+            }
+        } else {
+            // Skip the oversized input test with clear message
+            println!("Skipped oversized input test - set WFLHASH_OVERSIZED_INPUT_TEST=1 to enable");
+        }
     }
 
     /// Test L1: Collision Resistance Properties

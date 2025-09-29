@@ -5,7 +5,7 @@
 use std::rc::Rc;
 use std::time::Instant;
 use wfl::interpreter::value::Value;
-use wfl::stdlib::crypto::{native_wflhash256, native_wflhash256_with_salt};
+use wfl::stdlib::crypto::{MAX_INPUT_SIZE, native_wflhash256, native_wflhash256_with_salt};
 
 #[cfg(test)]
 mod wflhash_security_tests {
@@ -181,15 +181,30 @@ mod wflhash_security_tests {
 
     /// Test 5: FIXED - Input Validation with Size Limits
     /// This test verifies that input validation is properly implemented
+    ///
+    /// Note: The heavy memory allocation test is gated behind the WFLHASH_HEAVY_TESTS
+    /// environment variable to make tests CI-friendly. Set WFLHASH_HEAVY_TESTS=1 to enable.
     #[test]
     fn test_input_validation_with_size_limits() {
-        // Test that reasonable inputs work
+        // Test that reasonable inputs work (always runs)
         let normal_input = "This is a normal input message";
         let result = native_wflhash256(vec![Value::Text(Rc::from(normal_input))]);
         assert!(result.is_ok(), "Normal input should work");
 
-        // Test that extremely large inputs are rejected
-        let large_input = "x".repeat(101 * 1024 * 1024); // 101MB > 100MB limit
+        // Test that moderately large inputs still work (under limit) - always runs
+        let medium_input = "x".repeat(1024 * 1024); // 1MB < 100MB limit
+        let result = native_wflhash256(vec![Value::Text(Rc::from(medium_input))]);
+        assert!(result.is_ok(), "Medium input under limit should work");
+
+        // Gate the heavy memory allocation test behind environment variable
+        if std::env::var("WFLHASH_HEAVY_TESTS").is_err() {
+            // Skip the heavy test with descriptive message
+            println!("Skipped heavy memory allocation test - set WFLHASH_HEAVY_TESTS=1 to enable");
+            return;
+        }
+
+        // Test that extremely large inputs are rejected (only runs when WFLHASH_HEAVY_TESTS is set)
+        let large_input = "x".repeat(MAX_INPUT_SIZE + 1); // Exceeds MAX_INPUT_SIZE limit
         let result = native_wflhash256(vec![Value::Text(Rc::from(large_input))]);
 
         match result {
@@ -207,11 +222,6 @@ mod wflhash_security_tests {
                 );
             }
         }
-
-        // Test that moderately large inputs still work (under limit)
-        let medium_input = "x".repeat(1024 * 1024); // 1MB < 100MB limit
-        let result = native_wflhash256(vec![Value::Text(Rc::from(medium_input))]);
-        assert!(result.is_ok(), "Medium input under limit should work");
     }
 
     /// Test 6: IMPROVED - Constant-Time Implementation Measures

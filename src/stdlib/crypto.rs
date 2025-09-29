@@ -8,7 +8,7 @@ use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 /// Maximum input size for wflhash functions (100MB)
-const MAX_INPUT_SIZE: usize = 100 * 1024 * 1024;
+pub const MAX_INPUT_SIZE: usize = 100 * 1024 * 1024;
 
 /// Number of rounds in WFLHASH-P permutation (increased from 12 to 24 for security)
 const WFLHASH_ROUNDS: usize = 24;
