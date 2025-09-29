@@ -120,6 +120,10 @@ pids
 *_debug.txt
 wfl_exec.log
 
+# Temporary test files
+temp_test_*.wfl
+temp_test_*_debug.txt
+
 # Python cache (for Tools/ directory)
 __pycache__/
 *.py[cod]

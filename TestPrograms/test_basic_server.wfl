@@ -1,0 +1,16 @@
+// Basic WFL Web Server Test - This should work!
+display "=== Basic WFL Web Server Test ==="
+
+display "Starting basic web server on port 8080..."
+listen on port 8080 as test_server
+
+display "✅ Server started successfully!"
+display "🌐 Server is listening on port 8080"
+display "🔗 You can test it at: http://127.0.0.1:8080"
+display ""
+display "The server will respond with: 'Hello from WFL Web Server!'"
+display ""
+display "Press Ctrl+C to stop the server"
+
+// Keep the program running so the server stays active
+display "Server is running... (this will keep running until you stop it)"

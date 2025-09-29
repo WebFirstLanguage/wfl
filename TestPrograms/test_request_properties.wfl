@@ -1,0 +1,21 @@
+// Test request object properties
+display "=== Request Properties Test ==="
+
+display "Starting server on port 8096..."
+listen on port 8096 as test_server
+
+display "Server started successfully!"
+display "Waiting for a request..."
+
+wait for request comes in on test_server as incoming_request
+
+display "Got a request!"
+display "Method: " with method
+display "Path: " with path
+display "Client IP: " with client_ip
+display "Body: " with body
+
+respond to incoming_request with "Request processed successfully!"
+
+display "Response sent!"
+display "=== Test Complete ==="

@@ -1,0 +1,19 @@
+// Wait Request Test
+// Tests the "wait for request comes in" syntax
+
+display "=== Wait Request Test ==="
+display "Testing wait for request syntax"
+display ""
+
+try:
+    display "About to wait for request..."
+    wait for request comes in on test_server as test_request
+    display "Request received!"
+    
+catch:
+    display "Caught error in wait request test"
+    display "Error: " with error_message
+end try
+
+display ""
+display "=== Wait Request Test Complete ==="

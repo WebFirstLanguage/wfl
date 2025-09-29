@@ -1,0 +1,16 @@
+// Very simple web server test
+display "=== Simple Web Server Test ==="
+
+display "Starting server on port 8095..."
+listen on port 8095 as test_server
+
+display "Server started successfully!"
+display "Waiting for a request..."
+
+wait for request comes in on test_server as incoming_request
+
+display "Got a request!"
+respond to incoming_request with "Hello from WFL!"
+
+display "Response sent!"
+display "=== Test Complete ==="

@@ -1,0 +1,200 @@
+// TDD Test: Comprehensive Web Server Features
+// This test MUST FAIL initially because advanced web server features are not implemented
+// Following TDD approach - write failing test first
+
+display "=== Comprehensive Web Server Features Test ==="
+display "This test validates advanced HTTP server capabilities"
+display ""
+
+// Configuration
+store server_port as 8092
+store static_dir as "test_static"
+store upload_dir as "test_uploads"
+
+display "Initializing comprehensive web server test..."
+display "Port: " with server_port
+display "Static directory: " with static_dir
+display "Upload directory: " with upload_dir
+display ""
+
+// Setup test directories and files
+try:
+    display "Setting up test environment..."
+    
+    // Create static directory
+    check if directory exists at static_dir:
+        display "✓ Static directory exists"
+    otherwise:
+        create directory at static_dir
+        display "✓ Created static directory"
+    end check
+    
+    // Create upload directory
+    check if directory exists at upload_dir:
+        display "✓ Upload directory exists"
+    otherwise:
+        create directory at upload_dir
+        display "✓ Created upload directory"
+    end check
+    
+    // Create test static files
+    store test_html as "<!DOCTYPE html><html><head><title>Test Page</title></head><body><h1>Static Test Page</h1></body></html>"
+    open file at static_dir with "/test.html" for writing as html_file
+    write content test_html into html_file
+    close file html_file
+    display "✓ Created test HTML file"
+    
+    store test_css as "body { font-family: Arial; background-color: #f0f0f0; }"
+    open file at static_dir with "/style.css" for writing as css_file
+    write content test_css into css_file
+    close file css_file
+    display "✓ Created test CSS file"
+    
+    store test_json as "{\"message\": \"This is a test JSON file\", \"version\": \"1.0\"}"
+    open file at static_dir with "/data.json" for writing as json_file
+    write content test_json into json_file
+    close file json_file
+    display "✓ Created test JSON file"
+    
+catch:
+    display "✗ Failed to setup test environment"
+    display "Error: " with error_message
+end try
+
+display ""
+
+try:
+    // Start the comprehensive web server
+    listen on port server_port as comprehensive_server
+    display "✓ Comprehensive server started successfully"
+    display ""
+    
+    // Test 1: Multiple HTTP Methods
+    display "Test 1: Multiple HTTP Methods Support"
+    
+    store request_count as 0
+    store test_requests as 5
+    
+    main loop:
+        check if request_count is greater than or equal to test_requests:
+            break
+        end check
+        
+        try:
+            wait for request comes in on comprehensive_server as test_request
+            add 1 to request_count
+            
+            store request_method as method of test_request
+            store request_path as path of test_request
+            store request_body as body of test_request
+            
+            display "📥 Request #" with request_count with ": " with request_method with " " with request_path
+            
+            // Handle different HTTP methods
+            check if request_method is equal to "GET":
+                // GET request handling
+                check if request_path is equal to "/api/users":
+                    store users_json as "[{\"id\": 1, \"name\": \"Alice\"}, {\"id\": 2, \"name\": \"Bob\"}]"
+                    respond to test_request with users_json and content_type "application/json"
+                    display "✓ GET /api/users - JSON response sent"
+                    
+                otherwise check if request_path starts with "/static/":
+                    // Static file serving
+                    store file_path as static_dir with substring of request_path from 8
+                    
+                    check if file exists at file_path:
+                        open file at file_path for reading as static_file
+                        store file_content as read content from static_file
+                        close file static_file
+                        
+                        // Determine content type
+                        store content_type as "text/plain"
+                        check if file_path ends with ".html":
+                            change content_type to "text/html"
+                        otherwise check if file_path ends with ".css":
+                            change content_type to "text/css"
+                        otherwise check if file_path ends with ".json":
+                            change content_type to "application/json"
+                        end check
+                        
+                        respond to test_request with file_content and content_type content_type
+                        display "✓ Static file served: " with file_path
+                    otherwise:
+                        respond to test_request with "File not found" and status 404
+                        display "✗ Static file not found: " with file_path
+                    end check
+                    
+                otherwise:
+                    respond to test_request with "GET endpoint" and content_type "text/plain"
+                    display "✓ Default GET response"
+                end check
+                
+            otherwise check if request_method is equal to "POST":
+                // POST request handling
+                check if request_path is equal to "/api/users":
+                    // Create user endpoint
+                    display "Request body: " with request_body
+                    store response_json as "{\"message\": \"User created\", \"id\": 3}"
+                    respond to test_request with response_json and content_type "application/json" and status 201
+                    display "✓ POST /api/users - User creation response"
+                    
+                otherwise check if request_path is equal to "/upload":
+                    // File upload endpoint
+                    store upload_filename as "upload_" with request_count with ".txt"
+                    store upload_path as upload_dir with "/" with upload_filename
+                    
+                    open file at upload_path for writing as upload_file
+                    write content request_body into upload_file
+                    close file upload_file
+                    
+                    store upload_response as "{\"message\": \"File uploaded\", \"filename\": \"" with upload_filename with "\"}"
+                    respond to test_request with upload_response and content_type "application/json"
+                    display "✓ File upload processed: " with upload_filename
+                    
+                otherwise:
+                    respond to test_request with "POST endpoint" and content_type "text/plain"
+                    display "✓ Default POST response"
+                end check
+                
+            otherwise check if request_method is equal to "PUT":
+                // PUT request handling
+                store put_response as "{\"message\": \"Resource updated\"}"
+                respond to test_request with put_response and content_type "application/json"
+                display "✓ PUT request handled"
+                
+            otherwise check if request_method is equal to "DELETE":
+                // DELETE request handling
+                respond to test_request with "" and status 204
+                display "✓ DELETE request handled (204 No Content)"
+                
+            otherwise:
+                // Unsupported method
+                respond to test_request with "Method not allowed" and status 405
+                display "✗ Unsupported method: " with request_method
+            end check
+            
+        catch:
+            display "✗ EXPECTED FAILURE: Advanced request handling not implemented"
+            display "Error: " with error_message
+            break
+        end try
+    end loop
+    
+    display ""
+    display "Processed " with request_count with " test requests"
+    
+catch:
+    display "✗ EXPECTED FAILURE: Comprehensive server functionality failed"
+    display "Error: " with error_message
+end try
+
+display ""
+display "=== Comprehensive Web Server Features Test Complete ==="
+display "Expected result: This test should FAIL until advanced features are implemented"
+display "Once implemented, this test should PASS and demonstrate:"
+display "- Multiple HTTP methods (GET, POST, PUT, DELETE)"
+display "- Static file serving with proper content types"
+display "- JSON request/response handling"
+display "- File upload processing"
+display "- Proper HTTP status codes"
+display "- Request body parsing"

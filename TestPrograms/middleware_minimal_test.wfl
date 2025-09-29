@@ -1,0 +1,47 @@
+// Minimal Middleware Test
+// Reproduces the exact structure that's causing parsing issues
+
+display "=== Minimal Middleware Test ==="
+
+store server_port as 8080
+store log_file as "test.log"
+
+try:
+    display "Starting server setup..."
+    
+    main loop:
+        display "In main loop"
+        
+        try:
+            display "Inner try block"
+            
+            // Simulate the problematic lines from middleware test
+            store request_timestamp as "2024-01-01"
+            store request_method as "GET"
+            store request_path as "/test"
+            store request_ip as "127.0.0.1"
+            store response_status as 200
+            store request_duration as 100
+            
+            // This is the complex line that might be causing issues
+            store log_entry as request_timestamp with "," with request_method with "," with request_path with "," with request_ip with "," with response_status with "," with request_duration with "ms\n"
+            
+            open file at log_file for appending as access_log
+            write content log_entry into access_log
+            close file access_log
+            
+            display "Request completed in " with request_duration with "ms (Status: " with response_status with ")"
+            
+        catch:
+            display "Inner catch block"
+            display "Error: " with error_message
+            break
+        end try
+    end loop
+    
+catch:
+    display "Outer catch block"
+    display "Error: " with error_message
+end try
+
+display "=== Test Complete ==="

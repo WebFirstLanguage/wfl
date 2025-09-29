@@ -1,0 +1,154 @@
+// TDD Test: Web Server Graceful Shutdown
+// This test MUST FAIL initially because graceful shutdown is not implemented
+// Following TDD approach - write failing test first
+
+display "=== Web Server Graceful Shutdown Test ==="
+display "This test validates graceful shutdown functionality with signal handling"
+display ""
+
+// Configuration
+store server_port as 8091
+store shutdown_timeout as 3000  // 3 seconds
+store active_connections as 0
+store shutdown_requested as false
+
+display "Starting web server with graceful shutdown capabilities..."
+display "Port: " with server_port
+display "Shutdown timeout: " with shutdown_timeout with "ms"
+display ""
+
+try:
+    // Start the web server
+    listen on port server_port as shutdown_test_server
+    display "✓ Server started successfully"
+    display "✓ Server is ready to accept connections"
+    display ""
+    
+    // Test 1: Signal handler registration
+    display "Test 1: Signal handler registration"
+    try:
+        // This should fail because signal handling is not implemented
+        register signal handler for SIGINT as graceful_shutdown_handler
+        register signal handler for SIGTERM as graceful_shutdown_handler
+        display "✓ Signal handlers registered successfully"
+        
+    catch:
+        display "✗ EXPECTED FAILURE: Signal handler registration not implemented"
+        display "Error: " with error_message
+    end try
+    
+    display ""
+    display "Test 2: Server main loop with shutdown detection"
+    
+    // Main server loop with shutdown handling
+    main loop:
+        try:
+            // Check for shutdown signal
+            check if shutdown_requested:
+                display ""
+                display "🛑 Shutdown signal received, initiating graceful shutdown..."
+                break
+            end check
+            
+            // Wait for incoming request with timeout
+            wait for request comes in on shutdown_test_server as incoming_request with timeout shutdown_timeout
+            add 1 to active_connections
+            
+            display "📥 Request received: " with method of incoming_request with " " with path of incoming_request
+            
+            // Simulate request processing
+            check if path of incoming_request is equal to "/shutdown":
+                // Test endpoint to trigger shutdown
+                respond to incoming_request with "Server shutting down gracefully..." and content_type "text/plain"
+                change shutdown_requested to true
+                display "✓ Shutdown endpoint triggered"
+                
+            otherwise check if path of incoming_request is equal to "/status":
+                // Status endpoint
+                store status_response as "{\"status\": \"running\", \"active_connections\": " with active_connections with "}"
+                respond to incoming_request with status_response and content_type "application/json"
+                display "✓ Status endpoint served"
+                
+            otherwise:
+                // Default response
+                respond to incoming_request with "Hello from graceful shutdown test server!" and content_type "text/plain"
+                display "✓ Default response sent"
+            end check
+            
+            subtract 1 from active_connections
+            
+        catch:
+            display "✗ EXPECTED FAILURE: Request handling or timeout not working"
+            display "Error: " with error_message
+            
+            // In a real implementation, we'd continue the loop
+            // For testing, we'll break after a few failures
+            break
+        end try
+    end loop
+    
+    // Test 3: Graceful shutdown process
+    display ""
+    display "Test 3: Graceful shutdown process"
+    
+    try:
+        display "🔄 Starting graceful shutdown sequence..."
+        
+        // Stop accepting new connections
+        display "1. Stopping acceptance of new connections..."
+        stop accepting connections on shutdown_test_server
+        display "✓ No longer accepting new connections"
+        
+        // Wait for active connections to finish
+        display "2. Waiting for active connections to finish..."
+        display "Active connections: " with active_connections
+        
+        store shutdown_start_time as current time in milliseconds
+        
+        wait loop:
+            check if active_connections is equal to 0:
+                display "✓ All connections finished gracefully"
+                break
+            end check
+            
+            store current_time as current time in milliseconds
+            store elapsed_time as current_time minus shutdown_start_time
+            
+            check if elapsed_time is greater than shutdown_timeout:
+                display "⚠ Shutdown timeout reached, forcing closure of " with active_connections with " connections"
+                break
+            end check
+            
+            display "Waiting for " with active_connections with " connections to finish..."
+            wait for 100 milliseconds
+        end loop
+        
+        // Clean up resources
+        display "3. Cleaning up resources..."
+        close server shutdown_test_server
+        display "✓ Server closed"
+        
+        // Log shutdown completion
+        store shutdown_end_time as current time in milliseconds
+        store total_shutdown_time as shutdown_end_time minus shutdown_start_time
+        display "✓ Graceful shutdown completed in " with total_shutdown_time with "ms"
+        
+    catch:
+        display "✗ EXPECTED FAILURE: Graceful shutdown process not implemented"
+        display "Error: " with error_message
+    end try
+    
+catch:
+    display "✗ EXPECTED FAILURE: Server startup or shutdown functionality failed"
+    display "Error: " with error_message
+end try
+
+display ""
+display "=== Web Server Graceful Shutdown Test Complete ==="
+display "Expected result: This test should FAIL until graceful shutdown is implemented"
+display "Once implemented, this test should PASS and demonstrate:"
+display "- Signal handler registration (SIGINT/SIGTERM)"
+display "- Graceful shutdown initiation"
+display "- Connection draining with timeout"
+display "- Resource cleanup"
+display "- Shutdown timing and logging"

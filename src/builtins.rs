@@ -32,6 +32,8 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     // Crypto functions (implemented in stdlib/crypto.rs)
     "wflhash256",
     "wflhash512",
+    "wflhash256_with_salt",
+    "wflmac256",
     // Math functions recognized by TypeChecker but not yet implemented
     "min",
     "max",
@@ -224,6 +226,12 @@ pub fn get_function_arity(name: &str) -> usize {
         "random_from" | "random_seed" => 1,
         // Two argument functions
         "random_between" | "random_int" => 2,
+
+        // === CRYPTO FUNCTIONS ===
+        // Single argument functions
+        "wflhash256" | "wflhash512" => 1,
+        // Two argument functions
+        "wflhash256_with_salt" | "wflmac256" => 2,
 
         // === TEXT FUNCTIONS ===
         // Single argument functions

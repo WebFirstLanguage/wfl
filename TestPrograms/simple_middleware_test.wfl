@@ -1,0 +1,73 @@
+// Simple Middleware Test
+// Tests basic middleware functionality without complex nesting
+
+display "=== Simple Middleware Test ==="
+display "Testing basic middleware features"
+display ""
+
+// Test configuration
+store server_port as 8080
+store log_file as "middleware_test.log"
+store max_test_requests as 3
+
+display "Server port: " with server_port
+display "Log file: " with log_file
+display "Max requests: " with max_test_requests
+display ""
+
+try:
+    // Test 1: Time functions
+    display "Test 1: Time Functions"
+    store current_ms as current time in milliseconds
+    store current_formatted as current time formatted as "yyyy-MM-dd HH:mm:ss"
+    display "Current time (ms): " with current_ms
+    display "Current time (formatted): " with current_formatted
+    display "✓ Time functions working"
+    display ""
+    
+    // Test 2: File operations with appending
+    display "Test 2: File Operations"
+    store log_header as "=== Simple Middleware Log ===\n"
+    open file at log_file for writing as log_handle
+    write content log_header into log_handle
+    close file log_handle
+    
+    store log_entry as current_formatted with ",GET,/test,127.0.0.1,200,150ms\n"
+    open file at log_file for appending as append_handle
+    write content log_entry into append_handle
+    close file append_handle
+    display "✓ File operations working"
+    display ""
+    
+    // Test 3: Wait functionality
+    display "Test 3: Wait Functionality"
+    display "Waiting 500ms..."
+    store wait_start as current time in milliseconds
+    wait for 500 milliseconds
+    store wait_end as current time in milliseconds
+    store wait_duration as wait_end minus wait_start
+    display "Wait completed in " with wait_duration with "ms"
+    display "✓ Wait functionality working"
+    display ""
+    
+    // Test 4: Comparison operators
+    display "Test 4: Comparison Operators"
+    store test_value as 100
+    store limit_value as 50
+    check if test_value is greater than or equal to limit_value:
+        display "✓ Comparison operators working"
+    otherwise:
+        display "✗ Comparison operators failed"
+    end check
+    display ""
+    
+    display "=== All Basic Middleware Features Working! ==="
+    
+catch:
+    display "✗ EXPECTED FAILURE: Basic middleware functionality not implemented"
+    display "This test validates the building blocks for middleware"
+end try
+
+display ""
+display "=== Simple Middleware Test Complete ==="
+display "This test should PASS when basic features are implemented"

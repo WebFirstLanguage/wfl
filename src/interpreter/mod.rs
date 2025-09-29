@@ -41,11 +41,52 @@ use crate::parser::ast::{
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::{mpsc, oneshot};
+
+// Type alias for complex pending response type
+type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>;
+use uuid;
 use warp::Filter;
+
+// Web server data structures
+#[derive(Debug, Clone)]
+pub struct WflHttpRequest {
+    pub id: String,
+    pub method: String,
+    pub path: String,
+    pub client_ip: String,
+    pub body: String,
+    pub headers: HashMap<String, String>,
+    pub response_sender: Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WflHttpResponse {
+    pub content: String,
+    pub status: u16,
+    pub content_type: String,
+    pub headers: HashMap<String, String>,
+}
+
+#[derive(Debug)]
+pub struct WflWebServer {
+    pub request_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflHttpRequest>>>,
+    pub request_sender: mpsc::UnboundedSender<WflHttpRequest>,
+    pub server_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+// Custom error type for warp rejections
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct ServerError(String);
+
+impl warp::reject::Reject for ServerError {}
 
 // Helper functions for execution logging
 #[cfg(debug_assertions)]
@@ -77,12 +118,14 @@ fn stmt_type(stmt: &Statement) -> String {
         }
         Statement::WriteFileStatement { .. } => "WriteFileStatement".to_string(),
         Statement::WriteToStatement { .. } => "WriteToStatement".to_string(),
+        Statement::WriteContentStatement { .. } => "WriteContentStatement".to_string(),
         Statement::CloseFileStatement { .. } => "CloseFileStatement".to_string(),
         Statement::CreateDirectoryStatement { .. } => "CreateDirectoryStatement".to_string(),
         Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
         Statement::DeleteFileStatement { .. } => "DeleteFileStatement".to_string(),
         Statement::DeleteDirectoryStatement { .. } => "DeleteDirectoryStatement".to_string(),
         Statement::WaitForStatement { .. } => "WaitForStatement".to_string(),
+        Statement::WaitForDurationStatement { .. } => "WaitForDurationStatement".to_string(),
         Statement::TryStatement { .. } => "TryStatement".to_string(),
         Statement::HttpGetStatement { variable_name, .. } => {
             format!("HttpGetStatement '{variable_name}'")
@@ -128,6 +171,20 @@ fn stmt_type(stmt: &Statement) -> String {
             format!("WaitForRequestStatement '{request_name}'")
         }
         Statement::RespondStatement { .. } => "RespondStatement".to_string(),
+        Statement::RegisterSignalHandlerStatement {
+            signal_type,
+            handler_name,
+            ..
+        } => {
+            format!(
+                "RegisterSignalHandlerStatement '{}' -> '{}'",
+                signal_type, handler_name
+            )
+        }
+        Statement::StopAcceptingConnectionsStatement { .. } => {
+            "StopAcceptingConnectionsStatement".to_string()
+        }
+        Statement::CloseServerStatement { .. } => "CloseServerStatement".to_string(),
     }
 }
 
@@ -172,10 +229,14 @@ fn expr_type(expr: &Expression) -> String {
         Expression::ReadContent { .. } => "ReadContent".to_string(),
         Expression::ListFilesRecursive { .. } => "ListFilesRecursive".to_string(),
         Expression::ListFilesFiltered { .. } => "ListFilesFiltered".to_string(),
+        Expression::HeaderAccess { header_name, .. } => format!("HeaderAccess '{header_name}'"),
+        Expression::CurrentTimeMilliseconds { .. } => "CurrentTimeMilliseconds".to_string(),
+        Expression::CurrentTimeFormatted { format, .. } => {
+            format!("CurrentTimeFormatted '{format}'")
+        }
     }
 }
 
-use std::collections::HashMap;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncWriteExt;
@@ -194,6 +255,8 @@ pub struct Interpreter {
     io_client: Rc<IoClient>,
     step_mode: bool,          // Controls single-step execution mode
     script_args: Vec<String>, // Command-line arguments passed to the script
+    web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
+    pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
 }
 
 #[allow(dead_code)]
@@ -519,8 +582,10 @@ impl Interpreter {
             max_duration: Duration::from_secs(u64::MAX), // Effectively no timeout by default
             call_stack: RefCell::new(Vec::new()),
             io_client: Rc::new(IoClient::new()),
-            step_mode: false,        // Default to non-step mode
-            script_args: Vec::new(), // Initialize empty, will be set later
+            step_mode: false,                          // Default to non-step mode
+            script_args: Vec::new(),                   // Initialize empty, will be set later
+            web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
+            pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
         }
     }
 
@@ -920,12 +985,14 @@ impl Interpreter {
             Statement::ReadFileStatement { line, column, .. } => (*line, *column),
             Statement::WriteFileStatement { line, column, .. } => (*line, *column),
             Statement::WriteToStatement { line, column, .. } => (*line, *column),
+            Statement::WriteContentStatement { line, column, .. } => (*line, *column),
             Statement::CloseFileStatement { line, column, .. } => (*line, *column),
             Statement::CreateDirectoryStatement { line, column, .. } => (*line, *column),
             Statement::CreateFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteDirectoryStatement { line, column, .. } => (*line, *column),
             Statement::WaitForStatement { line, column, .. } => (*line, *column),
+            Statement::WaitForDurationStatement { line, column, .. } => (*line, *column),
             Statement::TryStatement { line, column, .. } => (*line, *column),
             Statement::HttpGetStatement { line, column, .. } => (*line, *column),
             Statement::HttpPostStatement { line, column, .. } => (*line, *column),
@@ -949,6 +1016,9 @@ impl Interpreter {
             Statement::ListenStatement { line, column, .. } => (*line, *column),
             Statement::WaitForRequestStatement { line, column, .. } => (*line, *column),
             Statement::RespondStatement { line, column, .. } => (*line, *column),
+            Statement::RegisterSignalHandlerStatement { line, column, .. } => (*line, *column),
+            Statement::StopAcceptingConnectionsStatement { line, column, .. } => (*line, *column),
+            Statement::CloseServerStatement { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {
@@ -1847,6 +1917,43 @@ impl Interpreter {
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
+            Statement::WriteContentStatement {
+                content,
+                target,
+                line,
+                column,
+            } => {
+                let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                let target_value = self.evaluate_expression(target, Rc::clone(&env)).await?;
+
+                let target_str = match &target_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for file handle, got {target_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let content_str = format!("{content_value}");
+
+                // Check if target is a file handle (starts with "file") or a file path
+                if target_str.starts_with("file") {
+                    // This is a file handle, use append_file to respect the file's open mode
+                    match self.io_client.append_file(&target_str, &content_str).await {
+                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                        Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    }
+                } else {
+                    // This is a file path, use write_file (overwrite mode)
+                    match self.io_client.write_file(&target_str, &content_str).await {
+                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                        Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                    }
+                }
+            }
             Statement::DeleteDirectoryStatement { path, line, column } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
                 let path_str = match &path_value {
@@ -2024,6 +2131,37 @@ impl Interpreter {
                     }
                     _ => self.execute_statement(inner, Rc::clone(&env)).await,
                 }
+            }
+            Statement::WaitForDurationStatement {
+                duration,
+                unit,
+                line,
+                column,
+            } => {
+                let duration_value = self.evaluate_expression(duration, Rc::clone(&env)).await?;
+                let duration_ms = match &duration_value {
+                    Value::Number(n) => match unit.as_str() {
+                        "milliseconds" => *n as u64,
+                        "seconds" => (*n * 1000.0) as u64,
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!("Unsupported time unit: {}", unit),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    },
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected number for duration, got {duration_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                tokio::time::sleep(std::time::Duration::from_millis(duration_ms)).await;
+                Ok((Value::Null, ControlFlow::None))
             }
             Statement::TryStatement {
                 body,
@@ -2913,17 +3051,122 @@ impl Interpreter {
                     }
                 };
 
-                // Create a basic web server using warp
-                let routes = warp::path::end().map(|| "Hello from WFL Web Server!");
+                // Create request/response channels
+                let (request_sender, request_receiver) =
+                    mpsc::unbounded_channel::<WflHttpRequest>();
+                let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
 
-                // Start the server in a background task
+                // Create warp routes that handle all HTTP methods and paths
+                let request_sender_clone = request_sender.clone();
+                let routes = warp::any()
+                    .and(warp::method())
+                    .and(warp::path::full())
+                    .and(warp::header::headers_cloned())
+                    .and(warp::body::content_length_limit(1_048_576)) // 1MB limit to prevent DoS
+                    .and(warp::body::bytes())
+                    .and(warp::addr::remote())
+                    .and_then(
+                        move |method: warp::http::Method,
+                              path: warp::path::FullPath,
+                              headers: warp::http::HeaderMap,
+                              body: bytes::Bytes,
+                              remote_addr: Option<std::net::SocketAddr>| {
+                            let sender = request_sender_clone.clone();
+                            async move {
+                                // Generate unique request ID
+                                let request_id = uuid::Uuid::new_v4().to_string();
+
+                                // Extract client IP
+                                let client_ip = remote_addr
+                                    .map(|addr| addr.ip().to_string())
+                                    .unwrap_or_else(|| "unknown".to_string());
+
+                                // Convert headers to HashMap
+                                let mut header_map = HashMap::new();
+                                for (name, value) in headers.iter() {
+                                    if let Ok(value_str) = value.to_str() {
+                                        header_map.insert(name.to_string(), value_str.to_string());
+                                    }
+                                }
+
+                                // Convert body to string
+                                let body_str = String::from_utf8_lossy(&body).to_string();
+
+                                // Create response channel
+                                let (response_sender, response_receiver) =
+                                    oneshot::channel::<WflHttpResponse>();
+
+                                // Create WFL request
+                                let wfl_request = WflHttpRequest {
+                                    id: request_id,
+                                    method: method.to_string(),
+                                    path: path.as_str().to_string(),
+                                    client_ip,
+                                    body: body_str,
+                                    headers: header_map,
+                                    response_sender: Arc::new(tokio::sync::Mutex::new(Some(
+                                        response_sender,
+                                    ))),
+                                };
+
+                                // Send request to WFL interpreter
+                                if sender.send(wfl_request).is_err() {
+                                    return Err(warp::reject::custom(ServerError(
+                                        "Request channel closed".to_string(),
+                                    )));
+                                }
+
+                                // Wait for response
+                                match response_receiver.await {
+                                    Ok(response) => {
+                                        let status_code =
+                                            warp::http::StatusCode::from_u16(response.status)
+                                                .unwrap_or(warp::http::StatusCode::OK);
+
+                                        let mut reply_builder = warp::http::Response::builder()
+                                            .status(status_code)
+                                            .header("content-type", response.content_type);
+
+                                        // Add additional headers
+                                        for (name, value) in response.headers {
+                                            reply_builder = reply_builder.header(name, value);
+                                        }
+
+                                        match reply_builder.body(response.content) {
+                                            Ok(response) => Ok(response),
+                                            Err(_) => Err(warp::reject::custom(ServerError(
+                                                "Failed to build response".to_string(),
+                                            ))),
+                                        }
+                                    }
+                                    Err(_) => Err(warp::reject::custom(ServerError(
+                                        "Response channel closed".to_string(),
+                                    ))),
+                                }
+                            }
+                        },
+                    );
+
+                // Start the server
                 let server_task =
                     warp::serve(routes).try_bind_ephemeral(([127, 0, 0, 1], port_num));
 
                 match server_task {
                     Ok((addr, server)) => {
                         // Spawn the server in the background
-                        tokio::spawn(server);
+                        let server_handle = tokio::spawn(server);
+
+                        // Create WFL web server object
+                        let wfl_server = WflWebServer {
+                            request_receiver: request_receiver.clone(),
+                            request_sender: request_sender.clone(),
+                            server_handle: Some(server_handle),
+                        };
+
+                        // Store the server in the interpreter
+                        self.web_servers
+                            .borrow_mut()
+                            .insert(server_name.clone(), wfl_server);
 
                         // Create a server value with the actual address
                         let server_value = Value::Text(Rc::from(format!(
@@ -2947,32 +3190,407 @@ impl Interpreter {
                 }
             }
             Statement::WaitForRequestStatement {
-                server: _server,
-                request_name: _request_name,
+                server,
+                request_name,
+                timeout: _,
                 line,
                 column,
             } => {
-                // For now, return an error indicating this is not yet implemented
-                Err(RuntimeError::new(
-                    "Web server request handling is not yet implemented".to_string(),
-                    *line,
-                    *column,
-                ))
+                // Look up the server by name
+                let server_name = match self.evaluate_expression(server, Rc::clone(&env)).await? {
+                    Value::Text(name) => {
+                        // Extract server name from "WebServer::host:port" format
+                        let name_str = name.as_ref();
+                        if name_str.starts_with("WebServer::") {
+                            // Find the server by matching the exact server value
+                            let web_servers = self.web_servers.borrow();
+
+                            // Search through all servers to find which one has this exact value
+                            let mut found_server = None;
+                            for (server_name, _) in web_servers.iter() {
+                                // Get the stored value for this server name
+                                if let Some(Value::Text(stored_text)) =
+                                    env.borrow().get(server_name)
+                                    && stored_text.as_ref() == name_str
+                                {
+                                    // Found the matching server
+                                    found_server = Some(server_name.clone());
+                                    break;
+                                }
+                            }
+
+                            // Return the found server or use first server as fallback
+                            if let Some(server_name) = found_server {
+                                server_name
+                            } else if let Some((found_name, _)) = web_servers.iter().next() {
+                                found_name.clone()
+                            } else {
+                                return Err(RuntimeError::new(
+                                    "No web servers found".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        } else {
+                            name_str.to_string()
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Expected server name as text".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Get the server's request receiver
+                let request_receiver = {
+                    let web_servers = self.web_servers.borrow();
+                    if let Some(server) = web_servers.get(&server_name) {
+                        server.request_receiver.clone()
+                    } else {
+                        return Err(RuntimeError::new(
+                            format!("Web server '{}' not found", server_name),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Wait for a request to come in
+                let request = {
+                    let mut receiver = request_receiver.lock().await;
+                    match receiver.recv().await {
+                        Some(req) => req,
+                        None => {
+                            return Err(RuntimeError::new(
+                                "Request channel closed".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                };
+
+                // Store the request in a global map for RespondStatement to access
+                {
+                    let mut pending_responses = self.pending_responses.borrow_mut();
+                    pending_responses.insert(request.id.clone(), request.response_sender);
+                }
+
+                // Define individual variables for request properties (more natural for WFL)
+                let mut env_mut = env.borrow_mut();
+
+                // Define the main request variable (for use in respond statements)
+                let mut request_properties = HashMap::new();
+                request_properties.insert(
+                    "_response_sender".to_string(),
+                    Value::Text(Rc::from(request.id.clone())),
+                );
+                let request_object = Value::Object(Rc::new(RefCell::new(request_properties)));
+
+                match env_mut.define(request_name, request_object) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                // Define individual request property variables
+                match env_mut.define("method", Value::Text(Rc::from(request.method.clone()))) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                match env_mut.define("path", Value::Text(Rc::from(request.path.clone()))) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                match env_mut.define(
+                    "client_ip",
+                    Value::Text(Rc::from(request.client_ip.clone())),
+                ) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                match env_mut.define("body", Value::Text(Rc::from(request.body.clone()))) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                // Convert headers to WFL object and define as headers variable
+                let mut headers_map = HashMap::new();
+                for (key, value) in request.headers.iter() {
+                    headers_map.insert(key.clone(), Value::Text(Rc::from(value.clone())));
+                }
+                let headers_object = Value::Object(Rc::new(RefCell::new(headers_map)));
+
+                match env_mut.define("headers", headers_object) {
+                    Ok(_) => {}
+                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
+                }
+
+                drop(env_mut); // Release the borrow
+
+                Ok((Value::Null, ControlFlow::None))
             }
             Statement::RespondStatement {
-                request: _request,
-                content: _content,
-                status: _status,
-                content_type: _content_type,
+                request,
+                content,
+                status,
+                content_type,
                 line,
                 column,
             } => {
-                // For now, return an error indicating this is not yet implemented
-                Err(RuntimeError::new(
-                    "Web server response handling is not yet implemented".to_string(),
-                    *line,
-                    *column,
-                ))
+                // Get the request object
+                let request_val = self.evaluate_expression(request, Rc::clone(&env)).await?;
+                let request_id = match &request_val {
+                    Value::Object(obj) => {
+                        let obj_ref = obj.borrow();
+                        match obj_ref.get("_response_sender") {
+                            Some(Value::Text(id)) => id.as_ref().to_string(),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    "Request object missing response sender ID".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Expected request object".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Evaluate response content
+                let content_val = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                let content_str = match &content_val {
+                    Value::Text(text) => text.as_ref().to_string(),
+                    Value::Number(n) => n.to_string(),
+                    Value::Bool(b) => b.to_string(),
+                    _ => format!("{:?}", content_val),
+                };
+
+                // Evaluate status code (optional)
+                let status_code = if let Some(status_expr) = status {
+                    let status_val = self
+                        .evaluate_expression(status_expr, Rc::clone(&env))
+                        .await?;
+                    match &status_val {
+                        Value::Number(n) => *n as u16,
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Status code must be a number".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    200 // Default to 200 OK
+                };
+
+                // Evaluate content type (optional)
+                let content_type_str = if let Some(ct_expr) = content_type {
+                    let ct_val = self.evaluate_expression(ct_expr, Rc::clone(&env)).await?;
+                    match &ct_val {
+                        Value::Text(text) => text.as_ref().to_string(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Content type must be text".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    "text/plain".to_string() // Default content type
+                };
+
+                // Create response
+                let response = WflHttpResponse {
+                    content: content_str,
+                    status: status_code,
+                    content_type: content_type_str,
+                    headers: HashMap::new(), // TODO: Add support for custom headers
+                };
+
+                // Send response
+                let response_sender = {
+                    let mut pending = self.pending_responses.borrow_mut();
+                    pending.remove(&request_id)
+                };
+
+                if let Some(sender_arc) = response_sender {
+                    let mut sender_opt = sender_arc.lock().await;
+                    if let Some(sender) = sender_opt.take() {
+                        if sender.send(response).is_err() {
+                            return Err(RuntimeError::new(
+                                "Failed to send response - client may have disconnected"
+                                    .to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    } else {
+                        return Err(RuntimeError::new(
+                            "Response already sent for this request".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                } else {
+                    return Err(RuntimeError::new(
+                        "Request ID not found - response may have already been sent".to_string(),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            // Graceful shutdown and signal handling statements
+            Statement::RegisterSignalHandlerStatement {
+                signal_type,
+                handler_name,
+                line,
+                column,
+            } => {
+                // For now, just store the signal handler registration
+                // In a full implementation, this would set up actual signal handlers
+                let signal_handler_key = format!("signal_handler_{}", signal_type);
+
+                env.borrow_mut()
+                    .define(
+                        &signal_handler_key,
+                        Value::Text(Rc::from(handler_name.clone())),
+                    )
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                // TODO: Implement actual signal handling with tokio::signal
+                // For now, we'll simulate this in the graceful shutdown test
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::StopAcceptingConnectionsStatement {
+                server,
+                line,
+                column,
+            } => {
+                let server_val = self.evaluate_expression(server, Rc::clone(&env)).await?;
+                let server_name = match &server_val {
+                    Value::Text(name) => {
+                        let name_str = name.as_ref();
+                        if name_str.starts_with("WebServer::") {
+                            // Find the original server name in our web_servers map
+                            let web_servers = self.web_servers.borrow();
+                            if let Some((found_name, _)) = web_servers.iter().next() {
+                                found_name.clone()
+                            } else {
+                                return Err(RuntimeError::new(
+                                    "No web servers found".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        } else {
+                            name_str.to_string()
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Expected server name as text".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Mark server as no longer accepting connections
+                // In a full implementation, this would stop the warp server from accepting new connections
+                // For now, we'll just set a flag
+                env.borrow_mut()
+                    .define(
+                        &format!("{}_accepting_connections", server_name),
+                        Value::Bool(false),
+                    )
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::CloseServerStatement {
+                server,
+                line,
+                column,
+            } => {
+                let server_val = self.evaluate_expression(server, Rc::clone(&env)).await?;
+                let server_name = match &server_val {
+                    Value::Text(name) => {
+                        let name_str = name.as_ref();
+                        if name_str.starts_with("WebServer::") {
+                            // Find the server name that corresponds to this WebServer value
+                            let web_servers = self.web_servers.borrow();
+
+                            // Search through all servers to find which one has this exact value
+                            let mut found_server = None;
+                            for (server_name, _) in web_servers.iter() {
+                                // Check if this server name's variable has the matching value
+                                if let Some(Value::Text(stored_text)) =
+                                    env.borrow().get(server_name)
+                                    && stored_text.as_ref() == name_str
+                                {
+                                    found_server = Some(server_name.clone());
+                                    break;
+                                }
+                            }
+
+                            // Return the found server or use first server as fallback
+                            if let Some(server_name) = found_server {
+                                server_name
+                            } else if let Some((found_name, _)) = web_servers.iter().next() {
+                                found_name.clone()
+                            } else {
+                                return Err(RuntimeError::new(
+                                    "No web servers found".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        } else {
+                            name_str.to_string()
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "Expected server name as text".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Close the server
+                let mut web_servers = self.web_servers.borrow_mut();
+                if let Some(wfl_server) = web_servers.remove(&server_name) {
+                    // Abort the server task
+                    if let Some(handle) = wfl_server.server_handle {
+                        handle.abort();
+                    }
+                } else {
+                    return Err(RuntimeError::new(
+                        format!("Server '{}' not found", server_name),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                Ok((Value::Null, ControlFlow::None))
             }
         };
 
@@ -3981,6 +4599,44 @@ impl Interpreter {
                         *column,
                     )),
                 }
+            }
+            Expression::HeaderAccess {
+                header_name,
+                request: _,
+                line: _,
+                column: _,
+            } => {
+                // TODO: Implement header access from HTTP request
+                // For now, return a placeholder value
+                Ok(Value::Text(Rc::from(format!("header_{}", header_name))))
+            }
+            Expression::CurrentTimeMilliseconds { line: _, column: _ } => {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| {
+                    RuntimeError::new(format!("Failed to get current time: {}", e), 0, 0)
+                })?;
+                Ok(Value::Number(now.as_millis() as f64))
+            }
+            Expression::CurrentTimeFormatted {
+                format,
+                line: _,
+                column: _,
+            } => {
+                use chrono::{DateTime, Local};
+                let now: DateTime<Local> = Local::now();
+
+                // Convert WFL format to chrono format
+                // For now, support basic formats
+                let chrono_format = format
+                    .replace("yyyy", "%Y")
+                    .replace("MM", "%m")
+                    .replace("dd", "%d")
+                    .replace("HH", "%H")
+                    .replace("mm", "%M")
+                    .replace("ss", "%S");
+
+                let formatted = now.format(&chrono_format).to_string();
+                Ok(Value::Text(Rc::from(formatted)))
             }
         };
         self.assert_invariants();

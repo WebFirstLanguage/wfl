@@ -1,0 +1,92 @@
+// TDD Test: Web Server Request/Response Handling
+// This test MUST FAIL initially because request/response handling is not implemented
+// Following TDD approach - write failing test first
+
+display "=== Web Server Request/Response Test ==="
+display "This test validates basic HTTP request/response functionality"
+display ""
+
+// Test configuration
+store test_port as 8090
+store test_timeout as 5000  // 5 seconds
+
+display "Starting web server on port " with test_port with "..."
+
+try:
+    // Start the web server
+    listen on port test_port as test_server
+    display "✓ Server started successfully"
+    
+    // Test 1: Basic request handling
+    display ""
+    display "Test 1: Basic request handling"
+    display "Waiting for incoming request..."
+    
+    try:
+        // This should fail because WaitForRequestStatement is not implemented
+        wait for request comes in on test_server as incoming_request
+        display "✓ Request received successfully"
+        
+        // Test request properties
+        display "Request method: " with method
+        display "Request path: " with path
+        display "Request client IP: " with client_ip
+        
+        // Test 2: Basic response handling
+        display ""
+        display "Test 2: Basic response handling"
+        
+        try:
+            // This should also fail because RespondStatement is not implemented
+            respond to incoming_request with "Hello from WFL Test Server!" and content_type "text/plain"
+            display "✓ Response sent successfully"
+            
+        catch:
+            display "✗ EXPECTED FAILURE: Response handling not implemented"
+            display "Error: " with error
+        end try
+        
+    catch:
+        display "✗ EXPECTED FAILURE: Request handling not implemented"
+        display "Error: " with error
+    end try
+    
+    // Test 3: Single additional request test
+    display ""
+    display "Test 3: Additional request handling test"
+
+    try:
+        wait for request comes in on test_server as test_request2
+        display "Processing additional request"
+        display "Path: " with path
+
+        // Test different response types
+        check if path is equal to "/json":
+            store json_response as "{\"message\": \"Hello JSON\"}"
+            respond to test_request2 with json_response and content_type "application/json"
+            display "✓ JSON response sent"
+
+        otherwise:
+            store text_response as "Hello from WFL additional test!"
+            respond to test_request2 with text_response and content_type "text/plain"
+            display "✓ Text response sent"
+        end check
+
+    catch:
+        display "✗ EXPECTED FAILURE: Additional request handling not working"
+        display "Error: " with error
+    end try
+    
+catch:
+    display "✗ EXPECTED FAILURE: Server startup or basic functionality failed"
+    display "Error: " with error
+end try
+
+display ""
+display "=== Web Server Request/Response Test Complete ==="
+display "Expected result: This test should FAIL until request/response handling is implemented"
+display "Once implemented, this test should PASS and demonstrate:"
+display "- Basic server startup"
+display "- Request reception and parsing"
+display "- Response sending with different content types"
+display "- Multiple request handling in a loop"

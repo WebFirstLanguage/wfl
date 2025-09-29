@@ -1340,12 +1340,27 @@ impl<'a> Parser<'a> {
                         self.parse_open_file_statement()
                     }
                 }
-                Token::KeywordClose => self.parse_close_file_statement(),
+                Token::KeywordClose => {
+                    // Check if it's "close server" or regular "close file"
+                    let mut tokens_clone = self.tokens.clone();
+                    tokens_clone.next(); // Skip "close"
+                    if let Some(next_token) = tokens_clone.next() {
+                        if matches!(next_token.token, Token::KeywordServer) {
+                            self.parse_close_server_statement()
+                        } else {
+                            self.parse_close_file_statement()
+                        }
+                    } else {
+                        self.parse_close_file_statement()
+                    }
+                }
                 Token::KeywordDelete => self.parse_delete_statement(),
                 Token::KeywordWrite => self.parse_write_to_statement(),
                 Token::KeywordWait => self.parse_wait_for_statement(),
                 Token::KeywordListen => self.parse_listen_statement(),
                 Token::KeywordRespond => self.parse_respond_statement(),
+                Token::KeywordRegister => self.parse_register_signal_handler_statement(),
+                Token::KeywordStop => self.parse_stop_accepting_connections_statement(),
                 Token::KeywordGive | Token::KeywordReturn => self.parse_return_statement(),
                 Token::Identifier(id) if id == "main" => {
                     // Check if next token is "loop"
@@ -1768,7 +1783,53 @@ impl<'a> Parser<'a> {
                                 if let Some(than_token) = self.tokens.peek().cloned() {
                                     if matches!(than_token.token, Token::KeywordThan) {
                                         self.tokens.next(); // Consume "than"
-                                        Some((Operator::GreaterThan, 0))
+
+                                        // Check for "or equal to" after "greater than"
+                                        if let Some(or_token) = self.tokens.peek().cloned() {
+                                            if matches!(or_token.token, Token::KeywordOr) {
+                                                self.tokens.next(); // Consume "or"
+                                                if let Some(equal_token) =
+                                                    self.tokens.peek().cloned()
+                                                {
+                                                    if matches!(
+                                                        equal_token.token,
+                                                        Token::KeywordEqual
+                                                    ) {
+                                                        self.tokens.next(); // Consume "equal"
+                                                        // Optional "to"
+                                                        if let Some(to_token) =
+                                                            self.tokens.peek().cloned()
+                                                        {
+                                                            if matches!(
+                                                                to_token.token,
+                                                                Token::KeywordTo
+                                                            ) {
+                                                                self.tokens.next(); // Consume "to"
+                                                                Some((
+                                                                    Operator::GreaterThanOrEqual,
+                                                                    0,
+                                                                ))
+                                                            } else {
+                                                                Some((
+                                                                    Operator::GreaterThanOrEqual,
+                                                                    0,
+                                                                )) // "or equal" without "to" is valid too
+                                                            }
+                                                        } else {
+                                                            Some((Operator::GreaterThanOrEqual, 0)) // "or equal" without "to" is valid too
+                                                        }
+                                                    } else {
+                                                        Some((Operator::GreaterThan, 0)) // Just "greater than or" without "equal" is treated as "greater than"
+                                                    }
+                                                } else {
+                                                    Some((Operator::GreaterThan, 0)) // Just "greater than or" without "equal" is treated as "greater than"
+                                                }
+                                            } else {
+                                                Some((Operator::GreaterThan, 0)) // Just "greater than" without "or"
+                                            }
+                                        } else {
+                                            Some((Operator::GreaterThan, 0)) // Just "greater than" without "or"
+                                        }
                                     } else {
                                         Some((Operator::GreaterThan, 0)) // "is greater" without "than" is valid too
                                     }
@@ -2614,6 +2675,115 @@ impl<'a> Parser<'a> {
                         token_column,
                     ))
                 }
+                Token::KeywordHeader => {
+                    self.tokens.next(); // Consume "header"
+                    let token_line = token.line;
+                    let token_column = token.column;
+
+                    // Parse header name (expect a string literal directly)
+                    let header_name = if let Some(name_token) = self.tokens.next() {
+                        match &name_token.token {
+                            Token::StringLiteral(name) => name.clone(),
+                            _ => {
+                                return Err(ParseError::new(
+                                    "Expected string literal for header name".to_string(),
+                                    name_token.line,
+                                    name_token.column,
+                                ));
+                            }
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected header name after 'header'".to_string(),
+                            token_line,
+                            token_column,
+                        ));
+                    };
+
+                    // Expect "of"
+                    self.expect_token(Token::KeywordOf, "Expected 'of' after header name")?;
+
+                    // Parse request expression
+                    let request = self.parse_primary_expression()?;
+
+                    Ok(Expression::HeaderAccess {
+                        header_name,
+                        request: Box::new(request),
+                        line: token_line,
+                        column: token_column,
+                    })
+                }
+                Token::KeywordCurrent => {
+                    self.tokens.next(); // Consume "current"
+                    let token_line = token.line;
+                    let token_column = token.column;
+
+                    // Expect "time"
+                    self.expect_token(Token::KeywordTime, "Expected 'time' after 'current'")?;
+
+                    // Check for "in milliseconds" or "formatted as"
+                    if let Some(next_token) = self.tokens.peek() {
+                        match next_token.token {
+                            Token::KeywordIn => {
+                                self.tokens.next(); // Consume "in"
+                                self.expect_token(
+                                    Token::KeywordMilliseconds,
+                                    "Expected 'milliseconds' after 'in'",
+                                )?;
+                                Ok(Expression::CurrentTimeMilliseconds {
+                                    line: token_line,
+                                    column: token_column,
+                                })
+                            }
+                            Token::KeywordFormatted => {
+                                self.tokens.next(); // Consume "formatted"
+                                self.expect_token(
+                                    Token::KeywordAs,
+                                    "Expected 'as' after 'formatted'",
+                                )?;
+
+                                // Parse format string
+                                let format_token = self.tokens.next().ok_or_else(|| {
+                                    ParseError::new(
+                                        "Expected format string after 'as'".to_string(),
+                                        token_line,
+                                        token_column,
+                                    )
+                                })?;
+
+                                let format = match &format_token.token {
+                                    Token::StringLiteral(fmt) => fmt.clone(),
+                                    _ => {
+                                        return Err(ParseError::new(
+                                            "Expected string literal for time format".to_string(),
+                                            format_token.line,
+                                            format_token.column,
+                                        ));
+                                    }
+                                };
+
+                                Ok(Expression::CurrentTimeFormatted {
+                                    format,
+                                    line: token_line,
+                                    column: token_column,
+                                })
+                            }
+                            _ => Err(ParseError::new(
+                                "Expected 'in milliseconds' or 'formatted as' after 'current time'"
+                                    .to_string(),
+                                next_token.line,
+                                next_token.column,
+                            )),
+                        }
+                    } else {
+                        Err(ParseError::new(
+                            "Expected 'in milliseconds' or 'formatted as' after 'current time'"
+                                .to_string(),
+                            token_line,
+                            token_column,
+                        ))
+                    }
+                }
                 Token::KeywordList => {
                     self.tokens.next(); // Consume "list"
                     let token_line = token.line;
@@ -3353,6 +3523,25 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Expression::ListFilesFiltered { line, column, .. } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
+                Expression::HeaderAccess { line, column, .. } => Ok(Statement::DisplayStatement {
+                    value: expr,
+                    line,
+                    column,
+                }),
+                Expression::CurrentTimeMilliseconds { line, column } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
+                Expression::CurrentTimeFormatted { line, column, .. } => {
                     Ok(Statement::DisplayStatement {
                         value: expr,
                         line,
@@ -4382,6 +4571,10 @@ impl<'a> Parser<'a> {
                                 self.tokens.next(); // Consume "append"
                                 FileOpenMode::Append
                             }
+                            Token::KeywordAppending => {
+                                self.tokens.next(); // Consume "appending"
+                                FileOpenMode::Append
+                            }
                             Token::Identifier(ref mode_str) if mode_str == "reading" => {
                                 self.tokens.next(); // Consume "reading"
                                 FileOpenMode::Read
@@ -4392,7 +4585,7 @@ impl<'a> Parser<'a> {
                             }
                             _ => {
                                 return Err(ParseError::new(
-                                    "Expected 'append', 'reading', or 'writing' after 'for'"
+                                    "Expected 'append', 'appending', 'reading', or 'writing' after 'for'"
                                         .to_string(),
                                     token.line,
                                     token.column,
@@ -4675,14 +4868,72 @@ impl<'a> Parser<'a> {
                     // Parse request name
                     let request_name = self.parse_variable_name_simple()?;
 
+                    // Check for optional timeout
+                    let timeout = if let Some(token) = self.tokens.peek() {
+                        if matches!(token.token, Token::KeywordWith) {
+                            self.tokens.next(); // Consume "with"
+                            self.expect_token(
+                                Token::KeywordTimeout,
+                                "Expected 'timeout' after 'with'",
+                            )?;
+                            Some(self.parse_expression()?)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
                     return Ok(Statement::WaitForRequestStatement {
                         server,
                         request_name,
+                        timeout,
                         line: wait_token_pos.line,
                         column: wait_token_pos.column,
                     });
                 }
                 _ => {
+                    // Try to parse as "wait for X milliseconds/seconds"
+                    let checkpoint = self.tokens.clone();
+
+                    // Try to parse a duration expression
+                    if let Ok(duration_expr) = self.parse_expression() {
+                        // Check if next token is a time unit
+                        if let Some(token) = self.tokens.peek() {
+                            match &token.token {
+                                Token::KeywordMilliseconds => {
+                                    self.tokens.next(); // Consume "milliseconds"
+                                    return Ok(Statement::WaitForDurationStatement {
+                                        duration: duration_expr,
+                                        unit: "milliseconds".to_string(),
+                                        line: wait_token_pos.line,
+                                        column: wait_token_pos.column,
+                                    });
+                                }
+                                Token::Identifier(id) if id == "seconds" => {
+                                    self.tokens.next(); // Consume "seconds"
+                                    return Ok(Statement::WaitForDurationStatement {
+                                        duration: duration_expr,
+                                        unit: "seconds".to_string(),
+                                        line: wait_token_pos.line,
+                                        column: wait_token_pos.column,
+                                    });
+                                }
+                                _ => {
+                                    // Not a duration, restore checkpoint and parse as statement
+                                    self.tokens = checkpoint;
+                                }
+                            }
+                        } else {
+                            // No more tokens, restore checkpoint
+                            self.tokens = checkpoint;
+                        }
+                    } else {
+                        // Failed to parse expression, restore checkpoint
+                        self.tokens = checkpoint;
+                    }
+
+                    // Fall back to parsing as a statement
                     let inner = Box::new(self.parse_statement()?);
                     return Ok(Statement::WaitForStatement {
                         inner,
@@ -4809,6 +5060,30 @@ impl<'a> Parser<'a> {
     fn parse_write_to_statement(&mut self) -> Result<Statement, ParseError> {
         let token_pos = self.tokens.next().unwrap(); // Consume "write"
 
+        // Check if next token is "content" for "write content X into Y" syntax
+        if let Some(next_token) = self.tokens.peek()
+            && matches!(next_token.token, Token::KeywordContent)
+        {
+            self.tokens.next(); // Consume "content"
+
+            let content = self.parse_expression()?;
+
+            self.expect_token(
+                Token::KeywordInto,
+                "Expected 'into' after content in write content statement",
+            )?;
+
+            let target = self.parse_primary_expression()?;
+
+            return Ok(Statement::WriteContentStatement {
+                content,
+                target,
+                line: token_pos.line,
+                column: token_pos.column,
+            });
+        }
+
+        // Original "write X to Y" syntax
         let content = self.parse_expression()?;
 
         self.expect_token(
@@ -6871,56 +7146,55 @@ impl<'a> Parser<'a> {
         // Expect "to"
         self.expect_token(Token::KeywordTo, "Expected 'to' after 'respond'")?;
 
-        // Parse request expression
-        let request = self.parse_expression()?;
+        // Parse request expression (use primary to avoid consuming "with")
+        let request = self.parse_primary_expression()?;
 
         // Expect "with"
         self.expect_token(Token::KeywordWith, "Expected 'with' after request")?;
 
-        // Parse content expression
-        let content = self.parse_expression()?;
+        // Parse content expression (use primary to avoid consuming "and")
+        let content = self.parse_primary_expression()?;
 
         // Optional status and content_type
         let mut status = None;
         let mut content_type = None;
 
-        // Check for "and status"
-        if let Some(token) = self.tokens.peek()
-            && token.token == Token::KeywordAnd
-        {
-            self.tokens.next(); // Consume "and"
-
+        // Check for optional "and" clauses (status and/or content_type)
+        loop {
             if let Some(token) = self.tokens.peek()
-                && token.token == Token::KeywordStatus
+                && token.token == Token::KeywordAnd
             {
-                self.tokens.next(); // Consume "status"
-                status = Some(self.parse_expression()?);
-            }
-        }
+                // Look ahead to see what comes after "and"
+                let mut tokens_clone = self.tokens.clone();
+                tokens_clone.next(); // Skip "and"
 
-        // Check for "and content_type" or "and content type"
-        if let Some(token) = self.tokens.peek()
-            && token.token == Token::KeywordAnd
-        {
-            self.tokens.next(); // Consume "and"
+                if let Some(next_token) = tokens_clone.peek() {
+                    if next_token.token == Token::KeywordStatus {
+                        self.tokens.next(); // Consume "and"
+                        self.tokens.next(); // Consume "status"
+                        status = Some(self.parse_expression()?);
+                        continue;
+                    } else if let Token::Identifier(id) = &next_token.token
+                        && (id == "content_type" || id == "content")
+                    {
+                        self.tokens.next(); // Consume "and"
+                        self.tokens.next(); // Consume "content_type" or "content"
 
-            if let Some(token) = self.tokens.peek()
-                && let Token::Identifier(id) = &token.token
-                && (id == "content_type" || id == "content")
-            {
-                self.tokens.next(); // Consume "content_type" or "content"
+                        // If it was "content", expect "type" next
+                        if id == "content"
+                            && let Some(type_token) = self.tokens.peek()
+                            && let Token::Identifier(type_id) = &type_token.token
+                            && type_id == "type"
+                        {
+                            self.tokens.next(); // Consume "type"
+                        }
 
-                // If it was "content", expect "type" next
-                if id == "content"
-                    && let Some(token) = self.tokens.peek()
-                    && let Token::Identifier(type_id) = &token.token
-                    && type_id == "type"
-                {
-                    self.tokens.next(); // Consume "type"
+                        content_type = Some(self.parse_expression()?);
+                        continue;
+                    }
                 }
-
-                content_type = Some(self.parse_expression()?);
             }
+            break;
         }
 
         Ok(Statement::RespondStatement {
@@ -6930,6 +7204,95 @@ impl<'a> Parser<'a> {
             content_type,
             line: respond_token.line,
             column: respond_token.column,
+        })
+    }
+
+    // Graceful shutdown and signal handling parsing methods
+    fn parse_register_signal_handler_statement(&mut self) -> Result<Statement, ParseError> {
+        let register_token = self.tokens.next().unwrap(); // Consume "register"
+
+        // Expect "signal"
+        self.expect_token(Token::KeywordSignal, "Expected 'signal' after 'register'")?;
+
+        // Expect "handler"
+        self.expect_token(Token::KeywordHandler, "Expected 'handler' after 'signal'")?;
+
+        // Expect "for"
+        self.expect_token(Token::KeywordFor, "Expected 'for' after 'handler'")?;
+
+        // Parse signal type (SIGINT, SIGTERM, etc.)
+        let signal_type = match self.tokens.next() {
+            Some(token) => match &token.token {
+                Token::Identifier(signal) => signal.clone(),
+                _ => {
+                    return Err(ParseError::new(
+                        "Expected signal type (SIGINT, SIGTERM, etc.)".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                }
+            },
+            None => {
+                return Err(ParseError::new(
+                    "Expected signal type".to_string(),
+                    register_token.line,
+                    register_token.column,
+                ));
+            }
+        };
+
+        // Expect "as"
+        self.expect_token(Token::KeywordAs, "Expected 'as' after signal type")?;
+
+        // Parse handler name
+        let handler_name = self.parse_variable_name_simple()?;
+
+        Ok(Statement::RegisterSignalHandlerStatement {
+            signal_type,
+            handler_name,
+            line: register_token.line,
+            column: register_token.column,
+        })
+    }
+
+    fn parse_stop_accepting_connections_statement(&mut self) -> Result<Statement, ParseError> {
+        let stop_token = self.tokens.next().unwrap(); // Consume "stop"
+
+        // Expect "accepting"
+        self.expect_token(Token::KeywordAccepting, "Expected 'accepting' after 'stop'")?;
+
+        // Expect "connections"
+        self.expect_token(
+            Token::KeywordConnections,
+            "Expected 'connections' after 'accepting'",
+        )?;
+
+        // Expect "on"
+        self.expect_token(Token::KeywordOn, "Expected 'on' after 'connections'")?;
+
+        // Parse server expression
+        let server = self.parse_expression()?;
+
+        Ok(Statement::StopAcceptingConnectionsStatement {
+            server,
+            line: stop_token.line,
+            column: stop_token.column,
+        })
+    }
+
+    fn parse_close_server_statement(&mut self) -> Result<Statement, ParseError> {
+        let close_token = self.tokens.next().unwrap(); // Consume "close"
+
+        // Expect "server"
+        self.expect_token(Token::KeywordServer, "Expected 'server' after 'close'")?;
+
+        // Parse server expression
+        let server = self.parse_expression()?;
+
+        Ok(Statement::CloseServerStatement {
+            server,
+            line: close_token.line,
+            column: close_token.column,
         })
     }
 }

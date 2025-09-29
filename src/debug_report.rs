@@ -4,10 +4,11 @@ use crate::interpreter::value::Value;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Write};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::{Duration, SystemTime};
 
 pub struct SafeDebug<'a> {
     value: &'a Value,
@@ -273,6 +274,76 @@ fn write_report_to_file(file_path: &Path, content: &str) -> Result<(), std::io::
     let mut file = File::create(file_path)?;
     file.write_all(content.as_bytes())?;
     Ok(())
+}
+
+/// Clean up old debug files in the current directory
+/// This function removes debug files older than the specified age
+pub fn cleanup_old_debug_files(max_age: Duration) -> Result<usize, std::io::Error> {
+    let current_dir = std::env::current_dir()?;
+    cleanup_debug_files_in_dir(&current_dir, max_age)
+}
+
+/// Clean up debug files in a specific directory
+/// Returns the number of files cleaned up
+pub fn cleanup_debug_files_in_dir(dir: &Path, max_age: Duration) -> Result<usize, std::io::Error> {
+    let mut cleaned_count = 0;
+
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+
+    let entries = fs::read_dir(dir)?;
+    let now = SystemTime::now();
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+
+        // Skip directories
+        if !path.is_file() {
+            continue;
+        }
+
+        // Check if it's a debug file or temporary test file
+        if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+            let is_debug_file =
+                filename.ends_with("_debug.txt") || filename.starts_with("temp_test_");
+
+            if is_debug_file {
+                // Check file age
+                if let Ok(metadata) = fs::metadata(&path)
+                    && let Ok(modified) = metadata.modified()
+                    && let Ok(age) = now.duration_since(modified)
+                    && age > max_age
+                {
+                    // Try to remove the file
+                    if fs::remove_file(&path).is_ok() {
+                        cleaned_count += 1;
+                        log::debug!("Cleaned up old debug file: {:?}", path);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(cleaned_count)
+}
+
+/// Clean up debug files from test environment
+/// This is specifically designed for test environments to clean up
+/// temporary files created during testing
+pub fn cleanup_test_debug_files() -> Result<usize, std::io::Error> {
+    // In test environments, clean up files older than 1 hour
+    let max_age = Duration::from_secs(60 * 60); // 1 hour
+    cleanup_old_debug_files(max_age)
+}
+
+/// Clean up debug files with a more aggressive age threshold
+/// This can be used in CI environments or for manual cleanup
+pub fn cleanup_stale_debug_files() -> Result<usize, std::io::Error> {
+    // Clean up files older than 10 minutes for more aggressive cleanup
+    let max_age = Duration::from_secs(10 * 60); // 10 minutes
+    cleanup_old_debug_files(max_age)
 }
 
 #[cfg(test)]

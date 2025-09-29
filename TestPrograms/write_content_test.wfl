@@ -1,0 +1,30 @@
+// Write Content Test
+// Tests the "write content X into Y" statement
+
+display "=== Write Content Test ==="
+display "Testing write content statement"
+display ""
+
+// Test data
+store test_content as "Hello, World! This is a test message."
+store test_file as "test_output.txt"
+
+display "Content to write: " with test_content
+display "Target file: " with test_file
+display ""
+
+// Test 1: Write content to file
+display "Test 1: Writing content to file"
+write content test_content into test_file
+display "✓ Content written successfully"
+display ""
+
+// Test 2: Write different content
+store new_content as "This is new content added to the file."
+display "Test 2: Writing new content"
+write content new_content into test_file
+display "✓ New content written successfully"
+display ""
+
+display "=== Write Content Test Complete ==="
+display "✓ Write content statement working!"

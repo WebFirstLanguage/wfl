@@ -5,6 +5,7 @@ edition = "2024"
 description = "WFL (WebFirst Language) is a programming language designed to be readable and intuitive using natural language constructs."
 license = "Apache-2.0"
 authors = ["Logbie LLC <info@logbie.com>"]
+default-run = "wfl"
 
 [package.metadata.bundle]
 name = "WFL"
@@ -48,6 +49,8 @@ reqwest = { version = "0.11.24", features = ["json"] }
 sqlx = { version = "0.8.1", features = ["runtime-tokio-rustls", "sqlite", "mysql", "postgres"] }
 serde_json = "1.0.114"
 warp = "0.3.7"
+uuid = { version = "1.6.1", features = ["v4"] }
+bytes = "1.5.0"
 codespan-reporting = "0.11.1"
 simplelog = "0.12.1"
 chrono = "0.4.31"
@@ -55,6 +58,11 @@ once_cell = "1.18.0"
 time = { version = "0.3", features = ["formatting", "macros"] }
 dhat = { version = "0.3.0", optional = true }
 glob = "0.3.2"
+# Cryptographic and security dependencies
+zeroize = { version = "1.7", features = ["derive"] }
+subtle = "2.5"
+sha2 = "0.10"
+hkdf = "0.12"
 
 [features]
 dhat-heap = ["dhat"]    # if you are doing heap profiling

@@ -375,6 +375,36 @@ WFL includes a comprehensive standard library:
 - `contains(list, item)` - Check if contains
 - `indexof(list, item)` - Find item position
 
+### Crypto Module
+
+WFLHASH is a **non-validated cryptographic hash function** designed with modern cryptographic principles including:
+- Sponge construction (similar to SHA-3)
+- Nothing-up-my-sleeve constants
+- 24-round security margin
+- HKDF-based key derivation for MAC mode
+- Secure memory management
+
+**⚠️ Important Security Disclaimer:**
+While WFLHASH implements cryptographically sound design principles and has undergone internal security hardening, it has **NOT undergone external cryptographic audits or formal validation** by standards bodies.
+
+**Recommended Use:**
+- ✅ Internal applications with controlled security requirements
+- ✅ Non-critical data integrity verification
+- ✅ Development and testing environments
+
+**NOT Recommended For:**
+- ❌ Applications requiring FIPS validation
+- ❌ High-security environments requiring proven algorithms
+- ❌ Regulatory compliance requiring validated cryptography
+
+For production applications requiring validated cryptography, consider SHA-256, SHA-3, or BLAKE3.
+
+**Available Functions:**
+- `wflhash256(text)` - Generate 256-bit hash
+- `wflhash512(text)` - Generate 512-bit hash
+- `wflhash256_with_salt(text, salt)` - Salted hash for domain separation
+- `wflmac256(message, key)` - Message authentication code
+
 ## ⚙️ Configuration
 
 Create a `.wflcfg` file in your project directory:

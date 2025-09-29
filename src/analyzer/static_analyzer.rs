@@ -817,6 +817,11 @@ impl Analyzer {
                             Statement::ListenStatement { line, .. } => *line,
                             Statement::WaitForRequestStatement { line, .. } => *line,
                             Statement::RespondStatement { line, .. } => *line,
+                            Statement::RegisterSignalHandlerStatement { line, .. } => *line,
+                            Statement::StopAcceptingConnectionsStatement { line, .. } => *line,
+                            Statement::CloseServerStatement { line, .. } => *line,
+                            Statement::WriteContentStatement { line, .. } => *line,
+                            Statement::WaitForDurationStatement { line, .. } => *line,
                         },
                         column: match statement {
                             Statement::VariableDeclaration { column, .. } => *column,
@@ -870,6 +875,11 @@ impl Analyzer {
                             Statement::ListenStatement { column, .. } => *column,
                             Statement::WaitForRequestStatement { column, .. } => *column,
                             Statement::RespondStatement { column, .. } => *column,
+                            Statement::RegisterSignalHandlerStatement { column, .. } => *column,
+                            Statement::StopAcceptingConnectionsStatement { column, .. } => *column,
+                            Statement::CloseServerStatement { column, .. } => *column,
+                            Statement::WriteContentStatement { column, .. } => *column,
+                            Statement::WaitForDurationStatement { column, .. } => *column,
                         },
                     });
                     stmt_nodes.push(node_idx);
@@ -951,6 +961,11 @@ impl Analyzer {
                                 Statement::ListenStatement { line, .. } => *line,
                                 Statement::WaitForRequestStatement { line, .. } => *line,
                                 Statement::RespondStatement { line, .. } => *line,
+                                Statement::RegisterSignalHandlerStatement { line, .. } => *line,
+                                Statement::StopAcceptingConnectionsStatement { line, .. } => *line,
+                                Statement::CloseServerStatement { line, .. } => *line,
+                                Statement::WriteContentStatement { line, .. } => *line,
+                                Statement::WaitForDurationStatement { line, .. } => *line,
                             },
                             column: match stmt {
                                 Statement::VariableDeclaration { column, .. } => *column,
@@ -1004,6 +1019,13 @@ impl Analyzer {
                                 Statement::ListenStatement { column, .. } => *column,
                                 Statement::WaitForRequestStatement { column, .. } => *column,
                                 Statement::RespondStatement { column, .. } => *column,
+                                Statement::RegisterSignalHandlerStatement { column, .. } => *column,
+                                Statement::StopAcceptingConnectionsStatement { column, .. } => {
+                                    *column
+                                }
+                                Statement::CloseServerStatement { column, .. } => *column,
+                                Statement::WriteContentStatement { column, .. } => *column,
+                                Statement::WaitForDurationStatement { column, .. } => *column,
                             },
                         });
                         then_nodes.push(then_node_idx);
@@ -1073,6 +1095,13 @@ impl Analyzer {
                                     Statement::ListenStatement { line, .. } => *line,
                                     Statement::WaitForRequestStatement { line, .. } => *line,
                                     Statement::RespondStatement { line, .. } => *line,
+                                    Statement::RegisterSignalHandlerStatement { line, .. } => *line,
+                                    Statement::StopAcceptingConnectionsStatement {
+                                        line, ..
+                                    } => *line,
+                                    Statement::CloseServerStatement { line, .. } => *line,
+                                    Statement::WriteContentStatement { line, .. } => *line,
+                                    Statement::WaitForDurationStatement { line, .. } => *line,
                                 },
                                 column: match stmt {
                                     Statement::VariableDeclaration { column, .. } => *column,
@@ -1126,6 +1155,15 @@ impl Analyzer {
                                     Statement::ListenStatement { column, .. } => *column,
                                     Statement::WaitForRequestStatement { column, .. } => *column,
                                     Statement::RespondStatement { column, .. } => *column,
+                                    Statement::RegisterSignalHandlerStatement {
+                                        column, ..
+                                    } => *column,
+                                    Statement::StopAcceptingConnectionsStatement {
+                                        column, ..
+                                    } => *column,
+                                    Statement::CloseServerStatement { column, .. } => *column,
+                                    Statement::WriteContentStatement { column, .. } => *column,
+                                    Statement::WaitForDurationStatement { column, .. } => *column,
                                 },
                             });
                             else_nodes.push(else_node_idx);

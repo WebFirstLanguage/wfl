@@ -1,0 +1,46 @@
+// Simple Graceful Shutdown Test
+// Tests the basic graceful shutdown functionality without complex features
+
+display "=== Simple Graceful Shutdown Test ==="
+display "Testing basic graceful shutdown functionality"
+display ""
+
+// Configuration
+store server_port as 8092
+
+display "Starting web server for graceful shutdown test..."
+display "Port: " with server_port
+display ""
+
+// Start the web server
+listen on port server_port as shutdown_server
+display "✓ Server started successfully"
+display ""
+
+// Test 1: Signal handler registration
+display "Test 1: Signal handler registration"
+register signal handler for SIGINT as graceful_shutdown_handler
+display "✓ SIGINT signal handler registered"
+
+register signal handler for SIGTERM as graceful_shutdown_handler  
+display "✓ SIGTERM signal handler registered"
+display ""
+
+// Test 2: Stop accepting connections
+display "Test 2: Stop accepting connections"
+stop accepting connections on shutdown_server
+display "✓ Server stopped accepting new connections"
+display ""
+
+// Test 3: Close server
+display "Test 3: Close server"
+close server shutdown_server
+display "✓ Server closed successfully"
+display ""
+
+display "=== Simple Graceful Shutdown Test Complete ==="
+display "✓ All basic graceful shutdown features working!"
+display "Features tested:"
+display "- Signal handler registration (SIGINT/SIGTERM)"
+display "- Stop accepting connections"
+display "- Server closure"

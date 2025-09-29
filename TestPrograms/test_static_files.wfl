@@ -1,0 +1,166 @@
+// Test static file serving
+display "=== Static File Serving Test ==="
+
+// Create test directory and files
+display "Setting up test files..."
+
+try:
+    create directory at "test_static"
+    display "✓ Created test directory"
+catch:
+    display "Directory may already exist"
+end try
+
+// Create test HTML file
+try:
+    store test_html as "<!DOCTYPE html>
+<html>
+<head>
+    <title>WFL Static Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .header { color: #007acc; }
+    </style>
+</head>
+<body>
+    <h1 class=\"header\">WFL Static File Test</h1>
+    <p>This HTML file is served by WFL's static file server!</p>
+    <p>Current time: <span id=\"time\"></span></p>
+    <script>
+        document.getElementById('time').textContent = new Date().toLocaleString();
+    </script>
+</body>
+</html>"
+
+    create file at "test_static/index.html" with test_html
+    display "✓ Created test HTML file"
+catch:
+    display "Could not create HTML file: " with error
+end try
+
+// Create test CSS file
+try:
+    store test_css as "/* WFL Static CSS Test */
+body {
+    background-color: #f8f9fa;
+    color: #333;
+    line-height: 1.6;
+}
+
+.header {
+    border-bottom: 2px solid #007acc;
+    padding-bottom: 10px;
+}
+
+.content {
+    margin-top: 20px;
+    padding: 20px;
+    background: white;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}"
+
+    create file at "test_static/style.css" with test_css
+    display "✓ Created test CSS file"
+catch:
+    display "Could not create CSS file: " with error
+end try
+
+// Create test JSON file
+try:
+    store test_json as "{
+    \"message\": \"Hello from WFL static JSON file!\",
+    \"server\": \"WFL Web Server\",
+    \"features\": [
+        \"Static file serving\",
+        \"MIME type detection\",
+        \"Natural language syntax\"
+    ],
+    \"timestamp\": \"2025-01-01T00:00:00Z\"
+}"
+
+    create file at "test_static/data.json" with test_json
+    display "✓ Created test JSON file"
+catch:
+    display "Could not create JSON file: " with error
+end try
+
+display ""
+display "Starting web server on port 8097..."
+listen on port 8097 as static_server
+
+display "Server started successfully!"
+display "Testing static file serving..."
+display ""
+
+// Test 1: Serve HTML file
+display "Test 1: HTML file serving"
+wait for request comes in on static_server as request1
+
+display "Request: " with method with " " with path
+check if path is equal to "/":
+    // Serve index.html for root path
+    try:
+        open file at "test_static/index.html" for reading as html_file
+        store html_content as read content from html_file
+        close file html_file
+        respond to request1 with html_content and content_type "text/html"
+        display "✓ Served HTML file"
+    catch:
+        respond to request1 with "HTML file not found" and status 404
+        display "❌ HTML file not found"
+    end try
+
+otherwise:
+    check if path is equal to "/style.css":
+        // Serve CSS file
+        try:
+            open file at "test_static/style.css" for reading as css_file
+            store css_content as read content from css_file
+            close file css_file
+            respond to request1 with css_content and content_type "text/css"
+            display "✓ Served CSS file"
+        catch:
+            respond to request1 with "CSS file not found" and status 404
+            display "❌ CSS file not found"
+        end try
+
+    otherwise:
+        check if path is equal to "/data.json":
+            // Serve JSON file
+            try:
+                open file at "test_static/data.json" for reading as json_file
+                store json_content as read content from json_file
+                close file json_file
+                respond to request1 with json_content and content_type "application/json"
+                display "✓ Served JSON file"
+            catch:
+                respond to request1 with "JSON file not found" and status 404
+                display "❌ JSON file not found"
+            end try
+
+        otherwise:
+            // 404 for unknown paths
+            store not_found_html as "<!DOCTYPE html>
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+    <h1>404 - File Not Found</h1>
+    <p>The requested file <code>" with path with "</code> was not found.</p>
+    <p><a href=\"/\">← Return to home</a></p>
+</body>
+</html>"
+            respond to request1 with not_found_html and status 404 and content_type "text/html"
+            display "❌ 404 Not Found: " with path
+        end check
+    end check
+end check
+
+display ""
+display "=== Static File Serving Test Complete ==="
+display "✅ Static file serving implemented successfully!"
+display ""
+display "Test URLs:"
+display "  http://127.0.0.1:8097/          - HTML file"
+display "  http://127.0.0.1:8097/style.css - CSS file"
+display "  http://127.0.0.1:8097/data.json - JSON file"

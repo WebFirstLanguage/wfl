@@ -1,0 +1,185 @@
+// TDD Test: Web Server Middleware and Advanced Features
+// This test MUST FAIL initially because middleware functionality is not implemented
+// Following TDD approach - write failing test first
+
+display "=== Web Server Middleware and Advanced Features Test ==="
+display "This test validates middleware, logging, and advanced HTTP features"
+display ""
+
+// Configuration
+store server_port as 8093
+store log_file as "server_access.log"
+store rate_limit_requests as 10
+store rate_limit_window as 60000  // 1 minute in milliseconds
+
+display "Initializing middleware test server..."
+display "Port: " with server_port
+display "Log file: " with log_file
+display "Rate limit: " with rate_limit_requests with " requests per " with rate_limit_window with "ms"
+display ""
+
+try:
+    // Initialize logging
+    display "Setting up request logging..."
+    open file at log_file for writing as access_log
+    store log_header as "=== WFL Web Server Access Log ===\nTimestamp,Method,Path,IP,Status,Duration\n"
+    write content log_header into access_log
+    close file access_log
+    display "✓ Access log initialized"
+    
+    // Start the middleware-enabled server
+    listen on port server_port as middleware_server
+    display "✓ Middleware server started successfully"
+    display ""
+    
+    // Test 1: Request Logging Middleware
+    display "Test 1: Request Logging Middleware"
+    
+    store processed_requests as 0
+    store max_test_requests as 8
+    
+    main loop:
+        check if processed_requests is greater than or equal to max_test_requests:
+            break
+        end check
+        
+        try:
+            wait for request comes in on middleware_server as middleware_request
+            
+            // Middleware 1: Request timing
+            store request_start_time as current time in milliseconds
+            
+            // Middleware 2: Request logging
+            store request_timestamp as current time formatted as "yyyy-MM-dd HH:mm:ss"
+            store request_method as method of middleware_request
+            store request_path as path of middleware_request
+            store request_ip as client_ip of middleware_request
+            
+            display "📥 [" with request_timestamp with "] " with request_method with " " with request_path with " from " with request_ip
+            
+            // Middleware 3: Rate limiting (simplified)
+            store current_minute as current time in milliseconds divided by 60000
+            store rate_limit_key as request_ip with "_" with current_minute
+            
+            // In a real implementation, we'd track requests per IP per minute
+            // For testing, we'll simulate rate limiting
+            check if processed_requests is greater than 5:
+                display "⚠ Simulating rate limit for testing"
+                respond to middleware_request with "Rate limit exceeded" and status 429 and content_type "text/plain"
+                store response_status as 429
+                display "✗ Rate limited request"
+            otherwise:
+                // Process the actual request
+                add 1 to processed_requests
+                
+                // Route handling with middleware
+                check if request_path is equal to "/api/health":
+                    // Health check endpoint
+                    store health_response as "{\"status\": \"healthy\", \"timestamp\": \"" with request_timestamp with "\", \"requests_processed\": " with processed_requests with "}"
+                    respond to middleware_request with health_response and content_type "application/json"
+                    store response_status as 200
+                    display "✓ Health check endpoint"
+                    
+                otherwise check if request_path is equal to "/api/metrics":
+                    // Metrics endpoint
+                    store metrics_response as "{\"total_requests\": " with processed_requests with ", \"server_uptime\": \"" with request_timestamp with "\"}"
+                    respond to middleware_request with metrics_response and content_type "application/json"
+                    store response_status as 200
+                    display "✓ Metrics endpoint"
+                    
+                otherwise check if request_path is equal to "/slow":
+                    // Simulate slow endpoint for timing middleware
+                    wait for 1000 milliseconds
+                    respond to middleware_request with "This was a slow response" and content_type "text/plain"
+                    store response_status as 200
+                    display "✓ Slow endpoint (simulated delay)"
+                    
+                otherwise check if request_path is equal to "/error":
+                    // Error endpoint for testing error middleware
+                    respond to middleware_request with "Internal server error" and status 500 and content_type "text/plain"
+                    store response_status as 500
+                    display "✗ Error endpoint (intentional)"
+                    
+                otherwise check if request_path starts with "/secure/":
+                    // Simulate authentication middleware
+                    store auth_header as header "Authorization" of middleware_request
+                    
+                    check if auth_header is equal to "Bearer test-token":
+                        store secure_response as "{\"message\": \"Access granted to secure resource\"}"
+                        respond to middleware_request with secure_response and content_type "application/json"
+                        store response_status as 200
+                        display "✓ Secure endpoint (authenticated)"
+                    otherwise:
+                        respond to middleware_request with "Unauthorized" and status 401 and content_type "text/plain"
+                        store response_status as 401
+                        display "✗ Secure endpoint (unauthorized)"
+                    end check
+                    
+                otherwise:
+                    // Default response
+                    store default_response as "Hello from middleware server! Request #" with processed_requests
+                    respond to middleware_request with default_response and content_type "text/plain"
+                    store response_status as 200
+                    display "✓ Default response"
+                end check
+            end check
+            
+            // Middleware 4: Response timing and logging
+            store request_end_time as current time in milliseconds
+            store request_duration as request_end_time minus request_start_time
+            
+            // Log the request
+            store log_entry as request_timestamp with "," with request_method with "," with request_path with "," with request_ip with "," with response_status with "," with request_duration with "ms\n"
+            
+            open file at log_file for appending as access_log
+            write content log_entry into access_log
+            close file access_log
+            
+            display "📊 Request completed in " with request_duration with "ms (Status: " with response_status with ")"
+            
+        catch:
+            display "✗ EXPECTED FAILURE: Middleware functionality not implemented"
+            display "Error: " with error_message
+            break
+        end try
+    end loop
+    
+    // Test 2: Access log analysis
+    display ""
+    display "Test 2: Access Log Analysis"
+    
+    try:
+        open file at log_file for reading as log_analysis
+        store log_content as read content from log_analysis
+        close file log_analysis
+        
+        display "Access log contents:"
+        display log_content
+        
+        // Simple log analysis
+        store log_lines as split log_content by newline
+        store total_log_entries as length of log_lines minus 2  // Subtract header lines
+        display "Total logged requests: " with total_log_entries
+        
+    catch:
+        display "✗ EXPECTED FAILURE: Log analysis failed"
+        display "Error: " with error_message
+    end try
+    
+catch:
+    display "✗ EXPECTED FAILURE: Middleware server functionality failed"
+    display "Error: " with error_message
+end try
+
+display ""
+display "=== Web Server Middleware Test Complete ==="
+display "Expected result: This test should FAIL until middleware features are implemented"
+display "Once implemented, this test should PASS and demonstrate:"
+display "- Request logging middleware"
+display "- Response timing middleware"
+display "- Rate limiting middleware"
+display "- Authentication middleware"
+display "- Error handling middleware"
+display "- Access log generation and analysis"
+display "- HTTP header parsing"
+display "- Custom status codes and responses"
