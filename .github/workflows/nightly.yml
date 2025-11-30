@@ -455,6 +455,11 @@ jobs:
             echo "::warning::No VSIX artifacts found in downloaded artifacts directory"
           fi
 
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Tag commit for nightly
         run: |
           DATE=$(date +'%Y-%m-%d')
