@@ -145,18 +145,21 @@
 
                     <!-- VS Code Extension Directory (Optional) -->
                     <Directory Id='VSCodeExtension' Name='vscode-extension'>
-                        <Component Id='VSCodeExtensionFiles' Guid='*'>
+                        <Component Id='VSCodeExtensionPackage' Guid='*'>
                             <File
                                 Id='extension_package'
                                 Name='package.json'
                                 DiskId='1'
                                 Source='vscode-extension\package.json'
                                 KeyPath='yes'/>
+                        </Component>
+                        <Component Id='VSCodeExtensionVsix' Guid='*'>
                             <File
                                 Id='extension_vsix'
                                 Name='vscode-wfl-0.1.0.vsix'
                                 DiskId='1'
-                                Source='vscode-extension\vscode-wfl-0.1.0.vsix'/>
+                                Source='vscode-extension\vscode-wfl-0.1.0.vsix'
+                                KeyPath='yes'/>
                         </Component>
 
                         <Directory Id='ExtensionOut' Name='out'>
@@ -228,7 +231,8 @@
                 Description='Install the Visual Studio Code extension for WFL. Provides syntax highlighting, IntelliSense, and integrated development experience.'
                 Level='2'
                 Absent='allow'>
-                <ComponentRef Id='VSCodeExtensionFiles'/>
+                <ComponentRef Id='VSCodeExtensionPackage'/>
+                <ComponentRef Id='VSCodeExtensionVsix'/>
                 <ComponentRef Id='VSCodeExtensionOut'/>
                 <ComponentRef Id='VSCodeExtensionSyntaxes'/>
             </Feature>
