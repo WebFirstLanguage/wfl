@@ -450,9 +450,11 @@ impl IoClient {
                             // Flush the data to ensure it's written to disk
                             match file_clone.flush().await {
                                 Ok(_) => {
-                                    // Try to sync to disk for durability, but don't fail if it's not supported
-                                    let _ = file_clone.sync_all().await;
-                                    Ok(())
+                                    // Sync to disk for durability
+                                    match file_clone.sync_all().await {
+                                        Ok(_) => Ok(()),
+                                        Err(e) => Err(format!("Failed to sync file to disk: {e}")),
+                                    }
                                 }
                                 Err(e) => Err(format!("Failed to flush file: {e}")),
                             }
@@ -481,9 +483,11 @@ impl IoClient {
             // Flush the file before closing to ensure all data is written to disk
             match file.flush().await {
                 Ok(_) => {
-                    // Try to sync to disk for durability, but don't fail if it's not supported
-                    let _ = file.sync_all().await;
-                    Ok(())
+                    // Sync to disk for durability
+                    match file.sync_all().await {
+                        Ok(_) => Ok(()),
+                        Err(e) => Err(format!("Failed to sync file during close: {e}")),
+                    }
                 }
                 Err(e) => Err(format!("Failed to flush file during close: {e}")),
             }
@@ -507,9 +511,11 @@ impl IoClient {
                     // Flush the data to ensure it's written to disk
                     match file.flush().await {
                         Ok(_) => {
-                            // Try to sync to disk for durability, but don't fail if it's not supported
-                            let _ = file.sync_all().await;
-                            Ok(())
+                            // Sync to disk for durability
+                            match file.sync_all().await {
+                                Ok(_) => Ok(()),
+                                Err(e) => Err(format!("Failed to sync appended data to disk: {e}")),
+                            }
                         }
                         Err(e) => Err(format!("Failed to flush appended data: {e}")),
                     }
