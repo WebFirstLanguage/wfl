@@ -214,12 +214,12 @@
                 <ComponentRef Id='Path'/>
             </Feature>
 
-            <!-- LSP Server Feature (Optional) -->
+            <!-- LSP Server Feature (installed by default for IDE integration) -->
             <Feature
                 Id='LSPServerFeature'
                 Title='LSP Server'
                 Description='Install the Language Server Protocol (LSP) server for editor integration. Provides syntax highlighting, code completion, and error checking in supported editors.'
-                Level='2'
+                Level='1'
                 Absent='allow'>
                 <ComponentRef Id='LSPServer'/>
             </Feature>
