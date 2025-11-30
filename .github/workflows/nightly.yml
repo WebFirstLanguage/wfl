@@ -239,14 +239,28 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: vscode-extension/package-lock.json
 
       - name: Build VS Code Extension
         working-directory: vscode-extension
         run: |
-          npm install
-          npm install -g typescript
+          npm ci
           npm run vscode:prepublish
+
+      - name: Package VS Code Extension
+        working-directory: vscode-extension
+        run: |
+          npm install -g @vscode/vsce
+          vsce package --out vscode-wfl-${{ needs.check-for-changes.outputs.version }}.vsix
+
+      - name: Upload VS Code Extension Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-wfl-${{ needs.check-for-changes.outputs.version }}.vsix
+          path: vscode-extension/vscode-wfl-${{ needs.check-for-changes.outputs.version }}.vsix
+          if-no-files-found: warn
 
       # ---------- Initialize WiX Source Files ----------
       - name: Initialize WiX source files
@@ -427,11 +441,18 @@ jobs:
       - name: Verify artifacts
         run: |
           echo "Verifying downloaded artifacts..."
+          echo "MSI artifacts:"
           find artifacts -type f -name "*.msi" -exec ls -la {} \;
-          
+          echo "VSIX artifacts:"
+          find artifacts -type f -name "*.vsix" -exec ls -la {} \;
+
           if [ $(find artifacts -type f -name "*.msi" | wc -l) -eq 0 ]; then
             echo "::error::No MSI artifacts found in downloaded artifacts directory"
             exit 1
+          fi
+
+          if [ $(find artifacts -type f -name "*.vsix" | wc -l) -eq 0 ]; then
+            echo "::warning::No VSIX artifacts found in downloaded artifacts directory"
           fi
 
       - name: Tag commit for nightly
@@ -454,9 +475,14 @@ jobs:
             --notes "⚠️ Installers are **unsigned** test builds – do not use in production.
 
           Version: $VERSION
-          Commit:  ${{ github.sha }}" \
+          Commit:  ${{ github.sha }}
+
+          ## Downloads
+          - **wfl-${VERSION}.msi** - Windows MSI installer (includes WFL, WFL-LSP, and VS Code extension)
+          - **vscode-wfl-${VERSION}.vsix** - VS Code extension (standalone installation)" \
             --prerelease
 
           find artifacts -type f -name "*.msi" -exec gh release upload "$TAG" {} \;
-          
+          find artifacts -type f -name "*.vsix" -exec gh release upload "$TAG" {} \;
+
           echo "Release created successfully: $TAG"

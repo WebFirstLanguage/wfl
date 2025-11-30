@@ -138,7 +138,7 @@
                                 Id='lsp_exe'
                                 Name='wfl-lsp.exe'
                                 DiskId='1'
-                                Source='$(var.CargoTargetBinDir)\..\..\..\target\release\wfl-lsp.exe'
+                                Source='$(var.CargoTargetBinDir)\wfl-lsp.exe'
                                 KeyPath='yes'/>
                         </Component>
                     </Directory>

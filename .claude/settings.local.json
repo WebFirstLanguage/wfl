@@ -9,7 +9,8 @@
       "Bash(cargo build:*)",
       "Bash(cargo test:*)",
       "Bash(gh run view:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(gh run list:*)"
     ],
     "deny": [],
     "ask": []
