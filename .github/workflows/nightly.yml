@@ -118,6 +118,7 @@ jobs:
     needs: check-for-changes
     if: needs.check-for-changes.outputs.should_build == 'true'
     runs-on: windows-latest
+    timeout-minutes: 45
     env:
       TARGET: x86_64-pc-windows-msvc
     steps:
@@ -139,23 +140,47 @@ jobs:
       - name: Install packaging tools
         run: |
           Write-Host "Installing WiX Toolset..."
-          choco install wix --no-progress -y
-          
+          # The package name changed from 'wix' to 'wixtoolset' in Chocolatey
+          choco install wixtoolset --no-progress -y
+
+          # Refresh environment to pick up WiX path
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
           Write-Host "Installing cargo-wix..."
           cargo install cargo-wix@0.3.3 --locked
-          
+
           # Verify installations
           if (-not ((cargo --list 2>$null) | Select-String -Pattern "wix" -Quiet)) {
             Write-Host "::error::cargo-wix installation failed"
             exit 1
           }
-          
-          if (-not ((Test-Path "${env:ProgramFiles(x86)}\WiX Toolset*" -ErrorAction SilentlyContinue) -or 
-                   (Test-Path "${env:ProgramFiles}\WiX Toolset*" -ErrorAction SilentlyContinue) -or
-                   ($null -ne $env:WIX))) {
-            Write-Host "::error::WiX Toolset installation failed"
+
+          # Check for WiX installation in common locations
+          $wixFound = $false
+          $wixPaths = @(
+            "${env:ProgramFiles(x86)}\WiX Toolset*",
+            "${env:ProgramFiles}\WiX Toolset*",
+            "C:\Program Files (x86)\WiX Toolset*",
+            "C:\Program Files\WiX Toolset*"
+          )
+          foreach ($path in $wixPaths) {
+            if (Test-Path $path -ErrorAction SilentlyContinue) {
+              $wixFound = $true
+              Write-Host "WiX Toolset found at: $path"
+              break
+            }
+          }
+          if ($env:WIX) {
+            $wixFound = $true
+            Write-Host "WiX Toolset found via WIX env var: $env:WIX"
+          }
+
+          if (-not $wixFound) {
+            Write-Host "::error::WiX Toolset installation failed - not found in expected locations"
             exit 1
           }
+
+          Write-Host "Packaging tools installed successfully"
 
       # ---------- Linting & Format Checking ----------
       - name: Check formatting
@@ -170,7 +195,35 @@ jobs:
           cargo build --release --locked --target ${{ env.TARGET }} --bin wfl
           cargo build --release --locked --target ${{ env.TARGET }} -p wfl-lsp --bin wfl-lsp
 
-      # ✨ FIXED: Added step to ensure a clean test environment
+      # Copy binaries to target/release/ for integration tests
+      # Integration tests expect binaries at target/release/wfl.exe, not target/<target-triple>/release/
+      - name: Copy binaries for integration tests
+        shell: pwsh
+        run: |
+          Write-Host "Copying binaries to target/release/ for integration tests..."
+          New-Item -ItemType Directory -Force -Path target/release | Out-Null
+
+          $sourcePath = "target/${{ env.TARGET }}/release/wfl.exe"
+          $destPath = "target/release/wfl.exe"
+          if (Test-Path $sourcePath) {
+            Copy-Item $sourcePath -Destination $destPath -Force
+            Write-Host "Copied wfl.exe to target/release/"
+          } else {
+            Write-Host "::error::wfl.exe not found at $sourcePath"
+            exit 1
+          }
+
+          $lspSourcePath = "target/${{ env.TARGET }}/release/wfl-lsp.exe"
+          $lspDestPath = "target/release/wfl-lsp.exe"
+          if (Test-Path $lspSourcePath) {
+            Copy-Item $lspSourcePath -Destination $lspDestPath -Force
+            Write-Host "Copied wfl-lsp.exe to target/release/"
+          } else {
+            Write-Host "::error::wfl-lsp.exe not found at $lspSourcePath"
+            exit 1
+          }
+
+      # Ensure a clean test environment
       - name: Clean workspace before tests
         shell: pwsh
         run: |
@@ -184,7 +237,7 @@ jobs:
 
       # ---------- Build VS Code Extension ----------
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
 
@@ -294,23 +347,47 @@ jobs:
 
       # ---------- Smoke tests ----------
       - name: Smoke test installer
+        shell: pwsh
         run: |
           try {
             $msiPath = "target\${{ env.TARGET }}\release\wfl-${{ needs.check-for-changes.outputs.version }}.msi"
             Write-Host "Installing MSI from: $msiPath"
-            
-            Start-Process msiexec.exe -Wait -ArgumentList "/i", $msiPath, "/qn"
-            
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "::error::MSI installation failed with exit code $LASTEXITCODE"
+
+            # Use Start-Process with -PassThru to get the process object and check exit code
+            $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/i", "`"$msiPath`"", "/qn", "/l*v", "msi_install.log"
+
+            if ($process.ExitCode -ne 0) {
+              Write-Host "::error::MSI installation failed with exit code $($process.ExitCode)"
+              if (Test-Path "msi_install.log") {
+                Write-Host "MSI install log (last 50 lines):"
+                Get-Content "msi_install.log" -Tail 50
+              }
               exit 1
             }
-            
-            $wflVersion = & "$env:ProgramFiles\WFL\bin\wfl.exe" --version
+
+            Write-Host "MSI installation completed successfully"
+
+            # Verify installed binaries exist
+            $wflPath = "$env:ProgramFiles\WFL\bin\wfl.exe"
+            $lspPath = "$env:ProgramFiles\WFL\bin\wfl-lsp.exe"
+
+            if (-not (Test-Path $wflPath)) {
+              Write-Host "::error::wfl.exe not found at expected install location: $wflPath"
+              exit 1
+            }
+
+            if (-not (Test-Path $lspPath)) {
+              Write-Host "::error::wfl-lsp.exe not found at expected install location: $lspPath"
+              exit 1
+            }
+
+            $wflVersion = & $wflPath --version
             Write-Host "WFL version: $wflVersion"
-            
-            $lspVersion = & "$env:ProgramFiles\WFL\bin\wfl-lsp.exe" --version
+
+            $lspVersion = & $lspPath --version
             Write-Host "WFL-LSP version: $lspVersion"
+
+            Write-Host "Smoke test passed successfully"
           } catch {
             Write-Host "::error::Smoke test failed: $_"
             exit 1
@@ -330,6 +407,7 @@ jobs:
     needs: [check-for-changes, build]
     if: needs.check-for-changes.outputs.should_build == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
