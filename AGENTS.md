@@ -4,7 +4,7 @@
 - `src/`: Core compiler/runtime (`main.rs`, `lib.rs`, `repl.rs`, `builtins.rs`).
 - `tests/`: Rust integration/unit tests (e.g., `file_io_*`, `crypto_test.rs`).
 - `TestPrograms/`: End‑to‑end WFL programs that must all pass.
-- `wfl-lsp/`: Language Server workspace member; `editors/vscode-wfl/` for VS Code.
+- `wfl-lsp/`: Language Server workspace member; `vscode-extension/` for VS Code.
 - `Docs/`: Guides and technical notes (see `Docs/guides/building.md`).
 - `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`).
 
@@ -38,7 +38,7 @@
 - For security, review `SECURITY.md`; avoid logging secrets and prefer zeroization for sensitive data.
 
 ## LSP Development Workflow
-- Location: LSP crate in `wfl-lsp/`; VS Code extension in `editors/vscode-wfl/` or `vscode-extension/`.
+- Location: LSP crate in `wfl-lsp/`; VS Code extension in `vscode-extension/`.
 - Build/Run: `cargo build -p wfl-lsp`; dev run via `cargo run -p wfl-lsp` (stdio by default; see guide for flags).
 - Editor setup: `scripts/configure_lsp.ps1` and `scripts/install_vscode_extension.ps1` wire VS Code to the LSP.
 - Logging: enable trace logs with `RUST_LOG=trace cargo run -p wfl-lsp` (PowerShell: `$env:RUST_LOG='trace'; cargo run -p wfl-lsp`).
