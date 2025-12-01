@@ -40,17 +40,19 @@ Best practices and learning resources:
 - **[WFL Cookbook](guides/wfl-cookbook.md)** - Recipes for common tasks
 - **[Building WFL](guides/building.md)** - Building from source
 - **[Deployment Guide](guides/wfl-deployment.md)** - Deploying WFL applications
-- **[Pattern Migration Guide](guides/pattern-migration-guide.md)** - Migrating from regex to WFL patterns
 - **[General Migration Guide](guides/wfl-migration-guide.md)** - Migrating from other languages
 - **[Documentation Policy](guides/wfl-documentation-policy.md)** - Guidelines for writing documentation
+
+**Note:** Pattern migration guide and examples have been consolidated into [WFL-patterns.md](wfldocs/WFL-patterns.md).
 
 ## 🔌 IDE Integration
 
 Language Server Protocol and editor support:
 
-- **[WFL LSP Guide](guides/wfl-lsp-guide.md)** - Complete guide to using the WFL Language Server Protocol
-- **[WFL LSP Quick Reference](guides/wfl-lsp-quick-reference.md)** - Quick reference for LSP features and shortcuts
+- **[WFL LSP Guide](guides/wfl-lsp-guide.md)** - Complete guide to WFL Language Server Protocol (includes quick reference and architecture)
 - **[VS Code Extension Guide](../vscode-extension/README.md)** - Visual Studio Code integration and setup
+
+**Note:** LSP quick reference and architecture documentation have been consolidated into the main LSP guide.
 
 ## 📦 API Reference
 
@@ -93,10 +95,11 @@ Internal technical documentation for contributors and advanced users:
 
 ### Architecture
 - **[Architecture Diagram](technical/wfl-architecture-diagram.md)** - System architecture overview
-- **[LSP Architecture](technical/wfl-lsp-architecture.md)** - Language Server Protocol implementation details
 - **[Parser Limitations](technical/wfl_parser_limitations.md)** - Known parser limitations and workarounds
 - **[WFL Hash](technical/wflhash.md)** - Custom cryptographic hash function documentation
 - **[Error System](technical/error system.pdf)** - Error handling system design (PDF)
+
+**Note:** LSP Architecture documentation has been consolidated into [WFL LSP Guide](guides/wfl-lsp-guide.md).
 
 ## 🔬 Development Notes
 
