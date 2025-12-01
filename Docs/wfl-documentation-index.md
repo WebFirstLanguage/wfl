@@ -62,6 +62,7 @@ Standard library and built-in functionality:
 - **[Random Module](api/random-module.md)** - Cryptographically secure random number generation
 - **[Text Module](api/text-module.md)** - String manipulation
 - **[List Module](api/list-module.md)** - List operations
+- **[Crypto Module](api/crypto-module.md)** - Cryptographic hash functions and message authentication
 - **[Pattern Module](api/pattern-module.md)** - Pattern matching API (legacy)
 - **[Time Module](api/time-module.md)** - Date and time operations
 - **[Filesystem Module](api/filesystem-module.md)** - File system operations
