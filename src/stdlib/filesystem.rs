@@ -371,10 +371,7 @@ pub fn native_path_extension(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let path_str = expect_text(&args[0])?;
     let path = Path::new(path_str);
 
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("");
+    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
     Ok(Value::Text(Rc::from(extension)))
 }
@@ -391,10 +388,7 @@ pub fn native_path_stem(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let path_str = expect_text(&args[0])?;
     let path = Path::new(path_str);
 
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
 
     Ok(Value::Text(Rc::from(stem)))
 }
@@ -532,13 +526,8 @@ pub fn native_remove_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
         ));
     }
 
-    fs::remove_file(path).map_err(|e| {
-        RuntimeError::new(
-            format!("Failed to remove file '{path_str}': {e}"),
-            0,
-            0,
-        )
-    })?;
+    fs::remove_file(path)
+        .map_err(|e| RuntimeError::new(format!("Failed to remove file '{path_str}': {e}"), 0, 0))?;
 
     Ok(Value::Null)
 }
@@ -567,7 +556,7 @@ pub fn native_remove_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
                     ),
                     0,
                     0,
-                ))
+                ));
             }
         }
     } else {
@@ -1246,7 +1235,9 @@ mod tests {
         fs::create_dir(&test_subdir).unwrap();
 
         // Remove without recursive flag (default)
-        let args = vec![Value::Text(Rc::from(test_subdir.to_string_lossy().as_ref()))];
+        let args = vec![Value::Text(Rc::from(
+            test_subdir.to_string_lossy().as_ref(),
+        ))];
         let result = native_remove_dir(args);
 
         assert!(result.is_ok());
@@ -1263,7 +1254,9 @@ mod tests {
         File::create(test_subdir.join("file.txt")).unwrap();
 
         // Try to remove without recursive - should fail
-        let args = vec![Value::Text(Rc::from(test_subdir.to_string_lossy().as_ref()))];
+        let args = vec![Value::Text(Rc::from(
+            test_subdir.to_string_lossy().as_ref(),
+        ))];
         let result = native_remove_dir(args);
 
         assert!(result.is_err());
