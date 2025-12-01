@@ -303,3 +303,98 @@ fn register_remove_dir(analyzer: &mut Analyzer) {
     let param_types_with_recursive = vec![Type::Text, Type::Boolean];
     analyzer.register_builtin_function("remove_dir", param_types_with_recursive, return_type);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::analyzer::Analyzer;
+
+    #[test]
+    fn test_remove_dir_overload_registration() {
+        let mut analyzer = Analyzer::new();
+
+        // Register the overloaded remove_dir function
+        register_remove_dir(&mut analyzer);
+
+        // This should succeed - 1-arg version
+        let one_arg_result = analyzer.get_symbol("remove_dir");
+        assert!(one_arg_result.is_some(), "remove_dir should be registered");
+
+        // Check that we can find the function with appropriate signatures
+        let symbol = one_arg_result.unwrap();
+        if let crate::analyzer::SymbolKind::Function { signatures } = &symbol.kind {
+            // After the fix, we should have both signatures
+            println!("Function has {} signatures", signatures.len());
+
+            // Test that we have both 1-arg and 2-arg versions
+            assert_eq!(
+                signatures.len(),
+                2,
+                "remove_dir should have both 1-arg and 2-arg versions"
+            );
+
+            let has_one_param = signatures.iter().any(|sig| sig.parameters.len() == 1);
+            let has_two_param = signatures.iter().any(|sig| sig.parameters.len() == 2);
+
+            assert!(has_one_param, "Should have 1-arg signature");
+            assert!(has_two_param, "Should have 2-arg signature");
+        }
+    }
+
+    #[test]
+    fn test_function_overloading_issue() {
+        let mut analyzer = Analyzer::new();
+
+        // This test demonstrates the core issue: duplicate function registration fails
+        let return_type = Type::Nothing;
+
+        // Register first version - should succeed
+        let param_types_1 = vec![Type::Text];
+        analyzer.register_builtin_function("test_overload", param_types_1, return_type.clone());
+
+        // Register second version - currently fails silently
+        let param_types_2 = vec![Type::Text, Type::Boolean];
+        analyzer.register_builtin_function("test_overload", param_types_2, return_type);
+
+        // Lookup the function
+        let symbol = analyzer.get_symbol("test_overload");
+        assert!(symbol.is_some(), "Function should be registered");
+
+        // This test will now pass after we fix the overloading mechanism
+        if let Some(sym) = symbol
+            && let crate::analyzer::SymbolKind::Function { signatures } = &sym.kind {
+            // After the fix, should have multiple signatures
+            println!("test_overload function has {} signatures", signatures.len());
+            // This assertion now tests that overloading works
+            assert_eq!(
+                signatures.len(),
+                2,
+                "Should have both 1-arg and 2-arg signatures"
+            );
+        }
+    }
+
+    #[test]
+    fn test_remove_dir_should_support_both_arities() {
+        let mut analyzer = Analyzer::new();
+
+        // Register the overloaded remove_dir function
+        register_remove_dir(&mut analyzer);
+
+        // Get the registered function
+        let symbol = analyzer.get_symbol("remove_dir").unwrap();
+        if let crate::analyzer::SymbolKind::Function { signatures } = &symbol.kind {
+            // After fixing the overloading, this should pass
+            assert_eq!(
+                signatures.len(),
+                2,
+                "Both 1-arg and 2-arg versions should be supported"
+            );
+
+            // Check we have the right arities
+            let arities: Vec<usize> = signatures.iter().map(|sig| sig.parameters.len()).collect();
+            assert!(arities.contains(&1), "Should have 1-arg version");
+            assert!(arities.contains(&2), "Should have 2-arg version");
+        }
+    }
+}
