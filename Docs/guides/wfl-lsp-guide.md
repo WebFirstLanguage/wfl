@@ -2,6 +2,13 @@
 
 The WFL Language Server Protocol implementation provides rich IDE features for WFL development, including real-time diagnostics, intelligent code completion, hover information, and more. This guide covers installation, configuration, and usage of the WFL LSP server.
 
+> **📋 Consolidated LSP Documentation**
+> This is the **complete LSP reference** for WFL. Content from the following docs has been consolidated here:
+> - LSP Quick Reference - Key features and commands integrated throughout
+> - LSP Architecture - Technical details available in relevant sections
+>
+> Previous standalone guides archived to `archive/superseded/`
+
 ## Table of Contents
 
 - [Overview](#overview)
