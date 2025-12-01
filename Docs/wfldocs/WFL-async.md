@@ -2,6 +2,11 @@ Great! I’ll put together a detailed implementation plan for adding file, HTTP,
 
 # Design and Implementation Plan for Asynchronous I/O in WFL
 
+> **📖 Async Documentation Navigation**
+> - **You are here:** Complete async language specification and implementation design
+> - **For practical patterns:** See [Async Patterns Guide](../api/async-patterns.md) - Tutorial-focused examples
+> - **For I/O operations:** See [WFL I/O Reference](WFL-io.md) - File and network I/O syntax
+
 ## Introduction and Goals
 
 WebFirst Language (WFL) is a scripting language that emphasizes **natural-language syntax** for web programming tasks. To extend WFL’s capabilities, we plan to add **asynchronous I/O support** for file operations, HTTP requests, and database queries. The goal is to enable non-blocking, high-performance I/O while preserving WFL’s English-like coding style and ensuring safety. Key objectives include:

@@ -1,5 +1,10 @@
 # WFL Async/Await Patterns Guide
 
+> **📖 Async Documentation Navigation**
+> - **You are here:** Practical async patterns and examples for everyday use
+> - **For complete spec:** See [WFL Async Reference](../wfldocs/WFL-async.md) - Full language specification
+> - **For I/O operations:** See [WFL I/O Reference](../wfldocs/WFL-io.md) - File and network I/O
+
 ## Overview
 
 WFL supports asynchronous programming through natural language syntax that makes concurrent operations easy to understand and write. The `wait for` keyword is used to handle asynchronous operations, allowing programs to perform non-blocking I/O operations like web requests and file operations.
