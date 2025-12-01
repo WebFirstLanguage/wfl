@@ -3315,10 +3315,12 @@ impl Interpreter {
                 // Wait for a request to come in (with optional timeout)
                 let request = {
                     let mut receiver = request_receiver.lock().await;
-                    
+
                     // Evaluate timeout if provided
                     let timeout_duration = if let Some(timeout_expr) = timeout {
-                        let timeout_val = self.evaluate_expression(timeout_expr, Rc::clone(&env)).await?;
+                        let timeout_val = self
+                            .evaluate_expression(timeout_expr, Rc::clone(&env))
+                            .await?;
                         match timeout_val {
                             Value::Number(ms) if ms > 0.0 => {
                                 Some(std::time::Duration::from_millis(ms as u64))
@@ -3348,7 +3350,10 @@ impl Interpreter {
                             }
                             Err(_) => {
                                 return Err(RuntimeError::new(
-                                    format!("Timeout waiting for request ({} ms)", duration.as_millis()),
+                                    format!(
+                                        "Timeout waiting for request ({} ms)",
+                                        duration.as_millis()
+                                    ),
                                     *line,
                                     *column,
                                 ));
