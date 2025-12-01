@@ -2,6 +2,14 @@
 
 WFL provides a powerful, natural-language pattern matching system that makes it easy to work with text patterns without the complexity of traditional regular expressions.
 
+> **📋 Consolidated Documentation**
+> This is the **authoritative reference** for WFL pattern matching. Content from the following guides has been consolidated here:
+> - Pattern Migration Guide (from regex) - See [Migration from Regex](#migration-from-regex) section
+> - Pattern Practical Examples - See [Common Patterns](#common-patterns) section
+> - Pattern Error Guide - See error descriptions throughout and [Best Practices](#best-practices)
+>
+> Previous standalone guides archived to `archive/superseded/`
+
 > **⚠️ Implementation Status Notice**
 > This documentation covers both implemented and planned features. Features marked with ❌ are not yet implemented. See [Implementation Status](#implementation-status) for details.
 
@@ -777,6 +785,15 @@ end pattern
 ## See Also
 
 - [WFL Language Specification](wfl-spec.md)
-- [Pattern Module API](../api/pattern-module.md)
-- [Pattern Migration Guide](../guides/pattern-migration-guide.md)
+- [Pattern Module API](../api/pattern-module.md) - Legacy pattern API
 - [Standard Library Reference](../api/wfl-standard-library.md)
+- [WFL Async Programming](WFL-async.md) - Async pattern operations
+
+## Archived Documentation
+
+The following standalone pattern guides have been consolidated into this document:
+- `pattern-migration-guide.md` → Migration content integrated throughout
+- `pattern-practical-examples.md` → Examples integrated into Common Patterns section
+- `pattern-error-guide.md` → Error information integrated into relevant sections
+
+Archived files available in: `Docs/archive/superseded/`

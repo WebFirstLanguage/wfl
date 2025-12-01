@@ -2,6 +2,11 @@ Great! I’ll put together a detailed implementation plan for adding file, HTTP,
 
 # Design and Implementation Plan for Asynchronous I/O in WFL
 
+> **📖 Async Documentation Navigation**
+> - **You are here:** Complete async language specification and implementation design
+> - **For practical patterns:** See [Async Patterns Guide](../api/async-patterns.md) - Tutorial-focused examples
+> - **For I/O operations:** See [WFL I/O Reference](WFL-io.md) - File and network I/O syntax
+
 ## Introduction and Goals
 
 WebFirst Language (WFL) is a scripting language that emphasizes **natural-language syntax** for web programming tasks. To extend WFL’s capabilities, we plan to add **asynchronous I/O support** for file operations, HTTP requests, and database queries. The goal is to enable non-blocking, high-performance I/O while preserving WFL’s English-like coding style and ensuring safety. Key objectives include:
@@ -296,6 +301,10 @@ end
 If the network request fails, the `wait for` will throw `NetworkError`, which is caught by the `when NetworkError` branch.
 
 In summary, `wait for` is the mechanism that makes asynchronous calls *appear synchronous* in WFL. It aligns with WFL’s philosophy of being beginner-friendly (“wait for the server’s response, then show it” reads like plain English). It avoids explicit callback or promise syntax. The interpreter’s job is to orchestrate these awaits properly. By implementing `wait for` with direct `await` under the hood, we keep things simple and safe, leveraging Rust’s language support to handle waking and resuming the WFL code when the operation completes.
+
+[↑ Back to Top](#design-and-implementation-plan-for-asynchronous-io-in-wfl)
+
+---
 
 ## Parser and Grammar Changes for Async I/O
 
@@ -648,6 +657,10 @@ We will want to be able to test these interpreter changes. For that, we might im
 - Also, since our interpreter is now async, writing tests for it becomes easier with Tokio's testing or by driving futures.
 
 This async interpreter design ensures that **all blocking operations are contained**. For example, reading a file uses Tokio’s thread pool behind scenes ([tokio::fs - Rust](https://doc.servo.org/tokio/fs/index.html#:~:text=Be%20aware%20that%20most%20operating,run%20them%20in%20the%20background)), but from interpreter’s view it’s just an await. Database and network operations are fully async. The interpreter can still do CPU-bound tasks (like computations in the script) inline, but while waiting for I/O it doesn’t consume CPU. This makes WFL scale better when performing multiple I/O operations or waiting on slow resources.
+
+[↑ Back to Top](#design-and-implementation-plan-for-asynchronous-io-in-wfl)
+
+---
 
 ## Test Plan
 

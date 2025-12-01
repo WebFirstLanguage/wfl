@@ -375,6 +375,462 @@ action parse_x_coordinate with coord_string:
 end
 ```
 
+---
+
+### `trim(text)`
+
+Removes leading and trailing whitespace from text.
+
+**Parameters:**
+- `text` (Text): The text to trim
+
+**Returns:** Text (with whitespace removed from start and end)
+
+**Examples:**
+
+```wfl
+// Remove spaces from both ends
+store messy as "  Hello, World!  "
+store clean as trim of messy
+display clean  // "Hello, World!" (no spaces at ends)
+
+// Remove tabs and newlines
+store whitespace_text as "\t\n  Centered Text  \n\t"
+store trimmed as trim of whitespace_text
+display trimmed  // "Centered Text"
+
+// No effect on already-trimmed text
+store already_clean as "No extra spaces"
+store still_clean as trim of already_clean
+display still_clean  // "No extra spaces"
+
+// Only internal spaces remain
+store internal as "  Multiple   spaces   inside  "
+store result as trim of internal
+display result  // "Multiple   spaces   inside" (internal spaces preserved)
+```
+
+**Natural Language Variants:**
+```wfl
+// All equivalent ways to trim text
+store result as trim of text
+store result as trimmed text
+store result as remove whitespace from text
+store result as strip text
+```
+
+**Practical Use Cases:**
+
+```wfl
+// Clean user input
+action clean_user_input with input:
+    store cleaned as trim of input
+    check if length of cleaned is 0:
+        return "Error: Empty input after trimming"
+    end
+    return cleaned
+end
+
+// Email validation preparation
+action prepare_email with email:
+    store trimmed_email as trim of email
+    store lower_email as tolowercase of trimmed_email
+    return lower_email
+end
+
+// Form data processing
+action process_form_data with form_fields:
+    store cleaned_fields as []
+    count field in form_fields:
+        store cleaned_field as trim of field
+        push of cleaned_fields and cleaned_field
+    end
+    return cleaned_fields
+end
+
+// Password comparison (don't trim passwords in real apps!)
+action check_password with entered and stored:
+    // Example only - real password comparison should not trim
+    store clean_entered as trim of entered
+    return clean_entered is stored
+end
+```
+
+---
+
+### `starts_with(text, prefix)`
+
+Checks if text begins with a specific prefix.
+
+**Parameters:**
+- `text` (Text): The text to check
+- `prefix` (Text): The prefix to look for
+
+**Returns:** Boolean (yes if text starts with prefix, no otherwise)
+
+**Examples:**
+
+```wfl
+// Basic prefix check
+store filename as "document.txt"
+store is_doc as starts_with of filename and "doc"
+display is_doc  // yes
+
+store is_report as starts_with of filename and "report"
+display is_report  // no
+
+// Case-sensitive check
+store greeting as "Hello, World!"
+store starts_hello as starts_with of greeting and "Hello"
+display starts_hello  // yes
+
+store starts_hello_lower as starts_with of greeting and "hello"
+display starts_hello_lower  // no (case-sensitive)
+
+// Empty prefix always matches
+store any_text as "anything"
+store starts_empty as starts_with of any_text and ""
+display starts_empty  // yes (empty prefix always matches)
+```
+
+**Natural Language Variants:**
+```wfl
+// All equivalent ways to check prefix
+check if starts_with of text and prefix
+check if text starts with prefix
+check if text begins with prefix
+check if prefix is at start of text
+```
+
+**Practical Use Cases:**
+
+```wfl
+// Protocol detection
+action is_secure_url with url:
+    return starts_with of url and "https://"
+end
+
+// Command parsing
+action is_admin_command with command:
+    store lower_command as tolowercase of command
+    return starts_with of lower_command and "admin:"
+end
+
+// File extension grouping
+action is_text_file with filename:
+    store lower_name as tolowercase of filename
+    store extensions as ["txt", "md", "log"]
+
+    count ext in extensions:
+        // Check if filename starts with pattern (simplified)
+        check if starts_with of lower_name and ext:
+            return yes
+        end
+    end
+
+    return no
+end
+
+// Path validation
+action is_absolute_path with path:
+    // Unix-style absolute path
+    store is_unix_absolute as starts_with of path and "/"
+
+    // Windows-style absolute path (simplified)
+    check if length of path >= 2:
+        store second_char as substring of path and 1 and 1
+        check if second_char is ":":
+            return yes  // Like "C:"
+        end
+    end
+
+    return is_unix_absolute
+end
+
+// Version string parsing
+action is_beta_version with version:
+    return starts_with of version and "beta-"
+end
+```
+
+---
+
+### `ends_with(text, suffix)`
+
+Checks if text ends with a specific suffix.
+
+**Parameters:**
+- `text` (Text): The text to check
+- `suffix` (Text): The suffix to look for
+
+**Returns:** Boolean (yes if text ends with suffix, no otherwise)
+
+**Examples:**
+
+```wfl
+// Basic suffix check
+store filename as "document.txt"
+store is_txt as ends_with of filename and ".txt"
+display is_txt  // yes
+
+store is_doc as ends_with of filename and ".doc"
+display is_doc  // no
+
+// Case-sensitive check
+store sentence as "Hello, World!"
+store ends_exclaim as ends_with of sentence and "!"
+display ends_exclaim  // yes
+
+store ends_period as ends_with of sentence and "."
+display ends_period  // no
+
+// Empty suffix always matches
+store any_text as "anything"
+store ends_empty as ends_with of any_text and ""
+display ends_empty  // yes (empty suffix always matches)
+```
+
+**Natural Language Variants:**
+```wfl
+// All equivalent ways to check suffix
+check if ends_with of text and suffix
+check if text ends with suffix
+check if text finishes with suffix
+check if suffix is at end of text
+```
+
+**Practical Use Cases:**
+
+```wfl
+// File type detection
+action is_image_file with filename:
+    store lower_name as tolowercase of filename
+    store image_exts as [".jpg", ".jpeg", ".png", ".gif", ".bmp"]
+
+    count extension in image_exts:
+        check if ends_with of lower_name and extension:
+            return yes
+        end
+    end
+
+    return no
+end
+
+// Sentence detection
+action is_question with text:
+    return ends_with of text and "?"
+end
+
+// URL path checking
+action is_api_endpoint with path:
+    return ends_with of path and "/api"
+end
+
+// Backup file detection
+action is_backup_file with filename:
+    store backup_suffixes as [".bak", ".backup", "~", ".old"]
+
+    count suffix in backup_suffixes:
+        check if ends_with of filename and suffix:
+            return yes
+        end
+    end
+
+    return no
+end
+
+// Plural detection (simplified)
+action appears_plural with word:
+    store lower_word as tolowercase of word
+    check if ends_with of lower_word and "s":
+        return yes
+    end
+    check if ends_with of lower_word and "es":
+        return yes
+    end
+    return no
+end
+```
+
+---
+
+### `string_split(text, delimiter)`
+
+Splits text into a list of parts using a delimiter.
+
+**Parameters:**
+- `text` (Text): The text to split
+- `delimiter` (Text): The string to split on (cannot be empty)
+
+**Returns:** List (list of text parts)
+
+**Examples:**
+
+```wfl
+// Split by comma
+store csv as "apple,banana,orange"
+store fruits as string_split of csv and ","
+display fruits  // ["apple", "banana", "orange"]
+display length of fruits  // 3
+
+// Split by space
+store sentence as "Hello world from WFL"
+store words as string_split of sentence and " "
+display words  // ["Hello", "world", "from", "WFL"]
+
+// Split with multi-character delimiter
+store data as "one::two::three"
+store parts as string_split of data and "::"
+display parts  // ["one", "two", "three"]
+
+// Split results in empty strings
+store text as "a,,b"
+store parts as string_split of text and ","
+display parts  // ["a", "", "b"] (empty string in middle)
+
+// No delimiter found
+store no_match as "no commas here"
+store result as string_split of no_match and ","
+display result  // ["no commas here"] (returns list with one element)
+```
+
+**Natural Language Variants:**
+```wfl
+// All equivalent ways to split text
+store result as string_split of text and delimiter
+store result as split text by delimiter
+store result as divide text using delimiter
+store result as break text at delimiter
+```
+
+**Practical Use Cases:**
+
+```wfl
+// Parse CSV data
+action parse_csv_line with line:
+    store fields as string_split of line and ","
+    return fields
+end
+
+// Parse command with arguments
+action parse_command with input:
+    store parts as string_split of input and " "
+    store command as index of parts and 0
+    // Rest of parts are arguments
+    return parts
+end
+
+// Extract email username
+action get_email_username with email:
+    store parts as string_split of email and "@"
+    check if length of parts is 2:
+        return index of parts and 0
+    otherwise:
+        return "Invalid email"
+    end
+end
+
+// Parse URL path segments
+action parse_url_path with path:
+    // Remove leading slash if present
+    store clean_path as path
+    check if starts_with of path and "/":
+        store clean_path as substring of path and 1 and (length of path - 1)
+    end
+
+    store segments as string_split of clean_path and "/"
+    return segments
+end
+
+// Process multi-line text
+action split_into_lines with text:
+    store lines as string_split of text and "\n"
+    return lines
+end
+
+// Parse key-value pairs
+action parse_config_line with line:
+    store parts as string_split of line and "="
+    check if length of parts is 2:
+        store key as trim of index of parts and 0
+        store value as trim of index of parts and 1
+        display "Config: " with key with " = " with value
+    otherwise:
+        display "Invalid config line"
+    end
+end
+
+// Word frequency counter
+action count_word_frequency with text and target_word:
+    store words as string_split of text and " "
+    store count as 0
+
+    count word in words:
+        store lower_word as tolowercase of word
+        store lower_target as tolowercase of target_word
+        check if lower_word is lower_target:
+            store count as count + 1
+        end
+    end
+
+    return count
+end
+```
+
+**Error Handling:**
+
+```wfl
+// Empty delimiter causes error
+try:
+    store result as string_split of "text" and ""
+when error:
+    display "Error: Empty delimiter not allowed"
+end try
+
+// Safe splitting with error handling
+action safe_split with text and delimiter:
+    check if length of delimiter is 0:
+        display "Warning: Empty delimiter, returning original text"
+        return [text]
+    end
+
+    try:
+        return string_split of text and delimiter
+    when error:
+        display "Error during split: " with error message
+        return [text]
+    end try
+end
+```
+
+**Integration with List Module:**
+
+```wfl
+// Process split results
+action process_csv with csv_line:
+    store fields as string_split of csv_line and ","
+
+    // Trim each field
+    store cleaned_fields as []
+    count field in fields:
+        store trimmed as trim of field
+        push of cleaned_fields and trimmed
+    end
+
+    return cleaned_fields
+end
+
+// Join split parts back together
+action replace_delimiter with text and old_delim and new_delim:
+    store parts as string_split of text and old_delim
+    // Would need join function to recombine with new delimiter
+    // This is conceptual without a join function
+    return parts
+end
+```
+
+---
+
 ## Advanced Examples
 
 ### Text Processing Pipeline
@@ -382,8 +838,8 @@ end
 ```wfl
 // Multi-step text processing
 action clean_and_format with user_input:
-    // Remove extra whitespace (conceptual - would need trim function)
-    store step1 as user_input
+    // Remove extra whitespace
+    store step1 as trim of user_input
     
     // Convert to lowercase for processing
     store step2 as tolowercase of step1

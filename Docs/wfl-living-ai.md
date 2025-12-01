@@ -1,6 +1,15 @@
 # WFL Living AI Document
 ## Constantly-Updated Cheat Sheet for AI Agents Building WFL Apps
 
+> **🤖 PRIMARY AI REFERENCE**
+> This is now the **primary reference document for AI agents** working with WFL.
+> The previous 143KB WFL-AI-Reference.md has been retired (December 2025) as it duplicated content available in modular documentation.
+>
+> **Quick links for AI agents:**
+> - **Language syntax:** See sections below and [wfldocs/](wfldocs/)
+> - **API functions:** See [api/](api/) for detailed module documentation
+> - **Examples:** See [guides/wfl-cookbook.md](guides/wfl-cookbook.md)
+
 This living document serves as a comprehensive, constantly-updated reference for AI agents working with the WebFirst Language (WFL). It summarizes current language features, lists available modules, and provides guidance on composing WFL code using natural language syntax. This document is updated whenever the language or its specifications evolve.
 
 ## Table of Contents

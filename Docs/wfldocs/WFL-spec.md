@@ -666,6 +666,10 @@ For debugging and logging, WFL likely has a logging facility with various levels
 
 In summary, WFL’s error handling semantics ensure that error cases are handled in a structured yet readable way. Developers can describe how to recover from issues without getting bogged down in exception class hierarchies or obscure codes. This approach turns error handling into a part of the program’s narrative, aligning with WFL’s emphasis on clarity and approachability.
 
+[↑ Back to Top](#webfirst-language-wfl-specification)
+
+---
+
 ## Type System and Semantics  
 
 WFL is a **statically-typed** language with a strong type system to catch errors early and enforce consistency, but it uses **type inference** to keep the syntax clean. This section describes WFL’s primitive types, how compound data structures are typed, how type inference works, and other semantic aspects like variable scope and memory management.
@@ -916,6 +920,10 @@ end pattern
 ```
 
 **Error Handling:** When performance limits are exceeded, WFL returns a specific error type (`PatternPerformanceError`) that applications can handle gracefully without crashing.
+
+[↑ Back to Top](#webfirst-language-wfl-specification)
+
+---
 
 ## Conclusion  
 The WebFirst Language brings together the above syntax and semantic rules to create a programming experience that is both beginner-friendly and powerful. Its formal grammar is defined to enforce consistency (so that tools can parse and compile it), but every rule in the grammar corresponds to a readable English-like construct. From **variables** (“Let X be Y” style declarations) to **control flow** (if/else and loops that read like instructions), **functions** (actions defined and called in descriptive ways), and **error handling** (“try ... when ...” blocks that narrate failure cases), WFL stays true to its guiding philosophy of **natural-language alignment, minimal symbols, clarity, and safety**. 

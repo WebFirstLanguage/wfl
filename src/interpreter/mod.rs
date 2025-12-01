@@ -1319,7 +1319,9 @@ impl Interpreter {
                 let max_iterations = if end_num > 1000000.0 {
                     u64::MAX // Effectively no limit for large end values, rely on timeout instead
                 } else {
-                    10000 // Reasonable limit for normal loops
+                    // Allow up to 10001 iterations to accommodate loops that need exactly 10000
+                    // (e.g., "count from 1 to 10000" requires 10000 iterations)
+                    10001
                 };
                 let mut iterations = 0;
 
@@ -3244,7 +3246,7 @@ impl Interpreter {
             Statement::WaitForRequestStatement {
                 server,
                 request_name,
-                timeout: _,
+                timeout,
                 line,
                 column,
             } => {
@@ -3310,17 +3312,64 @@ impl Interpreter {
                     }
                 };
 
-                // Wait for a request to come in
+                // Wait for a request to come in (with optional timeout)
                 let request = {
                     let mut receiver = request_receiver.lock().await;
-                    match receiver.recv().await {
-                        Some(req) => req,
-                        None => {
-                            return Err(RuntimeError::new(
-                                "Request channel closed".to_string(),
-                                *line,
-                                *column,
-                            ));
+
+                    // Evaluate timeout if provided
+                    let timeout_duration = if let Some(timeout_expr) = timeout {
+                        let timeout_val = self
+                            .evaluate_expression(timeout_expr, Rc::clone(&env))
+                            .await?;
+                        match timeout_val {
+                            Value::Number(ms) if ms > 0.0 => {
+                                Some(std::time::Duration::from_millis(ms as u64))
+                            }
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    "Timeout must be a positive number (milliseconds)".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    // Wait for request with or without timeout
+                    if let Some(duration) = timeout_duration {
+                        match tokio::time::timeout(duration, receiver.recv()).await {
+                            Ok(Some(req)) => req,
+                            Ok(None) => {
+                                return Err(RuntimeError::new(
+                                    "Request channel closed".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                            Err(_) => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Timeout waiting for request ({} ms)",
+                                        duration.as_millis()
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    } else {
+                        // No timeout - wait indefinitely
+                        match receiver.recv().await {
+                            Some(req) => req,
+                            None => {
+                                return Err(RuntimeError::new(
+                                    "Request channel closed".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
                         }
                     }
                 };

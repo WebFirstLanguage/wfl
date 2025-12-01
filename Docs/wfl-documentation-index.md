@@ -2,6 +2,18 @@
 
 Welcome to the WebFirst Language documentation! This index provides a comprehensive guide to all available documentation, organized for easy navigation according to the natural-language principles outlined in our [Foundation document](guides/wfl-foundation.md).
 
+> **📊 Documentation Statistics (Updated 2025-12-01)**
+> - **Total active files:** 78 markdown files (down from 80 original)
+> - **Archived files:** 19 files (dev notes + superseded guides)
+> - **Recent changes:** Documentation cleanup project completed
+>   - ✅ Added crypto module documentation (5 functions)
+>   - ✅ Clarified implementation status (WebSocket, Database marked as planned)
+>   - ✅ Consolidated pattern matching docs (4→1)
+>   - ✅ Consolidated LSP docs (3→1)
+>   - ✅ Retired 143KB WFL-AI-Reference.md (duplicate content)
+>   - ✅ Archived all dev notes (13 files)
+>   - ✅ Validated all stdlib modules against source code
+
 ## 🤖 AI Assistant Resources
 
 Essential resources for AI agents and automated tools:
@@ -40,17 +52,19 @@ Best practices and learning resources:
 - **[WFL Cookbook](guides/wfl-cookbook.md)** - Recipes for common tasks
 - **[Building WFL](guides/building.md)** - Building from source
 - **[Deployment Guide](guides/wfl-deployment.md)** - Deploying WFL applications
-- **[Pattern Migration Guide](guides/pattern-migration-guide.md)** - Migrating from regex to WFL patterns
 - **[General Migration Guide](guides/wfl-migration-guide.md)** - Migrating from other languages
 - **[Documentation Policy](guides/wfl-documentation-policy.md)** - Guidelines for writing documentation
+
+**Note:** Pattern migration guide and examples have been consolidated into [WFL-patterns.md](wfldocs/WFL-patterns.md).
 
 ## 🔌 IDE Integration
 
 Language Server Protocol and editor support:
 
-- **[WFL LSP Guide](guides/wfl-lsp-guide.md)** - Complete guide to using the WFL Language Server Protocol
-- **[WFL LSP Quick Reference](guides/wfl-lsp-quick-reference.md)** - Quick reference for LSP features and shortcuts
+- **[WFL LSP Guide](guides/wfl-lsp-guide.md)** - Complete guide to WFL Language Server Protocol (includes quick reference and architecture)
 - **[VS Code Extension Guide](../vscode-extension/README.md)** - Visual Studio Code integration and setup
+
+**Note:** LSP quick reference and architecture documentation have been consolidated into the main LSP guide.
 
 ## 📦 API Reference
 
@@ -62,6 +76,7 @@ Standard library and built-in functionality:
 - **[Random Module](api/random-module.md)** - Cryptographically secure random number generation
 - **[Text Module](api/text-module.md)** - String manipulation
 - **[List Module](api/list-module.md)** - List operations
+- **[Crypto Module](api/crypto-module.md)** - Cryptographic hash functions and message authentication
 - **[Pattern Module](api/pattern-module.md)** - Pattern matching API (legacy)
 - **[Time Module](api/time-module.md)** - Date and time operations
 - **[Filesystem Module](api/filesystem-module.md)** - File system operations
@@ -92,10 +107,11 @@ Internal technical documentation for contributors and advanced users:
 
 ### Architecture
 - **[Architecture Diagram](technical/wfl-architecture-diagram.md)** - System architecture overview
-- **[LSP Architecture](technical/wfl-lsp-architecture.md)** - Language Server Protocol implementation details
 - **[Parser Limitations](technical/wfl_parser_limitations.md)** - Known parser limitations and workarounds
 - **[WFL Hash](technical/wflhash.md)** - Custom cryptographic hash function documentation
 - **[Error System](technical/error system.pdf)** - Error handling system design (PDF)
+
+**Note:** LSP Architecture documentation has been consolidated into [WFL LSP Guide](guides/wfl-lsp-guide.md).
 
 ## 🔬 Development Notes
 

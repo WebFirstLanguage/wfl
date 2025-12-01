@@ -10,6 +10,59 @@ I’ll format the result as a technical proposal with examples and pseudocode th
 
 # Unified I/O Specification for WebFirst Language (WFL)
 
+## 🚧 Implementation Status
+
+This document describes WFL's unified I/O vision. **Not all features described here are currently implemented.** Refer to this table for the current implementation status:
+
+| Feature Category | Status | Details |
+|-----------------|--------|---------|
+| **File I/O** | ✅ **Implemented** | `open file`, `read from`, `write to`, `close` - All file operations work as specified |
+| **Basic HTTP** | ✅ **Implemented** | `wait for open url` for GET/POST requests - Async HTTP operations functional |
+| **HTTP Headers & Advanced** | 🔧 **Partial** | Basic requests work; advanced header manipulation may be limited |
+| **WebSocket** | ❌ **Not Implemented** | WebSocket syntax described but no implementation exists |
+| **Raw TCP/Sockets** | ❌ **Not Implemented** | Low-level socket operations not available |
+| **Database I/O** | ❌ **Not Implemented** | Database connections, queries, and operations planned but not built |
+| **Streaming** | 🔧 **Partial** | Basic file streaming possible; network streaming limited |
+| **Batch Operations** | 🔧 **Partial** | Async operations can be parallelized manually; dedicated batch syntax not implemented |
+
+### Implemented Features You Can Use Today
+
+**File Operations (Fully Working):**
+```wfl
+// Open, read, write, close files
+open file at "data.txt" for reading as myFile
+store content as read from file myFile
+close file myFile
+
+// Create and write files
+create file at "output.txt" with "Hello, world!"
+```
+
+**HTTP Requests (Fully Working):**
+```wfl
+// Async HTTP GET
+wait for open url at "https://api.example.com/data" and read content as response
+
+// Async HTTP POST
+wait for http post request to "https://api.example.com/endpoint" with data as result
+```
+
+### Planned Features (Not Yet Available)
+
+The following are **architectural specifications** for future development. Code examples in these sections will not currently execute:
+
+- **WebSocket connections** - Real-time bidirectional communication
+- **Database connections** - SQL and NoSQL database operations
+- **Raw socket operations** - Low-level TCP/UDP networking
+- **Advanced streaming** - Chunked network data processing
+
+**For up-to-date information on implementation status, see:**
+- [WFL-spec.md](WFL-spec.md) - Current language features
+- [SPEC-web-server.md](../wflspecs/SPEC-web-server.md) - Planned web server features
+- Test programs in `TestPrograms/` - Working code examples
+
+---
+
 ## Introduction and Goals 
 WebFirst Language (WFL) aims to simplify web programming with a **unified, natural-language I/O syntax**. This specification defines a single, consistent way to handle file systems, network requests, and database queries. The design follows WFL’s guiding principles of **minimal special characters**, **high readability**, and **clarity** ([wfl-foundation.md](file://file-A3Q4Kynjr6TMEwh12ZuqBY#:~:text=Description%3A%20Embrace%20a%20syntax%20that,like%20constructs)). In practice, this means that whether you're reading a local file, calling a web API, or querying a database, the code will look and read in a similar, English-like way. Key goals include:
 
@@ -185,14 +238,17 @@ store resultData as perform fetch from url "https://api.example.com/data"
 
 This single line performs the common sequence of opening a GET connection, reading the response, and closing it, returning the data. It uses `perform ... from url "..."` in a natural way (here `fetch` is the verb instead of manually writing open/read/close). This is functionally similar to the explicit open+read example above, but more convenient. Both approaches are valid and consistent – one is just more abbreviated. In terms of syntax structure, `perform fetch from url ...` still reads like an English command and fits the WFL style (no weird characters, just words and quotes). 
 
-**Writing/Sending Data:** If you need to send data (for example, an HTTP POST/PUT or sending data over a raw socket), you can use `write ... to <connection>` just as with files. In the earlier `open url ... with method POST`, we included `body as ...` which essentially handles writing the body. If you were using a lower-level socket, you might do:
+**Writing/Sending Data:** If you need to send data (for example, an HTTP POST/PUT), you can use HTTP POST requests as shown earlier. For lower-level socket operations, the unified syntax would work similarly.
+
+> **⚠️ WebSocket Support**: The WebSocket example below describes planned syntax. **WebSocket connections are not yet implemented** in WFL. For real-time communication needs, consider using HTTP polling or Server-Sent Events (SSE) with current HTTP functionality.
 
 ```wfl
+// ❌ NOT YET IMPLEMENTED - Planned WebSocket syntax:
 open url at "ws://example.com/socket" as chatSocket  // e.g., open a WebSocket
 write "Hello world" to chatSocket
 ```
 
-This would send a message over a WebSocket connection. After that you could `read response from chatSocket` or `stream from chatSocket` if it’s a continuous connection. The syntax doesn’t change because it’s network – you still `write ... to ...` and `read ... from ...`. The differences (like HTTP vs WebSocket vs raw TCP) are handled by WFL under the same umbrella of “network resource”.
+When implemented, this would send a message over a WebSocket connection. The syntax would maintain consistency – you would still `write ... to ...` and `read ... from ...` just as with files or HTTP. The differences (like HTTP vs WebSocket vs raw TCP) would be handled by WFL under the same umbrella of "network resource".
 
 **Closing Connections:** Use `close <resourceName>` for network resources just as you do for files. In HTTP `fetch` scenario, the connection is usually short-lived and closed automatically after reading the response. But for persistent connections (like sockets or if reusing an HTTP keep-alive connection), you should call `close apiResponse` or `close chatSocket` when done. Closing network resources uses the same keyword and is just as important to free resources or end communication politely.
 
@@ -258,7 +314,21 @@ In this snippet, `perform fetch from url` starts the HTTP GET requests. We don�
 
 No matter which method, the idea is to keep the interface the same: your main code still does `open url ... read response ...`, but in testing, the environment is set up such that no real HTTP traffic occurs. The consistent syntax and the `mock`/`use` constructs ensure that your code is testable without modifications, staying true to dependency injection principles but with a much more **declarative, English-like feel**.
 
-## Database I/O: Unified Syntax and Examples 
+## Database I/O: Unified Syntax and Examples
+
+> ### ❌ **NOT YET IMPLEMENTED**
+> **The database features described in this section are architectural specifications for future development.**
+>
+> Database connections, queries, and operations are **not currently available** in WFL. This section describes the planned design and syntax for when database support is added.
+>
+> **Status:** Planned feature - see implementation roadmap in [wflspecs/](../wflspecs/)
+>
+> **For current data storage needs, use:**
+> - File I/O with JSON or CSV formats (fully implemented)
+> - HTTP APIs to external database services (fully implemented)
+
+---
+
 Database access is another important I/O category that WFL supports out-of-the-box. The language is designed to work with SQLite3 by default (no external drivers needed) and optionally with more powerful systems like PostgreSQL (with perhaps an additional library or configuration). The unified I/O design means interacting with a database looks similar to file or network interactions: you open a connection, you perform queries (which is akin to writing commands and reading results), and you close the connection. The key difference is the inclusion of a **`query`** operation, which is a specialized form of read/write for databases.
 
 **Opening Database Connections:** To start using a database, you use `open database` with a connection string or path. For SQLite, which is file-based, the connection string can simply be the file path (with a prefix to indicate SQLite). For example:

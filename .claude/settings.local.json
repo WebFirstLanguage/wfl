@@ -10,7 +10,14 @@
       "Bash(cargo test:*)",
       "Bash(gh run view:*)",
       "Bash(python:*)",
-      "Bash(gh run list:*)"
+      "Bash(gh run list:*)",
+      "Bash(dir \"G:\\Logbie\\wfl\\Docs\" /s /b)",
+      "Bash(dir:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(for file in \"G:\\Logbie\\wfl\\Docs\"/**/*.md)",
+      "Bash(do wc:*)",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []
