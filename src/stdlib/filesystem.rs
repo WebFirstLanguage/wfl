@@ -359,6 +359,260 @@ pub fn native_count_lines(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Number(line_count as f64))
 }
 
+pub fn native_path_extension(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("path_extension expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str);
+
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("");
+
+    Ok(Value::Text(Rc::from(extension)))
+}
+
+pub fn native_path_stem(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("path_stem expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str);
+
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+
+    Ok(Value::Text(Rc::from(stem)))
+}
+
+pub fn native_file_size(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("file_size expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str);
+
+    if !path.exists() {
+        return Err(RuntimeError::new(
+            format!("File does not exist: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
+    let metadata = fs::metadata(path).map_err(|e| {
+        RuntimeError::new(
+            format!("Failed to get file metadata for '{path_str}': {e}"),
+            0,
+            0,
+        )
+    })?;
+
+    Ok(Value::Number(metadata.len() as f64))
+}
+
+pub fn native_copy_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("copy_file expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let source_str = expect_text(&args[0])?;
+    let dest_str = expect_text(&args[1])?;
+    let source = Path::new(source_str);
+    let dest = Path::new(dest_str);
+
+    if !source.exists() {
+        return Err(RuntimeError::new(
+            format!("Source file does not exist: {source_str}"),
+            0,
+            0,
+        ));
+    }
+
+    if !source.is_file() {
+        return Err(RuntimeError::new(
+            format!("Source path is not a file: {source_str}"),
+            0,
+            0,
+        ));
+    }
+
+    fs::copy(source, dest).map_err(|e| {
+        RuntimeError::new(
+            format!("Failed to copy file from '{source_str}' to '{dest_str}': {e}"),
+            0,
+            0,
+        )
+    })?;
+
+    Ok(Value::Null)
+}
+
+pub fn native_move_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("move_file expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let source_str = expect_text(&args[0])?;
+    let dest_str = expect_text(&args[1])?;
+    let source = Path::new(source_str);
+    let dest = Path::new(dest_str);
+
+    if !source.exists() {
+        return Err(RuntimeError::new(
+            format!("Source file does not exist: {source_str}"),
+            0,
+            0,
+        ));
+    }
+
+    fs::rename(source, dest).map_err(|e| {
+        RuntimeError::new(
+            format!("Failed to move file from '{source_str}' to '{dest_str}': {e}"),
+            0,
+            0,
+        )
+    })?;
+
+    Ok(Value::Null)
+}
+
+pub fn native_remove_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("remove_file expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str);
+
+    if !path.exists() {
+        return Err(RuntimeError::new(
+            format!("File does not exist: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
+    if !path.is_file() {
+        return Err(RuntimeError::new(
+            format!("Path is not a file: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
+    fs::remove_file(path).map_err(|e| {
+        RuntimeError::new(
+            format!("Failed to remove file '{path_str}': {e}"),
+            0,
+            0,
+        )
+    })?;
+
+    Ok(Value::Null)
+}
+
+pub fn native_remove_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.is_empty() || args.len() > 2 {
+        return Err(RuntimeError::new(
+            format!("remove_dir expects 1 or 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str);
+
+    // Check for optional recursive parameter
+    let recursive = if args.len() == 2 {
+        match &args[1] {
+            Value::Bool(b) => *b,
+            _ => {
+                return Err(RuntimeError::new(
+                    format!(
+                        "Second argument to remove_dir must be boolean, got {}",
+                        args[1].type_name()
+                    ),
+                    0,
+                    0,
+                ))
+            }
+        }
+    } else {
+        false
+    };
+
+    if !path.exists() {
+        return Err(RuntimeError::new(
+            format!("Directory does not exist: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
+    if !path.is_dir() {
+        return Err(RuntimeError::new(
+            format!("Path is not a directory: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
+    if recursive {
+        // Recursive deletion (like rm -rf)
+        fs::remove_dir_all(path).map_err(|e| {
+            RuntimeError::new(
+                format!("Failed to remove directory '{path_str}' recursively: {e}"),
+                0,
+                0,
+            )
+        })?;
+    } else {
+        // Only remove empty directories
+        fs::remove_dir(path).map_err(|e| {
+            RuntimeError::new(
+                format!("Failed to remove directory '{path_str}': {e}. Directory may not be empty. Use recursive parameter to force removal."),
+                0,
+                0,
+            )
+        })?;
+    }
+
+    Ok(Value::Null)
+}
+
 pub fn register_filesystem(env: &mut crate::interpreter::environment::Environment) {
     let _ = env.define(
         "list_dir",
@@ -395,6 +649,34 @@ pub fn register_filesystem(env: &mut crate::interpreter::environment::Environmen
     let _ = env.define(
         "count_lines",
         Value::NativeFunction("count_lines", native_count_lines),
+    );
+    let _ = env.define(
+        "path_extension",
+        Value::NativeFunction("path_extension", native_path_extension),
+    );
+    let _ = env.define(
+        "path_stem",
+        Value::NativeFunction("path_stem", native_path_stem),
+    );
+    let _ = env.define(
+        "file_size",
+        Value::NativeFunction("file_size", native_file_size),
+    );
+    let _ = env.define(
+        "copy_file",
+        Value::NativeFunction("copy_file", native_copy_file),
+    );
+    let _ = env.define(
+        "move_file",
+        Value::NativeFunction("move_file", native_move_file),
+    );
+    let _ = env.define(
+        "remove_file",
+        Value::NativeFunction("remove_file", native_remove_file),
+    );
+    let _ = env.define(
+        "remove_dir",
+        Value::NativeFunction("remove_dir", native_remove_dir),
     );
 }
 
@@ -726,5 +1008,292 @@ mod tests {
         let result = native_count_lines(args);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("not a file"));
+    }
+
+    // Tests for path_extension
+    #[test]
+    fn test_native_path_extension_with_ext() {
+        let args = vec![Value::Text(Rc::from("document.txt"))];
+        let result = native_path_extension(args).unwrap();
+        assert_eq!(result, Value::Text(Rc::from("txt")));
+    }
+
+    #[test]
+    fn test_native_path_extension_multiple_dots() {
+        let args = vec![Value::Text(Rc::from("archive.tar.gz"))];
+        let result = native_path_extension(args).unwrap();
+        assert_eq!(result, Value::Text(Rc::from("gz")));
+    }
+
+    #[test]
+    fn test_native_path_extension_no_ext() {
+        let args = vec![Value::Text(Rc::from("README"))];
+        let result = native_path_extension(args).unwrap();
+        assert_eq!(result, Value::Text(Rc::from("")));
+    }
+
+    #[test]
+    fn test_native_path_extension_wrong_args() {
+        let result = native_path_extension(vec![]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("expects 1 argument"));
+    }
+
+    // Tests for path_stem
+    #[test]
+    fn test_native_path_stem_with_ext() {
+        let args = vec![Value::Text(Rc::from("document.txt"))];
+        let result = native_path_stem(args).unwrap();
+        assert_eq!(result, Value::Text(Rc::from("document")));
+    }
+
+    #[test]
+    fn test_native_path_stem_no_ext() {
+        let args = vec![Value::Text(Rc::from("README"))];
+        let result = native_path_stem(args).unwrap();
+        assert_eq!(result, Value::Text(Rc::from("README")));
+    }
+
+    #[test]
+    fn test_native_path_stem_with_path() {
+        let args = vec![Value::Text(Rc::from("/home/user/file.txt"))];
+        let result = native_path_stem(args).unwrap();
+        assert_eq!(result, Value::Text(Rc::from("file")));
+    }
+
+    #[test]
+    fn test_native_path_stem_wrong_args() {
+        let result = native_path_stem(vec![]);
+        assert!(result.is_err());
+    }
+
+    // Tests for file_size
+    #[test]
+    fn test_native_file_size_success() {
+        use std::fs::File;
+        use std::io::Write;
+
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.txt");
+
+        let mut file = File::create(&test_file).unwrap();
+        file.write_all(b"12345").unwrap();
+
+        let args = vec![Value::Text(Rc::from(test_file.to_string_lossy().as_ref()))];
+        let result = native_file_size(args).unwrap();
+
+        assert_eq!(result, Value::Number(5.0));
+    }
+
+    #[test]
+    fn test_native_file_size_empty_file() {
+        use std::fs::File;
+
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("empty.txt");
+        File::create(&test_file).unwrap();
+
+        let args = vec![Value::Text(Rc::from(test_file.to_string_lossy().as_ref()))];
+        let result = native_file_size(args).unwrap();
+
+        assert_eq!(result, Value::Number(0.0));
+    }
+
+    #[test]
+    fn test_native_file_size_not_found() {
+        let args = vec![Value::Text(Rc::from("nonexistent.txt"))];
+        let result = native_file_size(args);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("does not exist"));
+    }
+
+    #[test]
+    fn test_native_file_size_wrong_args() {
+        let result = native_file_size(vec![]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("expects 1 argument"));
+    }
+
+    // Tests for copy_file
+    #[test]
+    fn test_native_copy_file_success() {
+        use std::fs::File;
+        use std::io::Write;
+
+        let temp_dir = TempDir::new().unwrap();
+        let source = temp_dir.path().join("source.txt");
+        let dest = temp_dir.path().join("dest.txt");
+
+        let mut file = File::create(&source).unwrap();
+        file.write_all(b"content").unwrap();
+
+        let args = vec![
+            Value::Text(Rc::from(source.to_string_lossy().as_ref())),
+            Value::Text(Rc::from(dest.to_string_lossy().as_ref())),
+        ];
+        let result = native_copy_file(args);
+
+        assert!(result.is_ok());
+        assert!(dest.exists());
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "content");
+    }
+
+    #[test]
+    fn test_native_copy_file_source_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let dest = temp_dir.path().join("dest.txt");
+
+        let args = vec![
+            Value::Text(Rc::from("nonexistent.txt")),
+            Value::Text(Rc::from(dest.to_string_lossy().as_ref())),
+        ];
+        let result = native_copy_file(args);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("does not exist"));
+    }
+
+    #[test]
+    fn test_native_copy_file_wrong_args() {
+        let result = native_copy_file(vec![Value::Text(Rc::from("only_one"))]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("expects 2 arguments"));
+    }
+
+    // Tests for move_file
+    #[test]
+    fn test_native_move_file_success() {
+        use std::fs::File;
+        use std::io::Write;
+
+        let temp_dir = TempDir::new().unwrap();
+        let source = temp_dir.path().join("source.txt");
+        let dest = temp_dir.path().join("dest.txt");
+
+        let mut file = File::create(&source).unwrap();
+        file.write_all(b"content").unwrap();
+
+        let args = vec![
+            Value::Text(Rc::from(source.to_string_lossy().as_ref())),
+            Value::Text(Rc::from(dest.to_string_lossy().as_ref())),
+        ];
+        let result = native_move_file(args);
+
+        assert!(result.is_ok());
+        assert!(dest.exists());
+        assert!(!source.exists());
+    }
+
+    #[test]
+    fn test_native_move_file_source_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let dest = temp_dir.path().join("dest.txt");
+
+        let args = vec![
+            Value::Text(Rc::from("nonexistent.txt")),
+            Value::Text(Rc::from(dest.to_string_lossy().as_ref())),
+        ];
+        let result = native_move_file(args);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_native_move_file_wrong_args() {
+        let result = native_move_file(vec![]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("expects 2 arguments"));
+    }
+
+    // Tests for remove_file
+    #[test]
+    fn test_native_remove_file_success() {
+        use std::fs::File;
+
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("to_remove.txt");
+        File::create(&test_file).unwrap();
+
+        let args = vec![Value::Text(Rc::from(test_file.to_string_lossy().as_ref()))];
+        let result = native_remove_file(args);
+
+        assert!(result.is_ok());
+        assert!(!test_file.exists());
+    }
+
+    #[test]
+    fn test_native_remove_file_not_found() {
+        let args = vec![Value::Text(Rc::from("nonexistent.txt"))];
+        let result = native_remove_file(args);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("does not exist"));
+    }
+
+    #[test]
+    fn test_native_remove_file_wrong_args() {
+        let result = native_remove_file(vec![]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("expects 1 argument"));
+    }
+
+    // Tests for remove_dir
+    #[test]
+    fn test_native_remove_dir_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_subdir = temp_dir.path().join("empty_dir");
+        fs::create_dir(&test_subdir).unwrap();
+
+        // Remove without recursive flag (default)
+        let args = vec![Value::Text(Rc::from(test_subdir.to_string_lossy().as_ref()))];
+        let result = native_remove_dir(args);
+
+        assert!(result.is_ok());
+        assert!(!test_subdir.exists());
+    }
+
+    #[test]
+    fn test_native_remove_dir_nonempty_without_recursive() {
+        use std::fs::File;
+
+        let temp_dir = TempDir::new().unwrap();
+        let test_subdir = temp_dir.path().join("nonempty_dir");
+        fs::create_dir(&test_subdir).unwrap();
+        File::create(test_subdir.join("file.txt")).unwrap();
+
+        // Try to remove without recursive - should fail
+        let args = vec![Value::Text(Rc::from(test_subdir.to_string_lossy().as_ref()))];
+        let result = native_remove_dir(args);
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().message;
+        assert!(err_msg.contains("not empty") || err_msg.contains("Failed to remove"));
+    }
+
+    #[test]
+    fn test_native_remove_dir_recursive() {
+        use std::fs::File;
+
+        let temp_dir = TempDir::new().unwrap();
+        let test_subdir = temp_dir.path().join("recursive_dir");
+        fs::create_dir(&test_subdir).unwrap();
+        File::create(test_subdir.join("file.txt")).unwrap();
+
+        // Remove with recursive flag
+        let args = vec![
+            Value::Text(Rc::from(test_subdir.to_string_lossy().as_ref())),
+            Value::Bool(true), // recursive = true
+        ];
+        let result = native_remove_dir(args);
+
+        assert!(result.is_ok());
+        assert!(!test_subdir.exists());
+    }
+
+    #[test]
+    fn test_native_remove_dir_wrong_args() {
+        let result = native_remove_dir(vec![]);
+        assert!(result.is_err());
     }
 }

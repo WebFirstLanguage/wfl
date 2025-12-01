@@ -171,6 +171,13 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "is_file",
     "is_dir",
     "count_lines",
+    "path_extension",
+    "path_stem",
+    "file_size",
+    "copy_file",
+    "move_file",
+    "remove_file",
+    "remove_dir",
     // File system functions recognized by TypeChecker but not yet implemented
     "read_file",
     "write_file",
@@ -279,12 +286,13 @@ pub fn get_function_arity(name: &str) -> usize {
         "pattern_find_all" | "replace_pattern" | "findall" | "find_all" => 3,
 
         // === FILE SYSTEM FUNCTIONS ===
-        // Single argument functions
+        // Single argument functions (remove_dir also here as it can take 1 or 2 args)
         "list_dir" | "path_basename" | "path_dirname" | "makedirs" | "file_mtime"
         | "path_exists" | "is_file" | "is_dir" | "read_file" | "file_exists" | "delete_file"
-        | "create_directory" | "list_directory" | "is_directory" | "count_lines" => 1,
+        | "create_directory" | "list_directory" | "is_directory" | "count_lines"
+        | "path_extension" | "path_stem" | "file_size" | "remove_file" | "remove_dir" => 1,
         // Two argument functions
-        "glob" | "rglob" | "path_join" | "write_file" => 2,
+        "glob" | "rglob" | "path_join" | "write_file" | "copy_file" | "move_file" => 2,
 
         // === SPECIAL TEST FUNCTIONS ===
         "helper_function" | "nested_function" => 1,

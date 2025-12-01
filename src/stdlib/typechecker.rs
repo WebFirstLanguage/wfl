@@ -35,6 +35,13 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_wflhash256_with_salt(analyzer);
     register_wflmac256(analyzer);
     register_count_lines(analyzer);
+    register_path_extension(analyzer);
+    register_path_stem(analyzer);
+    register_file_size(analyzer);
+    register_copy_file(analyzer);
+    register_move_file(analyzer);
+    register_remove_file(analyzer);
+    register_remove_dir(analyzer);
 }
 
 fn register_print(analyzer: &mut Analyzer) {
@@ -241,4 +248,58 @@ fn register_count_lines(analyzer: &mut Analyzer) {
     let param_types = vec![Type::Text]; // Takes a file path as text
 
     analyzer.register_builtin_function("count_lines", param_types, return_type);
+}
+
+fn register_path_extension(analyzer: &mut Analyzer) {
+    let return_type = Type::Text;
+    let param_types = vec![Type::Text];
+
+    analyzer.register_builtin_function("path_extension", param_types, return_type);
+}
+
+fn register_path_stem(analyzer: &mut Analyzer) {
+    let return_type = Type::Text;
+    let param_types = vec![Type::Text];
+
+    analyzer.register_builtin_function("path_stem", param_types, return_type);
+}
+
+fn register_file_size(analyzer: &mut Analyzer) {
+    let return_type = Type::Number;
+    let param_types = vec![Type::Text];
+
+    analyzer.register_builtin_function("file_size", param_types, return_type);
+}
+
+fn register_copy_file(analyzer: &mut Analyzer) {
+    let return_type = Type::Nothing;
+    let param_types = vec![Type::Text, Type::Text];
+
+    analyzer.register_builtin_function("copy_file", param_types, return_type);
+}
+
+fn register_move_file(analyzer: &mut Analyzer) {
+    let return_type = Type::Nothing;
+    let param_types = vec![Type::Text, Type::Text];
+
+    analyzer.register_builtin_function("move_file", param_types, return_type);
+}
+
+fn register_remove_file(analyzer: &mut Analyzer) {
+    let return_type = Type::Nothing;
+    let param_types = vec![Type::Text];
+
+    analyzer.register_builtin_function("remove_file", param_types, return_type);
+}
+
+fn register_remove_dir(analyzer: &mut Analyzer) {
+    let return_type = Type::Nothing;
+
+    // Register 1-arg version (non-recursive)
+    let param_types = vec![Type::Text];
+    analyzer.register_builtin_function("remove_dir", param_types.clone(), return_type.clone());
+
+    // Register 2-arg version (with recursive flag)
+    let param_types_with_recursive = vec![Type::Text, Type::Boolean];
+    analyzer.register_builtin_function("remove_dir", param_types_with_recursive, return_type);
 }

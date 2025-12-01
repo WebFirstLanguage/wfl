@@ -1,0 +1,56 @@
+display "=== Destructive Operations Tests ==="
+
+// Test remove_file
+display "Creating file to remove..."
+open file at "to_delete.txt" for writing as f
+wait for write content "Delete me" into f
+close file f
+
+store exists_before as file exists at "to_delete.txt"
+display "File exists before removal: " with exists_before
+
+remove_file "to_delete.txt"
+
+store exists_after as file exists at "to_delete.txt"
+display "File exists after removal: " with exists_after
+
+check if exists_before and not exists_after:
+    display "✓ remove_file successful"
+end check
+
+// Test remove_dir - empty directory
+display "Testing remove_dir with empty directory..."
+makedirs "empty_test_dir"
+store dir_exists_before as path exists at "empty_test_dir"
+
+remove_dir "empty_test_dir"
+
+store dir_exists_after as path exists at "empty_test_dir"
+check if dir_exists_before and not dir_exists_after:
+    display "✓ remove_dir successful for empty directory"
+end check
+
+// Test remove_dir - non-empty without recursive (should fail)
+display "Testing remove_dir without recursive on non-empty dir..."
+makedirs "nonempty_test_dir"
+open file at "nonempty_test_dir/file.txt" for writing as f2
+wait for write content "test" into f2
+close file f2
+
+try:
+    remove_dir "nonempty_test_dir"
+    display "✗ Should have thrown error for non-empty directory"
+when error:
+    display "✓ Correctly prevented deletion of non-empty directory"
+end try
+
+// Test remove_dir - recursive deletion
+display "Testing remove_dir with recursive flag..."
+remove_dir "nonempty_test_dir" with true
+
+store recursive_removed as path exists at "nonempty_test_dir"
+check if not recursive_removed:
+    display "✓ remove_dir recursive successful"
+end check
+
+display "=== Destructive Operations Tests Passed ==="

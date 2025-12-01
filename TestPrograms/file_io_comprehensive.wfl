@@ -207,8 +207,60 @@ when error:
 end try
 display ""
 
+// === Additional File Operations ===
+display "11. Additional File Operations Test"
+
+// Create test file for operations
+open file at "ops_test.txt" for writing as ops_file
+wait for write content "Test content" into ops_file
+close file ops_file
+
+// Test file_size
+store test_size as file_size of "ops_test.txt"
+display "File size: " with test_size with " bytes"
+check if test_size is greater than 0:
+    display "✓ file_size working"
+end check
+
+// Test path operations
+store ext as path_extension of "ops_test.txt"
+store stem as path_stem of "ops_test.txt"
+display "Extension: " with ext with ", Stem: " with stem
+check if ext is equal to "txt" and stem is equal to "ops_test":
+    display "✓ path_extension and path_stem working"
+end check
+
+// Test copy and move
+copy_file from "ops_test.txt" to "ops_copy.txt"
+store copy_exists as file exists at "ops_copy.txt"
+check if copy_exists:
+    display "✓ copy_file working"
+end check
+
+move_file from "ops_copy.txt" to "ops_moved.txt"
+store moved_exists as file exists at "ops_moved.txt"
+check if moved_exists:
+    display "✓ move_file working"
+end check
+
+// Test remove operations
+remove_file "ops_moved.txt"
+store removed as file exists at "ops_moved.txt"
+check if not removed:
+    display "✓ remove_file working"
+end check
+
+makedirs "temp_test_dir"
+remove_dir "temp_test_dir"
+store dir_removed as path exists at "temp_test_dir"
+check if not dir_removed:
+    display "✓ remove_dir working"
+end check
+
+display ""
+
 // === Cleanup Test Files ===
-display "11. Cleaning Up Test Files"
+display "12. Cleaning Up Test Files"
 
 // Clean up all test files created during the test
 delete file at "test_output.txt"
@@ -225,6 +277,9 @@ display "✓ Deleted test.log"
 
 delete file at "test.dat"
 display "✓ Deleted test.dat"
+
+delete file at "ops_test.txt"
+display "✓ Deleted ops_test.txt"
 
 delete file at "async1.txt"
 display "✓ Deleted async1.txt"
