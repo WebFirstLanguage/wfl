@@ -2,6 +2,18 @@
 
 Welcome to the WebFirst Language documentation! This index provides a comprehensive guide to all available documentation, organized for easy navigation according to the natural-language principles outlined in our [Foundation document](guides/wfl-foundation.md).
 
+> **📊 Documentation Statistics (Updated 2025-12-01)**
+> - **Total active files:** 78 markdown files (down from 80 original)
+> - **Archived files:** 19 files (dev notes + superseded guides)
+> - **Recent changes:** Documentation cleanup project completed
+>   - ✅ Added crypto module documentation (5 functions)
+>   - ✅ Clarified implementation status (WebSocket, Database marked as planned)
+>   - ✅ Consolidated pattern matching docs (4→1)
+>   - ✅ Consolidated LSP docs (3→1)
+>   - ✅ Retired 143KB WFL-AI-Reference.md (duplicate content)
+>   - ✅ Archived all dev notes (13 files)
+>   - ✅ Validated all stdlib modules against source code
+
 ## 🤖 AI Assistant Resources
 
 Essential resources for AI agents and automated tools:
