@@ -15,8 +15,8 @@ This document tracks validation of API documentation against source code impleme
 | **Math** | 8 | 5 | ⚠️ Partial - 3 functions documented but not implemented |
 | **Text** | 8 | 8 | ✅ Complete - All documented functions implemented |
 | **Crypto** | 5 | 5 | ✅ Complete - All documented functions implemented |
-| **List** | TBD | TBD | 🔄 Pending validation |
-| **Filesystem** | TBD | TBD | 🔄 Pending validation |
+| **List** | 11 | 6 | ⚠️ Partial - 5 functions documented but not implemented |
+| **Filesystem** | 19 | 12 | ⚠️ Partial - 7 functions documented but not implemented |
 
 ---
 
@@ -109,6 +109,34 @@ As of Week 1 Day 1, all 5 crypto functions are implemented and documented:
 
 ---
 
+## List Module Validation
+
+**Source:** `src/stdlib/list.rs`
+**Documentation:** `Docs/api/list-module.md`
+
+### Implementation Status
+- **Implemented:** 6 functions
+- **Documented:** 11 functions
+- **Gap:** 5 functions documented but not implemented
+
+**Action Required:** Detailed audit needed to identify which specific functions are missing.
+
+---
+
+## Filesystem Module Validation
+
+**Source:** `src/stdlib/filesystem.rs`
+**Documentation:** `Docs/api/filesystem-module.md`
+
+### Implementation Status
+- **Implemented:** 12 functions
+- **Documented:** 19 functions
+- **Gap:** 7 functions documented but not implemented
+
+**Action Required:** Detailed audit needed to identify which specific functions are missing.
+
+---
+
 ## Recommendations
 
 ### Immediate Actions
@@ -147,8 +175,10 @@ For each module:
 
 ## Change Log
 
-**2025-12-01:** Initial validation
+**2025-12-01:** Initial validation (Week 1 Day 4-5)
 - Validated Math module: 5/8 functions implemented
 - Validated Time module: 13/18 functions implemented
 - Validated Text module: 8/8 functions implemented (complete)
 - Validated Crypto module: 5/5 functions implemented (complete)
+- Validated List module: 6/11 functions implemented
+- Validated Filesystem module: 12/19 functions implemented
