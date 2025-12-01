@@ -1319,7 +1319,9 @@ impl Interpreter {
                 let max_iterations = if end_num > 1000000.0 {
                     u64::MAX // Effectively no limit for large end values, rely on timeout instead
                 } else {
-                    10000 // Reasonable limit for normal loops
+                    // Allow up to 10001 iterations to accommodate loops that need exactly 10000
+                    // (e.g., "count from 1 to 10000" requires 10000 iterations)
+                    10001
                 };
                 let mut iterations = 0;
 
