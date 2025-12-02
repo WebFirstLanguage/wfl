@@ -362,7 +362,8 @@ mod tests {
 
         // This test will now pass after we fix the overloading mechanism
         if let Some(sym) = symbol
-            && let crate::analyzer::SymbolKind::Function { signatures } = &sym.kind {
+            && let crate::analyzer::SymbolKind::Function { signatures } = &sym.kind
+        {
             // After the fix, should have multiple signatures
             println!("test_overload function has {} signatures", signatures.len());
             // This assertion now tests that overloading works

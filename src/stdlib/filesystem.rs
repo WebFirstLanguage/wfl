@@ -1115,8 +1115,10 @@ mod tests {
     #[test]
     fn test_native_file_size_rejects_directory() {
         let temp_dir = TempDir::new().unwrap();
-        
-        let args = vec![Value::Text(Rc::from(temp_dir.path().to_string_lossy().as_ref()))];
+
+        let args = vec![Value::Text(Rc::from(
+            temp_dir.path().to_string_lossy().as_ref(),
+        ))];
         let result = native_file_size(args);
 
         assert!(result.is_err());

@@ -1559,7 +1559,8 @@ impl Analyzer {
                                 // For now, just check the first signature for compatibility
                                 // TODO: Implement proper overload resolution based on argument types and count
                                 if let Some(first_signature) = signatures.first()
-                                    && arguments.len() != first_signature.parameters.len() {
+                                    && arguments.len() != first_signature.parameters.len()
+                                {
                                     // Check if any signature matches the argument count
                                     let matching_signature = signatures
                                         .iter()

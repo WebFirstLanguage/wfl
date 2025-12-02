@@ -40,9 +40,9 @@ fn parses_concatenation_correctly() {
                     panic!("Inner left side should be a Variable, not {inner_left:?}");
                 }
 
-                // Inner right should be a string literal
+                // Inner right should be a string literal with actual newline
                 if let Expression::Literal(Literal::String(s), ..) = *inner_right {
-                    assert_eq!(s, "\\n", "Right side should be string '\\n'");
+                    assert_eq!(s, "\n", "Right side should be string with actual newline");
                 } else {
                     panic!("Inner right side should be a String literal, not {inner_right:?}");
                 }

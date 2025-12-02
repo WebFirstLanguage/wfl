@@ -113,7 +113,7 @@ mod file_io_execution_tests {
             fs::read_to_string("test_exec_append.txt").expect("Could not read append test file");
         assert_eq!(
             file_contents.trim(),
-            "Line 1\\\\nLine 2",
+            "Line 1\\nLine 2",
             "Appended file contents don't match expected value"
         );
 

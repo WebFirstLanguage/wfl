@@ -153,3 +153,166 @@ fn test_keyword_case_sensitivity() {
         );
     }
 }
+
+// Escape sequence tests
+#[test]
+fn test_parse_string_newline_escape() {
+    use logos::Logos;
+    let mut lexer = Token::lexer(r#""hello\nworld""#);
+    let token = lexer.next().unwrap().unwrap();
+    match token {
+        Token::StringLiteral(s) => {
+            assert_eq!(s, "hello\nworld");
+            assert_eq!(s.len(), 11); // includes actual newline
+            assert_eq!(s.chars().nth(5), Some('\n'));
+        }
+        _ => panic!("Expected StringLiteral"),
+    }
+}
+
+#[test]
+fn test_parse_string_tab_escape() {
+    use logos::Logos;
+    let mut lexer = Token::lexer(r#""name:\tvalue""#);
+    let token = lexer.next().unwrap().unwrap();
+    match token {
+        Token::StringLiteral(s) => {
+            assert_eq!(s, "name:\tvalue");
+            assert_eq!(s.len(), 11);
+            assert!(s.contains('\t'));
+        }
+        _ => panic!("Expected StringLiteral"),
+    }
+}
+
+#[test]
+fn test_parse_string_carriage_return_escape() {
+    use logos::Logos;
+    let mut lexer = Token::lexer(r#""line1\rline2""#);
+    let token = lexer.next().unwrap().unwrap();
+    match token {
+        Token::StringLiteral(s) => {
+            assert_eq!(s, "line1\rline2");
+            assert_eq!(s.chars().nth(5), Some('\r'));
+        }
+        _ => panic!("Expected StringLiteral"),
+    }
+}
+
+#[test]
+fn test_parse_string_backslash_escape() {
+    use logos::Logos;
+    let mut lexer = Token::lexer(r#""path\\to\\file""#);
+    let token = lexer.next().unwrap().unwrap();
+    match token {
+        Token::StringLiteral(s) => {
+            assert_eq!(s, "path\\to\\file");
+            assert_eq!(s.len(), 12);
+        }
+        _ => panic!("Expected StringLiteral"),
+    }
+}
+
+#[test]
+fn test_parse_string_null_escape() {
+    use logos::Logos;
+    let mut lexer = Token::lexer(r#""text\0end""#);
+    let token = lexer.next().unwrap().unwrap();
+    match token {
+        Token::StringLiteral(s) => {
+            assert_eq!(s, "text\0end");
+            assert_eq!(s.len(), 8);
+            assert_eq!(s.chars().nth(4), Some('\0'));
+        }
+        _ => panic!("Expected StringLiteral"),
+    }
+}
+
+#[test]
+fn test_parse_string_double_quote_escape() {
+    use logos::Logos;
+    let mut lexer = Token::lexer(r#""say \"hello\"""#);
+    let token = lexer.next().unwrap().unwrap();
+    match token {
+        Token::StringLiteral(s) => {
+            assert_eq!(s, r#"say "hello""#);
+        }
+        _ => panic!("Expected StringLiteral"),
+    }
+}
+
+#[test]
+fn test_parse_string_backslash_n_literal() {
+    use logos::Logos;
+    // \\n should be backslash followed by 'n', not a newline
+    let mut lexer = Token::lexer(r#""path\\nfile""#);
+    let token = lexer.next().unwrap().unwrap();
+    match token {
+        Token::StringLiteral(s) => {
+            assert_eq!(s, "path\\nfile");
+            assert_eq!(s.len(), 10);
+            assert_eq!(s.chars().nth(4), Some('\\'));
+            assert_eq!(s.chars().nth(5), Some('n'));
+        }
+        _ => panic!("Expected StringLiteral"),
+    }
+}
+
+#[test]
+fn test_parse_string_multiple_escapes() {
+    use logos::Logos;
+    let mut lexer = Token::lexer(r#""line1\nline2\ttab\r\nend""#);
+    let token = lexer.next().unwrap().unwrap();
+    match token {
+        Token::StringLiteral(s) => {
+            assert_eq!(s, "line1\nline2\ttab\r\nend");
+            assert!(s.contains('\n'));
+            assert!(s.contains('\t'));
+            assert!(s.contains('\r'));
+        }
+        _ => panic!("Expected StringLiteral"),
+    }
+}
+
+#[test]
+fn test_parse_string_escaped_backslash_before_escape() {
+    use logos::Logos;
+    // \\\n should be backslash followed by newline (not backslash-backslash-n)
+    let mut lexer = Token::lexer(r#""a\\\nb""#);
+    let token = lexer.next().unwrap().unwrap();
+    match token {
+        Token::StringLiteral(s) => {
+            assert_eq!(s, "a\\\nb");
+            assert_eq!(s.len(), 4); // a, \, newline, b
+        }
+        _ => panic!("Expected StringLiteral"),
+    }
+}
+
+#[test]
+fn test_parse_string_no_escapes() {
+    use logos::Logos;
+    let mut lexer = Token::lexer(r#""plain text""#);
+    let token = lexer.next().unwrap().unwrap();
+    match token {
+        Token::StringLiteral(s) => {
+            assert_eq!(s, "plain text");
+            assert_eq!(s.len(), 10);
+        }
+        _ => panic!("Expected StringLiteral"),
+    }
+}
+
+#[test]
+fn test_parse_string_invalid_escape() {
+    use logos::Logos;
+    let mut lexer = Token::lexer(r#""test\x""#);
+    let token = lexer.next();
+    // Should be ERROR token due to invalid escape
+    assert!(token.is_some());
+    match token.unwrap() {
+        Ok(Token::StringLiteral(_)) => panic!("Should have errored on invalid escape"),
+        Err(_) => { /* Expected - invalid escape */ }
+        _ => panic!("Expected error token"),
+    }
+}
