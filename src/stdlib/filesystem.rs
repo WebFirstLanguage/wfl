@@ -421,6 +421,14 @@ pub fn native_file_size(args: Vec<Value>) -> Result<Value, RuntimeError> {
         )
     })?;
 
+    if !metadata.is_file() {
+        return Err(RuntimeError::new(
+            format!("Path is not a file: {path_str}"),
+            0,
+            0,
+        ));
+    }
+
     Ok(Value::Number(metadata.len() as f64))
 }
 
@@ -1102,6 +1110,17 @@ mod tests {
         let result = native_file_size(vec![]);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("expects 1 argument"));
+    }
+
+    #[test]
+    fn test_native_file_size_rejects_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let args = vec![Value::Text(Rc::from(temp_dir.path().to_string_lossy().as_ref()))];
+        let result = native_file_size(args);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("Path is not a file"));
     }
 
     // Tests for copy_file
