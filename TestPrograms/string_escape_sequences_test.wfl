@@ -1,0 +1,53 @@
+# Comprehensive escape sequence testing
+
+# Test 1: Newline escape
+store text_with_newlines as "line1\nline2\nline3"
+check if length of text_with_newlines is equal to 17
+    display "✓ Newline test passed"
+otherwise
+    display "✗ Newline test failed"
+end check
+
+# Test 2: Tab escape
+store text_with_tabs as "name\tvalue"
+check if length of text_with_tabs is equal to 10
+    display "✓ Tab test passed"
+otherwise
+    display "✗ Tab test failed"
+end check
+
+# Test 3: Backslash escape
+store windows_path as "C:\\Users\\Alice"
+check if length of windows_path is equal to 14
+    display "✓ Backslash test passed"
+otherwise
+    display "✗ Backslash test failed"
+end check
+
+# Test 4: Quote escape
+store quoted_text as "She said \"Hello\""
+display quoted_text
+check if quoted_text contains "\""
+    display "✓ Quote test passed"
+otherwise
+    display "✗ Quote test failed"
+end check
+
+# Test 5: Split by newline
+store multiline as "Alice\nBob\nCharlie"
+store names as split multiline by "\n"
+check if length of names is equal to 3
+    display "✓ Split test passed"
+otherwise
+    display "✗ Split test failed"
+end check
+
+# Test 6: Backslash-n literal (not newline)
+store literal_backslash_n as "path\\nfile"
+check if length of literal_backslash_n is equal to 10
+    display "✓ Literal backslash-n test passed"
+otherwise
+    display "✗ Literal backslash-n test failed"
+end check
+
+display "All escape sequence tests completed!"

@@ -181,7 +181,27 @@ The lexer recognizes all WFL keywords:
 
 1. **String Literals**: Double-quoted text with escape sequences
    - Pattern: `"([^"\\]|\\.)*"`
-   - Supports: `\"`, `\\`, `\n`, `\t`, etc.
+   - **Supported Escape Sequences**:
+
+     | Escape | Character | Unicode | Description |
+     |--------|-----------|---------|-------------|
+     | `\n` | Newline | U+000A | Line feed |
+     | `\t` | Tab | U+0009 | Horizontal tab |
+     | `\r` | Carriage return | U+000D | Carriage return |
+     | `\\` | Backslash | U+005C | Literal backslash |
+     | `\0` | Null | U+0000 | Null character |
+     | `\"` | Quote | U+0022 | Double quote |
+
+   - **Invalid escape sequences** (e.g., `\x`, `\u`) cause lexer errors
+   - **Examples**:
+     ```wfl
+     store multiline as "line1\nline2\nline3"
+     store path as "C:\\Users\\Alice"
+     store quoted as "She said \"hello\""
+     ```
+   - **Edge Cases**:
+     - `\\n` → Backslash followed by 'n' (two characters, not newline)
+     - Trailing `\` at end of string → Lexer error
 
 2. **Number Literals**:
    - Integers: `[0-9]+`

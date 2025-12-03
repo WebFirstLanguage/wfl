@@ -1,0 +1,41 @@
+display "=== File Operations Tests ==="
+
+// Test copy_file
+display "Creating source file..."
+open file at "original.txt" for writing as f
+wait for write content "Original content here" into f
+close file f
+
+display "Copying file..."
+copy_file from "original.txt" to "copied.txt"
+
+open file at "copied.txt" for reading as r
+wait for store copied_content as read content from r
+close file r
+
+check if copied_content contains "Original content":
+    display "✓ copy_file successful"
+end check
+
+// Verify both exist
+store orig_exists as file exists at "original.txt"
+store copy_exists as file exists at "copied.txt"
+check if orig_exists and copy_exists:
+    display "✓ Both files exist after copy"
+end check
+
+// Test move_file
+display "Testing move_file..."
+move_file from "copied.txt" to "moved.txt"
+
+store moved_exists as file exists at "moved.txt"
+store copied_gone as file exists at "copied.txt"
+check if moved_exists and not copied_gone:
+    display "✓ move_file successful"
+end check
+
+// Cleanup
+delete file at "original.txt"
+delete file at "moved.txt"
+
+display "=== File Operations Tests Passed ==="
