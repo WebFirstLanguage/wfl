@@ -61,8 +61,8 @@ jobs:
 
             if [[ -n "$LATEST_TAG" ]]; then
               echo "Latest nightly tag: $LATEST_TAG"
-              BASE_SHA=$(gh release view "$LATEST_TAG" \
-                           --json targetCommitish -q '.targetCommitish')
+              # Use git to resolve the tag to its actual commit SHA
+              BASE_SHA=$(git rev-parse "$LATEST_TAG^{}")
             else
               echo "No previous nightly release found."
               BASE_SHA=""

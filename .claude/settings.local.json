@@ -25,7 +25,9 @@
       "Bash(cargo report:*)",
       "WebSearch",
       "Bash(cargo --version:*)",
-      "Bash(rustc:*)"
+      "Bash(rustc:*)",
+      "Bash(gh release view:*)",
+      "Bash(git rev-parse:*)"
     ],
     "deny": [],
     "ask": []
