@@ -20,7 +20,12 @@
       "Bash(done)",
       "Bash(git log:*)",
       "Bash(grep:*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(cargo tree:*)",
+      "Bash(cargo report:*)",
+      "WebSearch",
+      "Bash(cargo --version:*)",
+      "Bash(rustc:*)"
     ],
     "deny": [],
     "ask": []
