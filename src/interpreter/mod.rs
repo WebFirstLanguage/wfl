@@ -652,8 +652,29 @@ impl IoClient {
     ) -> Result<(String, String, i32), String> {
         use tokio::process::Command;
 
-        let output = Command::new(command)
-            .args(args)
+        let mut cmd = if args.is_empty() {
+            // Use shell execution for command strings
+            #[cfg(target_os = "windows")]
+            {
+                let mut cmd = Command::new("cmd.exe");
+                cmd.args(&["/C", command]);
+                cmd
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let mut cmd = Command::new("sh");
+                cmd.args(&["-c", command]);
+                cmd
+            }
+        } else {
+            // Direct execution with explicit arguments
+            let mut cmd = Command::new(command);
+            cmd.args(args);
+            cmd
+        };
+
+        let output = cmd
             .output()
             .await
             .map_err(|e| format!("Failed to execute command '{}': {}", command, e))?;
@@ -671,8 +692,29 @@ impl IoClient {
         use tokio::process::Command;
         use tokio::io::AsyncReadExt;
 
-        let mut child = Command::new(command)
-            .args(args)
+        let mut cmd = if args.is_empty() {
+            // Use shell execution for command strings
+            #[cfg(target_os = "windows")]
+            {
+                let mut cmd = Command::new("cmd.exe");
+                cmd.args(&["/C", command]);
+                cmd
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let mut cmd = Command::new("sh");
+                cmd.args(&["-c", command]);
+                cmd
+            }
+        } else {
+            // Direct execution with explicit arguments
+            let mut cmd = Command::new(command);
+            cmd.args(args);
+            cmd
+        };
+
+        let mut child = cmd
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
@@ -3967,7 +4009,17 @@ impl Interpreter {
                     .io_client
                     .execute_command(cmd_str, &args_refs)
                     .await
-                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                    .map_err(|e| {
+                        // Determine error kind based on error message
+                        let kind = if e.contains("program not found") || e.contains("cannot find") || e.contains("not recognized") {
+                            ErrorKind::CommandNotFound
+                        } else if e.contains("spawn") {
+                            ErrorKind::ProcessSpawnFailed
+                        } else {
+                            ErrorKind::General
+                        };
+                        RuntimeError::with_kind(e, *line, *column, kind)
+                    })?;
 
                 // Build result object
                 let mut result_map = HashMap::new();
@@ -4040,7 +4092,14 @@ impl Interpreter {
                     .io_client
                     .spawn_process(cmd_str, &args_refs)
                     .await
-                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                    .map_err(|e| {
+                        let kind = if e.contains("program not found") || e.contains("cannot find") || e.contains("not recognized") {
+                            ErrorKind::CommandNotFound
+                        } else {
+                            ErrorKind::ProcessSpawnFailed
+                        };
+                        RuntimeError::with_kind(e, *line, *column, kind)
+                    })?;
 
                 // Store process ID in variable
                 env.borrow_mut()
@@ -4073,7 +4132,14 @@ impl Interpreter {
                     .io_client
                     .read_process_output(proc_id)
                     .await
-                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                    .map_err(|e| {
+                        let kind = if e.contains("Invalid process ID") {
+                            ErrorKind::ProcessNotFound
+                        } else {
+                            ErrorKind::General
+                        };
+                        RuntimeError::with_kind(e, *line, *column, kind)
+                    })?;
 
                 // Store output in variable
                 env.borrow_mut()
@@ -4104,7 +4170,14 @@ impl Interpreter {
                 self.io_client
                     .kill_process(proc_id)
                     .await
-                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                    .map_err(|e| {
+                        let kind = if e.contains("Invalid process ID") {
+                            ErrorKind::ProcessNotFound
+                        } else {
+                            ErrorKind::ProcessKillFailed
+                        };
+                        RuntimeError::with_kind(e, *line, *column, kind)
+                    })?;
 
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -4132,7 +4205,14 @@ impl Interpreter {
                     .io_client
                     .wait_for_process(proc_id)
                     .await
-                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                    .map_err(|e| {
+                        let kind = if e.contains("Invalid process ID") {
+                            ErrorKind::ProcessNotFound
+                        } else {
+                            ErrorKind::General
+                        };
+                        RuntimeError::with_kind(e, *line, *column, kind)
+                    })?;
 
                 // Store exit code in variable if provided
                 if let Some(var_name) = variable_name {
