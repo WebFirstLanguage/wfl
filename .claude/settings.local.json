@@ -17,7 +17,8 @@
       "Bash(cat:*)",
       "Bash(for file in \"G:\\Logbie\\wfl\\Docs\"/**/*.md)",
       "Bash(do wc:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(powershell -Command \"Get-Content ''G:\\Logbie\\wfl\\src\\interpreter\\mod.rs'' | Select-Object -Last 50\")"
     ],
     "deny": [],
     "ask": []

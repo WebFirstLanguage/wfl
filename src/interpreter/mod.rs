@@ -259,11 +259,24 @@ pub struct Interpreter {
     pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
 }
 
+// Process handle for managing subprocess state
+#[allow(dead_code)]
+pub struct ProcessHandle {
+    child: tokio::process::Child,
+    command: String,
+    args: Vec<String>,
+    started_at: Instant,
+    stdout_buffer: Arc<tokio::sync::Mutex<Vec<u8>>>,
+    stderr_buffer: Arc<tokio::sync::Mutex<Vec<u8>>>,
+}
+
 #[allow(dead_code)]
 pub struct IoClient {
     http_client: reqwest::Client,
     file_handles: Mutex<HashMap<String, (PathBuf, tokio::fs::File)>>,
     next_file_id: Mutex<usize>,
+    process_handles: Mutex<HashMap<String, ProcessHandle>>,
+    next_process_id: Mutex<usize>,
 }
 
 impl IoClient {
@@ -272,6 +285,8 @@ impl IoClient {
             http_client: reqwest::Client::new(),
             file_handles: Mutex::new(HashMap::new()),
             next_file_id: Mutex::new(1),
+            process_handles: Mutex::new(HashMap::new()),
+            next_process_id: Mutex::new(1),
         }
     }
 
@@ -601,6 +616,172 @@ impl IoClient {
         match tokio::fs::remove_dir_all(path).await {
             Ok(_) => Ok(()),
             Err(e) => Err(format!("Failed to delete directory: {e}")),
+        }
+    }
+
+    // Subprocess management methods
+
+    /// Execute a command and wait for it to complete, returning (stdout, stderr, exit_code)
+    #[allow(dead_code)]
+    async fn execute_command(
+        &self,
+        command: &str,
+        args: &[&str],
+    ) -> Result<(String, String, i32), String> {
+        use tokio::process::Command;
+
+        let output = Command::new(command)
+            .args(args)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to execute command '{}': {}", command, e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let exit_code = output.status.code().unwrap_or(-1);
+
+        Ok((stdout, stderr, exit_code))
+    }
+
+    /// Spawn a background process and return a process ID
+    #[allow(dead_code)]
+    async fn spawn_process(&self, command: &str, args: &[&str]) -> Result<String, String> {
+        use tokio::process::Command;
+        use tokio::io::AsyncReadExt;
+
+        let mut child = Command::new(command)
+            .args(args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn process '{}': {}", command, e))?;
+
+        // Generate process ID
+        let process_id = {
+            let mut next_id = self.next_process_id.lock().await;
+            let id = format!("proc{}", *next_id);
+            *next_id += 1;
+            id
+        };
+
+        // Create buffers for stdout and stderr
+        let stdout_buffer = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let stderr_buffer = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
+        // Spawn background tasks to collect stdout and stderr
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
+        if let Some(mut stdout) = stdout {
+            let buffer = Arc::clone(&stdout_buffer);
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 1024];
+                loop {
+                    match stdout.read(&mut buf).await {
+                        Ok(0) => break, // EOF
+                        Ok(n) => {
+                            let mut locked_buffer = buffer.lock().await;
+                            locked_buffer.extend_from_slice(&buf[..n]);
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        if let Some(mut stderr) = stderr {
+            let buffer = Arc::clone(&stderr_buffer);
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 1024];
+                loop {
+                    match stderr.read(&mut buf).await {
+                        Ok(0) => break, // EOF
+                        Ok(n) => {
+                            let mut locked_buffer = buffer.lock().await;
+                            locked_buffer.extend_from_slice(&buf[..n]);
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        // Store process handle
+        let handle = ProcessHandle {
+            child,
+            command: command.to_string(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            started_at: Instant::now(),
+            stdout_buffer,
+            stderr_buffer,
+        };
+
+        self.process_handles
+            .lock()
+            .await
+            .insert(process_id.clone(), handle);
+
+        Ok(process_id)
+    }
+
+    /// Read accumulated output from a process
+    #[allow(dead_code)]
+    async fn read_process_output(&self, process_id: &str) -> Result<String, String> {
+        let handles = self.process_handles.lock().await;
+        let handle = handles
+            .get(process_id)
+            .ok_or_else(|| format!("Invalid process ID: {}", process_id))?;
+
+        let mut buffer = handle.stdout_buffer.lock().await;
+        let output = String::from_utf8_lossy(&buffer).to_string();
+        buffer.clear();
+        Ok(output)
+    }
+
+    /// Kill a running process
+    #[allow(dead_code)]
+    async fn kill_process(&self, process_id: &str) -> Result<(), String> {
+        let mut handles = self.process_handles.lock().await;
+        let handle = handles
+            .get_mut(process_id)
+            .ok_or_else(|| format!("Invalid process ID: {}", process_id))?;
+
+        handle
+            .child
+            .kill()
+            .await
+            .map_err(|e| format!("Failed to kill process: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Wait for a process to complete and return its exit code
+    #[allow(dead_code)]
+    async fn wait_for_process(&self, process_id: &str) -> Result<i32, String> {
+        let mut handle = {
+            let mut handles = self.process_handles.lock().await;
+            handles
+                .remove(process_id)
+                .ok_or_else(|| format!("Invalid process ID: {}", process_id))?
+        };
+
+        let status = handle
+            .child
+            .wait()
+            .await
+            .map_err(|e| format!("Failed to wait for process: {}", e))?;
+
+        Ok(status.code().unwrap_or(-1))
+    }
+
+    /// Check if a process is still running
+    #[allow(dead_code)]
+    async fn is_process_running(&self, process_id: &str) -> bool {
+        let mut handles = self.process_handles.lock().await;
+        if let Some(handle) = handles.get_mut(process_id) {
+            matches!(handle.child.try_wait(), Ok(None))
+        } else {
+            false
         }
     }
 }
@@ -5238,5 +5419,109 @@ impl Interpreter {
         }
 
         Ok(files)
+    }
+}
+
+#[cfg(test)]
+mod process_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_execute_simple_command() {
+        let client = IoClient::new();
+
+        // This will fail until we implement execute_command
+        let result = client.execute_command("echo", &["hello"]).await;
+
+        assert!(result.is_ok(), "Failed to execute command");
+        let (stdout, stderr, exit_code) = result.unwrap();
+        assert!(stdout.contains("hello"), "Output should contain 'hello'");
+        assert_eq!(exit_code, 0, "Exit code should be 0 for successful command");
+        assert!(stderr.is_empty() || stderr.trim().is_empty(), "Stderr should be empty");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_and_kill_process() {
+        let client = IoClient::new();
+
+        // This will fail until we implement spawn_process
+        let proc_id = client.spawn_process("sleep", &["10"])
+            .await
+            .expect("Failed to spawn process");
+
+        // Check that process is running
+        assert!(client.is_process_running(&proc_id).await, "Process should be running");
+
+        // Kill the process
+        client.kill_process(&proc_id)
+            .await
+            .expect("Failed to kill process");
+
+        // Give it time to terminate
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Process should no longer be running
+        assert!(!client.is_process_running(&proc_id).await, "Process should not be running after kill");
+    }
+
+    #[tokio::test]
+    async fn test_capture_process_output() {
+        let client = IoClient::new();
+
+        // This will fail until we implement spawn_process and read_process_output
+        let proc_id = client.spawn_process("echo", &["test output"])
+            .await
+            .expect("Failed to spawn process");
+
+        // Give process time to complete and output to be captured
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        let output = client.read_process_output(&proc_id)
+            .await
+            .expect("Failed to read process output");
+
+        assert!(output.contains("test output"), "Output should contain 'test output'");
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_process_completion() {
+        let client = IoClient::new();
+
+        // This will fail until we implement spawn_process and wait_for_process
+        let proc_id = client.spawn_process("echo", &["done"])
+            .await
+            .expect("Failed to spawn process");
+
+        let exit_code = client.wait_for_process(&proc_id)
+            .await
+            .expect("Failed to wait for process");
+
+        assert_eq!(exit_code, 0, "Process should exit with code 0");
+    }
+
+    #[tokio::test]
+    async fn test_command_not_found() {
+        let client = IoClient::new();
+
+        // This will fail until we implement execute_command
+        let result = client.execute_command("nonexistent_command_xyz_123", &[]).await;
+
+        assert!(result.is_err(), "Should fail when command doesn't exist");
+        let err = result.unwrap_err();
+        assert!(err.contains("Failed to execute") || err.contains("not found"),
+                "Error should indicate command not found: {}", err);
+    }
+
+    #[tokio::test]
+    async fn test_invalid_process_id() {
+        let client = IoClient::new();
+
+        // This will fail until we implement read_process_output
+        let result = client.read_process_output("invalid_proc_id").await;
+
+        assert!(result.is_err(), "Should fail for invalid process ID");
+        let err = result.unwrap_err();
+        assert!(err.contains("Invalid process ID"),
+                "Error should indicate invalid process ID: {}", err);
     }
 }
