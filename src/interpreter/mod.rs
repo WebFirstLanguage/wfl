@@ -3901,21 +3901,235 @@ impl Interpreter {
 
                 Ok((Value::Null, ControlFlow::None))
             }
-            // Subprocess statements - Phase 4 implementation
-            Statement::ExecuteCommandStatement { .. } => {
-                todo!("ExecuteCommandStatement implementation in Phase 4")
+            // Subprocess statements
+            Statement::ExecuteCommandStatement {
+                command,
+                arguments,
+                variable_name,
+                line,
+                column,
+            } => {
+                // Evaluate command expression
+                let cmd_val = self.evaluate_expression(command, Rc::clone(&env)).await?;
+                let cmd_str = match &cmd_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Command must be text, got {}", cmd_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Evaluate arguments if provided
+                let args_vec: Vec<String> = if let Some(args_expr) = arguments {
+                    let args_val = self.evaluate_expression(args_expr, Rc::clone(&env)).await?;
+                    match &args_val {
+                        Value::List(list) => {
+                            let list_ref = list.borrow();
+                            list_ref
+                                .iter()
+                                .map(|v| match v {
+                                    Value::Text(t) => Ok(t.as_ref().to_string()),
+                                    _ => Ok(v.to_string()),
+                                })
+                                .collect::<Result<Vec<_>, RuntimeError>>()?
+                        }
+                        Value::Text(text) => vec![text.as_ref().to_string()],
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!("Arguments must be a list or text, got {}", args_val.type_name()),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    Vec::new()
+                };
+
+                // Execute command
+                let args_refs: Vec<&str> = args_vec.iter().map(|s| s.as_str()).collect();
+                let (stdout, stderr, exit_code) = self
+                    .io_client
+                    .execute_command(cmd_str, &args_refs)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                // Build result object
+                let mut result_map = HashMap::new();
+                result_map.insert("output".to_string(), Value::Text(Rc::from(stdout.as_str())));
+                result_map.insert("error".to_string(), Value::Text(Rc::from(stderr.as_str())));
+                result_map.insert("exit_code".to_string(), Value::Number(exit_code as f64));
+                result_map.insert("success".to_string(), Value::Bool(exit_code == 0));
+
+                let result_obj = Value::Object(Rc::new(RefCell::new(result_map)));
+
+                // Store result if variable name provided
+                if let Some(var_name) = variable_name {
+                    env.borrow_mut()
+                        .define(var_name, result_obj)
+                        .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                }
+
+                Ok((Value::Null, ControlFlow::None))
             }
-            Statement::SpawnProcessStatement { .. } => {
-                todo!("SpawnProcessStatement implementation in Phase 4")
+            Statement::SpawnProcessStatement {
+                command,
+                arguments,
+                variable_name,
+                line,
+                column,
+            } => {
+                // Evaluate command expression
+                let cmd_val = self.evaluate_expression(command, Rc::clone(&env)).await?;
+                let cmd_str = match &cmd_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Command must be text, got {}", cmd_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Evaluate arguments if provided
+                let args_vec: Vec<String> = if let Some(args_expr) = arguments {
+                    let args_val = self.evaluate_expression(args_expr, Rc::clone(&env)).await?;
+                    match &args_val {
+                        Value::List(list) => {
+                            let list_ref = list.borrow();
+                            list_ref
+                                .iter()
+                                .map(|v| match v {
+                                    Value::Text(t) => Ok(t.as_ref().to_string()),
+                                    _ => Ok(v.to_string()),
+                                })
+                                .collect::<Result<Vec<_>, RuntimeError>>()?
+                        }
+                        Value::Text(text) => vec![text.as_ref().to_string()],
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!("Arguments must be a list or text, got {}", args_val.type_name()),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    Vec::new()
+                };
+
+                // Spawn process
+                let args_refs: Vec<&str> = args_vec.iter().map(|s| s.as_str()).collect();
+                let process_id = self
+                    .io_client
+                    .spawn_process(cmd_str, &args_refs)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                // Store process ID in variable
+                env.borrow_mut()
+                    .define(variable_name, Value::Text(Rc::from(process_id.as_str())))
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                Ok((Value::Null, ControlFlow::None))
             }
-            Statement::ReadProcessOutputStatement { .. } => {
-                todo!("ReadProcessOutputStatement implementation in Phase 4")
+            Statement::ReadProcessOutputStatement {
+                process_id,
+                variable_name,
+                line,
+                column,
+            } => {
+                // Evaluate process ID expression
+                let proc_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+                let proc_id = match &proc_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Process ID must be text, got {}", proc_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Read process output
+                let output = self
+                    .io_client
+                    .read_process_output(proc_id)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                // Store output in variable
+                env.borrow_mut()
+                    .define(variable_name, Value::Text(Rc::from(output.as_str())))
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                Ok((Value::Null, ControlFlow::None))
             }
-            Statement::KillProcessStatement { .. } => {
-                todo!("KillProcessStatement implementation in Phase 4")
+            Statement::KillProcessStatement {
+                process_id,
+                line,
+                column,
+            } => {
+                // Evaluate process ID expression
+                let proc_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+                let proc_id = match &proc_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Process ID must be text, got {}", proc_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Kill process
+                self.io_client
+                    .kill_process(proc_id)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                Ok((Value::Null, ControlFlow::None))
             }
-            Statement::WaitForProcessStatement { .. } => {
-                todo!("WaitForProcessStatement implementation in Phase 4")
+            Statement::WaitForProcessStatement {
+                process_id,
+                variable_name,
+                line,
+                column,
+            } => {
+                // Evaluate process ID expression
+                let proc_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+                let proc_id = match &proc_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Process ID must be text, got {}", proc_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Wait for process to complete
+                let exit_code = self
+                    .io_client
+                    .wait_for_process(proc_id)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                // Store exit code in variable if provided
+                if let Some(var_name) = variable_name {
+                    env.borrow_mut()
+                        .define(var_name, Value::Number(exit_code as f64))
+                        .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                }
+
+                Ok((Value::Null, ControlFlow::None))
             }
         };
 
@@ -4963,8 +5177,27 @@ impl Interpreter {
                 let formatted = now.format(&chrono_format).to_string();
                 Ok(Value::Text(Rc::from(formatted)))
             }
-            Expression::ProcessRunning { .. } => {
-                todo!("ProcessRunning expression evaluation in Phase 4")
+            Expression::ProcessRunning {
+                process_id,
+                line,
+                column,
+            } => {
+                // Evaluate process ID expression
+                let proc_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+                let proc_id = match &proc_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Process ID must be text, got {}", proc_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Check if process is running
+                let is_running = self.io_client.is_process_running(proc_id).await;
+                Ok(Value::Bool(is_running))
             }
         };
         self.assert_invariants();

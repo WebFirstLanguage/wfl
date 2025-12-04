@@ -19,7 +19,10 @@
       "Bash(do wc:*)",
       "Bash(done)",
       "Bash(powershell -Command \"Get-Content ''G:\\Logbie\\wfl\\src\\interpreter\\mod.rs'' | Select-Object -Last 50\")",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(cargo report:*)",
+      "Bash(cargo tree:*)",
+      "Bash(cargo update:*)"
     ],
     "deny": [],
     "ask": []

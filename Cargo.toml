@@ -63,6 +63,8 @@ zeroize = { version = "1.7", features = ["derive"] }
 subtle = "2.5"
 sha2 = "0.10"
 hkdf = "0.12"
+# Force newer version to fix future incompatibility warning
+num-bigint-dig = "0.8.6"
 
 [features]
 dhat-heap = ["dhat"]    # if you are doing heap profiling
