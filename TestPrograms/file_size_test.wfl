@@ -1,0 +1,36 @@
+display "=== File Size Tests ==="
+
+// Test 1: Regular file
+open file at "size_test.txt" for writing as f
+wait for write content "Hello World!" into f
+close file f
+
+store size1 as file_size of "size_test.txt"
+display "Size of 'size_test.txt': " with size1 with " bytes"
+check if size1 is equal to 12:
+    display "✓ file_size correct for regular file"
+end check
+
+// Test 2: Empty file
+open file at "empty.txt" for writing as e
+close file e
+
+store size2 as file_size of "empty.txt"
+display "Size of 'empty.txt': " with size2 with " bytes"
+check if size2 is equal to 0:
+    display "✓ file_size correct for empty file"
+end check
+
+// Test 3: Error handling
+try:
+    store bad_size as file_size of "nonexistent.txt"
+    display "✗ Should have thrown error"
+when error:
+    display "✓ Correctly caught missing file error"
+end try
+
+// Cleanup
+delete file at "size_test.txt"
+delete file at "empty.txt"
+
+display "=== File Size Tests Passed ==="

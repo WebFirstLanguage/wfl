@@ -3,14 +3,15 @@ use std::collections::HashMap;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct FunctionSignature {
+    pub parameters: Vec<Parameter>,
+    pub return_type: Option<Type>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum SymbolKind {
-    Variable {
-        mutable: bool,
-    },
-    Function {
-        parameters: Vec<Parameter>,
-        return_type: Option<Type>,
-    },
+    Variable { mutable: bool },
+    Function { signatures: Vec<FunctionSignature> },
     Pattern,
 }
 
@@ -220,23 +221,25 @@ impl Analyzer {
         let push_symbol = Symbol {
             name: "push".to_string(),
             kind: SymbolKind::Function {
-                parameters: vec![
-                    Parameter {
-                        name: "list".to_string(),
-                        param_type: Some(Type::List(Box::new(Type::Unknown))),
-                        default_value: None,
-                        line: 0,
-                        column: 0,
-                    },
-                    Parameter {
-                        name: "value".to_string(),
-                        param_type: Some(Type::Unknown),
-                        default_value: None,
-                        line: 0,
-                        column: 0,
-                    },
-                ],
-                return_type: Some(Type::Nothing),
+                signatures: vec![FunctionSignature {
+                    parameters: vec![
+                        Parameter {
+                            name: "list".to_string(),
+                            param_type: Some(Type::List(Box::new(Type::Unknown))),
+                            default_value: None,
+                            line: 0,
+                            column: 0,
+                        },
+                        Parameter {
+                            name: "value".to_string(),
+                            param_type: Some(Type::Unknown),
+                            default_value: None,
+                            line: 0,
+                            column: 0,
+                        },
+                    ],
+                    return_type: Some(Type::Nothing),
+                }],
             },
             symbol_type: Some(Type::Function {
                 parameters: vec![Type::List(Box::new(Type::Unknown)), Type::Unknown],
@@ -466,8 +469,10 @@ impl Analyzer {
                 let symbol = Symbol {
                     name: name.clone(),
                     kind: SymbolKind::Function {
-                        parameters: parameters.clone(),
-                        return_type: return_type.clone(),
+                        signatures: vec![FunctionSignature {
+                            parameters: parameters.clone(),
+                            return_type: return_type.clone(),
+                        }],
                     },
                     symbol_type: None,
                     line: 0, // Need location info
@@ -1414,11 +1419,28 @@ impl Analyzer {
             })
             .collect();
 
+        let new_signature = FunctionSignature {
+            parameters,
+            return_type: Some(return_type.clone()),
+        };
+
+        // Check if function already exists
+        if let Some(existing_symbol) = self.current_scope.symbols.get_mut(name) {
+            // If it's a function, add the new signature
+            if let SymbolKind::Function { signatures } = &mut existing_symbol.kind {
+                signatures.push(new_signature);
+                return;
+            } else {
+                // Not a function - this is an error, but for now we'll ignore it like before
+                return;
+            }
+        }
+
+        // Function doesn't exist, create new
         let symbol = Symbol {
             name: name.to_string(),
             kind: SymbolKind::Function {
-                parameters,
-                return_type: Some(return_type.clone()),
+                signatures: vec![new_signature],
             },
             symbol_type: Some(Type::Function {
                 parameters: param_types,
@@ -1533,14 +1555,28 @@ impl Analyzer {
                 if let Expression::Variable(name, _, _) = &**function {
                     if let Some(symbol) = self.current_scope.resolve(name) {
                         match &symbol.kind {
-                            SymbolKind::Function { parameters, .. } => {
-                                if arguments.len() != parameters.len() {
-                                    self.errors.push(SemanticError::new(
-                                        format!("Function '{}' expects {} arguments, but {} were provided", 
-                                            name, parameters.len(), arguments.len()),
-                                        *line,
-                                        *column,
-                                    ));
+                            SymbolKind::Function { signatures } => {
+                                // For now, just check the first signature for compatibility
+                                // TODO: Implement proper overload resolution based on argument types and count
+                                if let Some(first_signature) = signatures.first()
+                                    && arguments.len() != first_signature.parameters.len()
+                                {
+                                    // Check if any signature matches the argument count
+                                    let matching_signature = signatures
+                                        .iter()
+                                        .find(|sig| sig.parameters.len() == arguments.len());
+                                    if matching_signature.is_none() {
+                                        let expected_arities: Vec<String> = signatures
+                                            .iter()
+                                            .map(|sig| sig.parameters.len().to_string())
+                                            .collect();
+                                        self.errors.push(SemanticError::new(
+                                            format!("Function '{}' expects {} arguments, but {} were provided", 
+                                                name, expected_arities.join(" or "), arguments.len()),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
                                 }
 
                                 for arg in arguments {

@@ -383,7 +383,7 @@ pub enum Token {
     #[token("undefined")]
     NothingLiteral,
 
-    #[regex(r#""([^"\\]|\\.)*""#, |lex| parse_string(lex))] // captures content inside quotes
+    #[regex(r#""([^"\\]|\\.)*""#, |lex| parse_string(lex).ok())] // captures content inside quotes
     StringLiteral(String),
 
     #[regex("[0-9]+\\.[0-9]+", |lex| lex.slice().parse::<f64>().unwrap())]
@@ -404,10 +404,37 @@ pub enum Token {
     Error,
 }
 
-fn parse_string(lex: &mut logos::Lexer<Token>) -> String {
+fn parse_string(lex: &mut logos::Lexer<Token>) -> Result<String, ()> {
     let quoted = lex.slice(); // e.g. "\"Alice\""
     let inner = &quoted[1..quoted.len() - 1]; // strip the surrounding quotes
-    inner.replace(r#"\""#, "\"")
+
+    let mut result = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('n') => result.push('\n'),
+                Some('t') => result.push('\t'),
+                Some('r') => result.push('\r'),
+                Some('\\') => result.push('\\'),
+                Some('0') => result.push('\0'),
+                Some('"') => result.push('"'),
+                Some(_) => {
+                    // Invalid escape sequence - return error
+                    return Err(());
+                }
+                None => {
+                    // Trailing backslash - error
+                    return Err(());
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    Ok(result)
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wfl nexus.wfl:*)",
+      "Bash(wfl test:*)",
+      "Bash(wfl test_section2.wfl:*)",
+      "Bash(cat:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

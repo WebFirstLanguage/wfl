@@ -1,0 +1,41 @@
+num-bigint-dig v0.8.4
+├── byteorder v1.5.0
+├── lazy_static v1.5.0
+│   └── spin v0.9.8
+│       └── lock_api v0.4.13
+│           └── scopeguard v1.2.0
+│           [build-dependencies]
+│           └── autocfg v1.5.0
+├── libm v0.2.15
+├── num-integer v0.1.46
+│   └── num-traits v0.2.19
+│       └── libm v0.2.15
+│       [build-dependencies]
+│       └── autocfg v1.5.0
+├── num-iter v0.1.45
+│   ├── num-integer v0.1.46 (*)
+│   └── num-traits v0.2.19 (*)
+│   [build-dependencies]
+│   └── autocfg v1.5.0
+├── num-traits v0.2.19 (*)
+├── rand v0.8.5
+│   ├── rand_chacha v0.3.1
+│   │   ├── ppv-lite86 v0.2.21
+│   │   │   └── zerocopy v0.8.27
+│   │   └── rand_core v0.6.4
+│   │       └── getrandom v0.2.16
+│   │           └── cfg-if v1.0.3
+│   └── rand_core v0.6.4 (*)
+├── smallvec v1.15.1
+│   └── serde v1.0.228
+│       ├── serde_core v1.0.228
+│       └── serde_derive v1.0.228 (proc-macro)
+│           ├── proc-macro2 v1.0.101
+│           │   └── unicode-ident v1.0.19
+│           ├── quote v1.0.41
+│           │   └── proc-macro2 v1.0.101 (*)
+│           └── syn v2.0.106
+│               ├── proc-macro2 v1.0.101 (*)
+│               ├── quote v1.0.41 (*)
+│               └── unicode-ident v1.0.19
+└── zeroize v1.8.1

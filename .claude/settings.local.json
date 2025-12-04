@@ -22,7 +22,15 @@
       "Bash(cargo check:*)",
       "Bash(cargo report:*)",
       "Bash(cargo tree:*)",
-      "Bash(cargo update:*)"
+      "Bash(cargo update:*)",
+      "Bash(git log:*)",
+      "Bash(grep:*)",
+      "Bash(xargs grep:*)",
+      "WebSearch",
+      "Bash(cargo --version:*)",
+      "Bash(rustc:*)",
+      "Bash(gh release view:*)",
+      "Bash(git rev-parse:*)"
     ],
     "deny": [],
     "ask": []

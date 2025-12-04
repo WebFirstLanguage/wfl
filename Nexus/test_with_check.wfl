@@ -1,0 +1,41 @@
+// Nexus WFL Integration Test Script
+// This script ("nexus.wfl") performs integration tests of core WFL features.
+// It logs progress and results to "nexus.log" for debugging.
+
+///////////////////////////////////////////////////////////////////////////
+// 1. Setup: Initialize logging
+///////////////////////////////////////////////////////////////////////////
+
+// Open the log file (will be truncated/created anew)
+open file at "nexus.log" for writing as logHandle
+
+// Helper: Append a message line to the log file
+define action called log_message needs message_text:
+    // Append message with newline to log file
+    wait for append content message_text with "\n" into logHandle
+end action
+
+// Log the start of the test suite
+log_message with "Starting Nexus WFL Integration Test Suite..."
+
+///////////////////////////////////////////////////////////////////////////
+// 2. Variable Assignment & Arithmetic Tests
+///////////////////////////////////////////////////////////////////////////
+log_message with "Starting Arithmetic Tests..."
+
+store a as 6
+store b as 2
+
+// Test addition
+store add_result as a plus b        // 6 + 2 = 8
+check if add_result is equal to 8:
+    log_message with "Addition test: PASS"
+otherwise:
+    log_message with "Addition test: FAIL (expected 8, got " with add_result with ")"
+end check
+
+// Test subtraction
+store sub_result as a minus b       // 6 - 2 = 4
+check if sub_result is equal to 4:
+    log_message with "Subtraction test: PASS"
+close file logHandle

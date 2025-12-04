@@ -1,0 +1,43 @@
+display "=== Path Operations Tests ==="
+
+// Test path_extension
+store ext1 as path_extension of "document.txt"
+store ext2 as path_extension of "archive.tar.gz"
+store ext3 as path_extension of "README"
+
+display "Extension of 'document.txt': " with ext1
+check if ext1 is equal to "txt":
+    display "✓ path_extension basic test passed"
+end check
+
+display "Extension of 'archive.tar.gz': " with ext2
+check if ext2 is equal to "gz":
+    display "✓ path_extension multiple dots test passed"
+end check
+
+display "Extension of 'README': " with ext3
+check if ext3 is equal to "":
+    display "✓ path_extension no extension test passed"
+end check
+
+// Test path_stem
+store stem1 as path_stem of "document.txt"
+store stem2 as path_stem of "archive.tar.gz"
+store stem3 as path_stem of "/home/user/file.backup"
+
+display "Stem of 'document.txt': " with stem1
+check if stem1 is equal to "document":
+    display "✓ path_stem basic test passed"
+end check
+
+display "Stem of 'archive.tar.gz': " with stem2
+check if stem2 is equal to "archive.tar":
+    display "✓ path_stem multiple dots test passed"
+end check
+
+display "Stem of '/home/user/file.backup': " with stem3
+check if stem3 is equal to "file":
+    display "✓ path_stem with path test passed"
+end check
+
+display "=== All Path Operations Tests Passed ==="
