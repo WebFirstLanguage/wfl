@@ -2450,6 +2450,18 @@ impl Interpreter {
                                 crate::parser::ast::ErrorType::PermissionDenied => {
                                     err.kind == ErrorKind::PermissionDenied
                                 }
+                                crate::parser::ast::ErrorType::ProcessNotFound => {
+                                    err.kind == ErrorKind::ProcessNotFound
+                                }
+                                crate::parser::ast::ErrorType::ProcessSpawnFailed => {
+                                    err.kind == ErrorKind::ProcessSpawnFailed
+                                }
+                                crate::parser::ast::ErrorType::ProcessKillFailed => {
+                                    err.kind == ErrorKind::ProcessKillFailed
+                                }
+                                crate::parser::ast::ErrorType::CommandNotFound => {
+                                    err.kind == ErrorKind::CommandNotFound
+                                }
                             };
 
                             if matches {

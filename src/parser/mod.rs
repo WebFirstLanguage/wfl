@@ -5503,7 +5503,7 @@ impl<'a> Parser<'a> {
                     self.tokens.next(); // Consume "when"
 
                     // Parse error type
-                    let (error_type, error_name) = if let Some(next_token) = self.tokens.peek() {
+                    let (error_type, error_name) = if let Some(next_token) = self.tokens.peek().cloned() {
                         match &next_token.token {
                             Token::KeywordError => {
                                 self.tokens.next(); // Consume "error"
@@ -5529,10 +5529,110 @@ impl<'a> Parser<'a> {
                                 )?;
                                 (ast::ErrorType::PermissionDenied, "error".to_string())
                             }
+                            Token::KeywordProcess => {
+                                self.tokens.next(); // Consume "process"
+
+                                // Check what comes next to determine error type
+                                if let Some(next) = self.tokens.peek().cloned() {
+                                    match &next.token {
+                                        Token::KeywordNot => {
+                                            self.tokens.next(); // Consume "not"
+                                            self.expect_token(
+                                                Token::KeywordFound,
+                                                "Expected 'found' after 'not'",
+                                            )?;
+                                            (ast::ErrorType::ProcessNotFound, "error".to_string())
+                                        }
+                                        Token::Identifier(id) if id == "spawn" => {
+                                            self.tokens.next(); // Consume "spawn"
+                                            if let Some(failed) = self.tokens.peek().cloned() {
+                                                if let Token::Identifier(fid) = &failed.token {
+                                                    if fid == "failed" {
+                                                        self.tokens.next(); // Consume "failed"
+                                                        (ast::ErrorType::ProcessSpawnFailed, "error".to_string())
+                                                    } else {
+                                                        return Err(ParseError::new(
+                                                            "Expected 'failed' after 'spawn'".to_string(),
+                                                            failed.line,
+                                                            failed.column,
+                                                        ));
+                                                    }
+                                                } else {
+                                                    return Err(ParseError::new(
+                                                        "Expected 'failed' after 'spawn'".to_string(),
+                                                        failed.line,
+                                                        failed.column,
+                                                    ));
+                                                }
+                                            } else {
+                                                return Err(ParseError::new(
+                                                    "Expected 'failed' after 'spawn'".to_string(),
+                                                    next.line,
+                                                    next.column,
+                                                ));
+                                            }
+                                        }
+                                        Token::Identifier(id) if id == "kill" => {
+                                            self.tokens.next(); // Consume "kill"
+                                            if let Some(failed) = self.tokens.peek().cloned() {
+                                                if let Token::Identifier(fid) = &failed.token {
+                                                    if fid == "failed" {
+                                                        self.tokens.next(); // Consume "failed"
+                                                        (ast::ErrorType::ProcessKillFailed, "error".to_string())
+                                                    } else {
+                                                        return Err(ParseError::new(
+                                                            "Expected 'failed' after 'kill'".to_string(),
+                                                            failed.line,
+                                                            failed.column,
+                                                        ));
+                                                    }
+                                                } else {
+                                                    return Err(ParseError::new(
+                                                        "Expected 'failed' after 'kill'".to_string(),
+                                                        failed.line,
+                                                        failed.column,
+                                                    ));
+                                                }
+                                            } else {
+                                                return Err(ParseError::new(
+                                                    "Expected 'failed' after 'kill'".to_string(),
+                                                    next.line,
+                                                    next.column,
+                                                ));
+                                            }
+                                        }
+                                        _ => {
+                                            return Err(ParseError::new(
+                                                "Expected 'not found', 'spawn failed', or 'kill failed' after 'process'".to_string(),
+                                                next.line,
+                                                next.column,
+                                            ));
+                                        }
+                                    }
+                                } else {
+                                    return Err(ParseError::new(
+                                        "Unexpected end after 'process'".to_string(),
+                                        next_token.line,
+                                        next_token.column,
+                                    ));
+                                }
+                            }
+                            Token::KeywordCommand => {
+                                self.tokens.next(); // Consume "command"
+                                self.expect_token(
+                                    Token::KeywordNot,
+                                    "Expected 'not' after 'command'",
+                                )?;
+                                self.expect_token(
+                                    Token::KeywordFound,
+                                    "Expected 'found' after 'not'",
+                                )?;
+                                (ast::ErrorType::CommandNotFound, "error".to_string())
+                            }
                             _ => {
                                 return Err(ParseError::new(
                                     format!(
-                                        "Expected 'error', 'file', or 'permission' after 'when', found {:?}",
+                                        "Expected 'error', 'file', 'permission', 'process', or 'command' after 'when', found {:?}",
                                         next_token.token
                                     ),
                                     next_token.line,

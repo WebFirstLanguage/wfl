@@ -7,6 +7,10 @@ pub enum ErrorKind {
     Timeout,
     FileNotFound,
     PermissionDenied,
+    ProcessNotFound,
+    ProcessSpawnFailed,
+    ProcessKillFailed,
+    CommandNotFound,
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +49,10 @@ impl fmt::Display for RuntimeError {
             ErrorKind::Timeout => "[Timeout] ",
             ErrorKind::FileNotFound => "[File not found] ",
             ErrorKind::PermissionDenied => "[Permission denied] ",
+            ErrorKind::ProcessNotFound => "[Process not found] ",
+            ErrorKind::ProcessSpawnFailed => "[Process spawn failed] ",
+            ErrorKind::ProcessKillFailed => "[Process kill failed] ",
+            ErrorKind::CommandNotFound => "[Command not found] ",
         };
         write!(
             f,

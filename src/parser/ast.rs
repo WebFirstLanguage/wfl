@@ -804,6 +804,10 @@ pub enum ErrorType {
     General,
     FileNotFound,
     PermissionDenied,
+    ProcessNotFound,
+    ProcessSpawnFailed,
+    ProcessKillFailed,
+    CommandNotFound,
 }
 
 #[derive(Debug, Clone, PartialEq)]
