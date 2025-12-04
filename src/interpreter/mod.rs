@@ -689,8 +689,8 @@ impl IoClient {
     /// Spawn a background process and return a process ID
     #[allow(dead_code)]
     async fn spawn_process(&self, command: &str, args: &[&str]) -> Result<String, String> {
-        use tokio::process::Command;
         use tokio::io::AsyncReadExt;
+        use tokio::process::Command;
 
         let mut cmd = if args.is_empty() {
             // Use shell execution for command strings
@@ -3993,7 +3993,10 @@ impl Interpreter {
                         Value::Text(text) => vec![text.as_ref().to_string()],
                         _ => {
                             return Err(RuntimeError::new(
-                                format!("Arguments must be a list or text, got {}", args_val.type_name()),
+                                format!(
+                                    "Arguments must be a list or text, got {}",
+                                    args_val.type_name()
+                                ),
                                 *line,
                                 *column,
                             ));
@@ -4011,7 +4014,10 @@ impl Interpreter {
                     .await
                     .map_err(|e| {
                         // Determine error kind based on error message
-                        let kind = if e.contains("program not found") || e.contains("cannot find") || e.contains("not recognized") {
+                        let kind = if e.contains("program not found")
+                            || e.contains("cannot find")
+                            || e.contains("not recognized")
+                        {
                             ErrorKind::CommandNotFound
                         } else if e.contains("spawn") {
                             ErrorKind::ProcessSpawnFailed
@@ -4076,7 +4082,10 @@ impl Interpreter {
                         Value::Text(text) => vec![text.as_ref().to_string()],
                         _ => {
                             return Err(RuntimeError::new(
-                                format!("Arguments must be a list or text, got {}", args_val.type_name()),
+                                format!(
+                                    "Arguments must be a list or text, got {}",
+                                    args_val.type_name()
+                                ),
                                 *line,
                                 *column,
                             ));
@@ -4093,7 +4102,10 @@ impl Interpreter {
                     .spawn_process(cmd_str, &args_refs)
                     .await
                     .map_err(|e| {
-                        let kind = if e.contains("program not found") || e.contains("cannot find") || e.contains("not recognized") {
+                        let kind = if e.contains("program not found")
+                            || e.contains("cannot find")
+                            || e.contains("not recognized")
+                        {
                             ErrorKind::CommandNotFound
                         } else {
                             ErrorKind::ProcessSpawnFailed
@@ -4115,7 +4127,9 @@ impl Interpreter {
                 column,
             } => {
                 // Evaluate process ID expression
-                let proc_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+                let proc_val = self
+                    .evaluate_expression(process_id, Rc::clone(&env))
+                    .await?;
                 let proc_id = match &proc_val {
                     Value::Text(text) => text.as_ref(),
                     _ => {
@@ -4154,7 +4168,9 @@ impl Interpreter {
                 column,
             } => {
                 // Evaluate process ID expression
-                let proc_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+                let proc_val = self
+                    .evaluate_expression(process_id, Rc::clone(&env))
+                    .await?;
                 let proc_id = match &proc_val {
                     Value::Text(text) => text.as_ref(),
                     _ => {
@@ -4167,17 +4183,14 @@ impl Interpreter {
                 };
 
                 // Kill process
-                self.io_client
-                    .kill_process(proc_id)
-                    .await
-                    .map_err(|e| {
-                        let kind = if e.contains("Invalid process ID") {
-                            ErrorKind::ProcessNotFound
-                        } else {
-                            ErrorKind::ProcessKillFailed
-                        };
-                        RuntimeError::with_kind(e, *line, *column, kind)
-                    })?;
+                self.io_client.kill_process(proc_id).await.map_err(|e| {
+                    let kind = if e.contains("Invalid process ID") {
+                        ErrorKind::ProcessNotFound
+                    } else {
+                        ErrorKind::ProcessKillFailed
+                    };
+                    RuntimeError::with_kind(e, *line, *column, kind)
+                })?;
 
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -4188,7 +4201,9 @@ impl Interpreter {
                 column,
             } => {
                 // Evaluate process ID expression
-                let proc_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+                let proc_val = self
+                    .evaluate_expression(process_id, Rc::clone(&env))
+                    .await?;
                 let proc_id = match &proc_val {
                     Value::Text(text) => text.as_ref(),
                     _ => {
@@ -5275,7 +5290,9 @@ impl Interpreter {
                 column,
             } => {
                 // Evaluate process ID expression
-                let proc_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+                let proc_val = self
+                    .evaluate_expression(process_id, Rc::clone(&env))
+                    .await?;
                 let proc_id = match &proc_val {
                     Value::Text(text) => text.as_ref(),
                     _ => {
@@ -5808,7 +5825,10 @@ mod process_tests {
         let (stdout, stderr, exit_code) = result.unwrap();
         assert!(stdout.contains("hello"), "Output should contain 'hello'");
         assert_eq!(exit_code, 0, "Exit code should be 0 for successful command");
-        assert!(stderr.is_empty() || stderr.trim().is_empty(), "Stderr should be empty");
+        assert!(
+            stderr.is_empty() || stderr.trim().is_empty(),
+            "Stderr should be empty"
+        );
     }
 
     #[tokio::test]
@@ -5816,15 +5836,20 @@ mod process_tests {
         let client = IoClient::new();
 
         // This will fail until we implement spawn_process
-        let proc_id = client.spawn_process("sleep", &["10"])
+        let proc_id = client
+            .spawn_process("sleep", &["10"])
             .await
             .expect("Failed to spawn process");
 
         // Check that process is running
-        assert!(client.is_process_running(&proc_id).await, "Process should be running");
+        assert!(
+            client.is_process_running(&proc_id).await,
+            "Process should be running"
+        );
 
         // Kill the process
-        client.kill_process(&proc_id)
+        client
+            .kill_process(&proc_id)
             .await
             .expect("Failed to kill process");
 
@@ -5832,7 +5857,10 @@ mod process_tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Process should no longer be running
-        assert!(!client.is_process_running(&proc_id).await, "Process should not be running after kill");
+        assert!(
+            !client.is_process_running(&proc_id).await,
+            "Process should not be running after kill"
+        );
     }
 
     #[tokio::test]
@@ -5840,18 +5868,23 @@ mod process_tests {
         let client = IoClient::new();
 
         // This will fail until we implement spawn_process and read_process_output
-        let proc_id = client.spawn_process("echo", &["test output"])
+        let proc_id = client
+            .spawn_process("echo", &["test output"])
             .await
             .expect("Failed to spawn process");
 
         // Give process time to complete and output to be captured
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
-        let output = client.read_process_output(&proc_id)
+        let output = client
+            .read_process_output(&proc_id)
             .await
             .expect("Failed to read process output");
 
-        assert!(output.contains("test output"), "Output should contain 'test output'");
+        assert!(
+            output.contains("test output"),
+            "Output should contain 'test output'"
+        );
     }
 
     #[tokio::test]
@@ -5859,11 +5892,13 @@ mod process_tests {
         let client = IoClient::new();
 
         // This will fail until we implement spawn_process and wait_for_process
-        let proc_id = client.spawn_process("echo", &["done"])
+        let proc_id = client
+            .spawn_process("echo", &["done"])
             .await
             .expect("Failed to spawn process");
 
-        let exit_code = client.wait_for_process(&proc_id)
+        let exit_code = client
+            .wait_for_process(&proc_id)
             .await
             .expect("Failed to wait for process");
 
@@ -5875,12 +5910,17 @@ mod process_tests {
         let client = IoClient::new();
 
         // This will fail until we implement execute_command
-        let result = client.execute_command("nonexistent_command_xyz_123", &[]).await;
+        let result = client
+            .execute_command("nonexistent_command_xyz_123", &[])
+            .await;
 
         assert!(result.is_err(), "Should fail when command doesn't exist");
         let err = result.unwrap_err();
-        assert!(err.contains("Failed to execute") || err.contains("not found"),
-                "Error should indicate command not found: {}", err);
+        assert!(
+            err.contains("Failed to execute") || err.contains("not found"),
+            "Error should indicate command not found: {}",
+            err
+        );
     }
 
     #[tokio::test]
@@ -5892,7 +5932,10 @@ mod process_tests {
 
         assert!(result.is_err(), "Should fail for invalid process ID");
         let err = result.unwrap_err();
-        assert!(err.contains("Invalid process ID"),
-                "Error should indicate invalid process ID: {}", err);
+        assert!(
+            err.contains("Invalid process ID"),
+            "Error should indicate invalid process ID: {}",
+            err
+        );
     }
 }

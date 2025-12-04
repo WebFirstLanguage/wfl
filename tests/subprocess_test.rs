@@ -56,7 +56,11 @@ mod subprocess_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "Basic command execution should work: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Basic command execution should work: {:?}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -84,7 +88,10 @@ mod subprocess_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "Command execution should complete successfully");
+        assert!(
+            result.is_ok(),
+            "Command execution should complete successfully"
+        );
     }
 
     #[tokio::test]
@@ -132,7 +139,11 @@ mod subprocess_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "Process status check should work: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Process status check should work: {:?}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -175,7 +186,11 @@ mod subprocess_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "Reading process output should work: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Reading process output should work: {:?}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -191,7 +206,11 @@ mod subprocess_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "Error handling should prevent crash: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Error handling should prevent crash: {:?}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -207,7 +226,11 @@ mod subprocess_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "Invalid process error should be catchable: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Invalid process error should be catchable: {:?}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -219,7 +242,11 @@ mod subprocess_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "Execute with shell should work: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Execute with shell should work: {:?}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -231,7 +258,10 @@ mod subprocess_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "Should be able to execute without storing result");
+        assert!(
+            result.is_ok(),
+            "Should be able to execute without storing result"
+        );
     }
 
     #[tokio::test]
@@ -259,6 +289,10 @@ mod subprocess_tests {
         "#;
 
         let result = run_wfl_code(code).await;
-        assert!(result.is_ok(), "Multiple processes should work: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Multiple processes should work: {:?}",
+            result
+        );
     }
 }

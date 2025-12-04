@@ -1355,7 +1355,8 @@ impl<'a> Parser<'a> {
                             // "read" by itself is not a valid statement - treat as expression
                             let token_pos = self.tokens.peek().unwrap();
                             return Err(ParseError::new(
-                                "Unexpected 'read' - did you mean 'read output from process'?".to_string(),
+                                "Unexpected 'read' - did you mean 'read output from process'?"
+                                    .to_string(),
                                 token_pos.line,
                                 token_pos.column,
                             ));
@@ -5503,7 +5504,9 @@ impl<'a> Parser<'a> {
                     self.tokens.next(); // Consume "when"
 
                     // Parse error type
-                    let (error_type, error_name) = if let Some(next_token) = self.tokens.peek().cloned() {
+                    let (error_type, error_name) = if let Some(next_token) =
+                        self.tokens.peek().cloned()
+                    {
                         match &next_token.token {
                             Token::KeywordError => {
                                 self.tokens.next(); // Consume "error"
@@ -5549,17 +5552,22 @@ impl<'a> Parser<'a> {
                                                 if let Token::Identifier(fid) = &failed.token {
                                                     if fid == "failed" {
                                                         self.tokens.next(); // Consume "failed"
-                                                        (ast::ErrorType::ProcessSpawnFailed, "error".to_string())
+                                                        (
+                                                            ast::ErrorType::ProcessSpawnFailed,
+                                                            "error".to_string(),
+                                                        )
                                                     } else {
                                                         return Err(ParseError::new(
-                                                            "Expected 'failed' after 'spawn'".to_string(),
+                                                            "Expected 'failed' after 'spawn'"
+                                                                .to_string(),
                                                             failed.line,
                                                             failed.column,
                                                         ));
                                                     }
                                                 } else {
                                                     return Err(ParseError::new(
-                                                        "Expected 'failed' after 'spawn'".to_string(),
+                                                        "Expected 'failed' after 'spawn'"
+                                                            .to_string(),
                                                         failed.line,
                                                         failed.column,
                                                     ));
@@ -5578,17 +5586,22 @@ impl<'a> Parser<'a> {
                                                 if let Token::Identifier(fid) = &failed.token {
                                                     if fid == "failed" {
                                                         self.tokens.next(); // Consume "failed"
-                                                        (ast::ErrorType::ProcessKillFailed, "error".to_string())
+                                                        (
+                                                            ast::ErrorType::ProcessKillFailed,
+                                                            "error".to_string(),
+                                                        )
                                                     } else {
                                                         return Err(ParseError::new(
-                                                            "Expected 'failed' after 'kill'".to_string(),
+                                                            "Expected 'failed' after 'kill'"
+                                                                .to_string(),
                                                             failed.line,
                                                             failed.column,
                                                         ));
                                                     }
                                                 } else {
                                                     return Err(ParseError::new(
-                                                        "Expected 'failed' after 'kill'".to_string(),
+                                                        "Expected 'failed' after 'kill'"
+                                                            .to_string(),
                                                         failed.line,
                                                         failed.column,
                                                     ));

@@ -1108,8 +1108,8 @@ impl Analyzer {
                                     Statement::CloseServerStatement { line, .. } => *line,
                                     Statement::WriteContentStatement { line, .. } => *line,
                                     Statement::WaitForDurationStatement { line, .. } => *line,
-                                _ => 0,
-                            },
+                                    _ => 0,
+                                },
                                 column: match stmt {
                                     Statement::VariableDeclaration { column, .. } => *column,
                                     Statement::Assignment { column, .. } => *column,
@@ -1171,8 +1171,8 @@ impl Analyzer {
                                     Statement::CloseServerStatement { column, .. } => *column,
                                     Statement::WriteContentStatement { column, .. } => *column,
                                     Statement::WaitForDurationStatement { column, .. } => *column,
-                                _ => 0,
-                            },
+                                    _ => 0,
+                                },
                             });
                             else_nodes.push(else_node_idx);
                         }

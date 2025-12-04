@@ -944,7 +944,8 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let proc_type = self.infer_expression_type(process_id);
-                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error {
+                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error
+                {
                     self.type_error(
                         "Expected string for process ID".to_string(),
                         Some(Type::Text),
@@ -960,7 +961,8 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let proc_type = self.infer_expression_type(process_id);
-                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error {
+                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error
+                {
                     self.type_error(
                         "Expected string for process ID".to_string(),
                         Some(Type::Text),
@@ -977,7 +979,8 @@ impl TypeChecker {
                 column: _column,
             } => {
                 let proc_type = self.infer_expression_type(process_id);
-                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error {
+                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error
+                {
                     self.type_error(
                         "Expected string for process ID".to_string(),
                         Some(Type::Text),
