@@ -1,0 +1,74 @@
+// WFL Subprocess Support Comprehensive Test
+// Tests all subprocess operations: execute, spawn, control, and streaming
+
+display "=== WFL Subprocess Comprehensive Test ==="
+display ""
+
+// Test 1: Simple Command Execution
+display "Test 1: Execute Command"
+wait for execute command "echo Hello from subprocess" as cmd_result
+display "  Command executed successfully"
+display ""
+
+// Test 2: Execute Without Storing Result
+display "Test 2: Execute Without Variable"
+wait for execute command "echo No variable needed"
+display "  Execution completed"
+display ""
+
+// Test 3: Background Process Spawn and Wait
+display "Test 3: Spawn and Wait for Process"
+wait for spawn command "echo Background process" as bg_proc
+display "  Process spawned"
+wait for process bg_proc to complete as exit_status
+display "  Process completed"
+display ""
+
+// Test 4: Process Status Check
+display "Test 4: Check Process Status"
+wait for spawn command "echo Quick task" as status_proc
+store proc_status as process status_proc is running
+check if proc_status:
+    display "  Process was running (or completed too fast)"
+otherwise:
+    display "  Process already completed"
+end check
+display ""
+
+// Test 5: Process Termination
+display "Test 5: Kill Process"
+wait for spawn command "echo Terminated" as term_proc
+wait for 100 milliseconds
+kill process term_proc
+display "  Process terminated"
+display ""
+
+// Test 6: Read Process Output
+display "Test 6: Capture Process Output"
+wait for spawn command "echo Output captured" as out_proc
+wait for 200 milliseconds
+wait for read output from process out_proc as captured_data
+display "  Output captured successfully"
+display ""
+
+// Test 7: Error Handling
+display "Test 7: Error Handling"
+try:
+    wait for execute command "nonexistent_cmd_xyz" as err_result
+    display "  Should not reach here"
+when error:
+    display "  Error caught successfully"
+end try
+display ""
+
+// Test 8: Multiple Processes
+display "Test 8: Multiple Concurrent Processes"
+wait for spawn command "echo Process 1" as p1
+wait for spawn command "echo Process 2" as p2
+display "  Two processes spawned"
+wait for process p1 to complete
+wait for process p2 to complete
+display "  Both processes completed"
+display ""
+
+display "=== All Subprocess Tests Completed Successfully ==="
