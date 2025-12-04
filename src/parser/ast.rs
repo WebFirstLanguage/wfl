@@ -243,6 +243,37 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    ExecuteCommandStatement {
+        command: Expression,
+        arguments: Option<Expression>,
+        variable_name: Option<String>,
+        line: usize,
+        column: usize,
+    },
+    SpawnProcessStatement {
+        command: Expression,
+        arguments: Option<Expression>,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
+    ReadProcessOutputStatement {
+        process_id: Expression,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
+    KillProcessStatement {
+        process_id: Expression,
+        line: usize,
+        column: usize,
+    },
+    WaitForProcessStatement {
+        process_id: Expression,
+        variable_name: Option<String>,
+        line: usize,
+        column: usize,
+    },
     WaitForStatement {
         inner: Box<Statement>,
         line: usize,
@@ -576,6 +607,11 @@ pub enum Expression {
     ListFilesFiltered {
         path: Box<Expression>,
         extensions: Vec<Expression>,
+        line: usize,
+        column: usize,
+    },
+    ProcessRunning {
+        process_id: Box<Expression>,
         line: usize,
         column: usize,
     },

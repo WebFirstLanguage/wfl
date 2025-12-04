@@ -1729,6 +1729,9 @@ impl Analyzer {
             } => {
                 // No sub-expressions to analyze
             }
+            Expression::ProcessRunning { .. } => {
+                // Phase 4 implementation
+            }
         }
     }
 }

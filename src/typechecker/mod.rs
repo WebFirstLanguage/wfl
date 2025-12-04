@@ -894,6 +894,99 @@ impl TypeChecker {
                     );
                 }
             }
+            Statement::ExecuteCommandStatement {
+                command,
+                arguments,
+                variable_name: _,
+                line: _line,
+                column: _column,
+            } => {
+                let cmd_type = self.infer_expression_type(command);
+                if cmd_type != Type::Text && cmd_type != Type::Unknown && cmd_type != Type::Error {
+                    self.type_error(
+                        "Expected string for command".to_string(),
+                        Some(Type::Text),
+                        Some(cmd_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+                if let Some(args) = arguments {
+                    let _args_type = self.infer_expression_type(args);
+                    // Arguments can be a list or a single string
+                }
+            }
+            Statement::SpawnProcessStatement {
+                command,
+                arguments,
+                variable_name: _,
+                line: _line,
+                column: _column,
+            } => {
+                let cmd_type = self.infer_expression_type(command);
+                if cmd_type != Type::Text && cmd_type != Type::Unknown && cmd_type != Type::Error {
+                    self.type_error(
+                        "Expected string for command".to_string(),
+                        Some(Type::Text),
+                        Some(cmd_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+                if let Some(args) = arguments {
+                    let _args_type = self.infer_expression_type(args);
+                }
+            }
+            Statement::ReadProcessOutputStatement {
+                process_id,
+                variable_name: _,
+                line: _line,
+                column: _column,
+            } => {
+                let proc_type = self.infer_expression_type(process_id);
+                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error {
+                    self.type_error(
+                        "Expected string for process ID".to_string(),
+                        Some(Type::Text),
+                        Some(proc_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
+            Statement::KillProcessStatement {
+                process_id,
+                line: _line,
+                column: _column,
+            } => {
+                let proc_type = self.infer_expression_type(process_id);
+                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error {
+                    self.type_error(
+                        "Expected string for process ID".to_string(),
+                        Some(Type::Text),
+                        Some(proc_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
+            Statement::WaitForProcessStatement {
+                process_id,
+                variable_name: _,
+                line: _line,
+                column: _column,
+            } => {
+                let proc_type = self.infer_expression_type(process_id);
+                if proc_type != Type::Text && proc_type != Type::Unknown && proc_type != Type::Error {
+                    self.type_error(
+                        "Expected string for process ID".to_string(),
+                        Some(Type::Text),
+                        Some(proc_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
             Statement::WriteToStatement {
                 content,
                 file,
@@ -2455,6 +2548,7 @@ impl TypeChecker {
             Expression::HeaderAccess { .. } => Type::Text,
             Expression::CurrentTimeMilliseconds { .. } => Type::Number,
             Expression::CurrentTimeFormatted { .. } => Type::Text,
+            Expression::ProcessRunning { .. } => Type::Boolean,
         }
     }
 

@@ -124,6 +124,27 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
         Statement::DeleteFileStatement { .. } => "DeleteFileStatement".to_string(),
         Statement::DeleteDirectoryStatement { .. } => "DeleteDirectoryStatement".to_string(),
+        Statement::ExecuteCommandStatement { variable_name, .. } => {
+            if let Some(var) = variable_name {
+                format!("ExecuteCommandStatement '{var}'")
+            } else {
+                "ExecuteCommandStatement".to_string()
+            }
+        }
+        Statement::SpawnProcessStatement { variable_name, .. } => {
+            format!("SpawnProcessStatement '{variable_name}'")
+        }
+        Statement::ReadProcessOutputStatement { variable_name, .. } => {
+            format!("ReadProcessOutputStatement '{variable_name}'")
+        }
+        Statement::KillProcessStatement { .. } => "KillProcessStatement".to_string(),
+        Statement::WaitForProcessStatement { variable_name, .. } => {
+            if let Some(var) = variable_name {
+                format!("WaitForProcessStatement '{var}'")
+            } else {
+                "WaitForProcessStatement".to_string()
+            }
+        }
         Statement::WaitForStatement { .. } => "WaitForStatement".to_string(),
         Statement::WaitForDurationStatement { .. } => "WaitForDurationStatement".to_string(),
         Statement::TryStatement { .. } => "TryStatement".to_string(),
@@ -234,6 +255,7 @@ fn expr_type(expr: &Expression) -> String {
         Expression::CurrentTimeFormatted { format, .. } => {
             format!("CurrentTimeFormatted '{format}'")
         }
+        Expression::ProcessRunning { .. } => "ProcessRunning".to_string(),
     }
 }
 
@@ -1252,6 +1274,11 @@ impl Interpreter {
             Statement::RegisterSignalHandlerStatement { line, column, .. } => (*line, *column),
             Statement::StopAcceptingConnectionsStatement { line, column, .. } => (*line, *column),
             Statement::CloseServerStatement { line, column, .. } => (*line, *column),
+            Statement::ExecuteCommandStatement { line, column, .. } => (*line, *column),
+            Statement::SpawnProcessStatement { line, column, .. } => (*line, *column),
+            Statement::ReadProcessOutputStatement { line, column, .. } => (*line, *column),
+            Statement::KillProcessStatement { line, column, .. } => (*line, *column),
+            Statement::WaitForProcessStatement { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {
@@ -3874,6 +3901,22 @@ impl Interpreter {
 
                 Ok((Value::Null, ControlFlow::None))
             }
+            // Subprocess statements - Phase 4 implementation
+            Statement::ExecuteCommandStatement { .. } => {
+                todo!("ExecuteCommandStatement implementation in Phase 4")
+            }
+            Statement::SpawnProcessStatement { .. } => {
+                todo!("SpawnProcessStatement implementation in Phase 4")
+            }
+            Statement::ReadProcessOutputStatement { .. } => {
+                todo!("ReadProcessOutputStatement implementation in Phase 4")
+            }
+            Statement::KillProcessStatement { .. } => {
+                todo!("KillProcessStatement implementation in Phase 4")
+            }
+            Statement::WaitForProcessStatement { .. } => {
+                todo!("WaitForProcessStatement implementation in Phase 4")
+            }
         };
 
         if self.step_mode {
@@ -4919,6 +4962,9 @@ impl Interpreter {
 
                 let formatted = now.format(&chrono_format).to_string();
                 Ok(Value::Text(Rc::from(formatted)))
+            }
+            Expression::ProcessRunning { .. } => {
+                todo!("ProcessRunning expression evaluation in Phase 4")
             }
         };
         self.assert_invariants();

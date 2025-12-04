@@ -3548,6 +3548,13 @@ impl<'a> Parser<'a> {
                         column,
                     })
                 }
+                Expression::ProcessRunning { line, column, .. } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
             };
         };
 
