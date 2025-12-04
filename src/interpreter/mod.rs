@@ -5909,18 +5909,25 @@ mod process_tests {
     async fn test_command_not_found() {
         let client = IoClient::new();
 
-        // This will fail until we implement execute_command
+        // With shell execution, the shell runs successfully but reports command not found
+        // So we check for non-zero exit code or error in stderr
         let result = client
             .execute_command("nonexistent_command_xyz_123", &[])
             .await;
 
-        assert!(result.is_err(), "Should fail when command doesn't exist");
-        let err = result.unwrap_err();
-        assert!(
-            err.contains("Failed to execute") || err.contains("not found"),
-            "Error should indicate command not found: {}",
-            err
-        );
+        // Shell execution succeeds, but command fails
+        if let Ok((_stdout, stderr, exit_code)) = result {
+            // Either non-zero exit code or error message in stderr
+            assert!(
+                exit_code != 0 || stderr.contains("not found") || stderr.contains("not recognized"),
+                "Should indicate command failure - exit_code: {}, stderr: {}",
+                exit_code,
+                stderr
+            );
+        } else {
+            // Or direct execution might fail
+            assert!(result.is_err(), "Should fail when command doesn't exist");
+        }
     }
 
     #[tokio::test]
