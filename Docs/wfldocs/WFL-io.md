@@ -18,6 +18,7 @@ This document describes WFL's unified I/O vision. **Not all features described h
 |-----------------|--------|---------|
 | **File I/O** | ✅ **Implemented** | `open file`, `read from`, `write to`, `close` - All file operations work as specified |
 | **Basic HTTP** | ✅ **Implemented** | `wait for open url` for GET/POST requests - Async HTTP operations functional |
+| **Subprocess Execution** | ✅ **Implemented** | `execute command`, `spawn command`, process control, output streaming - Full subprocess support |
 | **HTTP Headers & Advanced** | 🔧 **Partial** | Basic requests work; advanced header manipulation may be limited |
 | **WebSocket** | ❌ **Not Implemented** | WebSocket syntax described but no implementation exists |
 | **Raw TCP/Sockets** | ❌ **Not Implemented** | Low-level socket operations not available |
@@ -45,6 +46,17 @@ wait for open url at "https://api.example.com/data" and read content as response
 
 // Async HTTP POST
 wait for http post request to "https://api.example.com/endpoint" with data as result
+```
+
+**Subprocess Execution (Fully Working):**
+```wfl
+// Execute external commands
+wait for execute command "echo Hello" as result
+
+// Background processes
+wait for spawn command "python server.py" as proc
+store active as process proc is running
+kill process proc
 ```
 
 ### Planned Features (Not Yet Available)
@@ -313,6 +325,126 @@ In this snippet, `perform fetch from url` starts the HTTP GET requests. We don�
   This would mean whenever that exact URL is requested in test mode, WFL will not perform a real network call but instead immediately provide the given JSON string as the response body (with perhaps a default 200 OK status). You might also specify `status as 200` or other metadata if needed. This kind of syntax (`mock url ... gives back ...`) is very readable – it states the intention clearly (we are mocking this web call with a prepared answer).
 
 No matter which method, the idea is to keep the interface the same: your main code still does `open url ... read response ...`, but in testing, the environment is set up such that no real HTTP traffic occurs. The consistent syntax and the `mock`/`use` constructs ensure that your code is testable without modifications, staying true to dependency injection principles but with a much more **declarative, English-like feel**.
+
+## Subprocess Execution: Running External Commands
+
+> ### ✅ **FULLY IMPLEMENTED**
+> Subprocess support is fully implemented and ready to use. Execute external commands, spawn background processes, monitor output, and control process lifecycle with natural language syntax.
+
+WFL provides comprehensive subprocess support for executing external commands and managing processes. All subprocess operations are async by default and use the `wait for` syntax for consistency with other I/O operations.
+
+### Execute and Wait for Commands
+
+The simplest subprocess operation is executing a command and waiting for it to complete:
+
+```wfl
+// Execute a command
+wait for execute command "echo Hello World" as result
+
+// Execute without storing result
+wait for execute command "ls -la"
+```
+
+When you store the result, it contains an Object with execution details (output, error messages, exit code).
+
+### Background Process Management
+
+Spawn processes that run in the background:
+
+```wfl
+// Spawn a background process
+wait for spawn command "python server.py" as server_proc
+
+// Do other work while process runs
+display "Server starting in background..."
+wait for 2 seconds
+
+// Check if process is still running
+store is_active as process server_proc is running
+check if is_active:
+    display "Server is running"
+end check
+```
+
+### Process Output Streaming
+
+Capture output from running processes:
+
+```wfl
+// Spawn process and capture output
+wait for spawn command "echo Processing data" as worker
+wait for 100 milliseconds
+wait for read output from process worker as worker_output
+display worker_output
+```
+
+### Process Control
+
+Terminate processes and wait for completion:
+
+```wfl
+// Kill a running process
+wait for spawn command "sleep 60" as long_task
+wait for 1 second
+kill process long_task
+display "Process terminated"
+
+// Wait for process to complete naturally
+wait for spawn command "echo Done" as task
+wait for process task to complete as exit_code
+display "Task finished"
+```
+
+### Error Handling
+
+Subprocess operations support error handling with try/when blocks:
+
+```wfl
+try:
+    wait for execute command "nonexistent-command" as result
+    display "Command succeeded"
+when command not found:
+    display "Command executable not found"
+when process spawn failed:
+    display "Failed to start process"
+when error:
+    display "Other error occurred"
+end try
+```
+
+### Cross-Platform Execution
+
+Commands without explicit arguments are executed through the system shell (cmd.exe on Windows, sh on Unix), providing cross-platform compatibility:
+
+```wfl
+// This works on both Windows and Unix
+wait for execute command "echo Hello" as result
+
+// Shell features available
+wait for execute command "echo $HOME" as result  // Unix
+wait for execute command "echo %USERNAME%" as result  // Windows
+```
+
+### Common Patterns
+
+**Script Execution:**
+```wfl
+wait for spawn command "python script.py" as py_proc
+wait for process py_proc to complete as status
+```
+
+**Build Automation:**
+```wfl
+wait for execute command "cargo build --release" as build
+display "Build completed"
+```
+
+**System Administration:**
+```wfl
+wait for spawn command "systemctl status nginx" as check
+wait for read output from process check as status_info
+display status_info
+```
 
 ## Database I/O: Unified Syntax and Examples
 
