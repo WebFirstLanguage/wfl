@@ -358,6 +358,9 @@ pub enum Token {
     #[token("-")]
     Minus,
 
+    #[token("%")]
+    Percent,
+
     #[token(".")]
     Dot,
 

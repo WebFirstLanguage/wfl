@@ -1767,6 +1767,7 @@ impl<'a> Parser<'a> {
                 Token::KeywordMinus => Some((Operator::Minus, 1)),
                 Token::KeywordTimes => Some((Operator::Multiply, 2)),
                 Token::KeywordDividedBy => Some((Operator::Divide, 2)),
+                Token::Percent => Some((Operator::Modulo, 2)),
                 Token::KeywordDivided => {
                     // Check if next token is "by" more efficiently
                     if self.peek_divided_by() {
@@ -2247,6 +2248,9 @@ impl<'a> Parser<'a> {
                         self.tokens.next(); // Consume "divided"
                         self.expect_token(Token::KeywordBy, "Expected 'by' after 'divided'")?;
                         self.tokens.next(); // Consume "by"
+                    }
+                    Token::Percent => {
+                        self.tokens.next(); // Consume "%"
                     }
                     Token::Equals => {
                         self.tokens.next(); // Consume "="

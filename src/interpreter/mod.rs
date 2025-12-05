@@ -4833,6 +4833,7 @@ impl Interpreter {
                     Operator::Minus => self.subtract(left_val, right_val, *line, *column),
                     Operator::Multiply => self.multiply(left_val, right_val, *line, *column),
                     Operator::Divide => self.divide(left_val, right_val, *line, *column),
+                    Operator::Modulo => self.modulo(left_val, right_val, *line, *column),
                     Operator::Equals => Ok(Value::Bool(self.is_equal(&left_val, &right_val))),
                     Operator::NotEquals => Ok(Value::Bool(!self.is_equal(&left_val, &right_val))),
                     Operator::GreaterThan => self.greater_than(left_val, right_val, *line, *column),
@@ -5772,6 +5773,49 @@ impl Interpreter {
             }
             (a, b) => Err(RuntimeError::new(
                 format!("Cannot divide {} by {}", a.type_name(), b.type_name()),
+                line,
+                column,
+            )),
+        }
+    }
+
+    fn modulo(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError> {
+        #[cfg(feature = "dhat-ad-hoc")]
+        dhat::ad_hoc_event(1); // Track modulo operations for memory profiling
+
+        match (left, right) {
+            (Value::Number(a), Value::Number(b)) => {
+                if b == 0.0 {
+                    Err(RuntimeError::new(
+                        "Modulo by zero".to_string(),
+                        line,
+                        column,
+                    ))
+                } else {
+                    // Calculate the result of the modulo operation
+                    let result = a % b;
+
+                    // Check if the result is valid (not NaN or infinite)
+                    if !result.is_finite() {
+                        return Err(RuntimeError::new(
+                            format!("Modulo resulted in invalid number: {result}"),
+                            line,
+                            column,
+                        ));
+                    }
+
+                    // Return the valid result as a Value::Number
+                    Ok(Value::Number(result))
+                }
+            }
+            (a, b) => Err(RuntimeError::new(
+                format!("Cannot compute modulo of {} by {}", a.type_name(), b.type_name()),
                 line,
                 column,
             )),

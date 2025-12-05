@@ -182,8 +182,8 @@ store count2 as 0
 store total_odds as 0
 repeat while count2 is less than 5:
     change count2 to count2 plus 1
-    // Skip even numbers
-    check if ((count2 divided by 2) times 2) is equal to count2:
+    // Skip even numbers (using modulo operator)
+    check if (count2 % 2) is equal to 0:
         skip    // (continue to next iteration)
     end check
     change total_odds to total_odds plus count2
