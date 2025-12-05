@@ -32,6 +32,13 @@ pub struct WflConfig {
     pub snake_case_variables: bool,
     pub trailing_whitespace: bool,
     pub consistent_keyword_case: bool,
+    // Subprocess security settings
+    pub allow_shell_execution: bool,
+    pub shell_execution_mode: ShellExecutionMode,
+    pub allowed_shell_commands: Vec<String>,
+    pub warn_on_shell_execution: bool,
+    // Subprocess resource management
+    pub subprocess_config: SubprocessConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +47,39 @@ pub enum LogLevel {
     Info,
     Warn,
     Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellExecutionMode {
+    Forbidden,     // No shell execution allowed
+    AllowlistOnly, // Only allowlisted commands
+    Sanitized,     // Shell with validation/warnings
+    Unrestricted,  // Legacy mode (not recommended)
+}
+
+#[derive(Debug, Clone)]
+pub struct SubprocessConfig {
+    pub max_concurrent_processes: usize,
+    pub max_buffer_size_bytes: usize,
+    pub enable_auto_cleanup: bool,
+    pub enable_reaper: bool,
+    pub reaper_interval_secs: u64,
+    pub kill_on_shutdown: bool,
+    pub warn_on_orphan: bool,
+}
+
+impl Default for SubprocessConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_processes: 100,
+            max_buffer_size_bytes: 10 * 1024 * 1024, // 10 MB
+            enable_auto_cleanup: true,
+            enable_reaper: false,
+            reaper_interval_secs: 30,
+            kill_on_shutdown: false,
+            warn_on_orphan: true,
+        }
+    }
 }
 
 impl Default for WflConfig {
@@ -64,6 +104,13 @@ impl Default for WflConfig {
             snake_case_variables: true,
             trailing_whitespace: false, // false means no trailing whitespace allowed
             consistent_keyword_case: true,
+            // Subprocess security defaults (secure by default)
+            allow_shell_execution: false,
+            shell_execution_mode: ShellExecutionMode::Forbidden,
+            allowed_shell_commands: Vec::new(),
+            warn_on_shell_execution: true,
+            // Subprocess resource management defaults
+            subprocess_config: SubprocessConfig::default(),
         }
     }
 }
@@ -375,6 +422,122 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                         log::debug!(
                             "Loaded consistent_keyword_case: {} from {}",
                             config.consistent_keyword_case,
+                            file.display()
+                        );
+                    }
+                }
+                // Subprocess security settings
+                "allow_shell_execution" => {
+                    if let Ok(enabled) = value.parse::<bool>() {
+                        if config.allow_shell_execution
+                            != WflConfig::default().allow_shell_execution
+                        {
+                            log::debug!(
+                                "Overriding allow_shell_execution: {} -> {} from {}",
+                                config.allow_shell_execution,
+                                enabled,
+                                file.display()
+                            );
+                        }
+                        config.allow_shell_execution = enabled;
+                        log::debug!(
+                            "Loaded allow_shell_execution: {} from {}",
+                            config.allow_shell_execution,
+                            file.display()
+                        );
+                    }
+                }
+                "shell_execution_mode" => {
+                    let mode = match value.trim().to_lowercase().as_str() {
+                        "forbidden" => ShellExecutionMode::Forbidden,
+                        "allowlist_only" | "allowlistonly" => ShellExecutionMode::AllowlistOnly,
+                        "sanitized" => ShellExecutionMode::Sanitized,
+                        "unrestricted" => ShellExecutionMode::Unrestricted,
+                        _ => {
+                            log::warn!("Unknown shell_execution_mode: {}, using default", value);
+                            ShellExecutionMode::Forbidden
+                        }
+                    };
+                    if config.shell_execution_mode != WflConfig::default().shell_execution_mode {
+                        log::debug!(
+                            "Overriding shell_execution_mode: {:?} -> {:?} from {}",
+                            config.shell_execution_mode,
+                            mode,
+                            file.display()
+                        );
+                    }
+                    config.shell_execution_mode = mode;
+                    log::debug!(
+                        "Loaded shell_execution_mode: {:?} from {}",
+                        config.shell_execution_mode,
+                        file.display()
+                    );
+                }
+                "allowed_shell_commands" => {
+                    // Parse comma-separated list of allowed commands
+                    let commands: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+
+                    if !config.allowed_shell_commands.is_empty() {
+                        log::debug!("Overriding allowed_shell_commands from {}", file.display());
+                    }
+                    config.allowed_shell_commands = commands;
+                    log::debug!(
+                        "Loaded allowed_shell_commands: {:?} from {}",
+                        config.allowed_shell_commands,
+                        file.display()
+                    );
+                }
+                "warn_on_shell_execution" => {
+                    if let Ok(enabled) = value.parse::<bool>() {
+                        if config.warn_on_shell_execution
+                            != WflConfig::default().warn_on_shell_execution
+                        {
+                            log::debug!(
+                                "Overriding warn_on_shell_execution: {} -> {} from {}",
+                                config.warn_on_shell_execution,
+                                enabled,
+                                file.display()
+                            );
+                        }
+                        config.warn_on_shell_execution = enabled;
+                        log::debug!(
+                            "Loaded warn_on_shell_execution: {} from {}",
+                            config.warn_on_shell_execution,
+                            file.display()
+                        );
+                    }
+                }
+                // Subprocess resource management settings
+                "max_concurrent_processes" => {
+                    if let Ok(limit) = value.parse::<usize>() {
+                        config.subprocess_config.max_concurrent_processes = limit;
+                        log::debug!(
+                            "Loaded max_concurrent_processes: {} from {}",
+                            limit,
+                            file.display()
+                        );
+                    }
+                }
+                "max_buffer_size_bytes" => {
+                    if let Ok(size) = value.parse::<usize>() {
+                        config.subprocess_config.max_buffer_size_bytes = size;
+                        log::debug!(
+                            "Loaded max_buffer_size_bytes: {} from {}",
+                            size,
+                            file.display()
+                        );
+                    }
+                }
+                "kill_on_shutdown" => {
+                    if let Ok(enabled) = value.parse::<bool>() {
+                        config.subprocess_config.kill_on_shutdown = enabled;
+                        log::debug!(
+                            "Loaded kill_on_shutdown: {} from {}",
+                            enabled,
                             file.display()
                         );
                     }

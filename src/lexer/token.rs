@@ -143,6 +143,26 @@ pub enum Token {
     KeywordWrite,
     #[token("append")]
     KeywordAppend,
+    #[token("execute")]
+    KeywordExecute,
+    #[token("spawn")]
+    KeywordSpawn,
+    #[token("using")]
+    KeywordUsing,
+    #[token("shell")]
+    KeywordShell,
+    #[token("kill")]
+    KeywordKill,
+    #[token("process")]
+    KeywordProcess,
+    #[token("command")]
+    KeywordCommand,
+    #[token("output")]
+    KeywordOutput,
+    #[token("running")]
+    KeywordRunning,
+    #[token("arguments")]
+    KeywordArguments,
     #[token("appending")]
     KeywordAppending,
     #[token("content")]

@@ -1,4 +1,6 @@
 #![allow(clippy::await_holding_refcell_ref)]
+pub mod bounded_buffer;
+pub mod command_sanitizer;
 pub mod control_flow;
 pub mod environment;
 pub mod error;
@@ -17,6 +19,7 @@ use self::value::{
     EventHandler, FunctionValue, InterfaceDefinitionValue, Value,
 };
 use crate::builtins::get_function_arity;
+use crate::config::WflConfig;
 use crate::debug_report::CallFrame;
 #[cfg(debug_assertions)]
 use crate::exec_block_enter;
@@ -124,6 +127,27 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
         Statement::DeleteFileStatement { .. } => "DeleteFileStatement".to_string(),
         Statement::DeleteDirectoryStatement { .. } => "DeleteDirectoryStatement".to_string(),
+        Statement::ExecuteCommandStatement { variable_name, .. } => {
+            if let Some(var) = variable_name {
+                format!("ExecuteCommandStatement '{var}'")
+            } else {
+                "ExecuteCommandStatement".to_string()
+            }
+        }
+        Statement::SpawnProcessStatement { variable_name, .. } => {
+            format!("SpawnProcessStatement '{variable_name}'")
+        }
+        Statement::ReadProcessOutputStatement { variable_name, .. } => {
+            format!("ReadProcessOutputStatement '{variable_name}'")
+        }
+        Statement::KillProcessStatement { .. } => "KillProcessStatement".to_string(),
+        Statement::WaitForProcessStatement { variable_name, .. } => {
+            if let Some(var) = variable_name {
+                format!("WaitForProcessStatement '{var}'")
+            } else {
+                "WaitForProcessStatement".to_string()
+            }
+        }
         Statement::WaitForStatement { .. } => "WaitForStatement".to_string(),
         Statement::WaitForDurationStatement { .. } => "WaitForDurationStatement".to_string(),
         Statement::TryStatement { .. } => "TryStatement".to_string(),
@@ -234,6 +258,7 @@ fn expr_type(expr: &Expression) -> String {
         Expression::CurrentTimeFormatted { format, .. } => {
             format!("CurrentTimeFormatted '{format}'")
         }
+        Expression::ProcessRunning { .. } => "ProcessRunning".to_string(),
     }
 }
 
@@ -257,6 +282,21 @@ pub struct Interpreter {
     script_args: Vec<String>, // Command-line arguments passed to the script
     web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
     pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
+    #[allow(dead_code)] // Used for future security features
+    config: Arc<WflConfig>, // Configuration for security and other settings
+}
+
+// Process handle for managing subprocess state
+#[allow(dead_code)]
+pub struct ProcessHandle {
+    child: tokio::process::Child,
+    command: String,
+    args: Vec<String>,
+    started_at: Instant,
+    completed_at: Option<Instant>,
+    exit_code: Option<i32>,
+    stdout_buffer: Arc<tokio::sync::Mutex<bounded_buffer::BoundedBuffer>>,
+    stderr_buffer: Arc<tokio::sync::Mutex<bounded_buffer::BoundedBuffer>>,
 }
 
 #[allow(dead_code)]
@@ -264,14 +304,20 @@ pub struct IoClient {
     http_client: reqwest::Client,
     file_handles: Mutex<HashMap<String, (PathBuf, tokio::fs::File)>>,
     next_file_id: Mutex<usize>,
+    process_handles: Mutex<HashMap<String, ProcessHandle>>,
+    next_process_id: Mutex<usize>,
+    config: Arc<WflConfig>,
 }
 
 impl IoClient {
-    fn new() -> Self {
+    fn new(config: Arc<WflConfig>) -> Self {
         Self {
             http_client: reqwest::Client::new(),
             file_handles: Mutex::new(HashMap::new()),
             next_file_id: Mutex::new(1),
+            process_handles: Mutex::new(HashMap::new()),
+            next_process_id: Mutex::new(1),
+            config,
         }
     }
 
@@ -603,6 +649,416 @@ impl IoClient {
             Err(e) => Err(format!("Failed to delete directory: {e}")),
         }
     }
+
+    // Subprocess management methods
+
+    /// Execute a command and wait for it to complete, returning (stdout, stderr, exit_code)
+    #[allow(dead_code)]
+    async fn execute_command(
+        &self,
+        command: &str,
+        args: &[&str],
+        use_shell: bool,
+        line: usize,
+        column: usize,
+    ) -> Result<(String, String, i32), String> {
+        use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
+        use tokio::process::Command;
+
+        // Determine if shell execution is needed
+        let needs_shell = use_shell
+            || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
+
+        // Security validation if shell is needed
+        if needs_shell {
+            let sanitizer = CommandSanitizer::new(Arc::clone(&self.config));
+            match sanitizer.validate_command(command)? {
+                ValidationResult::Safe => {
+                    // No shell needed after all
+                }
+                ValidationResult::RequiresShell { warnings, .. } => {
+                    // Shell is needed, show warnings if configured
+                    if self.config.warn_on_shell_execution {
+                        eprintln!("⚠️  Security Warning (line {}, column {}):", line, column);
+                        eprintln!("   Shell execution enabled for command: {}", command);
+                        for warning in warnings {
+                            eprintln!("   - {}", warning);
+                        }
+                        eprintln!("   Consider using 'with arguments' syntax for safer execution.");
+                    }
+                }
+                ValidationResult::Blocked { reason } => {
+                    return Err(format!(
+                        "Command blocked by security policy: {}\n\
+                         To allow shell execution, update the configuration in .wflcfg:\n\
+                         shell_execution_mode = \"sanitized\"  # or \"unrestricted\"\n\
+                         Or use safe execution: execute command \"program\" with arguments [\"arg1\", \"arg2\"]",
+                        reason
+                    ));
+                }
+            }
+        }
+
+        // Build the command
+        let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
+            // Shell execution path
+            #[cfg(target_os = "windows")]
+            {
+                let mut cmd = Command::new("cmd.exe");
+                cmd.args(["/C", command]);
+                cmd
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let mut cmd = Command::new("sh");
+                cmd.args(["-c", command]);
+                cmd
+            }
+        } else {
+            // Safe path: parse and execute directly
+            let (program, parsed_args) = if args.is_empty() {
+                CommandSanitizer::parse_command(command)?
+            } else {
+                (
+                    command.to_string(),
+                    args.iter().map(|s| s.to_string()).collect(),
+                )
+            };
+
+            let mut cmd = Command::new(program);
+            cmd.args(parsed_args);
+            cmd
+        };
+
+        // Execute the command
+        let output = cmd
+            .output()
+            .await
+            .map_err(|e| format!("Failed to execute command '{}': {}", command, e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let exit_code = output.status.code().unwrap_or(-1);
+
+        Ok((stdout, stderr, exit_code))
+    }
+
+    /// Spawn a background process and return a process ID
+    #[allow(dead_code)]
+    async fn spawn_process(
+        &self,
+        command: &str,
+        args: &[&str],
+        use_shell: bool,
+        line: usize,
+        column: usize,
+    ) -> Result<String, String> {
+        use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
+        use tokio::io::AsyncReadExt;
+        use tokio::process::Command;
+
+        // Clean up completed processes before spawning new one
+        self.cleanup_completed_processes().await;
+
+        // Check process limit
+        {
+            let handles = self.process_handles.lock().await;
+            if handles.len() >= self.config.subprocess_config.max_concurrent_processes {
+                return Err(format!(
+                    "Process limit reached: {} processes currently running (max: {}). \
+                     Consider waiting for processes to complete or increasing max_concurrent_processes in .wflcfg",
+                    handles.len(),
+                    self.config.subprocess_config.max_concurrent_processes
+                ));
+            }
+        }
+
+        // Determine if shell execution is needed
+        let needs_shell = use_shell
+            || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
+
+        // Security validation if shell is needed
+        if needs_shell {
+            let sanitizer = CommandSanitizer::new(Arc::clone(&self.config));
+            match sanitizer.validate_command(command)? {
+                ValidationResult::Safe => {
+                    // No shell needed after all
+                }
+                ValidationResult::RequiresShell { warnings, .. } => {
+                    // Shell is needed, show warnings if configured
+                    if self.config.warn_on_shell_execution {
+                        eprintln!("⚠️  Security Warning (line {}, column {}):", line, column);
+                        eprintln!("   Shell execution enabled for command: {}", command);
+                        for warning in warnings {
+                            eprintln!("   - {}", warning);
+                        }
+                        eprintln!("   Consider using 'with arguments' syntax for safer execution.");
+                    }
+                }
+                ValidationResult::Blocked { reason } => {
+                    return Err(format!(
+                        "Command blocked by security policy: {}\n\
+                         To allow shell execution, update the configuration in .wflcfg:\n\
+                         shell_execution_mode = \"sanitized\"  # or \"unrestricted\"\n\
+                         Or use safe execution: spawn command \"program\" with arguments [\"arg1\", \"arg2\"] as proc_id",
+                        reason
+                    ));
+                }
+            }
+        }
+
+        // Build the command
+        let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
+            // Shell execution path
+            #[cfg(target_os = "windows")]
+            {
+                let mut cmd = Command::new("cmd.exe");
+                cmd.args(["/C", command]);
+                cmd
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let mut cmd = Command::new("sh");
+                cmd.args(["-c", command]);
+                cmd
+            }
+        } else {
+            // Safe path: parse and execute directly
+            let (program, parsed_args) = if args.is_empty() {
+                CommandSanitizer::parse_command(command)?
+            } else {
+                (
+                    command.to_string(),
+                    args.iter().map(|s| s.to_string()).collect(),
+                )
+            };
+
+            let mut cmd = Command::new(program);
+            cmd.args(parsed_args);
+            cmd
+        };
+
+        let mut child = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn process '{}': {}", command, e))?;
+
+        // Generate process ID
+        let process_id = {
+            let mut next_id = self.next_process_id.lock().await;
+            let id = format!("proc{}", *next_id);
+            *next_id += 1;
+            id
+        };
+
+        // Create buffers for stdout and stderr with configurable size
+        let buffer_size = self.config.subprocess_config.max_buffer_size_bytes;
+        let stdout_buffer = Arc::new(tokio::sync::Mutex::new(bounded_buffer::BoundedBuffer::new(
+            buffer_size,
+        )));
+        let stderr_buffer = Arc::new(tokio::sync::Mutex::new(bounded_buffer::BoundedBuffer::new(
+            buffer_size,
+        )));
+
+        // Spawn background tasks to collect stdout and stderr
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
+        if let Some(mut stdout) = stdout {
+            let buffer = Arc::clone(&stdout_buffer);
+            let cmd = command.to_string();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 4096];
+                let mut warning_shown = false;
+                loop {
+                    match stdout.read(&mut buf).await {
+                        Ok(0) => break, // EOF
+                        Ok(n) => {
+                            let mut locked_buffer = buffer.lock().await;
+                            locked_buffer.push(&buf[..n]);
+
+                            // Warn once if data is being dropped
+                            if locked_buffer.stats().bytes_dropped > 0 && !warning_shown {
+                                eprintln!(
+                                    "⚠️  WARNING: Process '{}' stdout buffer overflow. \
+                                     Data is being dropped. Consider reading output more frequently.",
+                                    cmd
+                                );
+                                warning_shown = true;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        if let Some(mut stderr) = stderr {
+            let buffer = Arc::clone(&stderr_buffer);
+            let cmd = command.to_string();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 4096];
+                let mut warning_shown = false;
+                loop {
+                    match stderr.read(&mut buf).await {
+                        Ok(0) => break, // EOF
+                        Ok(n) => {
+                            let mut locked_buffer = buffer.lock().await;
+                            locked_buffer.push(&buf[..n]);
+
+                            // Warn once if data is being dropped
+                            if locked_buffer.stats().bytes_dropped > 0 && !warning_shown {
+                                eprintln!(
+                                    "⚠️  WARNING: Process '{}' stderr buffer overflow. \
+                                     Data is being dropped. Consider reading output more frequently.",
+                                    cmd
+                                );
+                                warning_shown = true;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        // Store process handle
+        let handle = ProcessHandle {
+            child,
+            command: command.to_string(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            started_at: Instant::now(),
+            completed_at: None,
+            exit_code: None,
+            stdout_buffer,
+            stderr_buffer,
+        };
+
+        self.process_handles
+            .lock()
+            .await
+            .insert(process_id.clone(), handle);
+
+        Ok(process_id)
+    }
+
+    /// Clean up completed processes (lazy cleanup)
+    /// This prevents memory leaks by removing process handles for completed processes
+    #[allow(dead_code)]
+    async fn cleanup_completed_processes(&self) {
+        let mut handles = self.process_handles.lock().await;
+        handles.retain(|_id, handle| {
+            match handle.child.try_wait() {
+                Ok(Some(_exit_status)) => {
+                    // Process has completed - remove it
+                    false
+                }
+                Ok(None) => {
+                    // Process is still running - keep it
+                    true
+                }
+                Err(_) => {
+                    // Error checking status - remove it
+                    false
+                }
+            }
+        });
+    }
+
+    /// Read accumulated output from a process
+    #[allow(dead_code)]
+    async fn read_process_output(&self, process_id: &str) -> Result<String, String> {
+        // Don't cleanup here - user may want to read output from completed processes
+        let handles = self.process_handles.lock().await;
+        let handle = handles
+            .get(process_id)
+            .ok_or_else(|| format!("Invalid process ID: {}", process_id))?;
+
+        let mut buffer = handle.stdout_buffer.lock().await;
+        let output = String::from_utf8_lossy(&buffer.read_all()).to_string();
+        Ok(output)
+    }
+
+    /// Kill a running process
+    #[allow(dead_code)]
+    async fn kill_process(&self, process_id: &str) -> Result<(), String> {
+        {
+            let mut handles = self.process_handles.lock().await;
+            let handle = handles
+                .get_mut(process_id)
+                .ok_or_else(|| format!("Invalid process ID: {}", process_id))?;
+
+            handle
+                .child
+                .kill()
+                .await
+                .map_err(|e| format!("Failed to kill process: {}", e))?;
+        }
+
+        // Clean up killed and other completed processes
+        self.cleanup_completed_processes().await;
+
+        Ok(())
+    }
+
+    /// Wait for a process to complete and return its exit code
+    #[allow(dead_code)]
+    async fn wait_for_process(&self, process_id: &str) -> Result<i32, String> {
+        let mut handle = {
+            let mut handles = self.process_handles.lock().await;
+            handles
+                .remove(process_id)
+                .ok_or_else(|| format!("Invalid process ID: {}", process_id))?
+        };
+
+        let status = handle
+            .child
+            .wait()
+            .await
+            .map_err(|e| format!("Failed to wait for process: {}", e))?;
+
+        Ok(status.code().unwrap_or(-1))
+    }
+
+    /// Check if a process is still running
+    #[allow(dead_code)]
+    async fn is_process_running(&self, process_id: &str) -> bool {
+        let mut handles = self.process_handles.lock().await;
+        if let Some(handle) = handles.get_mut(process_id) {
+            matches!(handle.child.try_wait(), Ok(None))
+        } else {
+            false
+        }
+        // Note: Cleanup happens in spawn_process and kill_process
+    }
+}
+
+impl Drop for IoClient {
+    fn drop(&mut self) {
+        // Try to acquire lock without blocking (Drop can't be async)
+        if let Ok(mut handles) = self.process_handles.try_lock() {
+            let running_count = handles.len();
+
+            if running_count > 0 && self.config.subprocess_config.warn_on_orphan {
+                eprintln!(
+                    "⚠️  WARNING: {} subprocess(es) still running at interpreter shutdown",
+                    running_count
+                );
+            }
+
+            // Optionally kill all running processes on shutdown
+            if self.config.subprocess_config.kill_on_shutdown {
+                for (_id, handle) in handles.iter_mut() {
+                    let _ = handle.child.start_kill();
+                }
+            }
+
+            handles.clear();
+        }
+    }
 }
 
 impl Default for Interpreter {
@@ -613,6 +1069,10 @@ impl Default for Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
+        Self::with_config(Arc::new(WflConfig::default()))
+    }
+
+    pub fn with_config(config: Arc<WflConfig>) -> Self {
         let global_env = Environment::new_global();
 
         {
@@ -631,21 +1091,23 @@ impl Interpreter {
             in_count_loop: RefCell::new(false),
             in_main_loop: RefCell::new(false),
             started: Instant::now(),
-            max_duration: Duration::from_secs(u64::MAX), // Effectively no timeout by default
+            max_duration: Duration::from_secs(config.timeout_seconds),
             call_stack: RefCell::new(Vec::new()),
-            io_client: Rc::new(IoClient::new()),
+            io_client: Rc::new(IoClient::new(Arc::clone(&config))),
             step_mode: false,                          // Default to non-step mode
             script_args: Vec::new(),                   // Initialize empty, will be set later
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
+            config,
         }
     }
 
     pub fn with_timeout(seconds: u64) -> Self {
-        let mut interpreter = Self::new();
-        interpreter.started = Instant::now();
-        interpreter.max_duration = Duration::from_secs(if seconds > 300 { 300 } else { seconds });
-        interpreter
+        let config = WflConfig {
+            timeout_seconds: if seconds > 300 { 300 } else { seconds },
+            ..Default::default()
+        };
+        Self::with_config(Arc::new(config))
     }
 
     pub fn set_step_mode(&mut self, step_mode: bool) {
@@ -1071,6 +1533,11 @@ impl Interpreter {
             Statement::RegisterSignalHandlerStatement { line, column, .. } => (*line, *column),
             Statement::StopAcceptingConnectionsStatement { line, column, .. } => (*line, *column),
             Statement::CloseServerStatement { line, column, .. } => (*line, *column),
+            Statement::ExecuteCommandStatement { line, column, .. } => (*line, *column),
+            Statement::SpawnProcessStatement { line, column, .. } => (*line, *column),
+            Statement::ReadProcessOutputStatement { line, column, .. } => (*line, *column),
+            Statement::KillProcessStatement { line, column, .. } => (*line, *column),
+            Statement::WaitForProcessStatement { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {
@@ -2241,6 +2708,18 @@ impl Interpreter {
                                 }
                                 crate::parser::ast::ErrorType::PermissionDenied => {
                                     err.kind == ErrorKind::PermissionDenied
+                                }
+                                crate::parser::ast::ErrorType::ProcessNotFound => {
+                                    err.kind == ErrorKind::ProcessNotFound
+                                }
+                                crate::parser::ast::ErrorType::ProcessSpawnFailed => {
+                                    err.kind == ErrorKind::ProcessSpawnFailed
+                                }
+                                crate::parser::ast::ErrorType::ProcessKillFailed => {
+                                    err.kind == ErrorKind::ProcessKillFailed
+                                }
+                                crate::parser::ast::ErrorType::CommandNotFound => {
+                                    err.kind == ErrorKind::CommandNotFound
                                 }
                             };
 
@@ -3693,6 +4172,291 @@ impl Interpreter {
 
                 Ok((Value::Null, ControlFlow::None))
             }
+            // Subprocess statements
+            Statement::ExecuteCommandStatement {
+                command,
+                arguments,
+                variable_name,
+                use_shell,
+                line,
+                column,
+            } => {
+                // Evaluate command expression
+                let cmd_val = self.evaluate_expression(command, Rc::clone(&env)).await?;
+                let cmd_str = match &cmd_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Command must be text, got {}", cmd_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Evaluate arguments if provided
+                let args_vec: Vec<String> = if let Some(args_expr) = arguments {
+                    let args_val = self.evaluate_expression(args_expr, Rc::clone(&env)).await?;
+                    match &args_val {
+                        Value::List(list) => {
+                            let list_ref = list.borrow();
+                            list_ref
+                                .iter()
+                                .map(|v| match v {
+                                    Value::Text(t) => Ok(t.as_ref().to_string()),
+                                    _ => Ok(v.to_string()),
+                                })
+                                .collect::<Result<Vec<_>, RuntimeError>>()?
+                        }
+                        Value::Text(text) => vec![text.as_ref().to_string()],
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Arguments must be a list or text, got {}",
+                                    args_val.type_name()
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    Vec::new()
+                };
+
+                // Execute command
+                let args_refs: Vec<&str> = args_vec.iter().map(|s| s.as_str()).collect();
+                let (stdout, stderr, exit_code) = self
+                    .io_client
+                    .execute_command(cmd_str, &args_refs, *use_shell, *line, *column)
+                    .await
+                    .map_err(|e| {
+                        // Determine error kind based on error message
+                        let kind = if e.contains("program not found")
+                            || e.contains("cannot find")
+                            || e.contains("not recognized")
+                        {
+                            ErrorKind::CommandNotFound
+                        } else if e.contains("spawn") {
+                            ErrorKind::ProcessSpawnFailed
+                        } else {
+                            ErrorKind::General
+                        };
+                        RuntimeError::with_kind(e, *line, *column, kind)
+                    })?;
+
+                // Build result object
+                let mut result_map = HashMap::new();
+                result_map.insert("output".to_string(), Value::Text(Rc::from(stdout.as_str())));
+                result_map.insert("error".to_string(), Value::Text(Rc::from(stderr.as_str())));
+                result_map.insert("exit_code".to_string(), Value::Number(exit_code as f64));
+                result_map.insert("success".to_string(), Value::Bool(exit_code == 0));
+
+                let result_obj = Value::Object(Rc::new(RefCell::new(result_map)));
+
+                // Store result if variable name provided
+                if let Some(var_name) = variable_name {
+                    env.borrow_mut()
+                        .define(var_name, result_obj)
+                        .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                }
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::SpawnProcessStatement {
+                command,
+                arguments,
+                variable_name,
+                use_shell,
+                line,
+                column,
+            } => {
+                // Evaluate command expression
+                let cmd_val = self.evaluate_expression(command, Rc::clone(&env)).await?;
+                let cmd_str = match &cmd_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Command must be text, got {}", cmd_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Evaluate arguments if provided
+                let args_vec: Vec<String> = if let Some(args_expr) = arguments {
+                    let args_val = self.evaluate_expression(args_expr, Rc::clone(&env)).await?;
+                    match &args_val {
+                        Value::List(list) => {
+                            let list_ref = list.borrow();
+                            list_ref
+                                .iter()
+                                .map(|v| match v {
+                                    Value::Text(t) => Ok(t.as_ref().to_string()),
+                                    _ => Ok(v.to_string()),
+                                })
+                                .collect::<Result<Vec<_>, RuntimeError>>()?
+                        }
+                        Value::Text(text) => vec![text.as_ref().to_string()],
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Arguments must be a list or text, got {}",
+                                    args_val.type_name()
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    Vec::new()
+                };
+
+                // Spawn process
+                let args_refs: Vec<&str> = args_vec.iter().map(|s| s.as_str()).collect();
+                let process_id = self
+                    .io_client
+                    .spawn_process(cmd_str, &args_refs, *use_shell, *line, *column)
+                    .await
+                    .map_err(|e| {
+                        let kind = if e.contains("program not found")
+                            || e.contains("cannot find")
+                            || e.contains("not recognized")
+                        {
+                            ErrorKind::CommandNotFound
+                        } else {
+                            ErrorKind::ProcessSpawnFailed
+                        };
+                        RuntimeError::with_kind(e, *line, *column, kind)
+                    })?;
+
+                // Store process ID in variable
+                env.borrow_mut()
+                    .define(variable_name, Value::Text(Rc::from(process_id.as_str())))
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::ReadProcessOutputStatement {
+                process_id,
+                variable_name,
+                line,
+                column,
+            } => {
+                // Evaluate process ID expression
+                let proc_val = self
+                    .evaluate_expression(process_id, Rc::clone(&env))
+                    .await?;
+                let proc_id = match &proc_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Process ID must be text, got {}", proc_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Read process output
+                let output = self
+                    .io_client
+                    .read_process_output(proc_id)
+                    .await
+                    .map_err(|e| {
+                        let kind = if e.contains("Invalid process ID") {
+                            ErrorKind::ProcessNotFound
+                        } else {
+                            ErrorKind::General
+                        };
+                        RuntimeError::with_kind(e, *line, *column, kind)
+                    })?;
+
+                // Store output in variable
+                env.borrow_mut()
+                    .define(variable_name, Value::Text(Rc::from(output.as_str())))
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::KillProcessStatement {
+                process_id,
+                line,
+                column,
+            } => {
+                // Evaluate process ID expression
+                let proc_val = self
+                    .evaluate_expression(process_id, Rc::clone(&env))
+                    .await?;
+                let proc_id = match &proc_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Process ID must be text, got {}", proc_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Kill process
+                self.io_client.kill_process(proc_id).await.map_err(|e| {
+                    let kind = if e.contains("Invalid process ID") {
+                        ErrorKind::ProcessNotFound
+                    } else {
+                        ErrorKind::ProcessKillFailed
+                    };
+                    RuntimeError::with_kind(e, *line, *column, kind)
+                })?;
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::WaitForProcessStatement {
+                process_id,
+                variable_name,
+                line,
+                column,
+            } => {
+                // Evaluate process ID expression
+                let proc_val = self
+                    .evaluate_expression(process_id, Rc::clone(&env))
+                    .await?;
+                let proc_id = match &proc_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Process ID must be text, got {}", proc_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Wait for process to complete
+                let exit_code = self
+                    .io_client
+                    .wait_for_process(proc_id)
+                    .await
+                    .map_err(|e| {
+                        let kind = if e.contains("Invalid process ID") {
+                            ErrorKind::ProcessNotFound
+                        } else {
+                            ErrorKind::General
+                        };
+                        RuntimeError::with_kind(e, *line, *column, kind)
+                    })?;
+
+                // Store exit code in variable if provided
+                if let Some(var_name) = variable_name {
+                    env.borrow_mut()
+                        .define(var_name, Value::Number(exit_code as f64))
+                        .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                }
+
+                Ok((Value::Null, ControlFlow::None))
+            }
         };
 
         if self.step_mode {
@@ -4739,6 +5503,30 @@ impl Interpreter {
                 let formatted = now.format(&chrono_format).to_string();
                 Ok(Value::Text(Rc::from(formatted)))
             }
+            Expression::ProcessRunning {
+                process_id,
+                line,
+                column,
+            } => {
+                // Evaluate process ID expression
+                let proc_val = self
+                    .evaluate_expression(process_id, Rc::clone(&env))
+                    .await?;
+                let proc_id = match &proc_val {
+                    Value::Text(text) => text.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Process ID must be text, got {}", proc_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Check if process is running
+                let is_running = self.io_client.is_process_running(proc_id).await;
+                Ok(Value::Bool(is_running))
+            }
         };
         self.assert_invariants();
         result
@@ -5238,5 +6026,185 @@ impl Interpreter {
         }
 
         Ok(files)
+    }
+}
+
+#[cfg(test)]
+mod process_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_execute_simple_command() {
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
+
+        // Use safe argument-based execution (no shell)
+        let result = client
+            .execute_command("echo", &["hello"], false, 0, 0)
+            .await;
+
+        assert!(result.is_ok(), "Failed to execute command");
+        let (stdout, stderr, exit_code) = result.unwrap();
+        assert!(stdout.contains("hello"), "Output should contain 'hello'");
+        assert_eq!(exit_code, 0, "Exit code should be 0 for successful command");
+        assert!(
+            stderr.is_empty() || stderr.trim().is_empty(),
+            "Stderr should be empty"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_spawn_and_kill_process() {
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
+
+        // Unix-specific test using sleep command
+        let proc_id = client
+            .spawn_process("sleep", &["10"], false, 0, 0)
+            .await
+            .expect("Failed to spawn process");
+
+        // Check that process is running
+        assert!(
+            client.is_process_running(&proc_id).await,
+            "Process should be running"
+        );
+
+        // Kill the process
+        client
+            .kill_process(&proc_id)
+            .await
+            .expect("Failed to kill process");
+
+        // Give it time to terminate
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Process should no longer be running
+        assert!(
+            !client.is_process_running(&proc_id).await,
+            "Process should not be running after kill"
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_spawn_and_kill_process() {
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
+
+        // Windows-specific test using timeout command
+        let proc_id = client
+            .spawn_process("timeout", &["10"], false, 0, 0)
+            .await
+            .expect("Failed to spawn process");
+
+        // Check that process is running
+        assert!(
+            client.is_process_running(&proc_id).await,
+            "Process should be running"
+        );
+
+        // Kill the process
+        client
+            .kill_process(&proc_id)
+            .await
+            .expect("Failed to kill process");
+
+        // Give it time to terminate
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Process should no longer be running
+        assert!(
+            !client.is_process_running(&proc_id).await,
+            "Process should not be running after kill"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_capture_process_output() {
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
+
+        // Use shell command that works cross-platform (no args = shell execution)
+        let proc_id = client
+            .spawn_process("echo", &["test output"], false, 0, 0)
+            .await
+            .expect("Failed to spawn process");
+
+        // Give process time to complete and output to be captured
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        let output = client
+            .read_process_output(&proc_id)
+            .await
+            .expect("Failed to read process output");
+
+        assert!(
+            output.contains("test output"),
+            "Output should contain 'test output'"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_process_completion() {
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
+
+        // Use shell command that works cross-platform (no args = shell execution)
+        let proc_id = client
+            .spawn_process("echo", &["done"], false, 0, 0)
+            .await
+            .expect("Failed to spawn process");
+
+        let exit_code = client
+            .wait_for_process(&proc_id)
+            .await
+            .expect("Failed to wait for process");
+
+        assert_eq!(exit_code, 0, "Process should exit with code 0");
+    }
+
+    #[tokio::test]
+    async fn test_command_not_found() {
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
+
+        // With shell execution, the shell runs successfully but reports command not found
+        // So we check for non-zero exit code or error in stderr
+        let result = client
+            .execute_command("nonexistent_command_xyz_123", &[], false, 0, 0)
+            .await;
+
+        // Shell execution succeeds, but command fails
+        if let Ok((_stdout, stderr, exit_code)) = result {
+            // Either non-zero exit code or error message in stderr
+            assert!(
+                exit_code != 0 || stderr.contains("not found") || stderr.contains("not recognized"),
+                "Should indicate command failure - exit_code: {}, stderr: {}",
+                exit_code,
+                stderr
+            );
+        } else {
+            // Or direct execution might fail
+            assert!(result.is_err(), "Should fail when command doesn't exist");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_invalid_process_id() {
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
+
+        // Test invalid process ID handling
+        let result = client.read_process_output("invalid_proc_id").await;
+
+        assert!(result.is_err(), "Should fail for invalid process ID");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("Invalid process ID"),
+            "Error should indicate invalid process ID: {}",
+            err
+        );
     }
 }

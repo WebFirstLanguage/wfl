@@ -822,6 +822,8 @@ impl Analyzer {
                             Statement::CloseServerStatement { line, .. } => *line,
                             Statement::WriteContentStatement { line, .. } => *line,
                             Statement::WaitForDurationStatement { line, .. } => *line,
+                            // Subprocess statements - Phase 4 implementation
+                            _ => 0, // Placeholder for new statement types
                         },
                         column: match statement {
                             Statement::VariableDeclaration { column, .. } => *column,
@@ -880,6 +882,8 @@ impl Analyzer {
                             Statement::CloseServerStatement { column, .. } => *column,
                             Statement::WriteContentStatement { column, .. } => *column,
                             Statement::WaitForDurationStatement { column, .. } => *column,
+                            // Subprocess statements - Phase 4 implementation
+                            _ => 0, // Placeholder for new statement types
                         },
                     });
                     stmt_nodes.push(node_idx);
@@ -966,6 +970,7 @@ impl Analyzer {
                                 Statement::CloseServerStatement { line, .. } => *line,
                                 Statement::WriteContentStatement { line, .. } => *line,
                                 Statement::WaitForDurationStatement { line, .. } => *line,
+                                _ => 0,
                             },
                             column: match stmt {
                                 Statement::VariableDeclaration { column, .. } => *column,
@@ -1026,6 +1031,7 @@ impl Analyzer {
                                 Statement::CloseServerStatement { column, .. } => *column,
                                 Statement::WriteContentStatement { column, .. } => *column,
                                 Statement::WaitForDurationStatement { column, .. } => *column,
+                                _ => 0,
                             },
                         });
                         then_nodes.push(then_node_idx);
@@ -1102,6 +1108,7 @@ impl Analyzer {
                                     Statement::CloseServerStatement { line, .. } => *line,
                                     Statement::WriteContentStatement { line, .. } => *line,
                                     Statement::WaitForDurationStatement { line, .. } => *line,
+                                    _ => 0,
                                 },
                                 column: match stmt {
                                     Statement::VariableDeclaration { column, .. } => *column,
@@ -1164,6 +1171,7 @@ impl Analyzer {
                                     Statement::CloseServerStatement { column, .. } => *column,
                                     Statement::WriteContentStatement { column, .. } => *column,
                                     Statement::WaitForDurationStatement { column, .. } => *column,
+                                    _ => 0,
                                 },
                             });
                             else_nodes.push(else_node_idx);

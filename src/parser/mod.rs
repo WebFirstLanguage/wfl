@@ -1340,6 +1340,36 @@ impl<'a> Parser<'a> {
                         self.parse_open_file_statement()
                     }
                 }
+                Token::KeywordExecute => self.parse_execute_command_statement(),
+                Token::KeywordSpawn => self.parse_spawn_process_statement(),
+                Token::KeywordKill => self.parse_kill_process_statement(),
+                Token::KeywordRead => {
+                    // Look ahead to distinguish "read output from process" from other read variants
+                    let mut tokens_clone = self.tokens.clone();
+                    tokens_clone.next(); // Skip "read"
+                    if let Some(next_token) = tokens_clone.next() {
+                        if matches!(next_token.token, Token::KeywordOutput) {
+                            // It's "read output from process"
+                            self.parse_read_process_output_statement()
+                        } else {
+                            // "read" by itself is not a valid statement - treat as expression
+                            let token_pos = self.tokens.peek().unwrap();
+                            Err(ParseError::new(
+                                "Unexpected 'read' - did you mean 'read output from process'?"
+                                    .to_string(),
+                                token_pos.line,
+                                token_pos.column,
+                            ))
+                        }
+                    } else {
+                        let token_pos = self.tokens.peek().unwrap();
+                        Err(ParseError::new(
+                            "Unexpected 'read' at end of input".to_string(),
+                            token_pos.line,
+                            token_pos.column,
+                        ))
+                    }
+                }
                 Token::KeywordClose => {
                     // Check if it's "close server" or regular "close file"
                     let mut tokens_clone = self.tokens.clone();
@@ -2675,6 +2705,35 @@ impl<'a> Parser<'a> {
                         token_column,
                     ))
                 }
+                Token::KeywordProcess => {
+                    self.tokens.next(); // Consume "process"
+                    let token_line = token.line;
+                    let token_column = token.column;
+
+                    // Parse process ID expression
+                    let process_id = self.parse_primary_expression()?;
+
+                    // Check if followed by "is running"
+                    if let Some(next_token) = self.tokens.peek()
+                        && next_token.token == Token::KeywordIs
+                    {
+                        self.tokens.next(); // Consume "is"
+                        self.expect_token(Token::KeywordRunning, "Expected 'running' after 'is'")?;
+
+                        return Ok(Expression::ProcessRunning {
+                            process_id: Box::new(process_id),
+                            line: token_line,
+                            column: token_column,
+                        });
+                    }
+
+                    // Otherwise, this is an error - "process" without "is running" is not valid
+                    Err(ParseError::new(
+                        "Expected 'is running' after process ID".to_string(),
+                        token_line,
+                        token_column,
+                    ))
+                }
                 Token::KeywordHeader => {
                     self.tokens.next(); // Consume "header"
                     let token_line = token.line;
@@ -3542,6 +3601,13 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Expression::CurrentTimeFormatted { line, column, .. } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
+                Expression::ProcessRunning { line, column, .. } => {
                     Ok(Statement::DisplayStatement {
                         value: expr,
                         line,
@@ -4836,6 +4902,64 @@ impl<'a> Parser<'a> {
                     self.tokens.next(); // Consume "write" identifier
                     crate::parser::ast::WriteMode::Overwrite
                 }
+                Token::KeywordProcess => {
+                    // Handle "wait for process X to complete as exit_code"
+                    self.tokens.next(); // Consume "process"
+
+                    let process_id = self.parse_primary_expression()?;
+
+                    // Expect "to" and "complete"
+                    if let Some(token) = self.tokens.peek() {
+                        if matches!(token.token, Token::KeywordTo) {
+                            self.tokens.next(); // Consume "to"
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected 'to' after process ID".to_string(),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                    }
+
+                    if let Some(token) = self.tokens.peek() {
+                        if let Token::Identifier(id) = &token.token {
+                            if id == "complete" {
+                                self.tokens.next(); // Consume "complete"
+                            } else {
+                                return Err(ParseError::new(
+                                    "Expected 'complete' after 'to'".to_string(),
+                                    token.line,
+                                    token.column,
+                                ));
+                            }
+                        } else {
+                            return Err(ParseError::new(
+                                "Expected 'complete' after 'to'".to_string(),
+                                token.line,
+                                token.column,
+                            ));
+                        }
+                    }
+
+                    // Check for optional "as variable_name"
+                    let variable_name = if let Some(token) = self.tokens.peek() {
+                        if matches!(token.token, Token::KeywordAs) {
+                            self.tokens.next(); // Consume "as"
+                            Some(self.parse_variable_name_simple()?)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    return Ok(Statement::WaitForProcessStatement {
+                        process_id,
+                        variable_name,
+                        line: wait_token_pos.line,
+                        column: wait_token_pos.column,
+                    });
+                }
                 Token::KeywordRequest => {
                     // Handle "wait for request comes in on server as request_name"
                     self.tokens.next(); // Consume "request"
@@ -5147,6 +5271,180 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // Subprocess parsing functions
+
+    fn parse_execute_command_statement(&mut self) -> Result<Statement, ParseError> {
+        let token_pos = self.tokens.next().unwrap(); // Consume "execute"
+        self.expect_token(Token::KeywordCommand, "Expected 'command' after 'execute'")?;
+
+        let command = self.parse_primary_expression()?;
+
+        // Check for optional "with arguments"
+        let arguments = if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::KeywordWith)
+        {
+            self.tokens.next(); // Consume "with"
+            self.expect_token(Token::KeywordArguments, "Expected 'arguments' after 'with'")?;
+            Some(self.parse_primary_expression()?)
+        } else {
+            None
+        };
+
+        // Check for optional "using shell"
+        let use_shell = if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::KeywordUsing)
+        {
+            self.tokens.next(); // Consume "using"
+            self.expect_token(Token::KeywordShell, "Expected 'shell' after 'using'")?;
+            true
+        } else {
+            false
+        };
+
+        // Check for optional "as variable"
+        let variable_name = if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::KeywordAs)
+        {
+            self.tokens.next(); // Consume "as"
+            let var_token = self.tokens.next().ok_or_else(|| {
+                ParseError::new(
+                    "Expected identifier after 'as'".to_string(),
+                    token_pos.line,
+                    token_pos.column,
+                )
+            })?;
+
+            if let Token::Identifier(name) = &var_token.token {
+                Some(name.clone())
+            } else {
+                return Err(ParseError::new(
+                    format!("Expected identifier, found {:?}", var_token.token),
+                    var_token.line,
+                    var_token.column,
+                ));
+            }
+        } else {
+            None
+        };
+
+        Ok(Statement::ExecuteCommandStatement {
+            command,
+            arguments,
+            variable_name,
+            use_shell,
+            line: token_pos.line,
+            column: token_pos.column,
+        })
+    }
+
+    fn parse_spawn_process_statement(&mut self) -> Result<Statement, ParseError> {
+        let token_pos = self.tokens.next().unwrap(); // Consume "spawn"
+        self.expect_token(Token::KeywordCommand, "Expected 'command' after 'spawn'")?;
+
+        let command = self.parse_primary_expression()?;
+
+        // Check for optional "with arguments"
+        let arguments = if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::KeywordWith)
+        {
+            self.tokens.next(); // Consume "with"
+            self.expect_token(Token::KeywordArguments, "Expected 'arguments' after 'with'")?;
+            Some(self.parse_primary_expression()?)
+        } else {
+            None
+        };
+
+        // Check for optional "using shell"
+        let use_shell = if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::KeywordUsing)
+        {
+            self.tokens.next(); // Consume "using"
+            self.expect_token(Token::KeywordShell, "Expected 'shell' after 'using'")?;
+            true
+        } else {
+            false
+        };
+
+        // "as" is required for spawn (need to store process ID)
+        self.expect_token(Token::KeywordAs, "Expected 'as' after spawn command")?;
+
+        let var_token = self.tokens.next().ok_or_else(|| {
+            ParseError::new(
+                "Expected identifier after 'as'".to_string(),
+                token_pos.line,
+                token_pos.column,
+            )
+        })?;
+
+        let variable_name = if let Token::Identifier(name) = &var_token.token {
+            name.clone()
+        } else {
+            return Err(ParseError::new(
+                format!("Expected identifier, found {:?}", var_token.token),
+                var_token.line,
+                var_token.column,
+            ));
+        };
+
+        Ok(Statement::SpawnProcessStatement {
+            command,
+            arguments,
+            variable_name,
+            use_shell,
+            line: token_pos.line,
+            column: token_pos.column,
+        })
+    }
+
+    fn parse_kill_process_statement(&mut self) -> Result<Statement, ParseError> {
+        let token_pos = self.tokens.next().unwrap(); // Consume "kill"
+        self.expect_token(Token::KeywordProcess, "Expected 'process' after 'kill'")?;
+
+        let process_id = self.parse_primary_expression()?;
+
+        Ok(Statement::KillProcessStatement {
+            process_id,
+            line: token_pos.line,
+            column: token_pos.column,
+        })
+    }
+
+    fn parse_read_process_output_statement(&mut self) -> Result<Statement, ParseError> {
+        let token_pos = self.tokens.next().unwrap(); // Consume "read"
+        self.expect_token(Token::KeywordOutput, "Expected 'output' after 'read'")?;
+        self.expect_token(Token::KeywordFrom, "Expected 'from' after 'read output'")?;
+        self.expect_token(Token::KeywordProcess, "Expected 'process' after 'from'")?;
+
+        let process_id = self.parse_primary_expression()?;
+
+        self.expect_token(Token::KeywordAs, "Expected 'as' after process ID")?;
+
+        let var_token = self.tokens.next().ok_or_else(|| {
+            ParseError::new(
+                "Expected identifier after 'as'".to_string(),
+                token_pos.line,
+                token_pos.column,
+            )
+        })?;
+
+        let variable_name = if let Token::Identifier(name) = &var_token.token {
+            name.clone()
+        } else {
+            return Err(ParseError::new(
+                format!("Expected identifier, found {:?}", var_token.token),
+                var_token.line,
+                var_token.column,
+            ));
+        };
+
+        Ok(Statement::ReadProcessOutputStatement {
+            process_id,
+            variable_name,
+            line: token_pos.line,
+            column: token_pos.column,
+        })
+    }
+
     fn parse_argument_list(&mut self) -> Result<Vec<Argument>, ParseError> {
         let mut arguments = Vec::with_capacity(4);
 
@@ -5230,7 +5528,9 @@ impl<'a> Parser<'a> {
                     self.tokens.next(); // Consume "when"
 
                     // Parse error type
-                    let (error_type, error_name) = if let Some(next_token) = self.tokens.peek() {
+                    let (error_type, error_name) = if let Some(next_token) =
+                        self.tokens.peek().cloned()
+                    {
                         match &next_token.token {
                             Token::KeywordError => {
                                 self.tokens.next(); // Consume "error"
@@ -5256,10 +5556,120 @@ impl<'a> Parser<'a> {
                                 )?;
                                 (ast::ErrorType::PermissionDenied, "error".to_string())
                             }
+                            Token::KeywordProcess => {
+                                self.tokens.next(); // Consume "process"
+
+                                // Check what comes next to determine error type
+                                if let Some(next) = self.tokens.peek().cloned() {
+                                    match &next.token {
+                                        Token::KeywordNot => {
+                                            self.tokens.next(); // Consume "not"
+                                            self.expect_token(
+                                                Token::KeywordFound,
+                                                "Expected 'found' after 'not'",
+                                            )?;
+                                            (ast::ErrorType::ProcessNotFound, "error".to_string())
+                                        }
+                                        Token::Identifier(id) if id == "spawn" => {
+                                            self.tokens.next(); // Consume "spawn"
+                                            if let Some(failed) = self.tokens.peek().cloned() {
+                                                if let Token::Identifier(fid) = &failed.token {
+                                                    if fid == "failed" {
+                                                        self.tokens.next(); // Consume "failed"
+                                                        (
+                                                            ast::ErrorType::ProcessSpawnFailed,
+                                                            "error".to_string(),
+                                                        )
+                                                    } else {
+                                                        return Err(ParseError::new(
+                                                            "Expected 'failed' after 'spawn'"
+                                                                .to_string(),
+                                                            failed.line,
+                                                            failed.column,
+                                                        ));
+                                                    }
+                                                } else {
+                                                    return Err(ParseError::new(
+                                                        "Expected 'failed' after 'spawn'"
+                                                            .to_string(),
+                                                        failed.line,
+                                                        failed.column,
+                                                    ));
+                                                }
+                                            } else {
+                                                return Err(ParseError::new(
+                                                    "Expected 'failed' after 'spawn'".to_string(),
+                                                    next.line,
+                                                    next.column,
+                                                ));
+                                            }
+                                        }
+                                        Token::Identifier(id) if id == "kill" => {
+                                            self.tokens.next(); // Consume "kill"
+                                            if let Some(failed) = self.tokens.peek().cloned() {
+                                                if let Token::Identifier(fid) = &failed.token {
+                                                    if fid == "failed" {
+                                                        self.tokens.next(); // Consume "failed"
+                                                        (
+                                                            ast::ErrorType::ProcessKillFailed,
+                                                            "error".to_string(),
+                                                        )
+                                                    } else {
+                                                        return Err(ParseError::new(
+                                                            "Expected 'failed' after 'kill'"
+                                                                .to_string(),
+                                                            failed.line,
+                                                            failed.column,
+                                                        ));
+                                                    }
+                                                } else {
+                                                    return Err(ParseError::new(
+                                                        "Expected 'failed' after 'kill'"
+                                                            .to_string(),
+                                                        failed.line,
+                                                        failed.column,
+                                                    ));
+                                                }
+                                            } else {
+                                                return Err(ParseError::new(
+                                                    "Expected 'failed' after 'kill'".to_string(),
+                                                    next.line,
+                                                    next.column,
+                                                ));
+                                            }
+                                        }
+                                        _ => {
+                                            return Err(ParseError::new(
+                                                "Expected 'not found', 'spawn failed', or 'kill failed' after 'process'".to_string(),
+                                                next.line,
+                                                next.column,
+                                            ));
+                                        }
+                                    }
+                                } else {
+                                    return Err(ParseError::new(
+                                        "Unexpected end after 'process'".to_string(),
+                                        next_token.line,
+                                        next_token.column,
+                                    ));
+                                }
+                            }
+                            Token::KeywordCommand => {
+                                self.tokens.next(); // Consume "command"
+                                self.expect_token(
+                                    Token::KeywordNot,
+                                    "Expected 'not' after 'command'",
+                                )?;
+                                self.expect_token(
+                                    Token::KeywordFound,
+                                    "Expected 'found' after 'not'",
+                                )?;
+                                (ast::ErrorType::CommandNotFound, "error".to_string())
+                            }
                             _ => {
                                 return Err(ParseError::new(
                                     format!(
-                                        "Expected 'error', 'file', or 'permission' after 'when', found {:?}",
+                                        "Expected 'error', 'file', 'permission', 'process', or 'command' after 'when', found {:?}",
                                         next_token.token
                                     ),
                                     next_token.line,

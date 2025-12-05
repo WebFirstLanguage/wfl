@@ -18,6 +18,7 @@ This document describes WFL's unified I/O vision. **Not all features described h
 |-----------------|--------|---------|
 | **File I/O** | ✅ **Implemented** | `open file`, `read from`, `write to`, `close` - All file operations work as specified |
 | **Basic HTTP** | ✅ **Implemented** | `wait for open url` for GET/POST requests - Async HTTP operations functional |
+| **Subprocess Execution** | ✅ **Implemented** | `execute command`, `spawn command`, process control, output streaming - Full subprocess support |
 | **HTTP Headers & Advanced** | 🔧 **Partial** | Basic requests work; advanced header manipulation may be limited |
 | **WebSocket** | ❌ **Not Implemented** | WebSocket syntax described but no implementation exists |
 | **Raw TCP/Sockets** | ❌ **Not Implemented** | Low-level socket operations not available |
@@ -45,6 +46,17 @@ wait for open url at "https://api.example.com/data" and read content as response
 
 // Async HTTP POST
 wait for http post request to "https://api.example.com/endpoint" with data as result
+```
+
+**Subprocess Execution (Fully Working):**
+```wfl
+// Execute external commands
+wait for execute command "echo Hello" as result
+
+// Background processes
+wait for spawn command "python server.py" as proc
+store active as process proc is running
+kill process proc
 ```
 
 ### Planned Features (Not Yet Available)
@@ -313,6 +325,384 @@ In this snippet, `perform fetch from url` starts the HTTP GET requests. We don�
   This would mean whenever that exact URL is requested in test mode, WFL will not perform a real network call but instead immediately provide the given JSON string as the response body (with perhaps a default 200 OK status). You might also specify `status as 200` or other metadata if needed. This kind of syntax (`mock url ... gives back ...`) is very readable – it states the intention clearly (we are mocking this web call with a prepared answer).
 
 No matter which method, the idea is to keep the interface the same: your main code still does `open url ... read response ...`, but in testing, the environment is set up such that no real HTTP traffic occurs. The consistent syntax and the `mock`/`use` constructs ensure that your code is testable without modifications, staying true to dependency injection principles but with a much more **declarative, English-like feel**.
+
+## Subprocess Execution: Running External Commands
+
+> ### ✅ **FULLY IMPLEMENTED**
+> Subprocess support is fully implemented and ready to use. Execute external commands, spawn background processes, monitor output, and control process lifecycle with natural language syntax.
+
+WFL provides comprehensive subprocess support for executing external commands and managing processes. All subprocess operations are async by default and use the `wait for` syntax for consistency with other I/O operations.
+
+### Execute and Wait for Commands
+
+The simplest subprocess operation is executing a command and waiting for it to complete:
+
+```wfl
+// Execute a command
+wait for execute command "echo Hello World" as result
+
+// Execute without storing result
+wait for execute command "ls -la"
+```
+
+When you store the result, it contains an Object with execution details (output, error messages, exit code).
+
+### Background Process Management
+
+Spawn processes that run in the background:
+
+```wfl
+// Spawn a background process
+wait for spawn command "python server.py" as server_proc
+
+// Do other work while process runs
+display "Server starting in background..."
+wait for 2 seconds
+
+// Check if process is still running
+store is_active as process server_proc is running
+check if is_active:
+    display "Server is running"
+end check
+```
+
+### Process Output Streaming
+
+Capture output from running processes:
+
+```wfl
+// Spawn process and capture output
+wait for spawn command "echo Processing data" as worker
+wait for 100 milliseconds
+wait for read output from process worker as worker_output
+display worker_output
+```
+
+### Process Control
+
+Terminate processes and wait for completion:
+
+```wfl
+// Kill a running process
+wait for spawn command "sleep 60" as long_task
+wait for 1 second
+kill process long_task
+display "Process terminated"
+
+// Wait for process to complete naturally
+wait for spawn command "echo Done" as task
+wait for process task to complete as exit_code
+display "Task finished"
+```
+
+### Error Handling
+
+Subprocess operations support error handling with try/when blocks:
+
+```wfl
+try:
+    wait for execute command "nonexistent-command" as result
+    display "Command succeeded"
+when command not found:
+    display "Command executable not found"
+when process spawn failed:
+    display "Failed to start process"
+when error:
+    display "Other error occurred"
+end try
+```
+
+### Cross-Platform Execution
+
+Commands without explicit arguments are executed through the system shell (cmd.exe on Windows, sh on Unix), providing cross-platform compatibility:
+
+```wfl
+// This works on both Windows and Unix
+wait for execute command "echo Hello" as result
+
+// Shell features available
+wait for execute command "echo $HOME" as result  // Unix
+wait for execute command "echo %USERNAME%" as result  // Windows
+```
+
+### Command Argument Parsing
+
+When executing commands without explicit arguments (using `with arguments`), WFL automatically parses the command string to separate the program name from its arguments. The parser supports shell-like quoting and escaping:
+
+**Double Quotes (`"..."`):**
+- Preserve spaces and special characters
+- Support escape sequences: `\n` (newline), `\t` (tab), `\r` (carriage return), `\\` (backslash), `\"` (quote), `\0` (null)
+
+```wfl
+// Quoted argument with spaces
+wait for execute command "echo 'Hello World'" as result
+
+// Escaped quotes in arguments
+wait for execute command "echo \"quoted text\"" as result
+
+// Escape sequences
+wait for execute command "echo \"Line1\nLine2\"" as result
+```
+
+**Single Quotes (`'...'`):**
+- Preserve everything literally (no escape processing)
+- Useful for protecting special characters
+
+```wfl
+// Single quotes preserve backslashes literally
+wait for execute command "echo 'test\n\t'" as result
+// Output: test\n\t (not a newline and tab)
+```
+
+**Backslash Escapes (outside quotes):**
+- Escape the next character to include it literally
+
+```wfl
+// Escaped space
+wait for execute command "echo hello\ world" as result
+// Output: hello world
+```
+
+**Mixed Quoting:**
+```wfl
+// Combine different quote styles
+wait for execute command "grep 'pattern' \"file name.txt\"" as result
+```
+
+**Error Handling:**
+
+Malformed command strings return errors:
+```wfl
+try:
+    // Unclosed quote
+    wait for execute command "echo \"hello" as result
+when error:
+    display "Parse error: Unclosed double quote"
+end try
+```
+
+### Common Patterns
+
+**Script Execution:**
+```wfl
+wait for spawn command "python script.py" as py_proc
+wait for process py_proc to complete as status
+```
+
+**Build Automation:**
+```wfl
+wait for execute command "cargo build --release" as build
+display "Build completed"
+```
+
+**System Administration:**
+```wfl
+wait for spawn command "systemctl status nginx" as check
+wait for read output from process check as status_info
+display status_info
+```
+
+### Subprocess Security
+
+> ### 🔒 **SECURITY CRITICAL**
+> WFL protects against command injection attacks by defaulting to safe, direct process execution without shell interpretation.
+
+#### Security by Default
+
+**Safe Execution (Recommended):**
+
+WFL subprocess commands are executed **directly** without a shell interpreter by default. This prevents shell injection attacks:
+
+```wfl
+// ✅ SAFE: Arguments passed directly to program
+wait for execute command "grep" with arguments ["pattern", "file.txt"] as result
+
+// ✅ SAFE: Simple commands without shell features
+wait for execute command "echo Hello World" as result
+
+// ✅ SAFE: Process spawning with explicit arguments
+spawn command "ls" with arguments ["-la", "/tmp"] as proc_id
+```
+
+#### Shell Execution (Use with Caution)
+
+If you need shell features (pipes, redirects, variable expansion), you must explicitly opt-in with `using shell`:
+
+```wfl
+// ⚠️ REQUIRES CONFIGURATION: Explicit shell usage
+wait for execute command "echo $HOME | grep user" using shell as result
+```
+
+**⚠️ WARNING:** Shell execution is **blocked by default** and requires configuration changes. This is intentional for security.
+
+#### Security Configuration
+
+Control subprocess security in `.wflcfg`:
+
+```toml
+# Subprocess security settings
+shell_execution_mode = "forbidden"    # Most secure (default)
+warn_on_shell_execution = true
+allowed_shell_commands = []
+
+# Available modes:
+# "forbidden"       - No shell execution allowed (recommended)
+# "allowlist_only"  - Only commands in allowed_shell_commands can use shell
+# "sanitized"       - Shell allowed with validation and warnings
+# "unrestricted"    - Legacy mode (NOT recommended for production)
+```
+
+**Example: Enabling Shell with Warnings**
+
+`.wflcfg`:
+```toml
+shell_execution_mode = "sanitized"
+warn_on_shell_execution = true
+```
+
+Your WFL code:
+```wfl
+// This will work but show security warnings
+wait for execute command "ls | grep .txt" using shell as result
+```
+
+**Example: Allow list Mode**
+
+`.wflcfg`:
+```toml
+shell_execution_mode = "allowlist_only"
+allowed_shell_commands = ["echo", "ls", "grep"]
+```
+
+Only the specified commands can use shell features.
+
+#### Command Injection Prevention
+
+**❌ VULNERABLE Pattern (Don't do this):**
+```wfl
+// DANGER: Never concatenate user input into shell commands
+store user_file as read from console "Enter filename: "
+wait for execute command "cat " concatenate with user_file using shell as result
+// Attacker could enter: "file.txt; rm -rf /"
+```
+
+**✅ SAFE Pattern:**
+```wfl
+// CORRECT: Use argument lists instead
+store user_file as read from console "Enter filename: "
+wait for execute command "cat" with arguments [user_file] as result
+// User input is passed as a single argument, not interpreted by shell
+```
+
+#### Resource Management
+
+WFL automatically prevents subprocess resource exhaustion:
+
+**Process Limits:**
+```toml
+# In .wflcfg
+max_concurrent_processes = 100  # Default
+```
+
+Attempting to exceed this limit will produce a clear error message.
+
+**Buffer Limits:**
+```toml
+max_buffer_size_bytes = 10485760  # 10 MB default per process
+```
+
+When process output exceeds the buffer, oldest data is dropped and a warning is shown:
+```
+⚠️ WARNING: Process 'yes' stdout buffer overflow.
+   Data is being dropped. Consider reading output more frequently.
+```
+
+**Automatic Cleanup:**
+
+WFL automatically cleans up completed processes to prevent memory leaks:
+
+```wfl
+// Old processes are automatically cleaned up when spawning new ones
+count from 1 to 100:
+    spawn command "echo" with arguments ["test"] as proc
+    wait for 100 milliseconds
+    wait for process proc to complete
+end count
+// No memory leak - completed processes are automatically removed
+```
+
+**Shutdown Behavior:**
+
+Configure what happens to running processes when your WFL program exits:
+
+```toml
+kill_on_shutdown = false  # Default: let processes continue running
+warn_on_orphan = true     # Warn about processes not waited for
+```
+
+#### Best Practices
+
+1. **Always use argument lists for user input:**
+   ```wfl
+   execute command "program" with arguments [user_input] as result
+   ```
+
+2. **Avoid shell features unless absolutely necessary:**
+   - No pipes, redirects, or variable expansion with untrusted input
+   - Use WFL's built-in text processing instead
+
+3. **Read process output regularly:**
+   - Prevents buffer overflow warnings
+   - Keeps memory usage low
+
+4. **Wait for processes you care about:**
+   ```wfl
+   spawn command "backup" with arguments ["/data"] as backup_proc
+   // ... do other work ...
+   wait for process backup_proc to complete as exit_code
+   check if exit_code is equal to 0:
+       display "Backup succeeded"
+   otherwise:
+       display "Backup failed"
+   end check
+   ```
+
+5. **Monitor resource usage:**
+   - Check process limits for long-running services
+   - Adjust buffer sizes for high-output processes
+
+#### Migration from Legacy Code
+
+If you have existing WFL code that uses shell features, you have two options:
+
+**Option 1: Migrate to Safe Syntax (Recommended)**
+
+Before:
+```wfl
+execute command "ls | grep .txt" as files
+```
+
+After:
+```wfl
+// Use WFL's built-in text processing
+execute command "ls" as all_files
+store txt_files as split all_files by "\n"
+// ... filter for .txt files using WFL pattern matching
+```
+
+**Option 2: Enable Shell Mode Temporarily**
+
+`.wflcfg`:
+```toml
+shell_execution_mode = "sanitized"  # Enable with warnings
+```
+
+Then add `using shell` to your commands:
+```wfl
+execute command "ls | grep .txt" using shell as files
+```
+
+⚠️ Review all shell commands for injection vulnerabilities before deploying.
 
 ## Database I/O: Unified Syntax and Examples
 
