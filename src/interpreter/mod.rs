@@ -657,14 +657,14 @@ impl IoClient {
             #[cfg(target_os = "windows")]
             {
                 let mut cmd = Command::new("cmd.exe");
-                cmd.args(&["/C", command]);
+                cmd.args(["/C", command]);
                 cmd
             }
 
             #[cfg(not(target_os = "windows"))]
             {
                 let mut cmd = Command::new("sh");
-                cmd.args(&["-c", command]);
+                cmd.args(["-c", command]);
                 cmd
             }
         } else {
@@ -697,14 +697,14 @@ impl IoClient {
             #[cfg(target_os = "windows")]
             {
                 let mut cmd = Command::new("cmd.exe");
-                cmd.args(&["/C", command]);
+                cmd.args(["/C", command]);
                 cmd
             }
 
             #[cfg(not(target_os = "windows"))]
             {
                 let mut cmd = Command::new("sh");
-                cmd.args(&["-c", command]);
+                cmd.args(["-c", command]);
                 cmd
             }
         } else {

@@ -1354,20 +1354,20 @@ impl<'a> Parser<'a> {
                         } else {
                             // "read" by itself is not a valid statement - treat as expression
                             let token_pos = self.tokens.peek().unwrap();
-                            return Err(ParseError::new(
+                            Err(ParseError::new(
                                 "Unexpected 'read' - did you mean 'read output from process'?"
                                     .to_string(),
                                 token_pos.line,
                                 token_pos.column,
-                            ));
+                            ))
                         }
                     } else {
                         let token_pos = self.tokens.peek().unwrap();
-                        return Err(ParseError::new(
+                        Err(ParseError::new(
                             "Unexpected 'read' at end of input".to_string(),
                             token_pos.line,
                             token_pos.column,
-                        ));
+                        ))
                     }
                 }
                 Token::KeywordClose => {
