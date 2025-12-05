@@ -6090,11 +6090,12 @@ mod process_tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn test_spawn_and_kill_process() {
-        let client = IoClient::new();
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
 
         // Windows-specific test using timeout command
         let proc_id = client
-            .spawn_process("timeout", &["10"])
+            .spawn_process("timeout", &["10"], false, 0, 0)
             .await
             .expect("Failed to spawn process");
 
