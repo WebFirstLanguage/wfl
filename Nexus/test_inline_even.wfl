@@ -1,0 +1,25 @@
+// Test even number check with inline expression
+
+store num as 1
+display "Testing 1:"
+check if ((num divided by 2) times 2) is equal to num:
+    display "  -> 1 is EVEN (WRONG!)"
+otherwise:
+    display "  -> 1 is ODD (correct)"
+end check
+
+change num to 2
+display "Testing 2:"
+check if ((num divided by 2) times 2) is equal to num:
+    display "  -> 2 is EVEN (correct)"
+otherwise:
+    display "  -> 2 is ODD (WRONG!)"
+end check
+
+change num to 3
+display "Testing 3:"
+check if ((num divided by 2) times 2) is equal to num:
+    display "  -> 3 is EVEN (WRONG!)"
+otherwise:
+    display "  -> 3 is ODD (correct)"
+end check

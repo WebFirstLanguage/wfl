@@ -1,0 +1,15 @@
+// Test concatenating with zero
+
+open file at "test_zero.log" for writing as testHandle
+
+define action called log_test needs message_text:
+    wait for append content message_text with "\n" into testHandle
+end action
+
+store total_odds as 0
+
+display "Testing concatenation with zero..."
+log_test with "Loop continue/skip test (expected 9, got " with total_odds with "): FAIL"
+
+display "Test completed successfully"
+close file testHandle

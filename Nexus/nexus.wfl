@@ -297,8 +297,8 @@ define action called factorial needs n:
     check if n is equal to 0:
         give back 1
     otherwise:
-        // Recursive call
-        give back n times factorial with n minus 1
+        // Recursive call (with explicit parentheses for correct precedence)
+        give back n times (factorial with (n minus 1))
     end check
 end action
 

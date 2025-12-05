@@ -1,0 +1,22 @@
+// Simple factorial test
+
+define action called factorial needs n:
+    display "factorial called with n = " with n
+    check if n is equal to 0:
+        display "  -> returning 1"
+        give back 1
+    otherwise:
+        display "  -> computing n * factorial(n-1)"
+        store n_minus_1 as n minus 1
+        display "  -> n_minus_1 = " with n_minus_1
+        store f_result as factorial with n_minus_1
+        display "  -> factorial(n-1) = " with f_result
+        store result as n times f_result
+        display "  -> n * factorial(n-1) = " with result
+        give back result
+    end check
+end action
+
+display "Testing factorial(3)..."
+store fact3 as factorial with 3
+display "Result: " with fact3
