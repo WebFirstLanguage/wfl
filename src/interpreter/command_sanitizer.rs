@@ -27,41 +27,109 @@ impl CommandSanitizer {
     }
 
     /// Parse a command string into program and arguments
+    ///
+    /// Supports shell-like quoting and escaping:
+    /// - Double quotes ("...") preserve spaces and support escapes (\n, \t, \r, \\, \", \0)
+    /// - Single quotes ('...') preserve everything literally (no escape processing)
+    /// - Backslash (\) outside quotes escapes the next character
+    ///
+    /// Returns error for unclosed quotes, trailing escapes, or empty commands
+    ///
     /// Example: "echo hello world" -> ("echo", ["hello", "world"])
+    /// Example: "grep 'hello world' file.txt" -> ("grep", ["hello world", "file.txt"])
     pub fn parse_command(command: &str) -> Result<(String, Vec<String>), String> {
         let trimmed = command.trim();
         if trimmed.is_empty() {
             return Err("Empty command".to_string());
         }
 
-        // Split by whitespace, respecting quotes
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        enum State {
+            Normal,         // Outside quotes
+            InDoubleQuote,  // Inside "..."
+            InSingleQuote,  // Inside '...'
+            Escape,         // After backslash outside quotes
+            EscapeInDouble, // After backslash inside double quotes
+        }
+
         let mut parts = Vec::new();
         let mut current = String::new();
-        let mut in_quotes = false;
-        let chars = trimmed.chars().peekable();
+        let mut state = State::Normal;
+        let mut in_quoted_context = false; // Track if we just closed quotes (for empty strings)
 
-        for ch in chars {
-            match ch {
-                '"' if !in_quotes => {
-                    in_quotes = true;
-                }
-                '"' if in_quotes => {
-                    in_quotes = false;
-                }
-                ' ' | '\t' if !in_quotes => {
-                    if !current.is_empty() {
-                        parts.push(current.clone());
-                        current.clear();
+        for ch in trimmed.chars() {
+            match state {
+                State::Normal => match ch {
+                    '"' => {
+                        state = State::InDoubleQuote;
+                        in_quoted_context = true;
                     }
+                    '\'' => {
+                        state = State::InSingleQuote;
+                        in_quoted_context = true;
+                    }
+                    '\\' => state = State::Escape,
+                    ' ' | '\t' => {
+                        if !current.is_empty() || in_quoted_context {
+                            parts.push(current.clone());
+                            current.clear();
+                            in_quoted_context = false;
+                        }
+                    }
+                    _ => {
+                        current.push(ch);
+                        in_quoted_context = false;
+                    }
+                },
+
+                State::InDoubleQuote => match ch {
+                    '"' => state = State::Normal,
+                    '\\' => state = State::EscapeInDouble,
+                    _ => current.push(ch),
+                },
+
+                State::InSingleQuote => match ch {
+                    '\'' => state = State::Normal,
+                    _ => current.push(ch), // Single quotes preserve everything literally
+                },
+
+                State::Escape => {
+                    current.push(ch); // Backslash outside quotes escapes next char
+                    state = State::Normal;
+                    in_quoted_context = false;
                 }
-                _ => {
-                    current.push(ch);
+
+                State::EscapeInDouble => {
+                    // Handle escape sequences in double quotes
+                    match ch {
+                        'n' => current.push('\n'),
+                        't' => current.push('\t'),
+                        'r' => current.push('\r'),
+                        '\\' => current.push('\\'),
+                        '"' => current.push('"'),
+                        '0' => current.push('\0'),
+                        _ => {
+                            current.push('\\');
+                            current.push(ch);
+                        }
+                    }
+                    state = State::InDoubleQuote;
                 }
             }
         }
 
-        if !current.is_empty() {
-            parts.push(current);
+        // Check for unclosed quotes or trailing escape
+        match state {
+            State::InDoubleQuote => return Err("Unclosed double quote".to_string()),
+            State::InSingleQuote => return Err("Unclosed single quote".to_string()),
+            State::Escape | State::EscapeInDouble => {
+                return Err("Trailing escape character".to_string());
+            }
+            State::Normal => {
+                if !current.is_empty() || in_quoted_context {
+                    parts.push(current);
+                }
+            }
         }
 
         if parts.is_empty() {
@@ -227,6 +295,79 @@ mod tests {
     fn test_parse_command_empty() {
         assert!(CommandSanitizer::parse_command("").is_err());
         assert!(CommandSanitizer::parse_command("   ").is_err());
+    }
+
+    #[test]
+    fn test_parse_command_single_quotes() {
+        let (prog, args) =
+            CommandSanitizer::parse_command(r#"grep 'hello world' file.txt"#).unwrap();
+        assert_eq!(prog, "grep");
+        assert_eq!(args, vec!["hello world", "file.txt"]);
+    }
+
+    #[test]
+    fn test_parse_command_mixed_quotes() {
+        let (prog, args) =
+            CommandSanitizer::parse_command(r#"cmd "arg one" 'arg two' arg3"#).unwrap();
+        assert_eq!(prog, "cmd");
+        assert_eq!(args, vec!["arg one", "arg two", "arg3"]);
+    }
+
+    #[test]
+    fn test_parse_command_escaped_double_quote() {
+        let (prog, args) = CommandSanitizer::parse_command(r#"echo "say \"hello\"""#).unwrap();
+        assert_eq!(prog, "echo");
+        assert_eq!(args, vec![r#"say "hello""#]);
+    }
+
+    #[test]
+    fn test_parse_command_escaped_backslash() {
+        let (prog, args) = CommandSanitizer::parse_command(r#"echo "path\\to\\file""#).unwrap();
+        assert_eq!(prog, "echo");
+        assert_eq!(args, vec![r#"path\to\file"#]);
+    }
+
+    #[test]
+    fn test_parse_command_escape_outside_quotes() {
+        let (prog, args) = CommandSanitizer::parse_command(r#"echo hello\ world"#).unwrap();
+        assert_eq!(prog, "echo");
+        assert_eq!(args, vec!["hello world"]);
+    }
+
+    #[test]
+    fn test_parse_command_unclosed_double_quote() {
+        let result = CommandSanitizer::parse_command(r#"echo "hello"#);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unclosed"));
+    }
+
+    #[test]
+    fn test_parse_command_unclosed_single_quote() {
+        let result = CommandSanitizer::parse_command(r#"echo 'hello"#);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unclosed"));
+    }
+
+    #[test]
+    fn test_parse_command_trailing_backslash() {
+        let result = CommandSanitizer::parse_command(r#"echo hello\"#);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("escape"));
+    }
+
+    #[test]
+    fn test_parse_command_empty_quotes() {
+        let (prog, args) = CommandSanitizer::parse_command(r#"echo "" test"#).unwrap();
+        assert_eq!(prog, "echo");
+        assert_eq!(args, vec!["", "test"]);
+    }
+
+    #[test]
+    fn test_parse_command_single_quote_no_escapes() {
+        // Single quotes preserve everything literally
+        let (prog, args) = CommandSanitizer::parse_command(r#"echo 'test\n\t'"#).unwrap();
+        assert_eq!(prog, "echo");
+        assert_eq!(args, vec![r#"test\n\t"#]);
     }
 
     #[test]

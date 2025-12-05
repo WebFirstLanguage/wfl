@@ -425,6 +425,62 @@ wait for execute command "echo $HOME" as result  // Unix
 wait for execute command "echo %USERNAME%" as result  // Windows
 ```
 
+### Command Argument Parsing
+
+When executing commands without explicit arguments (using `with arguments`), WFL automatically parses the command string to separate the program name from its arguments. The parser supports shell-like quoting and escaping:
+
+**Double Quotes (`"..."`):**
+- Preserve spaces and special characters
+- Support escape sequences: `\n` (newline), `\t` (tab), `\r` (carriage return), `\\` (backslash), `\"` (quote), `\0` (null)
+
+```wfl
+// Quoted argument with spaces
+wait for execute command "echo 'Hello World'" as result
+
+// Escaped quotes in arguments
+wait for execute command "echo \"quoted text\"" as result
+
+// Escape sequences
+wait for execute command "echo \"Line1\nLine2\"" as result
+```
+
+**Single Quotes (`'...'`):**
+- Preserve everything literally (no escape processing)
+- Useful for protecting special characters
+
+```wfl
+// Single quotes preserve backslashes literally
+wait for execute command "echo 'test\n\t'" as result
+// Output: test\n\t (not a newline and tab)
+```
+
+**Backslash Escapes (outside quotes):**
+- Escape the next character to include it literally
+
+```wfl
+// Escaped space
+wait for execute command "echo hello\ world" as result
+// Output: hello world
+```
+
+**Mixed Quoting:**
+```wfl
+// Combine different quote styles
+wait for execute command "grep 'pattern' \"file name.txt\"" as result
+```
+
+**Error Handling:**
+
+Malformed command strings return errors:
+```wfl
+try:
+    // Unclosed quote
+    wait for execute command "echo \"hello" as result
+when error:
+    display "Parse error: Unclosed double quote"
+end try
+```
+
 ### Common Patterns
 
 **Script Execution:**
