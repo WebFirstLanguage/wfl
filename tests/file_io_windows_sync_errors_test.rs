@@ -25,14 +25,15 @@ fn test_windows_permission_denied_suppressed() {
 
     // Create a test that writes, appends, and closes files
     // This may trigger PermissionDenied on Windows with concurrent access
-    let test_program = r#"
+    let pid = std::process::id();
+    let test_program = format!(r#"
 // Test file operations that might trigger sync_all() PermissionDenied
-open file at "test_sync_write.txt" for writing as f1
+open file at "test_sync_write_{}.txt" for writing as f1
 wait for write content "test data" into f1
 close file f1
 
 // Verify the file was written successfully
-open file at "test_sync_write.txt" for reading as f2
+open file at "test_sync_write_{}.txt" for reading as f2
 wait for store result as read content from f2
 close file f2
 
@@ -43,19 +44,21 @@ otherwise:
 end check
 
 // Clean up
-delete file at "test_sync_write.txt"
-"#;
+delete file at "test_sync_write_{}.txt"
+"#, pid, pid, pid);
 
-    let test_file = "test_windows_sync.wfl";
-    fs::write(test_file, test_program).expect("Failed to write test file");
+    // Use unique temp file to avoid race conditions when tests run in parallel
+    let temp_dir = std::env::temp_dir();
+    let test_file = temp_dir.join(format!("test_windows_sync_{}.wfl", pid));
+    fs::write(&test_file, &test_program).expect("Failed to write test file");
 
     let output = Command::new(&binary_path)
-        .arg(test_file)
+        .arg(&test_file)
         .output()
         .expect("Failed to execute WFL");
 
-    fs::remove_file(test_file).ok();
-    fs::remove_file("test_sync_write.txt").ok();
+    fs::remove_file(&test_file).ok();
+    fs::remove_file(format!("test_sync_write_{}.txt", pid)).ok();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -95,16 +98,17 @@ fn test_data_integrity_after_write() {
     let binary_path = env::current_dir().unwrap().join(wfl_binary);
     assert!(binary_path.exists(), "WFL binary not found.");
 
-    let test_program = r#"
+    let pid = std::process::id();
+    let test_program = format!(r#"
 // Test write and read cycle
 store test_content as "Line 1\nLine 2\nLine 3\n"
 
-open file at "test_integrity.txt" for writing as handle
+open file at "test_integrity_{}.txt" for writing as handle
 wait for write content test_content into handle
 close file handle
 
 // Read it back
-open file at "test_integrity.txt" for reading as handle2
+open file at "test_integrity_{}.txt" for reading as handle2
 wait for store read_back as read content from handle2
 close file handle2
 
@@ -115,19 +119,21 @@ otherwise:
     display "FAIL: Content mismatch"
 end check
 
-delete file at "test_integrity.txt"
-"#;
+delete file at "test_integrity_{}.txt"
+"#, pid, pid, pid);
 
-    let test_file = "test_integrity_check.wfl";
-    fs::write(test_file, test_program).unwrap();
+    // Use unique temp file to avoid race conditions when tests run in parallel
+    let temp_dir = std::env::temp_dir();
+    let test_file = temp_dir.join(format!("test_integrity_check_{}.wfl", pid));
+    fs::write(&test_file, &test_program).unwrap();
 
     let output = Command::new(&binary_path)
-        .arg(test_file)
+        .arg(&test_file)
         .output()
         .expect("Failed to execute WFL");
 
-    fs::remove_file(test_file).ok();
-    fs::remove_file("test_integrity.txt").ok();
+    fs::remove_file(&test_file).ok();
+    fs::remove_file(format!("test_integrity_{}.txt", pid)).ok();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -153,20 +159,21 @@ fn test_append_with_sync() {
     let binary_path = env::current_dir().unwrap().join(wfl_binary);
     assert!(binary_path.exists(), "WFL binary not found.");
 
-    let test_program = r#"
+    let pid = std::process::id();
+    let test_program = format!(r#"
 // Create file with initial content
-open file at "test_append_sync.txt" for writing as f1
+open file at "test_append_sync_{}.txt" for writing as f1
 wait for write content "Line 1\n" into f1
 close file f1
 
 // Append additional content
-open file at "test_append_sync.txt" for appending as f2
+open file at "test_append_sync_{}.txt" for appending as f2
 wait for append content "Line 2\n" into f2
 wait for append content "Line 3\n" into f2
 close file f2
 
 // Read and verify
-open file at "test_append_sync.txt" for reading as f3
+open file at "test_append_sync_{}.txt" for reading as f3
 wait for store result as read content from f3
 close file f3
 
@@ -177,19 +184,21 @@ otherwise:
     display "FAIL: Expected '" with expected with "' but got '" with result with "'"
 end check
 
-delete file at "test_append_sync.txt"
-"#;
+delete file at "test_append_sync_{}.txt"
+"#, pid, pid, pid, pid);
 
-    let test_file = "test_append_with_sync.wfl";
-    fs::write(test_file, test_program).unwrap();
+    // Use unique temp file to avoid race conditions when tests run in parallel
+    let temp_dir = std::env::temp_dir();
+    let test_file = temp_dir.join(format!("test_append_with_sync_{}.wfl", pid));
+    fs::write(&test_file, &test_program).unwrap();
 
     let output = Command::new(&binary_path)
-        .arg(test_file)
+        .arg(&test_file)
         .output()
         .expect("Failed to execute WFL");
 
-    fs::remove_file(test_file).ok();
-    fs::remove_file("test_append_sync.txt").ok();
+    fs::remove_file(&test_file).ok();
+    fs::remove_file(format!("test_append_sync_{}.txt", pid)).ok();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -215,36 +224,37 @@ fn test_multiple_write_cycles_with_sync() {
     let binary_path = env::current_dir().unwrap().join(wfl_binary);
     assert!(binary_path.exists(), "WFL binary not found.");
 
-    let test_program = r#"
+    let pid = std::process::id();
+    let test_program = format!(r#"
 // Perform multiple write/close cycles to stress-test sync
 
 // Cycle 1
-open file at "test_multi_sync.txt" for writing as h1
+open file at "test_multi_sync_{}.txt" for writing as h1
 wait for write content "Iteration 1" into h1
 close file h1
 
 // Cycle 2
-open file at "test_multi_sync.txt" for writing as h2
+open file at "test_multi_sync_{}.txt" for writing as h2
 wait for write content "Iteration 2" into h2
 close file h2
 
 // Cycle 3
-open file at "test_multi_sync.txt" for writing as h3
+open file at "test_multi_sync_{}.txt" for writing as h3
 wait for write content "Iteration 3" into h3
 close file h3
 
 // Cycle 4
-open file at "test_multi_sync.txt" for writing as h4
+open file at "test_multi_sync_{}.txt" for writing as h4
 wait for write content "Iteration 4" into h4
 close file h4
 
 // Cycle 5
-open file at "test_multi_sync.txt" for writing as h5
+open file at "test_multi_sync_{}.txt" for writing as h5
 wait for write content "Iteration 5" into h5
 close file h5
 
 // Read final result
-open file at "test_multi_sync.txt" for reading as h_read
+open file at "test_multi_sync_{}.txt" for reading as h_read
 wait for store final_content as read content from h_read
 close file h_read
 
@@ -254,19 +264,21 @@ otherwise:
     display "FAIL: Got '" with final_content with "'"
 end check
 
-delete file at "test_multi_sync.txt"
-"#;
+delete file at "test_multi_sync_{}.txt"
+"#, pid, pid, pid, pid, pid, pid, pid);
 
-    let test_file = "test_multi_sync_cycles.wfl";
-    fs::write(test_file, test_program).unwrap();
+    // Use unique temp file to avoid race conditions when tests run in parallel
+    let temp_dir = std::env::temp_dir();
+    let test_file = temp_dir.join(format!("test_multi_sync_cycles_{}.wfl", pid));
+    fs::write(&test_file, &test_program).unwrap();
 
     let output = Command::new(&binary_path)
-        .arg(test_file)
+        .arg(&test_file)
         .output()
         .expect("Failed to execute WFL");
 
-    fs::remove_file(test_file).ok();
-    fs::remove_file("test_multi_sync.txt").ok();
+    fs::remove_file(&test_file).ok();
+    fs::remove_file(format!("test_multi_sync_{}.txt", pid)).ok();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);

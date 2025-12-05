@@ -48,17 +48,19 @@ end try
 display test_passed
 "#;
 
-    let test_file = "test_zero_arg_error.wfl";
-    fs::write(test_file, test_program).expect("Failed to write test file");
+    // Use unique temp file to avoid race conditions when tests run in parallel
+    let temp_dir = std::env::temp_dir();
+    let test_file = temp_dir.join(format!("test_zero_arg_error_{}.wfl", std::process::id()));
+    fs::write(&test_file, test_program).expect("Failed to write test file");
 
     // Run the WFL program
     let output = Command::new(&binary_path)
-        .arg(test_file)
+        .arg(&test_file)
         .output()
         .expect("Failed to execute WFL binary");
 
     // Clean up
-    fs::remove_file(test_file).ok();
+    fs::remove_file(&test_file).ok();
 
     // Check the output
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -122,17 +124,19 @@ otherwise:
 end check
 "#;
 
-    let test_file = "test_zero_arg_autocall.wfl";
-    fs::write(test_file, test_program).expect("Failed to write test file");
+    // Use unique temp file to avoid race conditions when tests run in parallel
+    let temp_dir = std::env::temp_dir();
+    let test_file = temp_dir.join(format!("test_zero_arg_autocall_{}.wfl", std::process::id()));
+    fs::write(&test_file, test_program).expect("Failed to write test file");
 
     // Run the WFL program
     let output = Command::new(&binary_path)
-        .arg(test_file)
+        .arg(&test_file)
         .output()
         .expect("Failed to execute WFL binary");
 
     // Clean up
-    fs::remove_file(test_file).ok();
+    fs::remove_file(&test_file).ok();
 
     // Check the output
     let stdout = String::from_utf8_lossy(&output.stdout);

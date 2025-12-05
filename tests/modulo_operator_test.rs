@@ -55,15 +55,17 @@ end check
 display result
 "#;
 
-    let test_file = "test_modulo_basic.wfl";
-    fs::write(test_file, test_program).unwrap();
+    // Use unique temp file to avoid race conditions when tests run in parallel
+    let temp_dir = std::env::temp_dir();
+    let test_file = temp_dir.join(format!("test_modulo_basic_{}.wfl", std::process::id()));
+    fs::write(&test_file, test_program).unwrap();
 
     let output = Command::new(&binary_path)
-        .arg(test_file)
+        .arg(&test_file)
         .output()
         .expect("Failed to execute WFL");
 
-    fs::remove_file(test_file).ok();
+    fs::remove_file(&test_file).ok();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -110,15 +112,17 @@ otherwise:
 end check
 "#;
 
-    let test_file = "test_modulo_even_odd.wfl";
-    fs::write(test_file, test_program).unwrap();
+    // Use unique temp file to avoid race conditions when tests run in parallel
+    let temp_dir = std::env::temp_dir();
+    let test_file = temp_dir.join(format!("test_modulo_even_odd_{}.wfl", std::process::id()));
+    fs::write(&test_file, test_program).unwrap();
 
     let output = Command::new(&binary_path)
-        .arg(test_file)
+        .arg(&test_file)
         .output()
         .expect("Failed to execute WFL");
 
-    fs::remove_file(test_file).ok();
+    fs::remove_file(&test_file).ok();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -157,15 +161,17 @@ end try
 display result
 "#;
 
-    let test_file = "test_modulo_zero.wfl";
-    fs::write(test_file, test_program).unwrap();
+    // Use unique temp file to avoid race conditions when tests run in parallel
+    let temp_dir = std::env::temp_dir();
+    let test_file = temp_dir.join(format!("test_modulo_zero_{}.wfl", std::process::id()));
+    fs::write(&test_file, test_program).unwrap();
 
     let output = Command::new(&binary_path)
-        .arg(test_file)
+        .arg(&test_file)
         .output()
         .expect("Failed to execute WFL");
 
-    fs::remove_file(test_file).ok();
+    fs::remove_file(&test_file).ok();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
