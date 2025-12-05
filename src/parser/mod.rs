@@ -3984,6 +3984,38 @@ impl<'a> Parser<'a> {
             None
         };
 
+        // Parse optional "as <variable_name>" clause
+        let variable_name = if let Some(token) = self.tokens.peek() {
+            if matches!(token.token, Token::KeywordAs) {
+                self.tokens.next(); // Consume "as"
+
+                // Expect an identifier for the variable name
+                if let Some(name_token) = self.tokens.peek() {
+                    if let Token::Identifier(name) = &name_token.token {
+                        let var_name = name.clone();
+                        self.tokens.next(); // Consume the identifier
+                        Some(var_name)
+                    } else {
+                        return Err(ParseError::new(
+                            format!("Expected identifier after 'as', found {:?}", name_token.token),
+                            name_token.line,
+                            name_token.column,
+                        ));
+                    }
+                } else {
+                    return Err(ParseError::new(
+                        "Unexpected end of input after 'as'".to_string(),
+                        0,
+                        0,
+                    ));
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         if let Some(token) = self.tokens.peek()
             && matches!(token.token, Token::Colon)
         {
@@ -4020,6 +4052,7 @@ impl<'a> Parser<'a> {
             end,
             step,
             downward,
+            variable_name,
             body,
             line: token_pos.line,
             column: token_pos.column,

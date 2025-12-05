@@ -651,6 +651,7 @@ impl Analyzer {
                 start,
                 end,
                 step,
+                variable_name,
                 body,
                 ..
             } => {
@@ -663,10 +664,13 @@ impl Analyzer {
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
+                // Use custom variable name if provided, otherwise default to "count"
+                let loop_var_name = variable_name.as_deref().unwrap_or("count");
+
                 let count_symbol = Symbol {
-                    name: "count".to_string(), // The count variable is implicitly defined
-                    kind: SymbolKind::Variable { mutable: false }, // Count variable is immutable
-                    symbol_type: Some(Type::Number), // Count is always a number
+                    name: loop_var_name.to_string(), // The loop variable is implicitly defined
+                    kind: SymbolKind::Variable { mutable: false }, // Loop variable is immutable
+                    symbol_type: Some(Type::Number), // Loop variable is always a number
                     line: 0,
                     column: 0,
                 };
@@ -675,12 +679,15 @@ impl Analyzer {
                     self.errors.push(error);
                 }
 
-                // Add count to action_parameters to prevent it from being flagged as undefined
-                self.action_parameters.insert("count".to_string());
+                // Add loop variable to action_parameters to prevent it from being flagged as undefined
+                self.action_parameters.insert(loop_var_name.to_string());
 
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
+
+                // Remove loop variable from action_parameters after the loop
+                self.action_parameters.remove(loop_var_name);
 
                 let loop_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = loop_scope.parent {

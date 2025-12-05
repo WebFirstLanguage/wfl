@@ -1725,6 +1725,7 @@ impl Interpreter {
                 end,
                 step,
                 downward,
+                variable_name,
                 body,
                 line,
                 column,
@@ -1787,6 +1788,9 @@ impl Interpreter {
 
                 *self.in_count_loop.borrow_mut() = true;
 
+                // Determine the variable name to use - custom name or default "count"
+                let loop_var_name = variable_name.as_deref().unwrap_or("count");
+
                 while should_continue(count, end_num) && iterations < max_iterations {
                     self.check_time()?;
 
@@ -1795,9 +1799,9 @@ impl Interpreter {
                     // Create a new scope for each iteration
                     let loop_env = Environment::new_child_env(&env);
 
-                    // Also make count available as a regular variable in the loop environment
-                    // This ensures consistency and allows for nested count loops to work properly
-                    let _ = loop_env.borrow_mut().define("count", Value::Number(count));
+                    // Make the loop variable available in the loop environment
+                    // Use custom variable name if provided, otherwise default to "count"
+                    let _ = loop_env.borrow_mut().define(loop_var_name, Value::Number(count));
 
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await;
 

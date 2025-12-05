@@ -134,7 +134,7 @@ end check
 Iterate over numeric ranges with `count`:
 
 ```wfl
-// Basic counting
+// Basic counting (using default variable name 'count')
 count from 1 to 5:
     display "Iteration: " with count
 end count
@@ -159,9 +159,31 @@ end count
 // Output: 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0
 ```
 
-The loop variable `count` is automatically available within the loop body.
+By default, the loop variable `count` is automatically available within the loop body.
 
-**Scoping Note:** The loop variable is always named `count` and is lexically scoped to the loop body. In nested count loops, the inner `count` shadows the outer `count` variable. Currently, there is no syntax to rename or alias the loop variable - it's always `count`.
+#### Custom Loop Variable Names
+
+You can specify a custom variable name using the `as` clause. This is especially useful for nested loops:
+
+```wfl
+// Custom loop variable name
+count from 1 to 5 as i:
+    display "Iteration: " with i
+end count
+
+// Nested loops with custom variables
+count from 1 to 3 as outer:
+    display "Outer: " with outer
+
+    count from 1 to 2 as inner:
+        display "  Inner: " with inner
+        store product as (outer times inner)
+        display "  Product: " with product
+    end count
+end count
+```
+
+**Scoping Note:** The loop variable (whether named `count` or a custom name) is lexically scoped to the loop body. In nested count loops, each loop has its own distinct variable name, avoiding shadowing issues. If you don't specify a custom name with `as`, the default name `count` is used.
 
 ### For-Each Loops
 

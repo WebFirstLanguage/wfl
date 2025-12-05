@@ -124,6 +124,7 @@ pub enum Statement {
         end: Expression,
         step: Option<Expression>,
         downward: bool,
+        variable_name: Option<String>, // Custom loop variable name (e.g., "i", "j"), defaults to "count" if None
         body: Vec<Statement>,
         line: usize,
         column: usize,

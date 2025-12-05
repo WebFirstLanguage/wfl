@@ -377,6 +377,7 @@ impl CodeFixer {
                 start,
                 end,
                 step,
+                variable_name,
                 body,
                 ..
             } => {
@@ -389,6 +390,12 @@ impl CodeFixer {
                 if let Some(step_expr) = step {
                     output.push_str(" by ");
                     self.pretty_print_expression(step_expr, output, indent_level, summary);
+                }
+
+                // Add custom variable name if present
+                if let Some(var_name) = variable_name {
+                    output.push_str(" as ");
+                    output.push_str(var_name);
                 }
 
                 output.push_str(":\n");
