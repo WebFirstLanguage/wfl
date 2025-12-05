@@ -500,8 +500,9 @@ impl IoClient {
                                     #[cfg(not(windows))]
                                     {
                                         // On Unix-like systems, perform full sync to disk
-                                        file_clone.sync_all().await
-                                            .map_err(|e| format!("Failed to sync file to disk: {e}"))?;
+                                        file_clone.sync_all().await.map_err(|e| {
+                                            format!("Failed to sync file to disk: {e}")
+                                        })?;
                                     }
 
                                     #[cfg(windows)]
@@ -543,7 +544,8 @@ impl IoClient {
                     #[cfg(not(windows))]
                     {
                         // On Unix-like systems, perform full sync to disk
-                        file.sync_all().await
+                        file.sync_all()
+                            .await
                             .map_err(|e| format!("Failed to sync file during close: {e}"))?;
                     }
 
@@ -581,8 +583,9 @@ impl IoClient {
                             #[cfg(not(windows))]
                             {
                                 // On Unix-like systems, perform full sync to disk
-                                file.sync_all().await
-                                    .map_err(|e| format!("Failed to sync appended data to disk: {e}"))?;
+                                file.sync_all().await.map_err(|e| {
+                                    format!("Failed to sync appended data to disk: {e}")
+                                })?;
                             }
 
                             #[cfg(windows)]
@@ -5815,7 +5818,11 @@ impl Interpreter {
                 }
             }
             (a, b) => Err(RuntimeError::new(
-                format!("Cannot compute modulo of {} by {}", a.type_name(), b.type_name()),
+                format!(
+                    "Cannot compute modulo of {} by {}",
+                    a.type_name(),
+                    b.type_name()
+                ),
                 line,
                 column,
             )),

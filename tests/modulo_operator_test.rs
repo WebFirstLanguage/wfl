@@ -1,10 +1,9 @@
+use std::env;
 /// Test that the modulo operator (%) works correctly
 ///
 /// This test verifies the implementation of the % operator for computing remainders.
-
 use std::fs;
 use std::process::Command;
-use std::env;
 
 #[test]
 fn test_modulo_operator_basic() {
@@ -15,7 +14,10 @@ fn test_modulo_operator_basic() {
     };
 
     let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(binary_path.exists(), "WFL binary not found. Run 'cargo build --release' first.");
+    assert!(
+        binary_path.exists(),
+        "WFL binary not found. Run 'cargo build --release' first."
+    );
 
     let test_program = r#"
 // Test basic modulo operations
@@ -66,7 +68,12 @@ display result
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    assert!(output.status.success(), "WFL failed: {}\n{}", stdout, stderr);
+    assert!(
+        output.status.success(),
+        "WFL failed: {}\n{}",
+        stdout,
+        stderr
+    );
     assert!(stdout.contains("PASS"), "Expected PASS, got: {}", stdout);
     assert!(!stdout.contains("FAIL"), "Found FAIL: {}", stdout);
 }
@@ -116,7 +123,12 @@ end check
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    assert!(output.status.success(), "WFL failed: {}\n{}", stdout, stderr);
+    assert!(
+        output.status.success(),
+        "WFL failed: {}\n{}",
+        stdout,
+        stderr
+    );
     assert!(stdout.contains("PASS"), "Expected PASS, got: {}", stdout);
 }
 
@@ -158,6 +170,11 @@ display result
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    assert!(output.status.success(), "WFL failed: {}\n{}", stdout, stderr);
+    assert!(
+        output.status.success(),
+        "WFL failed: {}\n{}",
+        stdout,
+        stderr
+    );
     assert!(stdout.contains("PASS"), "Expected PASS, got: {}", stdout);
 }

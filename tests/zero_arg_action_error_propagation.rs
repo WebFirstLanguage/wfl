@@ -1,12 +1,11 @@
+use std::env;
 /// Test that errors from zero-argument user-defined actions are properly propagated
 /// when the action is called without arguments (auto-call behavior).
 ///
 /// This test verifies the fix for a bug where `store res as faulty` would store
 /// the function value instead of calling it and catching errors.
-
 use std::fs;
 use std::process::Command;
-use std::env;
 
 #[test]
 fn test_zero_arg_action_error_propagation() {
@@ -18,9 +17,7 @@ fn test_zero_arg_action_error_propagation() {
     };
 
     // Verify the binary exists
-    let binary_path = env::current_dir()
-        .unwrap()
-        .join(wfl_binary);
+    let binary_path = env::current_dir().unwrap().join(wfl_binary);
 
     if !binary_path.exists() {
         panic!(
@@ -99,9 +96,7 @@ fn test_zero_arg_action_auto_call() {
     };
 
     // Verify the binary exists
-    let binary_path = env::current_dir()
-        .unwrap()
-        .join(wfl_binary);
+    let binary_path = env::current_dir().unwrap().join(wfl_binary);
 
     if !binary_path.exists() {
         panic!(
