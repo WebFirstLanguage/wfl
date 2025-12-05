@@ -465,12 +465,13 @@ log_message with "Async I/O and Concurrency Tests completed."
 // End of tests: Finalize
 ///////////////////////////////////////////////////////////////////////////
 
-// TODO: Clean up temporary files (file deletion not yet implemented)
-// delete file at "temp1.txt"
-// delete file at "temp2.txt"
+// Clean up temporary files created during async I/O tests
+delete file at "temp1.txt"
+delete file at "temp2.txt"
 
 // Final log message before closing
 log_message with "All tests completed."
+log_message with "Temporary files cleaned up."
 
 // Close the log file
 close file logHandle
