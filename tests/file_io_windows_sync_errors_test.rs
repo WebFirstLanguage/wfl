@@ -5,7 +5,6 @@
 /// 2. All OTHER errors (disk full, I/O failures, etc.) are still propagated
 /// 3. Data integrity is maintained despite sync errors
 /// 4. Cross-platform behavior is consistent where appropriate
-
 use std::env;
 use std::fs;
 use std::process::Command;
@@ -26,7 +25,8 @@ fn test_windows_permission_denied_suppressed() {
     // Create a test that writes, appends, and closes files
     // This may trigger PermissionDenied on Windows with concurrent access
     let pid = std::process::id();
-    let test_program = format!(r#"
+    let test_program = format!(
+        r#"
 // Test file operations that might trigger sync_all() PermissionDenied
 open file at "test_sync_write_{}.txt" for writing as f1
 wait for write content "test data" into f1
@@ -45,7 +45,9 @@ end check
 
 // Clean up
 delete file at "test_sync_write_{}.txt"
-"#, pid, pid, pid);
+"#,
+        pid, pid, pid
+    );
 
     // Use unique temp file to avoid race conditions when tests run in parallel
     let temp_dir = std::env::temp_dir();
@@ -66,13 +68,15 @@ delete file at "test_sync_write_{}.txt"
     assert!(
         output.status.success(),
         "WFL execution failed.\nStdout: {}\nStderr: {}",
-        stdout, stderr
+        stdout,
+        stderr
     );
 
     assert!(
         stdout.contains("PASS"),
         "Test failed.\nStdout: {}\nStderr: {}",
-        stdout, stderr
+        stdout,
+        stderr
     );
 
     // Verify that if PermissionDenied occurred, a warning was printed
@@ -99,7 +103,8 @@ fn test_data_integrity_after_write() {
     assert!(binary_path.exists(), "WFL binary not found.");
 
     let pid = std::process::id();
-    let test_program = format!(r#"
+    let test_program = format!(
+        r#"
 // Test write and read cycle
 store test_content as "Line 1\nLine 2\nLine 3\n"
 
@@ -120,7 +125,9 @@ otherwise:
 end check
 
 delete file at "test_integrity_{}.txt"
-"#, pid, pid, pid);
+"#,
+        pid, pid, pid
+    );
 
     // Use unique temp file to avoid race conditions when tests run in parallel
     let temp_dir = std::env::temp_dir();
@@ -141,9 +148,14 @@ delete file at "test_integrity_{}.txt"
     assert!(
         output.status.success(),
         "WFL failed: {}\n{}",
-        stdout, stderr
+        stdout,
+        stderr
     );
-    assert!(stdout.contains("PASS"), "Data integrity check failed: {}", stdout);
+    assert!(
+        stdout.contains("PASS"),
+        "Data integrity check failed: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -160,7 +172,8 @@ fn test_append_with_sync() {
     assert!(binary_path.exists(), "WFL binary not found.");
 
     let pid = std::process::id();
-    let test_program = format!(r#"
+    let test_program = format!(
+        r#"
 // Create file with initial content
 open file at "test_append_sync_{}.txt" for writing as f1
 wait for write content "Line 1\n" into f1
@@ -185,7 +198,9 @@ otherwise:
 end check
 
 delete file at "test_append_sync_{}.txt"
-"#, pid, pid, pid, pid);
+"#,
+        pid, pid, pid, pid
+    );
 
     // Use unique temp file to avoid race conditions when tests run in parallel
     let temp_dir = std::env::temp_dir();
@@ -206,7 +221,8 @@ delete file at "test_append_sync_{}.txt"
     assert!(
         output.status.success(),
         "WFL failed: {}\n{}",
-        stdout, stderr
+        stdout,
+        stderr
     );
     assert!(stdout.contains("PASS"), "Append test failed: {}", stdout);
 }
@@ -225,7 +241,8 @@ fn test_multiple_write_cycles_with_sync() {
     assert!(binary_path.exists(), "WFL binary not found.");
 
     let pid = std::process::id();
-    let test_program = format!(r#"
+    let test_program = format!(
+        r#"
 // Perform multiple write/close cycles to stress-test sync
 
 // Cycle 1
@@ -265,7 +282,9 @@ otherwise:
 end check
 
 delete file at "test_multi_sync_{}.txt"
-"#, pid, pid, pid, pid, pid, pid, pid);
+"#,
+        pid, pid, pid, pid, pid, pid, pid
+    );
 
     // Use unique temp file to avoid race conditions when tests run in parallel
     let temp_dir = std::env::temp_dir();
@@ -286,7 +305,12 @@ delete file at "test_multi_sync_{}.txt"
     assert!(
         output.status.success(),
         "WFL failed: {}\n{}",
-        stdout, stderr
+        stdout,
+        stderr
     );
-    assert!(stdout.contains("PASS"), "Multi-cycle test failed: {}", stdout);
+    assert!(
+        stdout.contains("PASS"),
+        "Multi-cycle test failed: {}",
+        stdout
+    );
 }

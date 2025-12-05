@@ -544,7 +544,8 @@ impl IoClient {
                                 Ok(_) => {
                                     // Platform-specific sync behavior
                                     // Sync file to disk with Windows-aware error handling
-                                    Self::sync_file_with_windows_handling(&mut file_clone, "write").await
+                                    Self::sync_file_with_windows_handling(&mut file_clone, "write")
+                                        .await
                                 }
                                 Err(e) => Err(format!("Failed to flush file: {e}")),
                             }
