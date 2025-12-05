@@ -1288,6 +1288,7 @@ impl<'a> Parser<'a> {
                 Token::KeywordClear => self.parse_clear_list_statement(),
                 Token::KeywordTry => self.parse_try_statement(),
                 Token::KeywordRepeat => self.parse_repeat_statement(),
+                Token::KeywordWhile => self.parse_while_statement(),
                 Token::KeywordExit => self.parse_exit_statement(),
                 Token::KeywordPush => self.parse_push_statement(),
                 Token::KeywordEvent => self.parse_event_definition(),
@@ -5993,6 +5994,35 @@ impl<'a> Parser<'a> {
                 repeat_token.column,
             ))
         }
+    }
+
+    fn parse_while_statement(&mut self) -> Result<Statement, ParseError> {
+        let while_token = self.tokens.next().unwrap(); // Consume "while"
+        let condition = self.parse_expression()?;
+        
+        if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::Colon)
+        {
+            self.tokens.next(); // Consume the colon if present
+        }
+
+        let mut body = Vec::new();
+        while let Some(token) = self.tokens.peek().cloned() {
+            if matches!(token.token, Token::KeywordEnd) {
+                break;
+            }
+            body.push(self.parse_statement()?);
+        }
+
+        self.expect_token(Token::KeywordEnd, "Expected 'end' after while body")?;
+        self.expect_token(Token::KeywordWhile, "Expected 'while' after 'end'")?;
+
+        Ok(Statement::WhileLoop {
+            condition,
+            body,
+            line: while_token.line,
+            column: while_token.column,
+        })
     }
 
     fn parse_exit_statement(&mut self) -> Result<Statement, ParseError> {

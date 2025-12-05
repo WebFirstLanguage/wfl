@@ -1,0 +1,9 @@
+// Test basic while loop functionality
+store counter as 0
+
+while counter is less than 5:
+    display counter
+    change counter to counter plus 1
+end while
+
+display "Loop completed"
