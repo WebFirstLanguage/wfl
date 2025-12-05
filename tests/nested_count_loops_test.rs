@@ -1,9 +1,9 @@
-use wfl::parser::Parser;
-use wfl::lexer::lex_wfl_with_positions;
 use wfl::analyzer::Analyzer;
-use wfl::typechecker::TypeChecker;
 use wfl::interpreter::Interpreter;
+use wfl::lexer::lex_wfl_with_positions;
+use wfl::parser::Parser;
 use wfl::parser::ast::Statement;
+use wfl::typechecker::TypeChecker;
 
 /// Test that nested count loops with default variable names (count) should fail
 /// due to variable shadowing
@@ -51,13 +51,17 @@ end count
     let program = parser.parse().expect("Should parse successfully");
 
     // Verify that CountLoop statements have variable names
-    let count_loops: Vec<_> = program.statements.iter().filter_map(|stmt| {
-        if let Statement::CountLoop { .. } = stmt {
-            Some(stmt)
-        } else {
-            None
-        }
-    }).collect();
+    let count_loops: Vec<_> = program
+        .statements
+        .iter()
+        .filter_map(|stmt| {
+            if let Statement::CountLoop { .. } = stmt {
+                Some(stmt)
+            } else {
+                None
+            }
+        })
+        .collect();
 
     assert_eq!(count_loops.len(), 1, "Should have outer count loop");
 
@@ -87,9 +91,14 @@ end count
     let program = parser.parse().expect("Should parse");
 
     let mut analyzer = Analyzer::new();
-    analyzer.analyze(&program).expect("Should analyze successfully");
+    analyzer
+        .analyze(&program)
+        .expect("Should analyze successfully");
 
-    assert!(analyzer.get_errors().is_empty(), "Should have no analysis errors");
+    assert!(
+        analyzer.get_errors().is_empty(),
+        "Should have no analysis errors"
+    );
 }
 
 /// Test execution of nested count loops with custom variables
@@ -116,10 +125,21 @@ end count
     type_checker.check_types(&program).ok();
 
     let mut interpreter = Interpreter::new();
-    interpreter.interpret(&program).await.expect("Should execute successfully");
+    interpreter
+        .interpret(&program)
+        .await
+        .expect("Should execute successfully");
 
-    let total = interpreter.global_env().borrow().get("total").expect("total should exist");
-    assert_eq!(total.to_string(), "6", "Should have 6 total iterations (3 * 2)");
+    let total = interpreter
+        .global_env()
+        .borrow()
+        .get("total")
+        .expect("total should exist");
+    assert_eq!(
+        total.to_string(),
+        "6",
+        "Should have 6 total iterations (3 * 2)"
+    );
 }
 
 /// Test that default 'count' variable still works for backwards compatibility
@@ -144,9 +164,16 @@ end count
     type_checker.check_types(&program).ok();
 
     let mut interpreter = Interpreter::new();
-    interpreter.interpret(&program).await.expect("Should execute successfully");
+    interpreter
+        .interpret(&program)
+        .await
+        .expect("Should execute successfully");
 
-    let sum = interpreter.global_env().borrow().get("sum").expect("sum should exist");
+    let sum = interpreter
+        .global_env()
+        .borrow()
+        .get("sum")
+        .expect("sum should exist");
     assert_eq!(sum.to_string(), "15", "Should sum 1+2+3+4+5 = 15");
 }
 
@@ -176,9 +203,16 @@ end count
     type_checker.check_types(&program).ok();
 
     let mut interpreter = Interpreter::new();
-    interpreter.interpret(&program).await.expect("Should execute successfully");
+    interpreter
+        .interpret(&program)
+        .await
+        .expect("Should execute successfully");
 
-    let results = interpreter.global_env().borrow().get("results").expect("results should exist");
+    let results = interpreter
+        .global_env()
+        .borrow()
+        .get("results")
+        .expect("results should exist");
     let results_str = results.to_string();
 
     // Should have values: 11, 12, 21, 22

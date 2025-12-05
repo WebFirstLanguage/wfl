@@ -1801,7 +1801,9 @@ impl Interpreter {
 
                     // Make the loop variable available in the loop environment
                     // Use custom variable name if provided, otherwise default to "count"
-                    let _ = loop_env.borrow_mut().define(loop_var_name, Value::Number(count));
+                    let _ = loop_env
+                        .borrow_mut()
+                        .define(loop_var_name, Value::Number(count));
 
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await;
 

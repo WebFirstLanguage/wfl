@@ -3997,7 +3997,10 @@ impl<'a> Parser<'a> {
                         Some(var_name)
                     } else {
                         return Err(ParseError::new(
-                            format!("Expected identifier after 'as', found {:?}", name_token.token),
+                            format!(
+                                "Expected identifier after 'as', found {:?}",
+                                name_token.token
+                            ),
                             name_token.line,
                             name_token.column,
                         ));
