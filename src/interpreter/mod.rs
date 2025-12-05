@@ -4788,6 +4788,15 @@ impl Interpreter {
                                 Ok(value)
                             }
                         }
+                        Value::Function(func) => {
+                            if func.params.is_empty() {
+                                // Auto-call zero-argument user-defined functions
+                                self.call_function(func, vec![], *line, *column).await
+                            } else {
+                                // Return function object for functions with arguments
+                                Ok(value)
+                            }
+                        }
                         _ => Ok(value),
                     }
                 } else if name == "count" {
