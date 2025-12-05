@@ -77,46 +77,91 @@ run_integration_tests() {
     return 0
 }
 
+# Tests that require special handling (web servers, interactive tests)
+# These are tested separately with dedicated scripts
+SKIP_TESTS=(
+    "simple_web_test.wfl"      # Web server - needs HTTP client
+    "web_server_test.wfl"      # Web server - needs HTTP client
+    "websocket_test.wfl"       # WebSocket - needs WS client
+)
+
+# Timeout for each test (seconds)
+TEST_TIMEOUT=30
+
+# Function to check if a test should be skipped
+should_skip() {
+    local test_name="$1"
+    for skip in "${SKIP_TESTS[@]}"; do
+        if [ "$test_name" == "$skip" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Function to run TestPrograms
 run_test_programs() {
     print_status "Running WFL test programs..."
-    
+
     # Determine binary path based on OS
     if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
         WFL_BINARY="target/release/wfl.exe"
     else
         WFL_BINARY="target/release/wfl"
     fi
-    
+
     # Check if TestPrograms directory exists
     if [ ! -d "TestPrograms" ]; then
         print_warning "TestPrograms directory not found, skipping WFL program tests"
         return 0
     fi
-    
+
     # Count WFL files
-    wfl_files=$(find TestPrograms -name "*.wfl" 2>/dev/null | wc -l)
+    wfl_files=$(find TestPrograms -maxdepth 1 -name "*.wfl" 2>/dev/null | wc -l)
     if [ "$wfl_files" -eq 0 ]; then
         print_warning "No WFL test programs found in TestPrograms/"
         return 0
     fi
-    
+
     print_status "Found $wfl_files WFL test programs"
-    
+
     # Run each WFL program
     failed_programs=0
+    skipped_programs=0
+    passed_programs=0
+
     for wfl_file in TestPrograms/*.wfl; do
         if [ -f "$wfl_file" ]; then
-            print_status "Testing: $wfl_file"
-            if "./$WFL_BINARY" "$wfl_file" > /dev/null 2>&1; then
-                print_success "✓ $wfl_file"
+            test_name=$(basename "$wfl_file")
+
+            # Check if this test should be skipped
+            if should_skip "$test_name"; then
+                print_warning "[SKIP] $test_name (requires special handling)"
+                ((skipped_programs++))
+                continue
+            fi
+
+            print_status "Testing: $test_name"
+
+            # Run with timeout to prevent hangs
+            if timeout "${TEST_TIMEOUT}s" "./$WFL_BINARY" "$wfl_file" > /dev/null 2>&1; then
+                print_success "PASS $test_name"
+                ((passed_programs++))
             else
-                print_error "✗ $wfl_file"
+                exit_code=$?
+                if [ $exit_code -eq 124 ]; then
+                    print_error "TIMEOUT $test_name (exceeded ${TEST_TIMEOUT}s)"
+                else
+                    print_error "FAIL $test_name (exit code: $exit_code)"
+                fi
                 ((failed_programs++))
             fi
         fi
     done
-    
+
+    echo ""
+    print_status "Results: $passed_programs passed, $failed_programs failed, $skipped_programs skipped"
+
     if [ "$failed_programs" -eq 0 ]; then
         print_success "All WFL test programs passed"
         return 0
