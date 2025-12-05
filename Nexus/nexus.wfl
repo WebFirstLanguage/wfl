@@ -353,44 +353,74 @@ end try
 log_message with "Action/Function Tests completed."
 
 ///////////////////////////////////////////////////////////////////////////
-// 6. Pattern Matching Tests (COMMENTED OUT - NOT YET IMPLEMENTED)
+// 6. Pattern Matching Tests
 ///////////////////////////////////////////////////////////////////////////
-// TODO: Pattern matching with natural language syntax is not yet implemented.
-// The syntax `pattern "3 digits"` needs to be implemented, or this section
-// should be rewritten using the working `create pattern` syntax from
-// patterns_working_comprehensive.wfl
-//
-// Working syntax example:
-//   create pattern pat:
-//       exactly 3 digit
-//   end pattern
-//   check if text matches pat:
-//       ...
-//   end check
-///////////////////////////////////////////////////////////////////////////
+log_message with "Starting Pattern Matching Tests..."
 
-// log_message with "Starting Pattern Matching Tests..."
-//
-// // Create a pattern to match three digits
-// store pat as pattern "3 digits"
-//
-// // Test a string that contains three digits in a row
-// store text1 as "abc123xyz"
-// check if text1 contains pat:
-//     log_message with "Pattern test (\"abc123xyz\" contains 3 digits): PASS"
-// otherwise:
-//     log_message with "Pattern test (\"abc123xyz\" should contain 3 digits): FAIL"
-// end check
-//
-// // Test a string that does not contain three consecutive digits
-// store text2 as "abc45xyz"
-// check if text2 contains pat:
-//     log_message with "Pattern test (\"abc45xyz\" should NOT contain 3 digits): FAIL"
-// otherwise:
-//     log_message with "Pattern test (\"abc45xyz\" no 3-digit sequence): PASS"
-// end check
-//
-// log_message with "Pattern Matching Tests completed."
+// Create a pattern to match exactly three digits
+create pattern three_digits:
+    exactly 3 digit
+end pattern
+
+// Test a string that contains three digits in a row
+store text1 as "abc123xyz"
+check if text1 matches three_digits:
+    log_message with "Pattern test (\"abc123xyz\" matches 3 digits): PASS"
+otherwise:
+    log_message with "Pattern test (\"abc123xyz\" should match 3 digits): FAIL"
+end check
+
+// Test a string that does not contain three consecutive digits
+store text2 as "abc45xyz"
+check if text2 matches three_digits:
+    log_message with "Pattern test (\"abc45xyz\" should NOT match 3 digits): FAIL"
+otherwise:
+    log_message with "Pattern test (\"abc45xyz\" no 3-digit match): PASS"
+end check
+
+// Create a pattern for simple word matching
+create pattern word_pattern:
+    one or more letter
+end pattern
+
+// Test valid word
+store word1 as "hello"
+check if word1 matches word_pattern:
+    log_message with "Pattern test (word matching): PASS"
+otherwise:
+    log_message with "Pattern test (word matching): FAIL"
+end check
+
+// Test non-word (should fail)
+store word2 as "123"
+check if word2 matches word_pattern:
+    log_message with "Pattern test (non-word should fail): FAIL"
+otherwise:
+    log_message with "Pattern test (non-word correctly rejected): PASS"
+end check
+
+// Create a pattern with quantifiers
+create pattern between_pattern:
+    2 to 5 digit
+end pattern
+
+// Test number with 3 digits (should pass)
+store num1 as "123"
+check if num1 matches between_pattern:
+    log_message with "Pattern test (2-5 digits, testing 3): PASS"
+otherwise:
+    log_message with "Pattern test (2-5 digits, testing 3): FAIL"
+end check
+
+// Test number with 1 digit (should fail)
+store num2 as "1"
+check if num2 matches between_pattern:
+    log_message with "Pattern test (1 digit should fail 2-5 range): FAIL"
+otherwise:
+    log_message with "Pattern test (1 digit correctly rejected): PASS"
+end check
+
+log_message with "Pattern Matching Tests completed."
 
 ///////////////////////////////////////////////////////////////////////////
 // 6. Asynchronous I/O and Concurrency Tests (formerly section 7)
