@@ -6038,7 +6038,7 @@ mod process_tests {
         let config = Arc::new(WflConfig::default());
         let client = IoClient::new(config);
 
-        // This will fail until we implement execute_command
+        // Use safe argument-based execution (no shell)
         let result = client
             .execute_command("echo", &["hello"], false, 0, 0)
             .await;
@@ -6053,14 +6053,48 @@ mod process_tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_spawn_and_kill_process() {
         let config = Arc::new(WflConfig::default());
         let client = IoClient::new(config);
 
-        // This will fail until we implement spawn_process
+        // Unix-specific test using sleep command
         let proc_id = client
             .spawn_process("sleep", &["10"], false, 0, 0)
+            .await
+            .expect("Failed to spawn process");
+
+        // Check that process is running
+        assert!(
+            client.is_process_running(&proc_id).await,
+            "Process should be running"
+        );
+
+        // Kill the process
+        client
+            .kill_process(&proc_id)
+            .await
+            .expect("Failed to kill process");
+
+        // Give it time to terminate
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Process should no longer be running
+        assert!(
+            !client.is_process_running(&proc_id).await,
+            "Process should not be running after kill"
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn test_spawn_and_kill_process() {
+        let client = IoClient::new();
+
+        // Windows-specific test using timeout command
+        let proc_id = client
+            .spawn_process("timeout", &["10"])
             .await
             .expect("Failed to spawn process");
 
@@ -6091,7 +6125,7 @@ mod process_tests {
         let config = Arc::new(WflConfig::default());
         let client = IoClient::new(config);
 
-        // This will fail until we implement spawn_process and read_process_output
+        // Use shell command that works cross-platform (no args = shell execution)
         let proc_id = client
             .spawn_process("echo", &["test output"], false, 0, 0)
             .await
@@ -6116,7 +6150,7 @@ mod process_tests {
         let config = Arc::new(WflConfig::default());
         let client = IoClient::new(config);
 
-        // This will fail until we implement spawn_process and wait_for_process
+        // Use shell command that works cross-platform (no args = shell execution)
         let proc_id = client
             .spawn_process("echo", &["done"], false, 0, 0)
             .await
@@ -6161,7 +6195,7 @@ mod process_tests {
         let config = Arc::new(WflConfig::default());
         let client = IoClient::new(config);
 
-        // This will fail until we implement read_process_output
+        // Test invalid process ID handling
         let result = client.read_process_output("invalid_proc_id").await;
 
         assert!(result.is_err(), "Should fail for invalid process ID");
