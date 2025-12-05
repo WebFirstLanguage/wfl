@@ -305,10 +305,8 @@ end action
 // 5.5 Action that triggers an error (for error handling test)
 define action called faulty:
     // This action will cause a division by zero error
-    store u as 1
-    store v as 0
-    store w as u divided by v   // runtime error (division by zero)
-    give back w
+    // Directly perform division by zero to trigger error
+    give back 1 divided by 0
 end action
 
 // Call actions and verify results
@@ -425,7 +423,7 @@ count from 1 to 100:
 end count
 
 // Verify that both file contents were read correctly
-check if content1 is equal to "FileOneContent" and content2 is equal to "FileTwoContent":
+check if (content1 is equal to "FileOneContent") and (content2 is equal to "FileTwoContent"):
     log_message with "Concurrent file read test: PASS (content1 & content2 OK)"
 otherwise:
     log_message with "Concurrent file read test: FAIL (content1=" with content1 with ", content2=" with content2 with ")"
