@@ -54,13 +54,7 @@ end count
     let count_loops: Vec<_> = program
         .statements
         .iter()
-        .filter_map(|stmt| {
-            if let Statement::CountLoop { .. } = stmt {
-                Some(stmt)
-            } else {
-                None
-            }
-        })
+        .filter(|stmt| matches!(stmt, Statement::CountLoop { .. }))
         .collect();
 
     assert_eq!(count_loops.len(), 1, "Should have outer count loop");
