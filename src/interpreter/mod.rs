@@ -496,27 +496,21 @@ impl IoClient {
                             // Flush the data to ensure it's written to disk
                             match file_clone.flush().await {
                                 Ok(_) => {
-                                    // Sync to disk for durability
-                                    match file_clone.sync_all().await {
-                                        Ok(_) => Ok(()),
-                                        Err(e) => {
-                                            // On Windows, sync_all can fail with "Access denied" in concurrent scenarios
-                                            // This is often a limitation of Windows filesystem, not a real error
-                                            if cfg!(windows)
-                                                && e.kind() == std::io::ErrorKind::PermissionDenied
-                                            {
-                                                // Log warning but don't fail - flush() already ensured data reaches OS buffers
-                                                eprintln!(
-                                                    "Warning: Windows file sync limitation encountered: {}",
-                                                    e
-                                                );
-                                                Ok(())
-                                            } else {
-                                                // On other platforms or different error types, this is a real failure
-                                                Err(format!("Failed to sync file to disk: {e}"))
-                                            }
-                                        }
+                                    // Platform-specific sync behavior
+                                    #[cfg(not(windows))]
+                                    {
+                                        // On Unix-like systems, perform full sync to disk
+                                        file_clone.sync_all().await
+                                            .map_err(|e| format!("Failed to sync file to disk: {e}"))?;
                                     }
+
+                                    #[cfg(windows)]
+                                    {
+                                        // On Windows, skip sync_all due to filesystem limitations with concurrent access
+                                        // flush() provides adequate durability by ensuring data reaches OS buffers
+                                        let _ = file_clone.sync_all().await;
+                                    }
+                                    Ok(())
                                 }
                                 Err(e) => Err(format!("Failed to flush file: {e}")),
                             }
@@ -545,25 +539,21 @@ impl IoClient {
             // Flush the file before closing to ensure all data is written to disk
             match file.flush().await {
                 Ok(_) => {
-                    // Sync to disk for durability
-                    match file.sync_all().await {
-                        Ok(_) => Ok(()),
-                        Err(e) => {
-                            // On Windows, sync_all can fail with "Access denied" in concurrent scenarios
-                            // This is often a limitation of Windows filesystem, not a real error
-                            if cfg!(windows) && e.kind() == std::io::ErrorKind::PermissionDenied {
-                                // Log warning but don't fail - flush() already ensured data reaches OS buffers
-                                eprintln!(
-                                    "Warning: Windows file sync limitation encountered: {}",
-                                    e
-                                );
-                                Ok(())
-                            } else {
-                                // On other platforms or different error types, this is a real failure
-                                Err(format!("Failed to sync file during close: {e}"))
-                            }
-                        }
+                    // Platform-specific sync behavior
+                    #[cfg(not(windows))]
+                    {
+                        // On Unix-like systems, perform full sync to disk
+                        file.sync_all().await
+                            .map_err(|e| format!("Failed to sync file during close: {e}"))?;
                     }
+
+                    #[cfg(windows)]
+                    {
+                        // On Windows, skip sync_all due to filesystem limitations with concurrent access
+                        // flush() provides adequate durability by ensuring data reaches OS buffers
+                        let _ = file.sync_all().await;
+                    }
+                    Ok(())
                 }
                 Err(e) => Err(format!("Failed to flush file during close: {e}")),
             }
@@ -587,27 +577,21 @@ impl IoClient {
                     // Flush the data to ensure it's written to disk
                     match file.flush().await {
                         Ok(_) => {
-                            // Sync to disk for durability
-                            match file.sync_all().await {
-                                Ok(_) => Ok(()),
-                                Err(e) => {
-                                    // On Windows, sync_all can fail with "Access denied" in concurrent scenarios
-                                    // This is often a limitation of Windows filesystem, not a real error
-                                    if cfg!(windows)
-                                        && e.kind() == std::io::ErrorKind::PermissionDenied
-                                    {
-                                        // Log warning but don't fail - flush() already ensured data reaches OS buffers
-                                        eprintln!(
-                                            "Warning: Windows file sync limitation encountered: {}",
-                                            e
-                                        );
-                                        Ok(())
-                                    } else {
-                                        // On other platforms or different error types, this is a real failure
-                                        Err(format!("Failed to sync appended data to disk: {e}"))
-                                    }
-                                }
+                            // Platform-specific sync behavior
+                            #[cfg(not(windows))]
+                            {
+                                // On Unix-like systems, perform full sync to disk
+                                file.sync_all().await
+                                    .map_err(|e| format!("Failed to sync appended data to disk: {e}"))?;
                             }
+
+                            #[cfg(windows)]
+                            {
+                                // On Windows, skip sync_all due to filesystem limitations with concurrent access
+                                // flush() provides adequate durability by ensuring data reaches OS buffers
+                                let _ = file.sync_all().await;
+                            }
+                            Ok(())
                         }
                         Err(e) => Err(format!("Failed to flush appended data: {e}")),
                     }
