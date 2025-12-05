@@ -1,9 +1,7 @@
 name: Auto Version Bump
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger only (automatic version bumping now handled by ci.yml)
 
 jobs:
   bump-version:
