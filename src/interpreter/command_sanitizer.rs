@@ -151,11 +151,7 @@ impl CommandSanitizer {
 
     /// Extract the base command from a command string
     fn get_command_base(&self, command: &str) -> String {
-        command
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .to_string()
+        command.split_whitespace().next().unwrap_or("").to_string()
     }
 
     /// Analyze shell features and provide warnings
