@@ -36,6 +36,9 @@ cargo clippy --all-targets --all-features -- -D warnings
 # Run WFL program
 wfl program.wfl
 
+# Start interactive REPL
+wfl
+
 # Lint WFL code
 wfl --lint program.wfl
 
@@ -51,6 +54,12 @@ wfl --parse program.wfl
 
 # Check configuration
 wfl --configCheck
+
+# Run with execution timing
+wfl --time program.wfl
+
+# Run in single-step debug mode
+wfl --step program.wfl
 ```
 
 ### VSCode Extension
@@ -74,12 +83,30 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 
 - **Lexer** (`src/lexer/`): High-performance tokenization using Logos crate
 - **Parser** (`src/parser/`): Recursive descent parser with natural language constructs and error recovery
+  - Includes specialized parsers for containers and AST generation
+  - Maintains contextual keyword handling for natural language syntax
 - **Analyzer** (`src/analyzer/`): Semantic validation and static analysis
 - **Type Checker** (`src/typechecker/`): Static type analysis with intelligent inference
 - **Interpreter** (`src/interpreter/`): Async-capable direct AST execution using Tokio runtime
-- **Standard Library** (`src/stdlib/`): Built-in modules (core, math, text, list, filesystem, crypto, etc.)
+  - Includes subprocess handling with security sanitization
+  - Web server support with HTTP request/response handling
+  - Environment management with scope control
+- **Pattern Module** (`src/pattern/`): Pattern matching engine with bytecode VM
+  - Compiler for pattern expressions
+  - VM-based execution for regex-like patterns
+  - Unicode support and advanced pattern features
+- **Standard Library** (`src/stdlib/`): Built-in modules
+  - Core functions (print, typeof, etc.)
+  - Math operations (abs, round, random, etc.)
+  - Text manipulation (length, uppercase, substring, etc.)
+  - List operations (push, pop, contains, etc.)
+  - Filesystem I/O with async support
+  - Crypto module with WFLHASH (custom hash function)
+  - Time functions
+  - Random number generation
 - **LSP Server** (`wfl-lsp/`): Language Server Protocol implementation for IDE integration
 - **Development Tools**: Linter, code fixer, analyzer with real-time error checking
+- **REPL** (`src/repl.rs`): Interactive Read-Eval-Print Loop for experimentation
 
 ### Workspace Structure
 - Root crate `wfl` contains the main compiler/interpreter
@@ -88,6 +115,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `TestPrograms/` contains WFL test programs that MUST all pass
 - `tests/` contains Rust unit and integration tests
 - `Docs/` contains all user-facing documentation
+- `Dev diary/` contains development history and progress notes
 
 ## Critical Development Rules
 
@@ -123,12 +151,16 @@ WFL uses `.wflcfg` files for project configuration:
 - **Async Support**: Built-in async/await using Tokio runtime
 - **Error Handling**: Comprehensive try/when/otherwise error handling
 - **Standard Library**: Math, text, list, filesystem, crypto, and web modules
+- **Container System**: Object-oriented programming with containers (classes)
+- **Pattern Matching**: Powerful pattern matching engine with Unicode support
+- **Subprocess Execution**: Secure subprocess spawning with command sanitization
 
 ### Memory and Performance
 - Uses WFLHASH custom cryptographic hash function (see security reviews)
-- Optional heap profiling with dhat feature flags
+- Optional heap profiling with dhat feature flags (`dhat-heap`, `dhat-ad-hoc`)
 - Async-capable interpreter for concurrent operations
 - Memory optimization for large programs
+- Pattern VM for efficient regex-like operations
 
 ### Documentation Standards
 - All documentation in `Docs/` folder
@@ -142,3 +174,27 @@ The codebase includes Cursor IDE rules in `.cursor/rules/wfl-rules.mdc`:
 - Update documentation with changes
 - All test programs must pass
 - Update bytecode when modifying parser
+
+## Technical Requirements
+
+### Rust Environment
+- **Rust Edition**: 2024
+- **Minimum Rust Version**: 1.75+
+- **Current Development**: Rust 1.91.1+
+- **Build System**: Cargo with workspace support
+
+### Key Dependencies
+- `logos`: Lexer generation
+- `tokio`: Async runtime
+- `reqwest`: HTTP client
+- `sqlx`: Database support (SQLite, MySQL, PostgreSQL)
+- `warp`: Web server framework
+- `tower-lsp`: LSP server implementation (wfl-lsp)
+- `codespan-reporting`: Error diagnostics
+- `zeroize`, `subtle`: Cryptographic security
+- `hkdf`, `sha2`: Key derivation for crypto
+
+### Version Scheme
+WFL uses calendar-based versioning: **YY.MM.BUILD**
+- Example: `25.12.3` = Year 2025, December, Build 3
+- Major version always < 256 (Windows MSI compatibility)
