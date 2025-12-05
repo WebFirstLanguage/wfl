@@ -898,6 +898,7 @@ impl TypeChecker {
                 command,
                 arguments,
                 variable_name: _,
+                use_shell: _,
                 line: _line,
                 column: _column,
             } => {
@@ -920,6 +921,7 @@ impl TypeChecker {
                 command,
                 arguments,
                 variable_name: _,
+                use_shell: _,
                 line: _line,
                 column: _column,
             } => {

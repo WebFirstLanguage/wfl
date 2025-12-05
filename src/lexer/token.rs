@@ -147,6 +147,10 @@ pub enum Token {
     KeywordExecute,
     #[token("spawn")]
     KeywordSpawn,
+    #[token("using")]
+    KeywordUsing,
+    #[token("shell")]
+    KeywordShell,
     #[token("kill")]
     KeywordKill,
     #[token("process")]

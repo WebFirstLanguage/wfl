@@ -1,4 +1,6 @@
 #![allow(clippy::await_holding_refcell_ref)]
+pub mod bounded_buffer;
+pub mod command_sanitizer;
 pub mod control_flow;
 pub mod environment;
 pub mod error;
@@ -17,6 +19,7 @@ use self::value::{
     EventHandler, FunctionValue, InterfaceDefinitionValue, Value,
 };
 use crate::builtins::get_function_arity;
+use crate::config::WflConfig;
 use crate::debug_report::CallFrame;
 #[cfg(debug_assertions)]
 use crate::exec_block_enter;
@@ -279,6 +282,8 @@ pub struct Interpreter {
     script_args: Vec<String>, // Command-line arguments passed to the script
     web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
     pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
+    #[allow(dead_code)] // Used for future security features
+    config: Arc<WflConfig>, // Configuration for security and other settings
 }
 
 // Process handle for managing subprocess state
@@ -288,8 +293,10 @@ pub struct ProcessHandle {
     command: String,
     args: Vec<String>,
     started_at: Instant,
-    stdout_buffer: Arc<tokio::sync::Mutex<Vec<u8>>>,
-    stderr_buffer: Arc<tokio::sync::Mutex<Vec<u8>>>,
+    completed_at: Option<Instant>,
+    exit_code: Option<i32>,
+    stdout_buffer: Arc<tokio::sync::Mutex<bounded_buffer::BoundedBuffer>>,
+    stderr_buffer: Arc<tokio::sync::Mutex<bounded_buffer::BoundedBuffer>>,
 }
 
 #[allow(dead_code)]
@@ -299,16 +306,18 @@ pub struct IoClient {
     next_file_id: Mutex<usize>,
     process_handles: Mutex<HashMap<String, ProcessHandle>>,
     next_process_id: Mutex<usize>,
+    config: Arc<WflConfig>,
 }
 
 impl IoClient {
-    fn new() -> Self {
+    fn new(config: Arc<WflConfig>) -> Self {
         Self {
             http_client: reqwest::Client::new(),
             file_handles: Mutex::new(HashMap::new()),
             next_file_id: Mutex::new(1),
             process_handles: Mutex::new(HashMap::new()),
             next_process_id: Mutex::new(1),
+            config,
         }
     }
 
@@ -649,11 +658,50 @@ impl IoClient {
         &self,
         command: &str,
         args: &[&str],
+        use_shell: bool,
+        line: usize,
+        column: usize,
     ) -> Result<(String, String, i32), String> {
+        use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
         use tokio::process::Command;
 
-        let mut cmd = if args.is_empty() {
-            // Use shell execution for command strings
+        // Determine if shell execution is needed
+        let needs_shell = use_shell
+            || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
+
+        // Security validation if shell is needed
+        if needs_shell {
+            let sanitizer = CommandSanitizer::new(Arc::clone(&self.config));
+            match sanitizer.validate_command(command)? {
+                ValidationResult::Safe => {
+                    // No shell needed after all
+                }
+                ValidationResult::RequiresShell { warnings, .. } => {
+                    // Shell is needed, show warnings if configured
+                    if self.config.warn_on_shell_execution {
+                        eprintln!("⚠️  Security Warning (line {}, column {}):", line, column);
+                        eprintln!("   Shell execution enabled for command: {}", command);
+                        for warning in warnings {
+                            eprintln!("   - {}", warning);
+                        }
+                        eprintln!("   Consider using 'with arguments' syntax for safer execution.");
+                    }
+                }
+                ValidationResult::Blocked { reason } => {
+                    return Err(format!(
+                        "Command blocked by security policy: {}\n\
+                         To allow shell execution, update the configuration in .wflcfg:\n\
+                         shell_execution_mode = \"sanitized\"  # or \"unrestricted\"\n\
+                         Or use safe execution: execute command \"program\" with arguments [\"arg1\", \"arg2\"]",
+                        reason
+                    ));
+                }
+            }
+        }
+
+        // Build the command
+        let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
+            // Shell execution path
             #[cfg(target_os = "windows")]
             {
                 let mut cmd = Command::new("cmd.exe");
@@ -668,12 +716,22 @@ impl IoClient {
                 cmd
             }
         } else {
-            // Direct execution with explicit arguments
-            let mut cmd = Command::new(command);
-            cmd.args(args);
+            // Safe path: parse and execute directly
+            let (program, parsed_args) = if args.is_empty() {
+                CommandSanitizer::parse_command(command)?
+            } else {
+                (
+                    command.to_string(),
+                    args.iter().map(|s| s.to_string()).collect(),
+                )
+            };
+
+            let mut cmd = Command::new(program);
+            cmd.args(parsed_args);
             cmd
         };
 
+        // Execute the command
         let output = cmd
             .output()
             .await
@@ -688,12 +746,71 @@ impl IoClient {
 
     /// Spawn a background process and return a process ID
     #[allow(dead_code)]
-    async fn spawn_process(&self, command: &str, args: &[&str]) -> Result<String, String> {
+    async fn spawn_process(
+        &self,
+        command: &str,
+        args: &[&str],
+        use_shell: bool,
+        line: usize,
+        column: usize,
+    ) -> Result<String, String> {
+        use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
         use tokio::io::AsyncReadExt;
         use tokio::process::Command;
 
-        let mut cmd = if args.is_empty() {
-            // Use shell execution for command strings
+        // Clean up completed processes before spawning new one
+        self.cleanup_completed_processes().await;
+
+        // Check process limit
+        {
+            let handles = self.process_handles.lock().await;
+            if handles.len() >= self.config.subprocess_config.max_concurrent_processes {
+                return Err(format!(
+                    "Process limit reached: {} processes currently running (max: {}). \
+                     Consider waiting for processes to complete or increasing max_concurrent_processes in .wflcfg",
+                    handles.len(),
+                    self.config.subprocess_config.max_concurrent_processes
+                ));
+            }
+        }
+
+        // Determine if shell execution is needed
+        let needs_shell = use_shell
+            || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
+
+        // Security validation if shell is needed
+        if needs_shell {
+            let sanitizer = CommandSanitizer::new(Arc::clone(&self.config));
+            match sanitizer.validate_command(command)? {
+                ValidationResult::Safe => {
+                    // No shell needed after all
+                }
+                ValidationResult::RequiresShell { warnings, .. } => {
+                    // Shell is needed, show warnings if configured
+                    if self.config.warn_on_shell_execution {
+                        eprintln!("⚠️  Security Warning (line {}, column {}):", line, column);
+                        eprintln!("   Shell execution enabled for command: {}", command);
+                        for warning in warnings {
+                            eprintln!("   - {}", warning);
+                        }
+                        eprintln!("   Consider using 'with arguments' syntax for safer execution.");
+                    }
+                }
+                ValidationResult::Blocked { reason } => {
+                    return Err(format!(
+                        "Command blocked by security policy: {}\n\
+                         To allow shell execution, update the configuration in .wflcfg:\n\
+                         shell_execution_mode = \"sanitized\"  # or \"unrestricted\"\n\
+                         Or use safe execution: spawn command \"program\" with arguments [\"arg1\", \"arg2\"] as proc_id",
+                        reason
+                    ));
+                }
+            }
+        }
+
+        // Build the command
+        let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
+            // Shell execution path
             #[cfg(target_os = "windows")]
             {
                 let mut cmd = Command::new("cmd.exe");
@@ -708,9 +825,18 @@ impl IoClient {
                 cmd
             }
         } else {
-            // Direct execution with explicit arguments
-            let mut cmd = Command::new(command);
-            cmd.args(args);
+            // Safe path: parse and execute directly
+            let (program, parsed_args) = if args.is_empty() {
+                CommandSanitizer::parse_command(command)?
+            } else {
+                (
+                    command.to_string(),
+                    args.iter().map(|s| s.to_string()).collect(),
+                )
+            };
+
+            let mut cmd = Command::new(program);
+            cmd.args(parsed_args);
             cmd
         };
 
@@ -728,9 +854,14 @@ impl IoClient {
             id
         };
 
-        // Create buffers for stdout and stderr
-        let stdout_buffer = Arc::new(tokio::sync::Mutex::new(Vec::new()));
-        let stderr_buffer = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        // Create buffers for stdout and stderr with configurable size
+        let buffer_size = self.config.subprocess_config.max_buffer_size_bytes;
+        let stdout_buffer = Arc::new(tokio::sync::Mutex::new(bounded_buffer::BoundedBuffer::new(
+            buffer_size,
+        )));
+        let stderr_buffer = Arc::new(tokio::sync::Mutex::new(bounded_buffer::BoundedBuffer::new(
+            buffer_size,
+        )));
 
         // Spawn background tasks to collect stdout and stderr
         let stdout = child.stdout.take();
@@ -738,14 +869,26 @@ impl IoClient {
 
         if let Some(mut stdout) = stdout {
             let buffer = Arc::clone(&stdout_buffer);
+            let cmd = command.to_string();
             tokio::spawn(async move {
-                let mut buf = vec![0u8; 1024];
+                let mut buf = vec![0u8; 4096];
+                let mut warning_shown = false;
                 loop {
                     match stdout.read(&mut buf).await {
                         Ok(0) => break, // EOF
                         Ok(n) => {
                             let mut locked_buffer = buffer.lock().await;
-                            locked_buffer.extend_from_slice(&buf[..n]);
+                            locked_buffer.push(&buf[..n]);
+
+                            // Warn once if data is being dropped
+                            if locked_buffer.stats().bytes_dropped > 0 && !warning_shown {
+                                eprintln!(
+                                    "⚠️  WARNING: Process '{}' stdout buffer overflow. \
+                                     Data is being dropped. Consider reading output more frequently.",
+                                    cmd
+                                );
+                                warning_shown = true;
+                            }
                         }
                         Err(_) => break,
                     }
@@ -755,14 +898,26 @@ impl IoClient {
 
         if let Some(mut stderr) = stderr {
             let buffer = Arc::clone(&stderr_buffer);
+            let cmd = command.to_string();
             tokio::spawn(async move {
-                let mut buf = vec![0u8; 1024];
+                let mut buf = vec![0u8; 4096];
+                let mut warning_shown = false;
                 loop {
                     match stderr.read(&mut buf).await {
                         Ok(0) => break, // EOF
                         Ok(n) => {
                             let mut locked_buffer = buffer.lock().await;
-                            locked_buffer.extend_from_slice(&buf[..n]);
+                            locked_buffer.push(&buf[..n]);
+
+                            // Warn once if data is being dropped
+                            if locked_buffer.stats().bytes_dropped > 0 && !warning_shown {
+                                eprintln!(
+                                    "⚠️  WARNING: Process '{}' stderr buffer overflow. \
+                                     Data is being dropped. Consider reading output more frequently.",
+                                    cmd
+                                );
+                                warning_shown = true;
+                            }
                         }
                         Err(_) => break,
                     }
@@ -776,6 +931,8 @@ impl IoClient {
             command: command.to_string(),
             args: args.iter().map(|s| s.to_string()).collect(),
             started_at: Instant::now(),
+            completed_at: None,
+            exit_code: None,
             stdout_buffer,
             stderr_buffer,
         };
@@ -788,33 +945,61 @@ impl IoClient {
         Ok(process_id)
     }
 
+    /// Clean up completed processes (lazy cleanup)
+    /// This prevents memory leaks by removing process handles for completed processes
+    #[allow(dead_code)]
+    async fn cleanup_completed_processes(&self) {
+        let mut handles = self.process_handles.lock().await;
+        handles.retain(|_id, handle| {
+            match handle.child.try_wait() {
+                Ok(Some(_exit_status)) => {
+                    // Process has completed - remove it
+                    false
+                }
+                Ok(None) => {
+                    // Process is still running - keep it
+                    true
+                }
+                Err(_) => {
+                    // Error checking status - remove it
+                    false
+                }
+            }
+        });
+    }
+
     /// Read accumulated output from a process
     #[allow(dead_code)]
     async fn read_process_output(&self, process_id: &str) -> Result<String, String> {
+        // Don't cleanup here - user may want to read output from completed processes
         let handles = self.process_handles.lock().await;
         let handle = handles
             .get(process_id)
             .ok_or_else(|| format!("Invalid process ID: {}", process_id))?;
 
         let mut buffer = handle.stdout_buffer.lock().await;
-        let output = String::from_utf8_lossy(&buffer).to_string();
-        buffer.clear();
+        let output = String::from_utf8_lossy(&buffer.read_all()).to_string();
         Ok(output)
     }
 
     /// Kill a running process
     #[allow(dead_code)]
     async fn kill_process(&self, process_id: &str) -> Result<(), String> {
-        let mut handles = self.process_handles.lock().await;
-        let handle = handles
-            .get_mut(process_id)
-            .ok_or_else(|| format!("Invalid process ID: {}", process_id))?;
+        {
+            let mut handles = self.process_handles.lock().await;
+            let handle = handles
+                .get_mut(process_id)
+                .ok_or_else(|| format!("Invalid process ID: {}", process_id))?;
 
-        handle
-            .child
-            .kill()
-            .await
-            .map_err(|e| format!("Failed to kill process: {}", e))?;
+            handle
+                .child
+                .kill()
+                .await
+                .map_err(|e| format!("Failed to kill process: {}", e))?;
+        }
+
+        // Clean up killed and other completed processes
+        self.cleanup_completed_processes().await;
 
         Ok(())
     }
@@ -847,6 +1032,32 @@ impl IoClient {
         } else {
             false
         }
+        // Note: Cleanup happens in spawn_process and kill_process
+    }
+}
+
+impl Drop for IoClient {
+    fn drop(&mut self) {
+        // Try to acquire lock without blocking (Drop can't be async)
+        if let Ok(mut handles) = self.process_handles.try_lock() {
+            let running_count = handles.len();
+
+            if running_count > 0 && self.config.subprocess_config.warn_on_orphan {
+                eprintln!(
+                    "⚠️  WARNING: {} subprocess(es) still running at interpreter shutdown",
+                    running_count
+                );
+            }
+
+            // Optionally kill all running processes on shutdown
+            if self.config.subprocess_config.kill_on_shutdown {
+                for (_id, handle) in handles.iter_mut() {
+                    let _ = handle.child.start_kill();
+                }
+            }
+
+            handles.clear();
+        }
     }
 }
 
@@ -858,6 +1069,10 @@ impl Default for Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
+        Self::with_config(Arc::new(WflConfig::default()))
+    }
+
+    pub fn with_config(config: Arc<WflConfig>) -> Self {
         let global_env = Environment::new_global();
 
         {
@@ -876,21 +1091,23 @@ impl Interpreter {
             in_count_loop: RefCell::new(false),
             in_main_loop: RefCell::new(false),
             started: Instant::now(),
-            max_duration: Duration::from_secs(u64::MAX), // Effectively no timeout by default
+            max_duration: Duration::from_secs(config.timeout_seconds),
             call_stack: RefCell::new(Vec::new()),
-            io_client: Rc::new(IoClient::new()),
+            io_client: Rc::new(IoClient::new(Arc::clone(&config))),
             step_mode: false,                          // Default to non-step mode
             script_args: Vec::new(),                   // Initialize empty, will be set later
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
+            config,
         }
     }
 
     pub fn with_timeout(seconds: u64) -> Self {
-        let mut interpreter = Self::new();
-        interpreter.started = Instant::now();
-        interpreter.max_duration = Duration::from_secs(if seconds > 300 { 300 } else { seconds });
-        interpreter
+        let config = WflConfig {
+            timeout_seconds: if seconds > 300 { 300 } else { seconds },
+            ..Default::default()
+        };
+        Self::with_config(Arc::new(config))
     }
 
     pub fn set_step_mode(&mut self, step_mode: bool) {
@@ -3960,6 +4177,7 @@ impl Interpreter {
                 command,
                 arguments,
                 variable_name,
+                use_shell,
                 line,
                 column,
             } => {
@@ -4010,7 +4228,7 @@ impl Interpreter {
                 let args_refs: Vec<&str> = args_vec.iter().map(|s| s.as_str()).collect();
                 let (stdout, stderr, exit_code) = self
                     .io_client
-                    .execute_command(cmd_str, &args_refs)
+                    .execute_command(cmd_str, &args_refs, *use_shell, *line, *column)
                     .await
                     .map_err(|e| {
                         // Determine error kind based on error message
@@ -4049,6 +4267,7 @@ impl Interpreter {
                 command,
                 arguments,
                 variable_name,
+                use_shell,
                 line,
                 column,
             } => {
@@ -4099,7 +4318,7 @@ impl Interpreter {
                 let args_refs: Vec<&str> = args_vec.iter().map(|s| s.as_str()).collect();
                 let process_id = self
                     .io_client
-                    .spawn_process(cmd_str, &args_refs)
+                    .spawn_process(cmd_str, &args_refs, *use_shell, *line, *column)
                     .await
                     .map_err(|e| {
                         let kind = if e.contains("program not found")
@@ -5816,10 +6035,13 @@ mod process_tests {
 
     #[tokio::test]
     async fn test_execute_simple_command() {
-        let client = IoClient::new();
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
 
         // This will fail until we implement execute_command
-        let result = client.execute_command("echo", &["hello"]).await;
+        let result = client
+            .execute_command("echo", &["hello"], false, 0, 0)
+            .await;
 
         assert!(result.is_ok(), "Failed to execute command");
         let (stdout, stderr, exit_code) = result.unwrap();
@@ -5833,11 +6055,12 @@ mod process_tests {
 
     #[tokio::test]
     async fn test_spawn_and_kill_process() {
-        let client = IoClient::new();
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
 
         // This will fail until we implement spawn_process
         let proc_id = client
-            .spawn_process("sleep", &["10"])
+            .spawn_process("sleep", &["10"], false, 0, 0)
             .await
             .expect("Failed to spawn process");
 
@@ -5865,11 +6088,12 @@ mod process_tests {
 
     #[tokio::test]
     async fn test_capture_process_output() {
-        let client = IoClient::new();
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
 
         // This will fail until we implement spawn_process and read_process_output
         let proc_id = client
-            .spawn_process("echo", &["test output"])
+            .spawn_process("echo", &["test output"], false, 0, 0)
             .await
             .expect("Failed to spawn process");
 
@@ -5889,11 +6113,12 @@ mod process_tests {
 
     #[tokio::test]
     async fn test_wait_for_process_completion() {
-        let client = IoClient::new();
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
 
         // This will fail until we implement spawn_process and wait_for_process
         let proc_id = client
-            .spawn_process("echo", &["done"])
+            .spawn_process("echo", &["done"], false, 0, 0)
             .await
             .expect("Failed to spawn process");
 
@@ -5907,12 +6132,13 @@ mod process_tests {
 
     #[tokio::test]
     async fn test_command_not_found() {
-        let client = IoClient::new();
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
 
         // With shell execution, the shell runs successfully but reports command not found
         // So we check for non-zero exit code or error in stderr
         let result = client
-            .execute_command("nonexistent_command_xyz_123", &[])
+            .execute_command("nonexistent_command_xyz_123", &[], false, 0, 0)
             .await;
 
         // Shell execution succeeds, but command fails
@@ -5932,7 +6158,8 @@ mod process_tests {
 
     #[tokio::test]
     async fn test_invalid_process_id() {
-        let client = IoClient::new();
+        let config = Arc::new(WflConfig::default());
+        let client = IoClient::new(config);
 
         // This will fail until we implement read_process_output
         let result = client.read_process_output("invalid_proc_id").await;

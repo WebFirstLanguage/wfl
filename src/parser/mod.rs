@@ -5290,6 +5290,17 @@ impl<'a> Parser<'a> {
             None
         };
 
+        // Check for optional "using shell"
+        let use_shell = if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::KeywordUsing)
+        {
+            self.tokens.next(); // Consume "using"
+            self.expect_token(Token::KeywordShell, "Expected 'shell' after 'using'")?;
+            true
+        } else {
+            false
+        };
+
         // Check for optional "as variable"
         let variable_name = if let Some(token) = self.tokens.peek()
             && matches!(token.token, Token::KeywordAs)
@@ -5320,6 +5331,7 @@ impl<'a> Parser<'a> {
             command,
             arguments,
             variable_name,
+            use_shell,
             line: token_pos.line,
             column: token_pos.column,
         })
@@ -5340,6 +5352,17 @@ impl<'a> Parser<'a> {
             Some(self.parse_primary_expression()?)
         } else {
             None
+        };
+
+        // Check for optional "using shell"
+        let use_shell = if let Some(token) = self.tokens.peek()
+            && matches!(token.token, Token::KeywordUsing)
+        {
+            self.tokens.next(); // Consume "using"
+            self.expect_token(Token::KeywordShell, "Expected 'shell' after 'using'")?;
+            true
+        } else {
+            false
         };
 
         // "as" is required for spawn (need to store process ID)
@@ -5367,6 +5390,7 @@ impl<'a> Parser<'a> {
             command,
             arguments,
             variable_name,
+            use_shell,
             line: token_pos.line,
             column: token_pos.column,
         })
