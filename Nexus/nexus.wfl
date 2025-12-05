@@ -252,16 +252,16 @@ repeat while outer_j is less than or equal to 3:
     store inner_j as 1
     repeat while inner_j is less than or equal to 3:
         check if inner_j is equal to 2:
-            exit loop   // exit the outer loop entirely
+            exit loop   // exit ALL enclosing loops (both inner and outer)
         end check
         change inner_j to inner_j plus 1
     end repeat
-    // Only increment outer counter if loop wasn't exited
+    // This code should NOT be reached because 'exit loop' exits all loops
     change exit_outer_counter to exit_outer_counter plus 1
     change outer_j to outer_j plus 1
 end repeat
-// 'exit loop' should break out of the outer loop on the first iteration when inner_j == 2
-check if exit_outer_counter is equal to 1:
+// 'exit loop' breaks out of ALL loops, so exit_outer_counter should remain 0
+check if exit_outer_counter is equal to 0:
     log_message with "Nested loop 'exit' test: PASS"
 otherwise:
     log_message with "Nested loop 'exit' test: FAIL (outer iterations = " with exit_outer_counter with ")"
