@@ -645,6 +645,11 @@ impl TypeChecker {
                     }
                 }
 
+                // Register the "count" variable with type Number
+                if let Some(symbol) = self.analyzer.get_symbol_mut("count") {
+                    symbol.symbol_type = Some(Type::Number);
+                }
+
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
@@ -1513,8 +1518,8 @@ impl TypeChecker {
                         || name == "nested_function"
                     {
                         // It's an action parameter or a special function name, so don't report an error
-                        if name == "loopcounter" {
-                            // Special case for loopcounter - it's a Number
+                        if name == "loopcounter" || name == "count" {
+                            // Special case for loopcounter and count - they're Numbers
                             return Type::Number;
                         }
 

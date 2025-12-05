@@ -1,0 +1,18 @@
+// Test even number detection
+
+define action called test_even needs num:
+    store half as num divided by 2
+    store doubled as half times 2
+
+    display "Testing " with num
+    display "  num / 2 = " with half
+    display "  (num / 2) * 2 = " with doubled
+    display "  Is equal to original? " with (doubled is equal to num)
+    display ""
+end action
+
+test_even with 1
+test_even with 2
+test_even with 3
+test_even with 4
+test_even with 5

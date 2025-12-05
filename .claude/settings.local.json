@@ -30,7 +30,8 @@
       "Bash(cargo --version:*)",
       "Bash(rustc:*)",
       "Bash(gh release view:*)",
-      "Bash(git rev-parse:*)"
+      "Bash(git rev-parse:*)",
+      "Bash(cargo run:*)"
     ],
     "deny": [],
     "ask": []

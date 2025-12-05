@@ -1,0 +1,14 @@
+// Test factorial with inline expression like in nexus.wfl
+
+define action called factorial needs n:
+    check if n is equal to 0:
+        give back 1
+    otherwise:
+        // Recursive call with inline expression
+        give back n times factorial with n minus 1
+    end check
+end action
+
+display "Testing factorial(5) with inline expression..."
+store result as factorial with 5
+display "Result: " with result

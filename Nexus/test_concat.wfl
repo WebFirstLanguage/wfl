@@ -1,0 +1,20 @@
+// Simple test to verify string concatenation with numbers
+
+open file at "test_concat.log" for writing as testHandle
+
+define action called log_test needs message_text:
+    wait for append content message_text with "\n" into testHandle
+end action
+
+display "Test 1: Simple string"
+log_test with "Test 1: Simple string"
+
+display "Test 2: String with number variable"
+store num as 9
+log_test with "Test 2: Number is " with num
+
+display "Test 3: Complex concatenation"
+log_test with "Test 3: Expected 9, got " with num with " - done"
+
+close file testHandle
+display "All tests complete"

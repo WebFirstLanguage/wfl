@@ -2831,6 +2831,7 @@ impl Interpreter {
                 column: _column,
             } => {
                 let loop_env = Environment::new_child_env(&env);
+                let mut _last_value = Value::Null;
 
                 loop {
                     self.check_time()?;
@@ -2843,9 +2844,31 @@ impl Interpreter {
                         break;
                     }
 
-                    match self.execute_block(body, Rc::clone(&loop_env)).await {
-                        Ok(_) => {}
-                        Err(e) => return Err(e),
+                    let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
+                    _last_value = result.0;
+
+                    match result.1 {
+                        ControlFlow::Break => {
+                            #[cfg(debug_assertions)]
+                            exec_trace!("Breaking out of repeat-while loop");
+                            break;
+                        }
+                        ControlFlow::Continue => {
+                            #[cfg(debug_assertions)]
+                            exec_trace!("Continuing repeat-while loop");
+                            continue;
+                        }
+                        ControlFlow::Exit => {
+                            #[cfg(debug_assertions)]
+                            exec_trace!("Exiting from repeat-while loop");
+                            return Ok((_last_value, ControlFlow::Exit));
+                        }
+                        ControlFlow::Return(val) => {
+                            #[cfg(debug_assertions)]
+                            exec_trace!("Returning from repeat-while loop");
+                            return Ok((val.clone(), ControlFlow::Return(val)));
+                        }
+                        ControlFlow::None => {}
                     }
                 }
 

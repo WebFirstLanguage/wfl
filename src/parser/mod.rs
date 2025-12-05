@@ -4221,6 +4221,10 @@ impl<'a> Parser<'a> {
 
         self.expect_token(Token::Colon, "Expected ':' after action definition")?;
 
+        // Add the action name to our known actions BEFORE parsing the body
+        // This allows recursive calls to be recognized as action calls
+        self.known_actions.insert(name.clone());
+
         let mut body = Vec::with_capacity(10);
 
         while let Some(token) = self.tokens.peek().cloned() {
@@ -4277,9 +4281,6 @@ impl<'a> Parser<'a> {
             after_count < before_count,
             "Parser made no progress while parsing end action tokens"
         );
-
-        // Add the action name to our known actions
-        self.known_actions.insert(name.clone());
 
         let token_pos = self.tokens.peek().map_or(
             &TokenWithPosition {

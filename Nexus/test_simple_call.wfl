@@ -1,0 +1,19 @@
+// Simple function call test
+
+define action called sum_two needs a and b:
+    give back a plus b
+end action
+
+display "Test 1: Direct call"
+store result1 as sum_two with 5 and 3
+display "Result: " with result1
+
+display ""
+display "Test 2: Assign function to variable"
+store f as sum_two
+display "f = " with f
+
+display ""
+display "Test 3: Call through variable"
+store result2 as f with 10 and 20
+display "Result: " with result2

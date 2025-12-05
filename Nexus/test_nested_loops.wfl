@@ -1,0 +1,26 @@
+// Test nested loops with break and exit
+
+display "Testing nested loop with break..."
+
+store break_outer_counter as 0
+store outer_i as 1
+repeat while outer_i is less than or equal to 3:
+    store inner_i as 1
+    repeat while inner_i is less than or equal to 3:
+        display "  outer_i=" with outer_i with ", inner_i=" with inner_i
+        check if inner_i is equal to 2:
+            display "  -> Breaking inner loop"
+            break    // breaks inner loop only
+        end check
+        change inner_i to inner_i plus 1
+    end repeat
+    change break_outer_counter to break_outer_counter plus 1
+    change outer_i to outer_i plus 1
+end repeat
+
+display "Break test: outer iterations = " with break_outer_counter
+check if break_outer_counter is equal to 3:
+    display "Nested loop 'break' test: PASS"
+otherwise:
+    display "Nested loop 'break' test: FAIL"
+end check

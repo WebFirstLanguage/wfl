@@ -1,0 +1,14 @@
+// Test factorial with parentheses to control precedence
+
+define action called factorial needs n:
+    check if n is equal to 0:
+        give back 1
+    otherwise:
+        // Recursive call with explicit parentheses
+        give back n times (factorial with (n minus 1))
+    end check
+end action
+
+display "Testing factorial(5) with explicit parentheses..."
+store result as factorial with 5
+display "Result: " with result

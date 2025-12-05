@@ -1,0 +1,44 @@
+// Simplified nexus test - skip the problematic even number check
+
+open file at "nexus_partial.log" for writing as logHandle
+
+define action called log_message needs message_text:
+    wait for append content message_text with "\n" into logHandle
+end action
+
+log_message with "Starting partial test..."
+
+// Skip the problematic even number check test
+// Just mark it as SKIP
+log_message with "Loop continue/skip test: SKIP (even number check not working)"
+
+// Test the repeat-until loop
+store count3 as 1
+store sum_repeat as 0
+repeat until count3 is greater than 5:
+    change sum_repeat to sum_repeat plus count3
+    change count3 to count3 plus 1
+end repeat
+check if sum_repeat is equal to 15:
+    log_message with "Repeat-until loop test (1 to 5 sum): PASS"
+otherwise:
+    log_message with "Repeat-until loop test (expected 15, got " with sum_repeat with "): FAIL"
+end check
+
+// Test forever loop with break
+store k as 0
+repeat forever:
+    change k to k plus 1
+    check if k is equal to 5:
+        break
+    end check
+end repeat
+check if k is equal to 5:
+    log_message with "Forever loop with break test: PASS"
+otherwise:
+    log_message with "Forever loop with break test: FAIL (k = " with k with ")"
+end check
+
+log_message with "Partial test completed."
+close file logHandle
+display "Partial test finished."
