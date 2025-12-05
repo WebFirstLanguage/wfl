@@ -138,7 +138,7 @@ fn test_bounded_buffer_prevents_memory_explosion() {
     #[cfg(not(windows))]
     {
         // Verify we got some output but not infinite
-        let output = result.unwrap();
+        let _output = result.unwrap();
         // The output length should be limited by buffer size
         // If unbounded, this would consume all memory
         println!("Buffer test completed with output");
