@@ -1767,6 +1767,7 @@ impl<'a> Parser<'a> {
                 Token::KeywordMinus => Some((Operator::Minus, 1)),
                 Token::KeywordTimes => Some((Operator::Multiply, 2)),
                 Token::KeywordDividedBy => Some((Operator::Divide, 2)),
+                Token::Percent => Some((Operator::Modulo, 2)),
                 Token::KeywordDivided => {
                     // Check if next token is "by" more efficiently
                     if self.peek_divided_by() {
@@ -1970,7 +1971,8 @@ impl<'a> Parser<'a> {
                     continue; // Skip the rest of the loop since we've already updated left
                 }
                 Token::KeywordAnd => {
-                    self.tokens.next(); // Consume "and"
+                    // DON'T consume here - let precedence check happen first
+                    // Token will be consumed in the block after precedence check
                     Some((Operator::And, 0))
                 }
                 Token::KeywordOr => {
@@ -2247,8 +2249,14 @@ impl<'a> Parser<'a> {
                         self.expect_token(Token::KeywordBy, "Expected 'by' after 'divided'")?;
                         self.tokens.next(); // Consume "by"
                     }
+                    Token::Percent => {
+                        self.tokens.next(); // Consume "%"
+                    }
                     Token::Equals => {
                         self.tokens.next(); // Consume "="
+                    }
+                    Token::KeywordAnd => {
+                        self.tokens.next(); // Consume "and"
                     }
                     _ => {
                         // For operators like "is" that have already consumed tokens in their detection
@@ -5473,7 +5481,9 @@ impl<'a> Parser<'a> {
                 None
             };
 
-            let arg_value = self.parse_primary_expression()?;
+            // FIX: Parse expressions with precedence >= 1 (arithmetic operators)
+            // This stops at 'and' (precedence 0), which is then used as argument separator
+            let arg_value = self.parse_binary_expression(1)?;
 
             arguments.push(Argument {
                 name: arg_name,

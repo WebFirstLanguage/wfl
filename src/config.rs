@@ -652,7 +652,12 @@ mod tests {
     use super::*;
     use std::fs;
     use std::io::Write;
+    use std::sync::Mutex;
     use tempfile::tempdir;
+
+    // Mutex to serialize config tests that modify environment variables
+    // This prevents test interference when tests run in parallel
+    static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[cfg(test)]
     fn set_test_env_var(val: Option<&str>) {
@@ -666,6 +671,9 @@ mod tests {
     where
         F: FnOnce() -> R,
     {
+        // Acquire lock to serialize tests that modify environment variables
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+
         let original = std::env::var("WFL_GLOBAL_CONFIG_PATH").ok();
 
         let result = f();

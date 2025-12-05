@@ -103,6 +103,17 @@ Write-Host "[SUCCESS] All integration tests passed" -ForegroundColor Green
 # Run WFL test programs
 Write-Host "[INFO] Running WFL test programs..." -ForegroundColor Blue
 
+# Tests that require special handling (web servers, interactive tests)
+# These are tested separately with dedicated scripts
+$SkipTests = @(
+    "simple_web_test.wfl",      # Web server - needs HTTP client
+    "web_server_test.wfl",      # Web server - needs HTTP client
+    "websocket_test.wfl"        # WebSocket - needs WS client
+)
+
+# Timeout for each test (seconds)
+$TestTimeout = 30
+
 if (-not (Test-Path "TestPrograms")) {
     Write-Host "[WARNING] TestPrograms directory not found, skipping WFL program tests" -ForegroundColor Yellow
 } else {
@@ -111,19 +122,39 @@ if (-not (Test-Path "TestPrograms")) {
         Write-Host "[WARNING] No WFL test programs found in TestPrograms/" -ForegroundColor Yellow
     } else {
         Write-Host "[INFO] Found $($wflFiles.Count) WFL test programs" -ForegroundColor Blue
-        
+
         $failedPrograms = 0
+        $skippedPrograms = 0
         foreach ($wflFile in $wflFiles) {
+            # Check if this test should be skipped
+            if ($SkipTests -contains $wflFile.Name) {
+                Write-Host "[SKIP] $($wflFile.Name) (requires special handling)" -ForegroundColor Yellow
+                $skippedPrograms++
+                continue
+            }
+
             Write-Host "[INFO] Testing: $($wflFile.Name)" -ForegroundColor Blue
-            $null = & ".\$BinaryPath" $wflFile.FullName 2>&1
-            if ($LASTEXITCODE -eq 0) {
+
+            # Run with timeout to prevent hangs
+            $process = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $wflFile.FullName -NoNewWindow -PassThru -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
+            $completed = $process.WaitForExit($TestTimeout * 1000)
+
+            if (-not $completed) {
+                # Test timed out
+                $process.Kill()
+                Write-Host "[ERROR] TIMEOUT $($wflFile.Name) (exceeded ${TestTimeout}s)" -ForegroundColor Red
+                $failedPrograms++
+            } elseif ($process.ExitCode -eq 0) {
                 Write-Host "[SUCCESS] PASS $($wflFile.Name)" -ForegroundColor Green
             } else {
-                Write-Host "[ERROR] FAIL $($wflFile.Name)" -ForegroundColor Red
+                Write-Host "[ERROR] FAIL $($wflFile.Name) (exit code: $($process.ExitCode))" -ForegroundColor Red
                 $failedPrograms++
             }
         }
-        
+
+        Write-Host ""
+        Write-Host "[INFO] Results: $($wflFiles.Count - $skippedPrograms - $failedPrograms) passed, $failedPrograms failed, $skippedPrograms skipped" -ForegroundColor Blue
+
         if ($failedPrograms -eq 0) {
             Write-Host "[SUCCESS] All WFL test programs passed" -ForegroundColor Green
         } else {

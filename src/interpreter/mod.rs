@@ -462,6 +462,52 @@ impl IoClient {
         }
     }
 
+    /// Syncs file to disk with Windows-specific error handling.
+    ///
+    /// # Windows Behavior
+    /// On Windows, `sync_all()` can return spurious `PermissionDenied` errors when:
+    /// - Multiple processes/threads access the same file
+    /// - File locking or antivirus software interferes
+    /// - The filesystem has concurrent access patterns
+    ///
+    /// This is a known Windows limitation (not a real permission error). Since `flush()`
+    /// has already ensured data reaches OS buffers, it's safe to ignore PermissionDenied.
+    ///
+    /// # Error Handling
+    /// - Windows: Suppress ONLY PermissionDenied; propagate all other errors
+    /// - Unix: Propagate all errors
+    ///
+    /// # Why Other Errors Must Propagate
+    /// Errors like `StorageFull`, `IoUnavailable`, `ReadOnlyFilesystem` indicate real
+    /// I/O failures that the user must be notified about. Silently ignoring these would
+    /// cause data loss or corruption.
+    ///
+    /// # Parameters
+    /// - `file`: The file to sync
+    /// - `operation`: Description of the operation (for error messages)
+    async fn sync_file_with_windows_handling(
+        file: &mut tokio::fs::File,
+        operation: &str,
+    ) -> Result<(), String> {
+        match file.sync_all().await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // On Windows, selectively suppress only PermissionDenied errors
+                #[cfg(windows)]
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    eprintln!(
+                        "Warning: Windows file sync encountered spurious PermissionDenied during {} (data already flushed)",
+                        operation
+                    );
+                    return Ok(());
+                }
+
+                // All other errors must be propagated on all platforms
+                Err(format!("Failed to sync file during {}: {e}", operation))
+            }
+        }
+    }
+
     #[allow(dead_code)]
     async fn write_file(&self, handle_id: &str, content: &str) -> Result<(), String> {
         let mut file_handles = self.file_handles.lock().await;
@@ -496,27 +542,10 @@ impl IoClient {
                             // Flush the data to ensure it's written to disk
                             match file_clone.flush().await {
                                 Ok(_) => {
-                                    // Sync to disk for durability
-                                    match file_clone.sync_all().await {
-                                        Ok(_) => Ok(()),
-                                        Err(e) => {
-                                            // On Windows, sync_all can fail with "Access denied" in concurrent scenarios
-                                            // This is often a limitation of Windows filesystem, not a real error
-                                            if cfg!(windows)
-                                                && e.kind() == std::io::ErrorKind::PermissionDenied
-                                            {
-                                                // Log warning but don't fail - flush() already ensured data reaches OS buffers
-                                                eprintln!(
-                                                    "Warning: Windows file sync limitation encountered: {}",
-                                                    e
-                                                );
-                                                Ok(())
-                                            } else {
-                                                // On other platforms or different error types, this is a real failure
-                                                Err(format!("Failed to sync file to disk: {e}"))
-                                            }
-                                        }
-                                    }
+                                    // Platform-specific sync behavior
+                                    // Sync file to disk with Windows-aware error handling
+                                    Self::sync_file_with_windows_handling(&mut file_clone, "write")
+                                        .await
                                 }
                                 Err(e) => Err(format!("Failed to flush file: {e}")),
                             }
@@ -545,25 +574,8 @@ impl IoClient {
             // Flush the file before closing to ensure all data is written to disk
             match file.flush().await {
                 Ok(_) => {
-                    // Sync to disk for durability
-                    match file.sync_all().await {
-                        Ok(_) => Ok(()),
-                        Err(e) => {
-                            // On Windows, sync_all can fail with "Access denied" in concurrent scenarios
-                            // This is often a limitation of Windows filesystem, not a real error
-                            if cfg!(windows) && e.kind() == std::io::ErrorKind::PermissionDenied {
-                                // Log warning but don't fail - flush() already ensured data reaches OS buffers
-                                eprintln!(
-                                    "Warning: Windows file sync limitation encountered: {}",
-                                    e
-                                );
-                                Ok(())
-                            } else {
-                                // On other platforms or different error types, this is a real failure
-                                Err(format!("Failed to sync file during close: {e}"))
-                            }
-                        }
-                    }
+                    // Sync file to disk with Windows-aware error handling
+                    Self::sync_file_with_windows_handling(&mut file, "close").await
                 }
                 Err(e) => Err(format!("Failed to flush file during close: {e}")),
             }
@@ -587,27 +599,8 @@ impl IoClient {
                     // Flush the data to ensure it's written to disk
                     match file.flush().await {
                         Ok(_) => {
-                            // Sync to disk for durability
-                            match file.sync_all().await {
-                                Ok(_) => Ok(()),
-                                Err(e) => {
-                                    // On Windows, sync_all can fail with "Access denied" in concurrent scenarios
-                                    // This is often a limitation of Windows filesystem, not a real error
-                                    if cfg!(windows)
-                                        && e.kind() == std::io::ErrorKind::PermissionDenied
-                                    {
-                                        // Log warning but don't fail - flush() already ensured data reaches OS buffers
-                                        eprintln!(
-                                            "Warning: Windows file sync limitation encountered: {}",
-                                            e
-                                        );
-                                        Ok(())
-                                    } else {
-                                        // On other platforms or different error types, this is a real failure
-                                        Err(format!("Failed to sync appended data to disk: {e}"))
-                                    }
-                                }
-                            }
+                            // Sync file to disk with Windows-aware error handling
+                            Self::sync_file_with_windows_handling(file, "append").await
                         }
                         Err(e) => Err(format!("Failed to flush appended data: {e}")),
                     }
@@ -4804,6 +4797,15 @@ impl Interpreter {
                                 Ok(value)
                             }
                         }
+                        Value::Function(func) => {
+                            if func.params.is_empty() {
+                                // Auto-call zero-argument user-defined functions
+                                self.call_function(func, vec![], *line, *column).await
+                            } else {
+                                // Return function object for functions with arguments
+                                Ok(value)
+                            }
+                        }
                         _ => Ok(value),
                     }
                 } else if name == "count" {
@@ -4840,6 +4842,7 @@ impl Interpreter {
                     Operator::Minus => self.subtract(left_val, right_val, *line, *column),
                     Operator::Multiply => self.multiply(left_val, right_val, *line, *column),
                     Operator::Divide => self.divide(left_val, right_val, *line, *column),
+                    Operator::Modulo => self.modulo(left_val, right_val, *line, *column),
                     Operator::Equals => Ok(Value::Bool(self.is_equal(&left_val, &right_val))),
                     Operator::NotEquals => Ok(Value::Bool(!self.is_equal(&left_val, &right_val))),
                     Operator::GreaterThan => self.greater_than(left_val, right_val, *line, *column),
@@ -5779,6 +5782,53 @@ impl Interpreter {
             }
             (a, b) => Err(RuntimeError::new(
                 format!("Cannot divide {} by {}", a.type_name(), b.type_name()),
+                line,
+                column,
+            )),
+        }
+    }
+
+    fn modulo(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError> {
+        #[cfg(feature = "dhat-ad-hoc")]
+        dhat::ad_hoc_event(1); // Track modulo operations for memory profiling
+
+        match (left, right) {
+            (Value::Number(a), Value::Number(b)) => {
+                if b == 0.0 {
+                    Err(RuntimeError::new(
+                        "Modulo by zero".to_string(),
+                        line,
+                        column,
+                    ))
+                } else {
+                    // Calculate the result of the modulo operation
+                    let result = a % b;
+
+                    // Check if the result is valid (not NaN or infinite)
+                    if !result.is_finite() {
+                        return Err(RuntimeError::new(
+                            format!("Modulo resulted in invalid number: {result}"),
+                            line,
+                            column,
+                        ));
+                    }
+
+                    // Return the valid result as a Value::Number
+                    Ok(Value::Number(result))
+                }
+            }
+            (a, b) => Err(RuntimeError::new(
+                format!(
+                    "Cannot compute modulo of {} by {}",
+                    a.type_name(),
+                    b.type_name()
+                ),
                 line,
                 column,
             )),

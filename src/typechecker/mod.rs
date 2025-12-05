@@ -1589,7 +1589,7 @@ impl TypeChecker {
                             Type::Error
                         }
                     }
-                    Operator::Minus | Operator::Multiply | Operator::Divide => {
+                    Operator::Minus | Operator::Multiply | Operator::Divide | Operator::Modulo => {
                         // These operations require both operands to be numbers
                         if left_type == Type::Number && right_type == Type::Number {
                             Type::Number

@@ -31,7 +31,8 @@
       "Bash(rustc:*)",
       "Bash(gh release view:*)",
       "Bash(git rev-parse:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "Bash(./target/release/wfl.exe:*)"
     ],
     "deny": [],
     "ask": []

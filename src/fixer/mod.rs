@@ -845,6 +845,7 @@ impl CodeFixer {
                     Operator::Minus => output.push_str(" - "),
                     Operator::Multiply => output.push_str(" * "),
                     Operator::Divide => output.push_str(" / "),
+                    Operator::Modulo => output.push_str(" % "),
                     Operator::Equals => output.push_str(" == "),
                     Operator::NotEquals => output.push_str(" != "),
                     Operator::LessThan => output.push_str(" < "),

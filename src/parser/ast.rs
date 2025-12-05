@@ -705,6 +705,7 @@ pub enum Operator {
     Minus,
     Multiply,
     Divide,
+    Modulo,
     Equals,
     NotEquals,
     GreaterThan,
