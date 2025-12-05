@@ -462,6 +462,52 @@ impl IoClient {
         }
     }
 
+    /// Syncs file to disk with Windows-specific error handling.
+    ///
+    /// # Windows Behavior
+    /// On Windows, `sync_all()` can return spurious `PermissionDenied` errors when:
+    /// - Multiple processes/threads access the same file
+    /// - File locking or antivirus software interferes
+    /// - The filesystem has concurrent access patterns
+    ///
+    /// This is a known Windows limitation (not a real permission error). Since `flush()`
+    /// has already ensured data reaches OS buffers, it's safe to ignore PermissionDenied.
+    ///
+    /// # Error Handling
+    /// - Windows: Suppress ONLY PermissionDenied; propagate all other errors
+    /// - Unix: Propagate all errors
+    ///
+    /// # Why Other Errors Must Propagate
+    /// Errors like `StorageFull`, `IoUnavailable`, `ReadOnlyFilesystem` indicate real
+    /// I/O failures that the user must be notified about. Silently ignoring these would
+    /// cause data loss or corruption.
+    ///
+    /// # Parameters
+    /// - `file`: The file to sync
+    /// - `operation`: Description of the operation (for error messages)
+    async fn sync_file_with_windows_handling(
+        file: &mut tokio::fs::File,
+        operation: &str,
+    ) -> Result<(), String> {
+        match file.sync_all().await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // On Windows, selectively suppress only PermissionDenied errors
+                #[cfg(windows)]
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    eprintln!(
+                        "Warning: Windows file sync encountered spurious PermissionDenied during {} (data already flushed)",
+                        operation
+                    );
+                    return Ok(());
+                }
+
+                // All other errors must be propagated on all platforms
+                Err(format!("Failed to sync file during {}: {e}", operation))
+            }
+        }
+    }
+
     #[allow(dead_code)]
     async fn write_file(&self, handle_id: &str, content: &str) -> Result<(), String> {
         let mut file_handles = self.file_handles.lock().await;
@@ -497,21 +543,8 @@ impl IoClient {
                             match file_clone.flush().await {
                                 Ok(_) => {
                                     // Platform-specific sync behavior
-                                    #[cfg(not(windows))]
-                                    {
-                                        // On Unix-like systems, perform full sync to disk
-                                        file_clone.sync_all().await.map_err(|e| {
-                                            format!("Failed to sync file to disk: {e}")
-                                        })?;
-                                    }
-
-                                    #[cfg(windows)]
-                                    {
-                                        // On Windows, skip sync_all due to filesystem limitations with concurrent access
-                                        // flush() provides adequate durability by ensuring data reaches OS buffers
-                                        let _ = file_clone.sync_all().await;
-                                    }
-                                    Ok(())
+                                    // Sync file to disk with Windows-aware error handling
+                                    Self::sync_file_with_windows_handling(&mut file_clone, "write").await
                                 }
                                 Err(e) => Err(format!("Failed to flush file: {e}")),
                             }
@@ -540,22 +573,8 @@ impl IoClient {
             // Flush the file before closing to ensure all data is written to disk
             match file.flush().await {
                 Ok(_) => {
-                    // Platform-specific sync behavior
-                    #[cfg(not(windows))]
-                    {
-                        // On Unix-like systems, perform full sync to disk
-                        file.sync_all()
-                            .await
-                            .map_err(|e| format!("Failed to sync file during close: {e}"))?;
-                    }
-
-                    #[cfg(windows)]
-                    {
-                        // On Windows, skip sync_all due to filesystem limitations with concurrent access
-                        // flush() provides adequate durability by ensuring data reaches OS buffers
-                        let _ = file.sync_all().await;
-                    }
-                    Ok(())
+                    // Sync file to disk with Windows-aware error handling
+                    Self::sync_file_with_windows_handling(&mut file, "close").await
                 }
                 Err(e) => Err(format!("Failed to flush file during close: {e}")),
             }
@@ -579,22 +598,8 @@ impl IoClient {
                     // Flush the data to ensure it's written to disk
                     match file.flush().await {
                         Ok(_) => {
-                            // Platform-specific sync behavior
-                            #[cfg(not(windows))]
-                            {
-                                // On Unix-like systems, perform full sync to disk
-                                file.sync_all().await.map_err(|e| {
-                                    format!("Failed to sync appended data to disk: {e}")
-                                })?;
-                            }
-
-                            #[cfg(windows)]
-                            {
-                                // On Windows, skip sync_all due to filesystem limitations with concurrent access
-                                // flush() provides adequate durability by ensuring data reaches OS buffers
-                                let _ = file.sync_all().await;
-                            }
-                            Ok(())
+                            // Sync file to disk with Windows-aware error handling
+                            Self::sync_file_with_windows_handling(file, "append").await
                         }
                         Err(e) => Err(format!("Failed to flush appended data: {e}")),
                     }
