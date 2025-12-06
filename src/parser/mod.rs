@@ -4926,6 +4926,7 @@ impl<'a> Parser<'a> {
         })
     }
 
+    #[allow(dead_code)]
     fn parse_open_file_read_statement(&mut self) -> Result<Statement, ParseError> {
         let open_token = self.bump_sync().unwrap(); // Consume "open"
 

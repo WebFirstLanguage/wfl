@@ -181,6 +181,7 @@ impl<'a> Cursor<'a> {
     /// assert_eq!(cursor.peek_kind(), Some(&Token::KeywordStore));
     /// ```
     #[inline]
+    #[allow(dead_code)]
     pub fn peek_kind(&self) -> Option<&Token> {
         self.peek().map(|twp| &twp.token)
     }
@@ -200,6 +201,7 @@ impl<'a> Cursor<'a> {
     /// assert_eq!(cursor.peek_kind_n(1), Some(&Token::Identifier("x".to_string())));
     /// ```
     #[inline]
+    #[allow(dead_code)]
     pub fn peek_kind_n(&self, n: usize) -> Option<&Token> {
         self.peek_n(n).map(|twp| &twp.token)
     }
@@ -248,6 +250,7 @@ impl<'a> Cursor<'a> {
     /// assert!(!cursor.at(Token::KeywordDisplay));
     /// ```
     #[inline]
+    #[allow(dead_code)]
     pub fn at(&self, expected: Token) -> bool {
         self.peek_kind().map_or(false, |t| {
             std::mem::discriminant(t) == std::mem::discriminant(&expected)
@@ -275,6 +278,7 @@ impl<'a> Cursor<'a> {
     /// assert_eq!(cursor.pos(), 1); // Position unchanged
     /// ```
     #[inline]
+    #[allow(dead_code)]
     pub fn eat(&mut self, expected: Token) -> bool {
         if self.at(expected) {
             self.bump();
