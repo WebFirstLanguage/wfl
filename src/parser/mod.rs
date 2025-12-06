@@ -178,6 +178,18 @@ impl<'a> Parser<'a> {
         self.cursor.bump()
     }
 
+    /// Skip any Eol tokens at the current position
+    /// Useful when parsing block bodies (if/check/loop) where Eol tokens separate statements
+    fn skip_eol(&mut self) {
+        while let Some(token) = self.cursor.peek() {
+            if matches!(token.token, Token::Eol) {
+                self.bump_sync();
+            } else {
+                break;
+            }
+        }
+    }
+
     /// Helper method to get text representation of contextual keywords
     fn get_token_text(&self, token: &Token) -> String {
         match token {
@@ -3619,6 +3631,9 @@ impl<'a> Parser<'a> {
             self.bump_sync(); // Consume the colon if present
         }
 
+        // Skip any Eol tokens after the colon
+        self.skip_eol();
+
         let mut then_block = Vec::with_capacity(8);
 
         while let Some(token) = self.cursor.peek().cloned() {
@@ -3643,6 +3658,9 @@ impl<'a> Parser<'a> {
                 {
                     self.bump_sync(); // Consume the colon if present
                 }
+
+                // Skip any Eol tokens after the colon
+                self.skip_eol();
 
                 let mut else_stmts = Vec::with_capacity(8);
 
@@ -6295,7 +6313,14 @@ impl<'a> Parser<'a> {
 
     /// Parse tokens into the new PatternExpression AST structure
     fn parse_pattern_tokens(tokens: &[TokenWithPosition]) -> Result<PatternExpression, ParseError> {
-        if tokens.is_empty() {
+        // Filter out Eol tokens from pattern definition
+        let filtered_tokens: Vec<TokenWithPosition> = tokens
+            .iter()
+            .filter(|t| !matches!(t.token, Token::Eol))
+            .cloned()
+            .collect();
+
+        if filtered_tokens.is_empty() {
             return Err(ParseError::new(
                 "Empty pattern definition".to_string(),
                 0,
@@ -6304,7 +6329,7 @@ impl<'a> Parser<'a> {
         }
 
         let mut i = 0;
-        Self::parse_pattern_sequence(tokens, &mut i)
+        Self::parse_pattern_sequence(&filtered_tokens, &mut i)
     }
 
     /// Parse a sequence of pattern elements (handles alternation with "or")

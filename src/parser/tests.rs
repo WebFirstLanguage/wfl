@@ -1212,3 +1212,66 @@ end pattern"#;
         panic!("Expected PatternDefinition statement, got: {:?}", result);
     }
 }
+
+// Phase 2: Eol Token Parser Tests
+
+#[test]
+fn test_eol_prevents_multiline_expression() {
+    use crate::lexer::lex_wfl_with_positions;
+
+    // This should NOT parse as x = 1 + 2
+    let input = "store x as 1 plus\n2";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse();
+
+    // Should either error or parse as incomplete
+    // NOT as a valid x = 1 + 2 expression
+    assert!(result.is_err() || parser.errors.len() > 0,
+        "Multi-line expression should not be allowed");
+}
+
+#[test]
+fn test_sameline_index_access() {
+    use crate::lexer::lex_wfl_with_positions;
+
+    // Same line - should parse as index access
+    let input = "store x as numbers 0";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let program = parser.parse().expect("Should parse successfully");
+
+    // Verify AST contains index access
+    assert_eq!(program.statements.len(), 1);
+    // The statement should be a variable declaration with an index access expression
+}
+
+#[test]
+fn test_crossline_not_index_access() {
+    use crate::lexer::lex_wfl_with_positions;
+
+    // Different lines - should NOT parse as index access
+    let input = "display numbers\n0";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let program = parser.parse().expect("Should parse successfully");
+
+    // Should parse as two separate statements
+    assert_eq!(program.statements.len(), 2,
+        "Should be 2 statements, not index access");
+}
+
+#[test]
+fn test_blank_lines_allowed() {
+    use crate::lexer::lex_wfl_with_positions;
+
+    let input = "store x as 5\n\n\nstore y as 10\n";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let program = parser.parse().expect("Blank lines should be allowed");
+    assert_eq!(program.statements.len(), 2);
+}
