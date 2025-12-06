@@ -766,14 +766,48 @@ pub enum Type {
 #[derive(Debug, Clone)]
 pub struct ParseError {
     pub message: String,
-    pub line: usize,
-    pub column: usize,
+    pub span: crate::diagnostics::Span,  // NEW: Byte-offset based span
+    pub line: usize,                     // KEEP for compatibility
+    pub column: usize,                   // KEEP for compatibility
 }
 
 impl ParseError {
-    pub fn new(message: String, line: usize, column: usize) -> Self {
+    // NEW: Primary constructor using Span
+    pub fn from_span(
+        message: String,
+        span: crate::diagnostics::Span,
+        line: usize,
+        column: usize,
+    ) -> Self {
         ParseError {
             message,
+            span,
+            line,
+            column,
+        }
+    }
+
+    // NEW: Construct from TokenWithPosition
+    pub fn from_token(message: String, token: &crate::lexer::token::TokenWithPosition) -> Self {
+        use crate::diagnostics::Span;
+        ParseError {
+            message,
+            span: Span {
+                start: token.byte_start,
+                end: token.byte_end,
+            },
+            line: token.line,
+            column: token.column,
+        }
+    }
+
+    // DEPRECATED: Keep for temporary compatibility during migration
+    #[deprecated(since = "25.12.8", note = "Use from_span or from_token instead")]
+    pub fn new(message: String, line: usize, column: usize) -> Self {
+        use crate::diagnostics::Span;
+        ParseError {
+            message,
+            span: Span { start: 0, end: 0 },  // Placeholder
             line,
             column,
         }
