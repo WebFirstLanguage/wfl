@@ -233,6 +233,14 @@ impl<'a> Parser<'a> {
         while self.cursor.peek().is_some() {
             let start_pos = self.cursor.pos();
 
+            // Skip any leading Eol tokens
+            if let Some(token) = self.cursor.peek() {
+                if matches!(token.token, Token::Eol) {
+                    self.bump_sync();
+                    continue;
+                }
+            }
+
             // Comprehensive handling of "end" tokens that might be left unconsumed
             // Check first two tokens without cloning
             if let Some(first_token) = self.cursor.peek() {
@@ -3221,6 +3229,11 @@ impl<'a> Parser<'a> {
                         Ok(Expression::Variable(name, token_line, token_column))
                     }
                 }
+                Token::Eol => Err(ParseError::new(
+                    "Unexpected end of line in expression".to_string(),
+                    token.line,
+                    token.column,
+                )),
                 _ => Err(ParseError::new(
                     format!("Unexpected token in expression: {:?}", token.token),
                     token.line,
@@ -3641,6 +3654,10 @@ impl<'a> Parser<'a> {
                 Token::KeywordOtherwise | Token::KeywordEnd => {
                     break;
                 }
+                Token::Eol => {
+                    self.bump_sync(); // Skip Eol between statements
+                    continue;
+                }
                 _ => match self.parse_statement() {
                     Ok(stmt) => then_block.push(stmt),
                     Err(e) => return Err(e),
@@ -3667,6 +3684,10 @@ impl<'a> Parser<'a> {
                 while let Some(token) = self.cursor.peek().cloned() {
                     if matches!(token.token, Token::KeywordEnd) {
                         break;
+                    }
+                    if matches!(token.token, Token::Eol) {
+                        self.bump_sync(); // Skip Eol between statements
+                        continue;
                     }
 
                     match self.parse_statement() {
@@ -3887,11 +3908,18 @@ impl<'a> Parser<'a> {
             self.bump_sync(); // Consume the colon if present
         }
 
+        // Skip any Eol tokens after the colon
+        self.skip_eol();
+
         let mut body = Vec::with_capacity(10);
 
         while let Some(token) = self.cursor.peek().cloned() {
             if matches!(token.token, Token::KeywordEnd) {
                 break;
+            }
+            if matches!(token.token, Token::Eol) {
+                self.bump_sync(); // Skip Eol between statements
+                continue;
             }
 
             match self.parse_statement() {
@@ -4017,11 +4045,18 @@ impl<'a> Parser<'a> {
             self.bump_sync(); // Consume the colon if present
         }
 
+        // Skip any Eol tokens after the colon
+        self.skip_eol();
+
         let mut body = Vec::with_capacity(10);
 
         while let Some(token) = self.cursor.peek().cloned() {
             if matches!(token.token, Token::KeywordEnd) {
                 break;
+            }
+            if matches!(token.token, Token::Eol) {
+                self.bump_sync(); // Skip Eol between statements
+                continue;
             }
 
             match self.parse_statement() {
@@ -4257,6 +4292,9 @@ impl<'a> Parser<'a> {
 
         self.expect_token(Token::Colon, "Expected ':' after action definition")?;
 
+        // Skip any Eol tokens after the colon
+        self.skip_eol();
+
         // Add the action name to our known actions BEFORE parsing the body
         // This allows recursive calls to be recognized as action calls
         self.known_actions.insert(name.clone());
@@ -4266,6 +4304,10 @@ impl<'a> Parser<'a> {
         while let Some(token) = self.cursor.peek().cloned() {
             if matches!(token.token, Token::KeywordEnd) {
                 break;
+            }
+            if matches!(token.token, Token::Eol) {
+                self.bump_sync(); // Skip Eol between statements
+                continue;
             }
 
             match self.parse_statement() {
@@ -5849,6 +5891,9 @@ impl<'a> Parser<'a> {
         self.expect_token(Token::KeywordLoop, "Expected 'loop' after 'main'")?;
         self.expect_token(Token::Colon, "Expected ':' after 'main loop'")?;
 
+        // Skip any Eol tokens after the colon
+        self.skip_eol();
+
         let mut body = Vec::new();
         while let Some(token) = self.cursor.peek().cloned() {
             if matches!(token.token, Token::KeywordEnd) {
@@ -5881,10 +5926,17 @@ impl<'a> Parser<'a> {
                         self.bump_sync(); // Consume the colon if present
                     }
 
+                    // Skip any Eol tokens after the colon
+                    self.skip_eol();
+
                     let mut body = Vec::new();
                     while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(token.token, Token::KeywordEnd) {
                             break;
+                        }
+                        if matches!(token.token, Token::Eol) {
+                            self.bump_sync(); // Skip Eol between statements
+                            continue;
                         }
                         body.push(self.parse_statement()?);
                     }
@@ -5908,10 +5960,17 @@ impl<'a> Parser<'a> {
                         self.bump_sync(); // Consume the colon if present
                     }
 
+                    // Skip any Eol tokens after the colon
+                    self.skip_eol();
+
                     let mut body = Vec::new();
                     while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(token.token, Token::KeywordEnd) {
                             break;
+                        }
+                        if matches!(token.token, Token::Eol) {
+                            self.bump_sync(); // Skip Eol between statements
+                            continue;
                         }
                         body.push(self.parse_statement()?);
                     }
@@ -5930,10 +5989,17 @@ impl<'a> Parser<'a> {
                     self.bump_sync(); // Consume "forever"
                     self.expect_token(Token::Colon, "Expected ':' after 'forever'")?;
 
+                    // Skip any Eol tokens after the colon
+                    self.skip_eol();
+
                     let mut body = Vec::new();
                     while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(token.token, Token::KeywordEnd) {
                             break;
+                        }
+                        if matches!(token.token, Token::Eol) {
+                            self.bump_sync(); // Skip Eol between statements
+                            continue;
                         }
                         body.push(self.parse_statement()?);
                     }
@@ -5949,6 +6015,9 @@ impl<'a> Parser<'a> {
                 }
                 Token::Colon => {
                     self.bump_sync(); // Consume ":"
+
+                    // Skip any Eol tokens after the colon
+                    self.skip_eol();
 
                     let mut body = Vec::new();
                     while let Some(token) = self.cursor.peek().cloned() {
