@@ -176,6 +176,15 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Temporary helper: Consume token from both cursor and iterator to keep them synchronized
+    /// during migration. Will be removed in Step 7 when tokens field is deleted.
+    #[inline]
+    fn bump_sync(&mut self) -> Option<&'a TokenWithPosition> {
+        let result = self.cursor.bump();
+        self.tokens.next(); // Keep iterator synchronized
+        result
+    }
+
     /// Helper method to get text representation of contextual keywords
     fn get_token_text(&self, token: &Token) -> String {
         match token {
@@ -239,8 +248,8 @@ impl<'a> Parser<'a> {
                                 "Consuming orphaned 'end action' at line {}",
                                 first_token.line
                             );
-                            self.tokens.next(); // Consume "end"
-                            self.tokens.next(); // Consume "action"
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "action"
                             continue;
                         }
                         Token::KeywordCheck => {
@@ -248,8 +257,8 @@ impl<'a> Parser<'a> {
                                 "Consuming orphaned 'end check' at line {}",
                                 first_token.line
                             );
-                            self.tokens.next(); // Consume "end"
-                            self.tokens.next(); // Consume "check"
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "check"
                             continue;
                         }
                         Token::KeywordFor => {
@@ -257,8 +266,8 @@ impl<'a> Parser<'a> {
                                 "Consuming orphaned 'end for' at line {}",
                                 first_token.line
                             );
-                            self.tokens.next(); // Consume "end"
-                            self.tokens.next(); // Consume "for"
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "for"
                             continue;
                         }
                         Token::KeywordCount => {
@@ -266,8 +275,8 @@ impl<'a> Parser<'a> {
                                 "Consuming orphaned 'end count' at line {}",
                                 first_token.line
                             );
-                            self.tokens.next(); // Consume "end"
-                            self.tokens.next(); // Consume "count"
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "count"
                             continue;
                         }
                         Token::KeywordRepeat => {
@@ -275,8 +284,8 @@ impl<'a> Parser<'a> {
                                 "Consuming orphaned 'end repeat' at line {}",
                                 first_token.line
                             );
-                            self.tokens.next(); // Consume "end"
-                            self.tokens.next(); // Consume "repeat"
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "repeat"
                             continue;
                         }
                         Token::KeywordTry => {
@@ -284,8 +293,8 @@ impl<'a> Parser<'a> {
                                 "Consuming orphaned 'end try' at line {}",
                                 first_token.line
                             );
-                            self.tokens.next(); // Consume "end"
-                            self.tokens.next(); // Consume "try"
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "try"
                             continue;
                         }
                         Token::KeywordLoop => {
@@ -293,8 +302,8 @@ impl<'a> Parser<'a> {
                                 "Consuming orphaned 'end loop' at line {}",
                                 first_token.line
                             );
-                            self.tokens.next(); // Consume "end"
-                            self.tokens.next(); // Consume "loop"
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "loop"
                             continue;
                         }
                         Token::KeywordMap => {
@@ -302,8 +311,8 @@ impl<'a> Parser<'a> {
                                 "Consuming orphaned 'end map' at line {}",
                                 first_token.line
                             );
-                            self.tokens.next(); // Consume "end"
-                            self.tokens.next(); // Consume "map"
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "map"
                             continue;
                         }
                         Token::KeywordWhile => {
@@ -311,8 +320,8 @@ impl<'a> Parser<'a> {
                                 "Consuming orphaned 'end while' at line {}",
                                 first_token.line
                             );
-                            self.tokens.next(); // Consume "end"
-                            self.tokens.next(); // Consume "while"
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "while"
                             continue;
                         }
                         Token::KeywordPattern => {
@@ -320,8 +329,8 @@ impl<'a> Parser<'a> {
                                 "Consuming orphaned 'end pattern' at line {}",
                                 first_token.line
                             );
-                            self.tokens.next(); // Consume "end"
-                            self.tokens.next(); // Consume "pattern"
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "pattern"
                             continue;
                         }
                         _ => {
@@ -331,7 +340,7 @@ impl<'a> Parser<'a> {
                                 second_token.token,
                                 first_token.line
                             );
-                            self.tokens.next(); // Consume "end"
+                            self.bump_sync(); // Consume "end"
                             self.errors.push(ParseError::new(
                                 format!("Unexpected 'end' followed by {:?}", second_token.token),
                                 first_token.line,
@@ -346,7 +355,7 @@ impl<'a> Parser<'a> {
                         "Found standalone 'end' at end of file, line {}",
                         first_token.line
                     );
-                    self.tokens.next();
+                    self.bump_sync();
                     break;
                 }
                 }
@@ -429,7 +438,7 @@ impl<'a> Parser<'a> {
 
     #[allow(dead_code)]
     fn synchronize(&mut self) {
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordStore
                 | Token::KeywordCreate
@@ -444,9 +453,10 @@ impl<'a> Parser<'a> {
                 }
                 Token::KeywordEnd => {
                     // Handle orphaned "end" tokens during error recovery
-                    exec_trace!("Synchronizing: found 'end' token at line {}", token.line);
-                    self.tokens.next(); // Consume "end"
-                    if let Some(next_token) = self.tokens.peek() {
+                    let line = token.line;
+                    exec_trace!("Synchronizing: found 'end' token at line {}", line);
+                    self.bump_sync();
+                    if let Some(next_token) = self.cursor.peek() {
                         match &next_token.token {
                             Token::KeywordAction
                             | Token::KeywordCheck
@@ -460,7 +470,7 @@ impl<'a> Parser<'a> {
                                     "Synchronizing: consuming {:?} after 'end'",
                                     next_token.token
                                 );
-                                self.tokens.next(); // Consume the keyword after "end"
+                                self.bump_sync();
                             }
                             _ => {} // Just consumed "end", continue
                         }
@@ -468,7 +478,7 @@ impl<'a> Parser<'a> {
                     break; // After handling orphaned end, continue with recovery
                 }
                 _ => {
-                    self.tokens.next(); // Skip the token
+                    self.bump_sync();
                 }
             }
         }
@@ -1641,9 +1651,9 @@ impl<'a> Parser<'a> {
     /// parser.expect_token(Token::Colon, "Expected ':' after name")?;
     /// ```
     fn expect_token(&mut self, expected: Token, error_message: &str) -> Result<(), ParseError> {
-        if let Some(token) = self.tokens.peek().cloned() {
+        if let Some(token) = self.cursor.peek() {
             if token.token == expected {
-                self.tokens.next();
+                self.bump_sync();
                 Ok(())
             } else {
                 Err(ParseError::new(
@@ -1658,8 +1668,8 @@ impl<'a> Parser<'a> {
         } else {
             Err(ParseError::new(
                 format!("{error_message}: unexpected end of input"),
-                0,
-                0,
+                self.cursor.current_line(),
+                self.cursor.current_column(),
             ))
         }
     }
