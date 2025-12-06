@@ -227,10 +227,10 @@ impl<'a> Parser<'a> {
 
         let mut last_line = 0;
 
-        while self.tokens.peek().is_some() {
+        while self.cursor.peek().is_some() {
             let start_len = self.tokens.clone().count();
 
-            if let Some(token) = self.tokens.peek() {
+            if let Some(token) = self.cursor.peek() {
                 if token.line > last_line && last_line > 0 {
                     // This is especially important for statements like "push" that don't have
                 }
@@ -367,17 +367,17 @@ impl<'a> Parser<'a> {
                     self.errors.push(error);
 
                     // This is especially important for consecutive push statements
-                    let current_line = if let Some(token) = self.tokens.peek() {
+                    let current_line = if let Some(token) = self.cursor.peek() {
                         token.line
                     } else {
                         0
                     };
 
-                    while let Some(token) = self.tokens.peek() {
+                    while let Some(token) = self.cursor.peek() {
                         if token.line > current_line || Parser::is_statement_starter(&token.token) {
                             break;
                         }
-                        self.tokens.next(); // Skip token
+                        self.bump_sync(); // Skip token
                     }
                 }
             }
@@ -386,19 +386,19 @@ impl<'a> Parser<'a> {
 
             // Special case for end of file - if we have processed all meaningful tokens,
             // and only trailing tokens remain (if any), just break
-            if let Some(token) = self.tokens.peek()
+            if let Some(token) = self.cursor.peek()
                 && token.token == Token::KeywordEnd
                 && start_len <= 2
             {
                 // If we're at the end with just 1-2 tokens left, consume them and break
-                while self.tokens.next().is_some() {}
+                while self.bump_sync().is_some() {}
                 break;
             }
 
             assert!(
                 end_len < start_len,
                 "Parser made no progress - token {:?} caused infinite loop",
-                self.tokens.peek()
+                self.cursor.peek()
             );
         }
 
@@ -486,7 +486,7 @@ impl<'a> Parser<'a> {
 
     // Container-related parsing methods
     pub fn parse_container_definition(&mut self) -> Result<Statement, ParseError> {
-        let start_token = self.tokens.next().unwrap(); // Consume 'create'
+        let start_token = self.bump_sync().unwrap(); // Consume 'create'
         let line = start_token.line;
         let column = start_token.column;
 
@@ -496,9 +496,9 @@ impl<'a> Parser<'a> {
         )?;
 
         // Parse container name
-        let name = if let Some(token) = self.tokens.peek() {
+        let name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next(); // Consume the identifier
+                self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -543,7 +543,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_interface_definition(&mut self) -> Result<Statement, ParseError> {
-        let start_token = self.tokens.next().unwrap(); // Consume 'create'
+        let start_token = self.bump_sync().unwrap(); // Consume 'create'
         let line = start_token.line;
         let column = start_token.column;
 
@@ -553,9 +553,9 @@ impl<'a> Parser<'a> {
         )?;
 
         // Parse interface name
-        let name = if let Some(token) = self.tokens.peek() {
+        let name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next(); // Consume the identifier
+                self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -586,14 +586,14 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_container_instantiation(&mut self) -> Result<Statement, ParseError> {
-        let start_token = self.tokens.next().unwrap(); // Consume 'create'
+        let start_token = self.bump_sync().unwrap(); // Consume 'create'
         let line = start_token.line;
         let column = start_token.column;
 
         self.expect_token(Token::KeywordNew, "Expected 'new' after 'create'")?;
 
         // Check for deprecated "create new constant" syntax
-        if let Some(token) = self.tokens.peek()
+        if let Some(token) = self.cursor.peek()
             && matches!(token.token, Token::KeywordConstant)
         {
             // This is the deprecated "create new constant" syntax
@@ -601,7 +601,7 @@ impl<'a> Parser<'a> {
                 "Warning: 'create new constant' syntax is deprecated and will be removed in a future version. Please use 'store new constant' instead."
             );
 
-            self.tokens.next(); // Consume "constant"
+            self.bump_sync(); // Consume "constant"
 
             let name = self.parse_variable_name_list()?;
             self.expect_token(Token::KeywordAs, "Expected 'as' after constant name")?;
@@ -617,9 +617,9 @@ impl<'a> Parser<'a> {
         }
 
         // Parse container type
-        let container_type = if let Some(token) = self.tokens.peek() {
+        let container_type = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next(); // Consume the identifier
+                self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -642,9 +642,9 @@ impl<'a> Parser<'a> {
         self.expect_token(Token::KeywordAs, "Expected 'as' after container type")?;
 
         // Parse instance name
-        let instance_name = if let Some(token) = self.tokens.peek() {
+        let instance_name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next(); // Consume the identifier
+                self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -680,14 +680,14 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_event_definition(&mut self) -> Result<Statement, ParseError> {
-        let start_token = self.tokens.next().unwrap(); // Consume 'event'
+        let start_token = self.bump_sync().unwrap(); // Consume 'event'
         let line = start_token.line;
         let column = start_token.column;
 
         // Parse event name
-        let name = if let Some(token) = self.tokens.peek() {
+        let name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next(); // Consume the identifier
+                self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -717,14 +717,14 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_event_trigger(&mut self) -> Result<Statement, ParseError> {
-        let start_token = self.tokens.next().unwrap(); // Consume 'trigger'
+        let start_token = self.bump_sync().unwrap(); // Consume 'trigger'
         let line = start_token.line;
         let column = start_token.column;
 
         // Parse event name
-        let name = if let Some(token) = self.tokens.peek() {
+        let name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next(); // Consume the identifier
+                self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -754,7 +754,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_event_handler(&mut self) -> Result<Statement, ParseError> {
-        let start_token = self.tokens.next().unwrap(); // Consume 'on'
+        let start_token = self.bump_sync().unwrap(); // Consume 'on'
         let line = start_token.line;
         let column = start_token.column;
 
@@ -762,9 +762,9 @@ impl<'a> Parser<'a> {
         let event_source = self.parse_expression()?;
 
         // Parse event name
-        let event_name = if let Some(token) = self.tokens.peek() {
+        let event_name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next(); // Consume the identifier
+                self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -795,14 +795,14 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_parent_method_call(&mut self) -> Result<Statement, ParseError> {
-        let start_token = self.tokens.next().unwrap(); // Consume 'parent'
+        let start_token = self.bump_sync().unwrap(); // Consume 'parent'
         let line = start_token.line;
         let column = start_token.column;
 
         // Parse method name
-        let method_name = if let Some(token) = self.tokens.peek() {
+        let method_name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next(); // Consume the identifier
+                self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -837,15 +837,15 @@ impl<'a> Parser<'a> {
         let mut implements = Vec::new();
 
         // Check for 'extends' keyword
-        if let Some(token) = self.tokens.peek()
+        if let Some(token) = self.cursor.peek()
             && token.token == Token::KeywordExtends
         {
-            self.tokens.next(); // Consume 'extends'
+            self.bump_sync(); // Consume 'extends'
 
-            if let Some(token) = self.tokens.peek() {
+            if let Some(token) = self.cursor.peek() {
                 if let Token::Identifier(id) = &token.token {
                     extends = Some(id.clone());
-                    self.tokens.next(); // Consume the identifier
+                    self.bump_sync(); // Consume the identifier
                 } else {
                     return Err(ParseError::new(
                         "Expected identifier after 'extends'".to_string(),
@@ -863,22 +863,22 @@ impl<'a> Parser<'a> {
         }
 
         // Check for 'implements' keyword
-        if let Some(token) = self.tokens.peek()
+        if let Some(token) = self.cursor.peek()
             && token.token == Token::KeywordImplements
         {
-            self.tokens.next(); // Consume 'implements'
+            self.bump_sync(); // Consume 'implements'
 
             // Parse interface list
             loop {
-                if let Some(token) = self.tokens.peek() {
+                if let Some(token) = self.cursor.peek() {
                     if let Token::Identifier(id) = &token.token {
                         implements.push(id.clone());
-                        self.tokens.next(); // Consume the identifier
+                        self.bump_sync(); // Consume the identifier
 
                         // Check for comma to continue or break
-                        if let Some(next_token) = self.tokens.peek() {
+                        if let Some(next_token) = self.cursor.peek() {
                             if next_token.token == Token::Comma {
-                                self.tokens.next(); // Consume comma
+                                self.bump_sync(); // Consume comma
                                 continue;
                             } else {
                                 break;
@@ -927,10 +927,10 @@ impl<'a> Parser<'a> {
 
         // Parse container body until 'end'
         loop {
-            if let Some(token) = self.tokens.peek() {
+            if let Some(token) = self.cursor.peek() {
                 match &token.token {
                     Token::KeywordEnd => {
-                        self.tokens.next(); // Consume 'end'
+                        self.bump_sync(); // Consume 'end'
                         break;
                     }
                     Token::KeywordProperty => {
@@ -938,8 +938,8 @@ impl<'a> Parser<'a> {
                         properties.push(prop);
                     }
                     Token::KeywordStatic => {
-                        let static_token = self.tokens.next().unwrap(); // Consume 'static'
-                        if let Some(next_token) = self.tokens.peek() {
+                        let static_token = self.bump_sync().unwrap(); // Consume 'static'
+                        if let Some(next_token) = self.cursor.peek() {
                             match &next_token.token {
                                 Token::KeywordProperty => {
                                     let prop = self.parse_property_definition(true)?;
@@ -1004,14 +1004,14 @@ impl<'a> Parser<'a> {
         &mut self,
         is_static: bool,
     ) -> Result<PropertyDefinition, ParseError> {
-        let start_token = self.tokens.next().unwrap(); // Consume 'property'
+        let start_token = self.bump_sync().unwrap(); // Consume 'property'
         let line = start_token.line;
         let column = start_token.column;
 
         // Parse property name
-        let name = if let Some(token) = self.tokens.peek() {
+        let name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next(); // Consume the identifier
+                self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -1028,13 +1028,13 @@ impl<'a> Parser<'a> {
             ));
         };
 
-        let property_type = if let Some(token) = self.tokens.peek() {
+        let property_type = if let Some(token) = self.cursor.peek() {
             if token.token == Token::Colon {
-                self.tokens.next(); // Consume ':'
+                self.bump_sync(); // Consume ':'
 
-                if let Some(type_token) = self.tokens.peek() {
+                if let Some(type_token) = self.cursor.peek() {
                     if let Token::Identifier(type_name) = &type_token.token {
-                        self.tokens.next(); // Consume type name
+                        self.bump_sync(); // Consume type name
                         Some(match type_name.as_str() {
                             "Text" => Type::Text,
                             "Number" => Type::Number,
@@ -1064,9 +1064,9 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let default_value = if let Some(token) = self.tokens.peek() {
+        let default_value = if let Some(token) = self.cursor.peek() {
             if token.token == Token::KeywordDefaults {
-                self.tokens.next(); // Consume 'defaults'
+                self.bump_sync(); // Consume 'defaults'
                 Some(self.parse_expression()?)
             } else {
                 None
@@ -1088,14 +1088,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_event_definition_full(&mut self) -> Result<EventDefinition, ParseError> {
-        let start_token = self.tokens.next().unwrap(); // Consume 'event'
+        let start_token = self.bump_sync().unwrap(); // Consume 'event'
         let line = start_token.line;
         let column = start_token.column;
 
         // Parse event name
-        let name = if let Some(token) = self.tokens.peek() {
+        let name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next(); // Consume the identifier
+                self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -1113,10 +1113,10 @@ impl<'a> Parser<'a> {
         };
 
         let mut parameters = Vec::new();
-        if let Some(token) = self.tokens.peek()
+        if let Some(token) = self.cursor.peek()
             && token.token == Token::KeywordNeeds
         {
-            self.tokens.next(); // Consume 'needs'
+            self.bump_sync(); // Consume 'needs'
             parameters = self.parse_parameter_list()?;
         }
 
@@ -1131,20 +1131,20 @@ impl<'a> Parser<'a> {
     fn parse_parameter_list(&mut self) -> Result<Vec<Parameter>, ParseError> {
         let mut parameters = Vec::new();
 
-        while let Some(token) = self.tokens.peek() {
+        while let Some(token) = self.cursor.peek() {
             if let Token::Identifier(param_name) = &token.token {
                 let name = param_name.clone();
                 let param_line = token.line;
                 let param_column = token.column;
-                self.tokens.next(); // Consume parameter name
+                self.bump_sync(); // Consume parameter name
 
-                let param_type = if let Some(type_token) = self.tokens.peek() {
+                let param_type = if let Some(type_token) = self.cursor.peek() {
                     if type_token.token == Token::Colon {
-                        self.tokens.next(); // Consume ':'
+                        self.bump_sync(); // Consume ':'
 
-                        if let Some(type_name_token) = self.tokens.peek() {
+                        if let Some(type_name_token) = self.cursor.peek() {
                             if let Token::Identifier(type_name) = &type_name_token.token {
-                                self.tokens.next(); // Consume type name
+                                self.bump_sync(); // Consume type name
                                 Some(match type_name.as_str() {
                                     "Text" => Type::Text,
                                     "Number" => Type::Number,
@@ -1183,9 +1183,9 @@ impl<'a> Parser<'a> {
                 });
 
                 // Check for comma to continue or break
-                if let Some(next_token) = self.tokens.peek() {
+                if let Some(next_token) = self.cursor.peek() {
                     if next_token.token == Token::Comma {
-                        self.tokens.next(); // Consume comma
+                        self.bump_sync(); // Consume comma
                         continue;
                     } else {
                         break;
@@ -1208,23 +1208,23 @@ impl<'a> Parser<'a> {
         let arguments = Vec::new();
 
         // Parse instantiation body until 'end'
-        while let Some(token) = self.tokens.peek() {
+        while let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordEnd => {
-                    self.tokens.next(); // Consume 'end'
+                    self.bump_sync(); // Consume 'end'
                     break;
                 }
                 Token::Identifier(prop_name) => {
                     let name = prop_name.clone();
                     let prop_line = token.line;
                     let prop_column = token.column;
-                    self.tokens.next(); // Consume property name
+                    self.bump_sync(); // Consume property name
 
                     // Expect 'is' or ':'
-                    if let Some(next_token) = self.tokens.peek() {
+                    if let Some(next_token) = self.cursor.peek() {
                         if next_token.token == Token::KeywordIs || next_token.token == Token::Colon
                         {
-                            self.tokens.next(); // Consume 'is' or ':'
+                            self.bump_sync(); // Consume 'is' or ':'
 
                             let value = self.parse_expression()?;
                             property_initializers.push(PropertyInitializer {
@@ -1262,7 +1262,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
-        if let Some(token) = self.tokens.peek().cloned() {
+        if let Some(token) = self.cursor.peek().cloned() {
             match &token.token {
                 Token::KeywordStore => self.parse_variable_declaration(),
                 Token::KeywordCreate => {
@@ -1315,14 +1315,14 @@ impl<'a> Parser<'a> {
                 Token::KeywordOn => self.parse_event_handler(),
                 Token::KeywordParent => self.parse_parent_method_call(),
                 Token::KeywordBreak => {
-                    let token_pos = self.tokens.next().unwrap();
+                    let token_pos = self.bump_sync().unwrap();
                     Ok(Statement::BreakStatement {
                         line: token_pos.line,
                         column: token_pos.column,
                     })
                 }
                 Token::KeywordContinue | Token::KeywordSkip => {
-                    let token_pos = self.tokens.next().unwrap();
+                    let token_pos = self.bump_sync().unwrap();
                     Ok(Statement::ContinueStatement {
                         line: token_pos.line,
                         column: token_pos.column,
@@ -1373,7 +1373,7 @@ impl<'a> Parser<'a> {
                             self.parse_read_process_output_statement()
                         } else {
                             // "read" by itself is not a valid statement - treat as expression
-                            let token_pos = self.tokens.peek().unwrap();
+                            let token_pos = self.cursor.peek().unwrap();
                             Err(ParseError::new(
                                 "Unexpected 'read' - did you mean 'read output from process'?"
                                     .to_string(),
@@ -1382,7 +1382,7 @@ impl<'a> Parser<'a> {
                             ))
                         }
                     } else {
-                        let token_pos = self.tokens.peek().unwrap();
+                        let token_pos = self.cursor.peek().unwrap();
                         Err(ParseError::new(
                             "Unexpected 'read' at end of input".to_string(),
                             token_pos.line,
@@ -1434,20 +1434,20 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_variable_declaration(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.tokens.next().unwrap();
+        let token_pos = self.bump_sync().unwrap();
         let is_store = matches!(token_pos.token, Token::KeywordStore);
         let _keyword = if is_store { "store" } else { "create" };
 
         // Check for "store new constant" syntax
         let mut is_constant = false;
         if is_store
-            && let Some(next_token) = self.tokens.peek()
+            && let Some(next_token) = self.cursor.peek()
             && matches!(next_token.token, Token::KeywordNew)
         {
-            self.tokens.next(); // Consume "new"
-            if let Some(const_token) = self.tokens.peek() {
+            self.bump_sync(); // Consume "new"
+            if let Some(const_token) = self.cursor.peek() {
                 if matches!(const_token.token, Token::KeywordConstant) {
-                    self.tokens.next(); // Consume "constant"
+                    self.bump_sync(); // Consume "constant"
                     is_constant = true;
                 } else {
                     return Err(ParseError::new(
@@ -1474,9 +1474,9 @@ impl<'a> Parser<'a> {
         if !is_store && name == "list" {
             self.expect_token(Token::KeywordAs, "Expected 'as' after 'list'")?;
 
-            let list_name = if let Some(token) = self.tokens.peek() {
+            let list_name = if let Some(token) = self.cursor.peek() {
                 if let Token::Identifier(id) = &token.token {
-                    self.tokens.next();
+                    self.bump_sync();
                     id.clone()
                 } else {
                     return Err(ParseError::new(
@@ -1505,7 +1505,7 @@ impl<'a> Parser<'a> {
             });
         }
 
-        if let Some(token) = self.tokens.peek().cloned() {
+        if let Some(token) = self.cursor.peek().cloned() {
             if !matches!(token.token, Token::KeywordAs) {
                 return Err(ParseError::new(
                     format!(
@@ -1524,7 +1524,7 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        self.tokens.next(); // Consume the 'as' token
+        self.bump_sync(); // Consume the 'as' token
 
         let value = self.parse_expression()?;
 
@@ -1540,10 +1540,10 @@ impl<'a> Parser<'a> {
     fn parse_variable_name_list(&mut self) -> Result<String, ParseError> {
         let mut name_parts = Vec::with_capacity(3);
 
-        if let Some(token) = self.tokens.peek().cloned() {
+        if let Some(token) = self.cursor.peek().cloned() {
             match &token.token {
                 Token::Identifier(id) => {
-                    self.tokens.next(); // Consume the identifier
+                    self.bump_sync(); // Consume the identifier
                     name_parts.push(id.clone());
                 }
                 Token::IntLiteral(_) | Token::FloatLiteral(_) => {
@@ -1573,7 +1573,7 @@ impl<'a> Parser<'a> {
                 _ if token.token.is_contextual_keyword() => {
                     // Contextual keywords can be used as variable names
                     let name = self.get_token_text(&token.token);
-                    self.tokens.next(); // Consume the contextual keyword
+                    self.bump_sync(); // Consume the contextual keyword
                     name_parts.push(name);
                 }
                 _ => {
@@ -1595,10 +1595,10 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             match &token.token {
                 Token::Identifier(id) => {
-                    self.tokens.next(); // Consume the identifier
+                    self.bump_sync(); // Consume the identifier
                     name_parts.push(id.clone());
                 }
                 Token::KeywordAs => {
@@ -1678,31 +1678,31 @@ impl<'a> Parser<'a> {
     /// when a pattern definition fails early (e.g., due to reserved name)
     fn consume_pattern_body_on_error(&mut self) {
         // First, skip the colon if present
-        if let Some(token) = self.tokens.peek()
+        if let Some(token) = self.cursor.peek()
             && token.token == Token::Colon
         {
-            self.tokens.next();
+            self.bump_sync();
         }
 
         let mut depth = 1; // We're inside one pattern block
 
-        while let Some(token) = self.tokens.next() {
+        while let Some(token) = self.bump_sync() {
             match token.token {
                 Token::KeywordEnd => {
                     // Check if this is "end pattern"
-                    if let Some(next_token) = self.tokens.peek()
+                    if let Some(next_token) = self.cursor.peek()
                         && next_token.token == Token::KeywordPattern
                     {
                         depth -= 1;
                         if depth == 0 {
-                            self.tokens.next(); // Consume "pattern"
+                            self.bump_sync(); // Consume "pattern"
                             break;
                         }
                     }
                 }
                 Token::KeywordCreate => {
                     // Check if this is nested "create pattern"
-                    if let Some(next_token) = self.tokens.peek()
+                    if let Some(next_token) = self.cursor.peek()
                         && next_token.token == Token::KeywordPattern
                     {
                         depth += 1;
@@ -1761,13 +1761,13 @@ impl<'a> Parser<'a> {
     fn parse_binary_expression(&mut self, precedence: u8) -> Result<Expression, ParseError> {
         let mut left = self.parse_primary_expression()?;
 
-        let left_line = if let Some(token) = self.tokens.peek() {
+        let left_line = if let Some(token) = self.cursor.peek() {
             token.line
         } else {
             0
         };
 
-        while let Some(token_pos) = self.tokens.peek().cloned() {
+        while let Some(token_pos) = self.cursor.peek().cloned() {
             let token = token_pos.token.clone();
             let line = token_pos.line;
             let column = token_pos.column;
@@ -1800,16 +1800,16 @@ impl<'a> Parser<'a> {
                 }
                 Token::Equals => Some((Operator::Equals, 0)),
                 Token::KeywordIs => {
-                    self.tokens.next(); // Consume "is"
+                    self.bump_sync(); // Consume "is"
 
-                    if let Some(next_token) = self.tokens.peek().cloned() {
+                    if let Some(next_token) = self.cursor.peek().cloned() {
                         match &next_token.token {
                             Token::KeywordEqual => {
-                                self.tokens.next(); // Consume "equal"
+                                self.bump_sync(); // Consume "equal"
 
-                                if let Some(to_token) = self.tokens.peek().cloned() {
+                                if let Some(to_token) = self.cursor.peek().cloned() {
                                     if matches!(to_token.token, Token::KeywordTo) {
-                                        self.tokens.next(); // Consume "to"
+                                        self.bump_sync(); // Consume "to"
                                         Some((Operator::Equals, 0))
                                     } else {
                                         Some((Operator::Equals, 0)) // "is equal" without "to" is valid too
@@ -1823,37 +1823,37 @@ impl<'a> Parser<'a> {
                                 }
                             }
                             Token::KeywordNot => {
-                                self.tokens.next(); // Consume "not"
+                                self.bump_sync(); // Consume "not"
                                 Some((Operator::NotEquals, 0))
                             }
                             Token::KeywordGreater => {
-                                self.tokens.next(); // Consume "greater"
+                                self.bump_sync(); // Consume "greater"
 
-                                if let Some(than_token) = self.tokens.peek().cloned() {
+                                if let Some(than_token) = self.cursor.peek().cloned() {
                                     if matches!(than_token.token, Token::KeywordThan) {
-                                        self.tokens.next(); // Consume "than"
+                                        self.bump_sync(); // Consume "than"
 
                                         // Check for "or equal to" after "greater than"
-                                        if let Some(or_token) = self.tokens.peek().cloned() {
+                                        if let Some(or_token) = self.cursor.peek().cloned() {
                                             if matches!(or_token.token, Token::KeywordOr) {
-                                                self.tokens.next(); // Consume "or"
+                                                self.bump_sync(); // Consume "or"
                                                 if let Some(equal_token) =
-                                                    self.tokens.peek().cloned()
+                                                    self.cursor.peek().cloned()
                                                 {
                                                     if matches!(
                                                         equal_token.token,
                                                         Token::KeywordEqual
                                                     ) {
-                                                        self.tokens.next(); // Consume "equal"
+                                                        self.bump_sync(); // Consume "equal"
                                                         // Optional "to"
                                                         if let Some(to_token) =
-                                                            self.tokens.peek().cloned()
+                                                            self.cursor.peek().cloned()
                                                         {
                                                             if matches!(
                                                                 to_token.token,
                                                                 Token::KeywordTo
                                                             ) {
-                                                                self.tokens.next(); // Consume "to"
+                                                                self.bump_sync(); // Consume "to"
                                                                 Some((
                                                                     Operator::GreaterThanOrEqual,
                                                                     0,
@@ -1891,34 +1891,34 @@ impl<'a> Parser<'a> {
                                 }
                             }
                             Token::KeywordLess => {
-                                self.tokens.next(); // Consume "less"
+                                self.bump_sync(); // Consume "less"
 
-                                if let Some(than_token) = self.tokens.peek().cloned() {
+                                if let Some(than_token) = self.cursor.peek().cloned() {
                                     if matches!(than_token.token, Token::KeywordThan) {
-                                        self.tokens.next(); // Consume "than"
+                                        self.bump_sync(); // Consume "than"
 
                                         // Check for "or equal to" after "less than"
-                                        if let Some(or_token) = self.tokens.peek().cloned() {
+                                        if let Some(or_token) = self.cursor.peek().cloned() {
                                             if matches!(or_token.token, Token::KeywordOr) {
-                                                self.tokens.next(); // Consume "or"
+                                                self.bump_sync(); // Consume "or"
 
                                                 if let Some(equal_token) =
-                                                    self.tokens.peek().cloned()
+                                                    self.cursor.peek().cloned()
                                                 {
                                                     if matches!(
                                                         equal_token.token,
                                                         Token::KeywordEqual
                                                     ) {
-                                                        self.tokens.next(); // Consume "equal"
+                                                        self.bump_sync(); // Consume "equal"
 
                                                         if let Some(to_token) =
-                                                            self.tokens.peek().cloned()
+                                                            self.cursor.peek().cloned()
                                                         {
                                                             if matches!(
                                                                 to_token.token,
                                                                 Token::KeywordTo
                                                             ) {
-                                                                self.tokens.next(); // Consume "to"
+                                                                self.bump_sync(); // Consume "to"
                                                                 Some((Operator::LessThanOrEqual, 0))
                                                             } else {
                                                                 Some((Operator::LessThanOrEqual, 0)) // "or equal" without "to" is valid too
@@ -1965,7 +1965,7 @@ impl<'a> Parser<'a> {
                         && self.known_actions.contains(name)
                     {
                         // This is a known action, treat it as an action call
-                        self.tokens.next(); // Consume "with"
+                        self.bump_sync(); // Consume "with"
                         let arguments = self.parse_argument_list()?;
 
                         left = Expression::ActionCall {
@@ -1978,7 +1978,7 @@ impl<'a> Parser<'a> {
                     }
 
                     // Default case - treat as concatenation
-                    self.tokens.next(); // Consume "with"
+                    self.bump_sync(); // Consume "with"
                     let right = self.parse_expression()?;
                     left = Expression::Concatenation {
                         left: Box::new(left),
@@ -1994,18 +1994,18 @@ impl<'a> Parser<'a> {
                     Some((Operator::And, 0))
                 }
                 Token::KeywordOr => {
-                    self.tokens.next(); // Consume "or"
+                    self.bump_sync(); // Consume "or"
 
                     // Handle "or equal to" as a special case
-                    if let Some(equal_token) = self.tokens.peek().cloned()
+                    if let Some(equal_token) = self.cursor.peek().cloned()
                         && matches!(equal_token.token, Token::KeywordEqual)
                     {
-                        self.tokens.next(); // Consume "equal"
+                        self.bump_sync(); // Consume "equal"
 
-                        if let Some(to_token) = self.tokens.peek().cloned()
+                        if let Some(to_token) = self.cursor.peek().cloned()
                             && matches!(to_token.token, Token::KeywordTo)
                         {
-                            self.tokens.next(); // Consume "to"
+                            self.bump_sync(); // Consume "to"
 
                             if let Expression::BinaryOperation {
                                 operator,
@@ -2041,13 +2041,13 @@ impl<'a> Parser<'a> {
                     Some((Operator::Or, 0))
                 }
                 Token::KeywordMatches => {
-                    self.tokens.next(); // Consume "matches"
+                    self.bump_sync(); // Consume "matches"
 
                     // Check if next token is "pattern" keyword (optional)
-                    if let Some(pattern_token) = self.tokens.peek().cloned()
+                    if let Some(pattern_token) = self.cursor.peek().cloned()
                         && matches!(pattern_token.token, Token::KeywordPattern)
                     {
-                        self.tokens.next(); // Consume "pattern"
+                        self.bump_sync(); // Consume "pattern"
                     }
 
                     let pattern_expr = self.parse_binary_expression(precedence + 1)?;
@@ -2061,21 +2061,21 @@ impl<'a> Parser<'a> {
                     continue; // Skip the rest of the loop since we've already updated left
                 }
                 Token::KeywordFind => {
-                    self.tokens.next(); // Consume "find"
+                    self.bump_sync(); // Consume "find"
 
                     // Check if next token is "pattern" keyword (optional)
-                    if let Some(pattern_token) = self.tokens.peek().cloned()
+                    if let Some(pattern_token) = self.cursor.peek().cloned()
                         && matches!(pattern_token.token, Token::KeywordPattern)
                     {
-                        self.tokens.next(); // Consume "pattern"
+                        self.bump_sync(); // Consume "pattern"
                     }
 
                     let pattern_expr = self.parse_binary_expression(precedence + 1)?;
 
-                    if let Some(in_token) = self.tokens.peek().cloned()
+                    if let Some(in_token) = self.cursor.peek().cloned()
                         && matches!(in_token.token, Token::KeywordIn)
                     {
-                        self.tokens.next(); // Consume "in"
+                        self.bump_sync(); // Consume "in"
 
                         let text_expr = self.parse_binary_expression(precedence + 1)?;
 
@@ -2097,28 +2097,28 @@ impl<'a> Parser<'a> {
                     continue; // Skip the rest of the loop since we've already updated left
                 }
                 Token::KeywordReplace => {
-                    self.tokens.next(); // Consume "replace"
+                    self.bump_sync(); // Consume "replace"
 
                     // Check if next token is "pattern" keyword (optional)
-                    if let Some(pattern_token) = self.tokens.peek().cloned()
+                    if let Some(pattern_token) = self.cursor.peek().cloned()
                         && matches!(pattern_token.token, Token::KeywordPattern)
                     {
-                        self.tokens.next(); // Consume "pattern"
+                        self.bump_sync(); // Consume "pattern"
                     }
 
                     let pattern_expr = self.parse_binary_expression(precedence + 1)?;
 
-                    if let Some(with_token) = self.tokens.peek().cloned()
+                    if let Some(with_token) = self.cursor.peek().cloned()
                         && matches!(with_token.token, Token::KeywordWith)
                     {
-                        self.tokens.next(); // Consume "with"
+                        self.bump_sync(); // Consume "with"
 
                         let replacement_expr = self.parse_binary_expression(precedence + 1)?;
 
-                        if let Some(in_token) = self.tokens.peek().cloned()
+                        if let Some(in_token) = self.cursor.peek().cloned()
                             && matches!(in_token.token, Token::KeywordIn)
                         {
-                            self.tokens.next(); // Consume "in"
+                            self.bump_sync(); // Consume "in"
 
                             let text_expr = self.parse_binary_expression(precedence + 1)?;
 
@@ -2149,17 +2149,17 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 Token::KeywordSplit => {
-                    self.tokens.next(); // Consume "split"
+                    self.bump_sync(); // Consume "split"
 
                     // Parse the text expression to split
                     let text_expr = self.parse_binary_expression(precedence + 1)?;
 
                     // Check for "by" (string split) or "on" (pattern split)
-                    if let Some(next_token) = self.tokens.peek().cloned() {
+                    if let Some(next_token) = self.cursor.peek().cloned() {
                         match next_token.token {
                             Token::KeywordBy => {
                                 // Handle "split text by delimiter" syntax
-                                self.tokens.next(); // Consume "by"
+                                self.bump_sync(); // Consume "by"
                                 let delimiter_expr =
                                     self.parse_binary_expression(precedence + 1)?;
 
@@ -2173,13 +2173,13 @@ impl<'a> Parser<'a> {
                             }
                             Token::KeywordOn => {
                                 // Handle "split text on pattern name" syntax
-                                self.tokens.next(); // Consume "on"
+                                self.bump_sync(); // Consume "on"
 
                                 // Check if next token is "pattern" keyword (optional)
-                                if let Some(pattern_token) = self.tokens.peek().cloned()
+                                if let Some(pattern_token) = self.cursor.peek().cloned()
                                     && matches!(pattern_token.token, Token::KeywordPattern)
                                 {
-                                    self.tokens.next(); // Consume "pattern"
+                                    self.bump_sync(); // Consume "pattern"
                                 }
 
                                 let pattern_expr = self.parse_binary_expression(precedence + 1)?;
@@ -2210,12 +2210,12 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token::KeywordContains => {
-                    self.tokens.next(); // Consume "contains"
+                    self.bump_sync(); // Consume "contains"
 
-                    if let Some(pattern_token) = self.tokens.peek().cloned()
+                    if let Some(pattern_token) = self.cursor.peek().cloned()
                         && matches!(pattern_token.token, Token::KeywordPattern)
                     {
-                        self.tokens.next(); // Consume "pattern"
+                        self.bump_sync(); // Consume "pattern"
 
                         let pattern_expr = self.parse_binary_expression(precedence + 1)?;
 
@@ -2231,7 +2231,7 @@ impl<'a> Parser<'a> {
                     Some((Operator::Contains, 0))
                 }
                 Token::Colon => {
-                    self.tokens.next(); // Consume ":"
+                    self.bump_sync(); // Consume ":"
                     continue;
                 }
                 _ => None,
@@ -2245,36 +2245,36 @@ impl<'a> Parser<'a> {
                 // Now consume the operator token(s) since the precedence check passed
                 match token {
                     Token::Plus => {
-                        self.tokens.next(); // Consume "+"
+                        self.bump_sync(); // Consume "+"
                     }
                     Token::KeywordPlus => {
-                        self.tokens.next(); // Consume "plus"
+                        self.bump_sync(); // Consume "plus"
                     }
                     Token::KeywordMinus => {
-                        self.tokens.next(); // Consume "minus"
+                        self.bump_sync(); // Consume "minus"
                     }
                     Token::Minus => {
-                        self.tokens.next(); // Consume "-"
+                        self.bump_sync(); // Consume "-"
                     }
                     Token::KeywordTimes => {
-                        self.tokens.next(); // Consume "times"
+                        self.bump_sync(); // Consume "times"
                     }
                     Token::KeywordDividedBy => {
-                        self.tokens.next(); // Consume "divided by"
+                        self.bump_sync(); // Consume "divided by"
                     }
                     Token::KeywordDivided => {
-                        self.tokens.next(); // Consume "divided"
+                        self.bump_sync(); // Consume "divided"
                         self.expect_token(Token::KeywordBy, "Expected 'by' after 'divided'")?;
-                        self.tokens.next(); // Consume "by"
+                        self.bump_sync(); // Consume "by"
                     }
                     Token::Percent => {
-                        self.tokens.next(); // Consume "%"
+                        self.bump_sync(); // Consume "%"
                     }
                     Token::Equals => {
-                        self.tokens.next(); // Consume "="
+                        self.bump_sync(); // Consume "="
                     }
                     Token::KeywordAnd => {
-                        self.tokens.next(); // Consume "and"
+                        self.bump_sync(); // Consume "and"
                     }
                     _ => {
                         // For operators like "is" that have already consumed tokens in their detection
@@ -2300,16 +2300,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_primary_expression(&mut self) -> Result<Expression, ParseError> {
-        if let Some(token) = self.tokens.peek().cloned() {
+        if let Some(token) = self.cursor.peek().cloned() {
             let result = match &token.token {
                 Token::LeftBracket => {
-                    let bracket_token = self.tokens.next().unwrap(); // Consume '['
+                    let bracket_token = self.bump_sync().unwrap(); // Consume '['
 
                     // Check for empty list
-                    if let Some(next_token) = self.tokens.peek()
+                    if let Some(next_token) = self.cursor.peek()
                         && next_token.token == Token::RightBracket
                     {
-                        self.tokens.next(); // Consume ']'
+                        self.bump_sync(); // Consume ']'
                         return Ok(Expression::Literal(
                             Literal::List(Vec::new()),
                             bracket_token.line,
@@ -2322,9 +2322,9 @@ impl<'a> Parser<'a> {
                     // Parse first element - use a special method that doesn't parse operators
                     elements.push(self.parse_list_element()?);
 
-                    while let Some(next_token) = self.tokens.peek() {
+                    while let Some(next_token) = self.cursor.peek() {
                         if next_token.token == Token::RightBracket {
-                            self.tokens.next(); // Consume ']'
+                            self.bump_sync(); // Consume ']'
                             return Ok(Expression::Literal(
                                 Literal::List(elements),
                                 bracket_token.line,
@@ -2334,7 +2334,7 @@ impl<'a> Parser<'a> {
                             || next_token.token == Token::Colon
                             || next_token.token == Token::Comma
                         {
-                            self.tokens.next(); // Consume separator
+                            self.bump_sync(); // Consume separator
                             elements.push(self.parse_list_element()?);
                         } else {
                             return Err(ParseError::new(
@@ -2355,12 +2355,12 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 Token::LeftParen => {
-                    self.tokens.next(); // Consume '('
+                    self.bump_sync(); // Consume '('
                     let expr = self.parse_expression()?;
 
-                    if let Some(token) = self.tokens.peek().cloned() {
+                    if let Some(token) = self.cursor.peek().cloned() {
                         if token.token == Token::RightParen {
-                            self.tokens.next(); // Consume ')'
+                            self.bump_sync(); // Consume ')'
                             return Ok(expr);
                         } else {
                             return Err(ParseError::new(
@@ -2378,7 +2378,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token::StringLiteral(s) => {
-                    let token_pos = self.tokens.next().unwrap();
+                    let token_pos = self.bump_sync().unwrap();
                     Ok(Expression::Literal(
                         Literal::String(s.to_string()),
                         token_pos.line,
@@ -2386,7 +2386,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::IntLiteral(n) => {
-                    let token_pos = self.tokens.next().unwrap();
+                    let token_pos = self.bump_sync().unwrap();
                     Ok(Expression::Literal(
                         Literal::Integer(*n),
                         token_pos.line,
@@ -2394,7 +2394,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::FloatLiteral(f) => {
-                    let token_pos = self.tokens.next().unwrap();
+                    let token_pos = self.bump_sync().unwrap();
                     Ok(Expression::Literal(
                         Literal::Float(*f),
                         token_pos.line,
@@ -2402,7 +2402,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::BooleanLiteral(b) => {
-                    let token_pos = self.tokens.next().unwrap();
+                    let token_pos = self.bump_sync().unwrap();
                     Ok(Expression::Literal(
                         Literal::Boolean(*b),
                         token_pos.line,
@@ -2410,7 +2410,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::NothingLiteral => {
-                    let token_pos = self.tokens.next().unwrap();
+                    let token_pos = self.bump_sync().unwrap();
                     Ok(Expression::Literal(
                         Literal::Nothing,
                         token_pos.line,
@@ -2418,28 +2418,28 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::Identifier(name) => {
-                    self.tokens.next();
+                    self.bump_sync();
                     let token_line = token.line;
                     let token_column = token.column;
 
                     // Check for property access (dot notation)
-                    if let Some(next_token) = self.tokens.peek().cloned() {
+                    if let Some(next_token) = self.cursor.peek().cloned() {
                         if next_token.token == Token::Dot {
-                            self.tokens.next(); // Consume '.'
+                            self.bump_sync(); // Consume '.'
 
-                            if let Some(property_token) = self.tokens.peek().cloned() {
+                            if let Some(property_token) = self.cursor.peek().cloned() {
                                 if let Token::Identifier(property_name) = &property_token.token {
-                                    self.tokens.next(); // Consume property name
+                                    self.bump_sync(); // Consume property name
 
                                     // Check for method call with parentheses
-                                    if let Some(paren_token) = self.tokens.peek().cloned()
+                                    if let Some(paren_token) = self.cursor.peek().cloned()
                                         && paren_token.token == Token::LeftParen
                                     {
-                                        self.tokens.next(); // Consume '('
+                                        self.bump_sync(); // Consume '('
 
                                         let mut arguments = Vec::new();
 
-                                        if let Some(next_token) = self.tokens.peek()
+                                        if let Some(next_token) = self.cursor.peek()
                                             && next_token.token != Token::RightParen
                                         {
                                             let expr = self.parse_expression()?;
@@ -2448,9 +2448,9 @@ impl<'a> Parser<'a> {
                                                 value: expr,
                                             });
 
-                                            while let Some(comma_token) = self.tokens.peek() {
+                                            while let Some(comma_token) = self.cursor.peek() {
                                                 if comma_token.token == Token::Comma {
-                                                    self.tokens.next(); // Consume ','
+                                                    self.bump_sync(); // Consume ','
                                                     let expr = self.parse_expression()?;
                                                     arguments.push(Argument {
                                                         name: None,
@@ -2508,7 +2508,7 @@ impl<'a> Parser<'a> {
                         } else if let Token::Identifier(id) = &next_token.token
                             && id.to_lowercase() == "with"
                         {
-                            self.tokens.next(); // Consume "with"
+                            self.bump_sync(); // Consume "with"
 
                             let arguments = self.parse_argument_list()?;
 
@@ -2539,7 +2539,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token::KeywordNot => {
-                    self.tokens.next(); // Consume "not"
+                    self.bump_sync(); // Consume "not"
                     let expr = self.parse_primary_expression()?;
                     let token_line = token.line;
                     let token_column = token.column;
@@ -2551,7 +2551,7 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Token::Minus => {
-                    self.tokens.next(); // Consume "-"
+                    self.bump_sync(); // Consume "-"
                     let expr = self.parse_primary_expression()?;
                     let token_line = token.line;
                     let token_column = token.column;
@@ -2563,12 +2563,12 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Token::KeywordWith => {
-                    self.tokens.next(); // Consume "with"
+                    self.bump_sync(); // Consume "with"
                     let expr = self.parse_expression()?;
                     Ok(expr)
                 }
                 Token::KeywordCount => {
-                    self.tokens.next(); // Consume "count"
+                    self.bump_sync(); // Consume "count"
                     let token_line = token.line;
                     let token_column = token.column;
                     Ok(Expression::Variable(
@@ -2578,11 +2578,11 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordPattern => {
-                    self.tokens.next(); // Consume "pattern"
+                    self.bump_sync(); // Consume "pattern"
 
-                    if let Some(pattern_token) = self.tokens.peek().cloned() {
+                    if let Some(pattern_token) = self.cursor.peek().cloned() {
                         if let Token::StringLiteral(pattern) = &pattern_token.token {
-                            let token_pos = self.tokens.next().unwrap();
+                            let token_pos = self.bump_sync().unwrap();
                             return Ok(Expression::Literal(
                                 Literal::Pattern(pattern.clone()),
                                 token_pos.line,
@@ -2607,7 +2607,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token::KeywordLoop => {
-                    self.tokens.next(); // Consume "loop"
+                    self.bump_sync(); // Consume "loop"
                     let token_line = token.line;
                     let token_column = token.column;
                     Ok(Expression::Variable(
@@ -2617,7 +2617,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordRepeat => {
-                    self.tokens.next(); // Consume "repeat"
+                    self.bump_sync(); // Consume "repeat"
                     let token_line = token.line;
                     let token_column = token.column;
                     Ok(Expression::Variable(
@@ -2627,7 +2627,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordExit => {
-                    self.tokens.next(); // Consume "exit"
+                    self.bump_sync(); // Consume "exit"
                     let token_line = token.line;
                     let token_column = token.column;
                     Ok(Expression::Variable(
@@ -2637,7 +2637,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordBack => {
-                    self.tokens.next(); // Consume "back"
+                    self.bump_sync(); // Consume "back"
                     let token_line = token.line;
                     let token_column = token.column;
                     Ok(Expression::Variable(
@@ -2647,7 +2647,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordTry => {
-                    self.tokens.next(); // Consume "try"
+                    self.bump_sync(); // Consume "try"
                     let token_line = token.line;
                     let token_column = token.column;
                     Ok(Expression::Variable(
@@ -2657,7 +2657,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordWhen => {
-                    self.tokens.next(); // Consume "when"
+                    self.bump_sync(); // Consume "when"
                     let token_line = token.line;
                     let token_column = token.column;
                     Ok(Expression::Variable(
@@ -2667,7 +2667,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordError => {
-                    self.tokens.next(); // Consume "error"
+                    self.bump_sync(); // Consume "error"
                     let token_line = token.line;
                     let token_column = token.column;
                     Ok(Expression::Variable(
@@ -2677,15 +2677,15 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordFile => {
-                    self.tokens.next(); // Consume "file"
+                    self.bump_sync(); // Consume "file"
                     let token_line = token.line;
                     let token_column = token.column;
 
                     // Check if it's "file exists at"
-                    if let Some(next_token) = self.tokens.peek()
+                    if let Some(next_token) = self.cursor.peek()
                         && next_token.token == Token::KeywordExists
                     {
-                        self.tokens.next(); // Consume "exists"
+                        self.bump_sync(); // Consume "exists"
                         self.expect_token(Token::KeywordAt, "Expected 'at' after 'file exists'")?;
                         let path = self.parse_primary_expression()?;
                         return Ok(Expression::FileExists {
@@ -2703,15 +2703,15 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordDirectory => {
-                    self.tokens.next(); // Consume "directory"
+                    self.bump_sync(); // Consume "directory"
                     let token_line = token.line;
                     let token_column = token.column;
 
                     // Check if it's "directory exists at"
-                    if let Some(next_token) = self.tokens.peek()
+                    if let Some(next_token) = self.cursor.peek()
                         && next_token.token == Token::KeywordExists
                     {
-                        self.tokens.next(); // Consume "exists"
+                        self.bump_sync(); // Consume "exists"
                         self.expect_token(
                             Token::KeywordAt,
                             "Expected 'at' after 'directory exists'",
@@ -2732,7 +2732,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordProcess => {
-                    self.tokens.next(); // Consume "process"
+                    self.bump_sync(); // Consume "process"
                     let token_line = token.line;
                     let token_column = token.column;
 
@@ -2740,10 +2740,10 @@ impl<'a> Parser<'a> {
                     let process_id = self.parse_primary_expression()?;
 
                     // Check if followed by "is running"
-                    if let Some(next_token) = self.tokens.peek()
+                    if let Some(next_token) = self.cursor.peek()
                         && next_token.token == Token::KeywordIs
                     {
-                        self.tokens.next(); // Consume "is"
+                        self.bump_sync(); // Consume "is"
                         self.expect_token(Token::KeywordRunning, "Expected 'running' after 'is'")?;
 
                         return Ok(Expression::ProcessRunning {
@@ -2761,12 +2761,12 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordHeader => {
-                    self.tokens.next(); // Consume "header"
+                    self.bump_sync(); // Consume "header"
                     let token_line = token.line;
                     let token_column = token.column;
 
                     // Parse header name (expect a string literal directly)
-                    let header_name = if let Some(name_token) = self.tokens.next() {
+                    let header_name = if let Some(name_token) = self.bump_sync() {
                         match &name_token.token {
                             Token::StringLiteral(name) => name.clone(),
                             _ => {
@@ -2799,7 +2799,7 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Token::KeywordCurrent => {
-                    self.tokens.next(); // Consume "current"
+                    self.bump_sync(); // Consume "current"
                     let token_line = token.line;
                     let token_column = token.column;
 
@@ -2807,10 +2807,10 @@ impl<'a> Parser<'a> {
                     self.expect_token(Token::KeywordTime, "Expected 'time' after 'current'")?;
 
                     // Check for "in milliseconds" or "formatted as"
-                    if let Some(next_token) = self.tokens.peek() {
+                    if let Some(next_token) = self.cursor.peek() {
                         match next_token.token {
                             Token::KeywordIn => {
-                                self.tokens.next(); // Consume "in"
+                                self.bump_sync(); // Consume "in"
                                 self.expect_token(
                                     Token::KeywordMilliseconds,
                                     "Expected 'milliseconds' after 'in'",
@@ -2821,14 +2821,14 @@ impl<'a> Parser<'a> {
                                 })
                             }
                             Token::KeywordFormatted => {
-                                self.tokens.next(); // Consume "formatted"
+                                self.bump_sync(); // Consume "formatted"
                                 self.expect_token(
                                     Token::KeywordAs,
                                     "Expected 'as' after 'formatted'",
                                 )?;
 
                                 // Parse format string
-                                let format_token = self.tokens.next().ok_or_else(|| {
+                                let format_token = self.bump_sync().ok_or_else(|| {
                                     ParseError::new(
                                         "Expected format string after 'as'".to_string(),
                                         token_line,
@@ -2870,22 +2870,22 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token::KeywordList => {
-                    self.tokens.next(); // Consume "list"
+                    self.bump_sync(); // Consume "list"
                     let token_line = token.line;
                     let token_column = token.column;
 
                     // Check if it's "list files [recursively] in"
-                    if let Some(next_token) = self.tokens.peek()
+                    if let Some(next_token) = self.cursor.peek()
                         && next_token.token == Token::KeywordFiles
                     {
-                        self.tokens.next(); // Consume "files"
+                        self.bump_sync(); // Consume "files"
 
                         // Check if "recursively" comes before "in"
                         let mut is_recursive = false;
-                        if let Some(token) = self.tokens.peek()
+                        if let Some(token) = self.cursor.peek()
                             && token.token == Token::KeywordRecursively
                         {
-                            self.tokens.next(); // Consume "recursively"
+                            self.bump_sync(); // Consume "recursively"
                             is_recursive = true;
                         }
 
@@ -2898,10 +2898,10 @@ impl<'a> Parser<'a> {
                         // Handle recursive listing (if not already handled)
                         if is_recursive {
                             // Check for "with extension/extensions" after recursive
-                            if let Some(with_token) = self.tokens.peek()
+                            if let Some(with_token) = self.cursor.peek()
                                 && with_token.token == Token::KeywordWith
                             {
-                                self.tokens.next(); // Consume "with"
+                                self.bump_sync(); // Consume "with"
                                 let extensions = self.parse_extension_filter()?;
                                 return Ok(Expression::ListFilesRecursive {
                                     path: Box::new(path),
@@ -2921,16 +2921,16 @@ impl<'a> Parser<'a> {
                         }
 
                         // Check for "recursively" or "with" after the path
-                        if let Some(next) = self.tokens.peek() {
+                        if let Some(next) = self.cursor.peek() {
                             match &next.token {
                                 Token::KeywordRecursively => {
-                                    self.tokens.next(); // Consume "recursively"
+                                    self.bump_sync(); // Consume "recursively"
 
                                     // Check for "with extension/extensions"
-                                    if let Some(with_token) = self.tokens.peek()
+                                    if let Some(with_token) = self.cursor.peek()
                                         && with_token.token == Token::KeywordWith
                                     {
-                                        self.tokens.next(); // Consume "with"
+                                        self.bump_sync(); // Consume "with"
                                         let extensions = self.parse_extension_filter()?;
                                         return Ok(Expression::ListFilesRecursive {
                                             path: Box::new(path),
@@ -2949,7 +2949,7 @@ impl<'a> Parser<'a> {
                                     });
                                 }
                                 Token::KeywordWith => {
-                                    self.tokens.next(); // Consume "with"
+                                    self.bump_sync(); // Consume "with"
                                     let extensions = self.parse_extension_filter()?;
                                     return Ok(Expression::ListFilesFiltered {
                                         path: Box::new(path),
@@ -2978,15 +2978,15 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordRead => {
-                    self.tokens.next(); // Consume "read"
+                    self.bump_sync(); // Consume "read"
                     let token_line = token.line;
                     let token_column = token.column;
 
                     // Check if it's "read content from"
-                    if let Some(next_token) = self.tokens.peek()
+                    if let Some(next_token) = self.cursor.peek()
                         && next_token.token == Token::KeywordContent
                     {
-                        self.tokens.next(); // Consume "content"
+                        self.bump_sync(); // Consume "content"
                         self.expect_token(
                             Token::KeywordFrom,
                             "Expected 'from' after 'read content'",
@@ -3007,7 +3007,7 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 Token::KeywordFind => {
-                    self.tokens.next(); // Consume "find"
+                    self.bump_sync(); // Consume "find"
                     let pattern_expr = self.parse_expression()?;
                     self.expect_token(
                         Token::KeywordIn,
@@ -3022,7 +3022,7 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Token::KeywordReplace => {
-                    self.tokens.next(); // Consume "replace"
+                    self.bump_sync(); // Consume "replace"
                     let pattern_expr = self.parse_primary_expression()?;
                     self.expect_token(
                         Token::KeywordWith,
@@ -3043,15 +3043,15 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Token::KeywordSplit => {
-                    self.tokens.next(); // Consume "split"
+                    self.bump_sync(); // Consume "split"
                     let text_expr = self.parse_expression()?;
 
                     // Check for "by" (string split) or "on" (pattern split)
-                    if let Some(next_token) = self.tokens.peek().cloned() {
+                    if let Some(next_token) = self.cursor.peek().cloned() {
                         match next_token.token {
                             Token::KeywordBy => {
                                 // Handle "split text by delimiter" syntax
-                                self.tokens.next(); // Consume "by"
+                                self.bump_sync(); // Consume "by"
                                 let delimiter_expr = self.parse_expression()?;
                                 Ok(Expression::StringSplit {
                                     text: Box::new(text_expr),
@@ -3062,7 +3062,7 @@ impl<'a> Parser<'a> {
                             }
                             Token::KeywordOn => {
                                 // Handle "split text on pattern name" syntax
-                                self.tokens.next(); // Consume "on"
+                                self.bump_sync(); // Consume "on"
                                 self.expect_token(
                                     Token::KeywordPattern,
                                     "Expected 'pattern' after 'on' in split expression",
@@ -3092,15 +3092,15 @@ impl<'a> Parser<'a> {
                 _ if token.token.is_contextual_keyword() => {
                     // Special handling for "create list" expression
                     if token.token == Token::KeywordCreate {
-                        self.tokens.next(); // Consume "create"
+                        self.bump_sync(); // Consume "create"
                         let token_line = token.line;
                         let token_column = token.column;
 
                         // Check if next token is "list"
-                        if let Some(next_token) = self.tokens.peek()
+                        if let Some(next_token) = self.cursor.peek()
                             && next_token.token == Token::KeywordList
                         {
-                            self.tokens.next(); // Consume "list"
+                            self.bump_sync(); // Consume "list"
                             // Return an empty list literal
                             return Ok(Expression::Literal(
                                 Literal::List(Vec::new()),
@@ -3119,12 +3119,12 @@ impl<'a> Parser<'a> {
 
                     // Special handling for "contains X in Y" syntax or "contains of X and Y"
                     if token.token == Token::KeywordContains {
-                        self.tokens.next(); // Consume "contains"
+                        self.bump_sync(); // Consume "contains"
                         let token_line = token.line;
                         let token_column = token.column;
 
                         // Check if next token is "of" for old syntax
-                        if let Some(next_token) = self.tokens.peek()
+                        if let Some(next_token) = self.cursor.peek()
                             && next_token.token == Token::KeywordOf
                         {
                             // Old syntax: "contains of X and Y"
@@ -3140,10 +3140,10 @@ impl<'a> Parser<'a> {
                             let needle = self.parse_primary_expression()?;
 
                             // Check if next token is "in"
-                            if let Some(in_token) = self.tokens.peek()
+                            if let Some(in_token) = self.cursor.peek()
                                 && in_token.token == Token::KeywordIn
                             {
-                                self.tokens.next(); // Consume "in"
+                                self.bump_sync(); // Consume "in"
 
                                 // Parse the haystack expression
                                 let haystack = self.parse_primary_expression()?;
@@ -3181,22 +3181,22 @@ impl<'a> Parser<'a> {
                     } else {
                         // Handle other contextual keywords as variables/identifiers
                         let name = self.get_token_text(&token.token);
-                        self.tokens.next(); // Consume the contextual keyword
+                        self.bump_sync(); // Consume the contextual keyword
                         let token_line = token.line;
                         let token_column = token.column;
 
                         // Check for property access (dot notation) - same as identifier handling
-                        if let Some(next_token) = self.tokens.peek().cloned() {
+                        if let Some(next_token) = self.cursor.peek().cloned() {
                             if next_token.token == Token::Dot {
-                                self.tokens.next(); // Consume '.'
+                                self.bump_sync(); // Consume '.'
 
-                                if let Some(property_token) = self.tokens.peek().cloned()
+                                if let Some(property_token) = self.cursor.peek().cloned()
                                     && let Token::Identifier(property_name) = &property_token.token
                                 {
-                                    self.tokens.next(); // Consume property name
+                                    self.bump_sync(); // Consume property name
 
                                     // Check for method call with parentheses
-                                    if let Some(paren_token) = self.tokens.peek().cloned()
+                                    if let Some(paren_token) = self.cursor.peek().cloned()
                                         && paren_token.token == Token::LeftParen
                                     {
                                         // Handle method call - similar to identifier method handling
@@ -3226,7 +3226,7 @@ impl<'a> Parser<'a> {
                                 }
                             } else if next_token.token == Token::LeftBracket {
                                 // Handle array indexing
-                                self.tokens.next(); // Consume '['
+                                self.bump_sync(); // Consume '['
                                 let index = self.parse_expression()?;
 
                                 self.expect_token(
@@ -3259,7 +3259,7 @@ impl<'a> Parser<'a> {
             };
 
             if let Ok(mut expr) = result {
-                while let Some(token) = self.tokens.peek().cloned() {
+                while let Some(token) = self.cursor.peek().cloned() {
                     match &token.token {
                         // Support direct index access: listName index (e.g., states 1)
                         Token::IntLiteral(index) => {
@@ -3293,7 +3293,7 @@ impl<'a> Parser<'a> {
                                 if token.line != base_line {
                                     break;
                                 }
-                                self.tokens.next(); // Consume the number
+                                self.bump_sync(); // Consume the number
                                 expr = Expression::IndexAccess {
                                     collection: Box::new(expr),
                                     index: Box::new(Expression::Literal(
@@ -3309,7 +3309,7 @@ impl<'a> Parser<'a> {
                             }
                         }
                         Token::KeywordOf => {
-                            self.tokens.next(); // Consume "of"
+                            self.bump_sync(); // Consume "of"
 
                             // Parse the first argument after "of"
                             // Use parse_primary_expression to avoid treating "and" as a binary operator
@@ -3328,9 +3328,9 @@ impl<'a> Parser<'a> {
                                     value: first_arg,
                                 });
 
-                                while let Some(and_token) = self.tokens.peek().cloned() {
+                                while let Some(and_token) = self.cursor.peek().cloned() {
                                     if let Token::KeywordAnd = &and_token.token {
-                                        self.tokens.next(); // Consume "and"
+                                        self.bump_sync(); // Consume "and"
 
                                         // Use parse_primary_expression to avoid treating next "and" as binary operator
                                         let arg_value = self.parse_primary_expression()?;
@@ -3360,7 +3360,7 @@ impl<'a> Parser<'a> {
                             }
                         }
                         Token::KeywordAt => {
-                            self.tokens.next(); // Consume "at"
+                            self.bump_sync(); // Consume "at"
 
                             let index = self.parse_expression()?;
 
@@ -3372,14 +3372,14 @@ impl<'a> Parser<'a> {
                             };
                         }
                         Token::LeftBracket => {
-                            self.tokens.next(); // Consume "["
+                            self.bump_sync(); // Consume "["
 
                             let index = self.parse_expression()?;
 
                             // Expect closing bracket
-                            if let Some(closing_token) = self.tokens.peek().cloned() {
+                            if let Some(closing_token) = self.cursor.peek().cloned() {
                                 if closing_token.token == Token::RightBracket {
-                                    self.tokens.next(); // Consume "]"
+                                    self.bump_sync(); // Consume "]"
                                     expr = Expression::IndexAccess {
                                         collection: Box::new(expr),
                                         index: Box::new(index),
@@ -3407,11 +3407,11 @@ impl<'a> Parser<'a> {
                         }
                         // Handle static member access: "Container.staticMember"
                         Token::Identifier(id) if id == "." => {
-                            self.tokens.next(); // Consume "."
+                            self.bump_sync(); // Consume "."
 
-                            if let Some(member_token) = self.tokens.peek().cloned() {
+                            if let Some(member_token) = self.cursor.peek().cloned() {
                                 if let Token::Identifier(member) = &member_token.token {
-                                    self.tokens.next(); // Consume member name
+                                    self.bump_sync(); // Consume member name
 
                                     // Extract container name from expression
                                     let container = if let Expression::Variable(name, _, _) = &expr
@@ -3468,11 +3468,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError> {
-        self.tokens.next(); // Consume "display"
+        self.bump_sync(); // Consume "display"
 
         let expr = self.parse_expression()?;
 
-        let token_pos = if let Some(token) = self.tokens.peek() {
+        let token_pos = if let Some(token) = self.cursor.peek() {
             token
         } else {
             return match expr {
@@ -3651,21 +3651,21 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_if_statement(&mut self) -> Result<Statement, ParseError> {
-        let check_token = self.tokens.next().unwrap(); // Consume "check" and store for line/column info
+        let check_token = self.bump_sync().unwrap(); // Consume "check" and store for line/column info
 
         self.expect_token(Token::KeywordIf, "Expected 'if' after 'check'")?;
 
         let condition = self.parse_expression()?;
 
-        if let Some(token) = self.tokens.peek()
+        if let Some(token) = self.cursor.peek()
             && matches!(token.token, Token::Colon)
         {
-            self.tokens.next(); // Consume the colon if present
+            self.bump_sync(); // Consume the colon if present
         }
 
         let mut then_block = Vec::with_capacity(8);
 
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             match &token.token {
                 Token::KeywordOtherwise | Token::KeywordEnd => {
                     break;
@@ -3678,19 +3678,19 @@ impl<'a> Parser<'a> {
         }
 
         // Handle the "otherwise" clause (else block)
-        let else_block = if let Some(token) = self.tokens.peek() {
+        let else_block = if let Some(token) = self.cursor.peek() {
             if matches!(token.token, Token::KeywordOtherwise) {
-                self.tokens.next(); // Consume "otherwise"
+                self.bump_sync(); // Consume "otherwise"
 
-                if let Some(token) = self.tokens.peek()
+                if let Some(token) = self.cursor.peek()
                     && matches!(token.token, Token::Colon)
                 {
-                    self.tokens.next(); // Consume the colon if present
+                    self.bump_sync(); // Consume the colon if present
                 }
 
                 let mut else_stmts = Vec::with_capacity(8);
 
-                while let Some(token) = self.tokens.peek().cloned() {
+                while let Some(token) = self.cursor.peek().cloned() {
                     if matches!(token.token, Token::KeywordEnd) {
                         break;
                     }
@@ -3710,14 +3710,14 @@ impl<'a> Parser<'a> {
         };
 
         // Handle the "end check" part
-        if let Some(&token) = self.tokens.peek() {
+        if let Some(token) = self.cursor.peek() {
             if matches!(token.token, Token::KeywordEnd) {
-                self.tokens.next(); // Consume "end"
+                self.bump_sync(); // Consume "end"
 
                 // Look for the "check" after "end"
-                if let Some(&next_token) = self.tokens.peek() {
+                if let Some(next_token) = self.cursor.peek() {
                     if matches!(next_token.token, Token::KeywordCheck) {
-                        self.tokens.next(); // Consume "check"
+                        self.bump_sync(); // Consume "check"
                     } else {
                         return Err(ParseError::new(
                             format!("Expected 'check' after 'end', found {:?}", next_token.token),
@@ -3757,7 +3757,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_single_line_if(&mut self) -> Result<Statement, ParseError> {
-        let if_token = self.tokens.next().unwrap(); // Consume "if"
+        let if_token = self.bump_sync().unwrap(); // Consume "if"
 
         let condition = self.parse_expression()?;
 
@@ -3768,14 +3768,14 @@ impl<'a> Parser<'a> {
         let mut is_multiline = false;
 
         // Parse then block - could be single statement or multiple statements
-        while let Some(token) = self.tokens.peek() {
+        while let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordOtherwise | Token::KeywordEnd => {
                     is_multiline = true;
                     break;
                 }
                 Token::Newline => {
-                    self.tokens.next(); // Consume newline
+                    self.bump_sync(); // Consume newline
                     is_multiline = true;
                     continue;
                 }
@@ -3784,7 +3784,7 @@ impl<'a> Parser<'a> {
                     then_block.push(stmt);
 
                     // Check if there's more content after this statement
-                    if let Some(next_token) = self.tokens.peek() {
+                    if let Some(next_token) = self.cursor.peek() {
                         if matches!(
                             next_token.token,
                             Token::KeywordOtherwise | Token::KeywordEnd
@@ -3800,16 +3800,16 @@ impl<'a> Parser<'a> {
         }
 
         // Handle else block
-        let else_block = if let Some(token) = self.tokens.peek() {
+        let else_block = if let Some(token) = self.cursor.peek() {
             if matches!(token.token, Token::KeywordOtherwise) {
-                self.tokens.next(); // Consume "otherwise"
+                self.bump_sync(); // Consume "otherwise"
 
                 let mut else_stmts = Vec::new();
-                while let Some(token) = self.tokens.peek() {
+                while let Some(token) = self.cursor.peek() {
                     match &token.token {
                         Token::KeywordEnd => break,
                         Token::Newline => {
-                            self.tokens.next(); // Consume newline
+                            self.bump_sync(); // Consume newline
                             continue;
                         }
                         _ => {
@@ -3869,13 +3869,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_for_each_loop(&mut self) -> Result<Statement, ParseError> {
-        self.tokens.next(); // Consume "for"
+        self.bump_sync(); // Consume "for"
 
         self.expect_token(Token::KeywordEach, "Expected 'each' after 'for'")?;
 
-        let item_name = if let Some(token) = self.tokens.peek() {
+        let item_name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next();
+                self.bump_sync();
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -3894,9 +3894,9 @@ impl<'a> Parser<'a> {
 
         self.expect_token(Token::KeywordIn, "Expected 'in' after item name")?;
 
-        let reversed = if let Some(token) = self.tokens.peek() {
+        let reversed = if let Some(token) = self.cursor.peek() {
             if matches!(token.token, Token::KeywordReversed) {
-                self.tokens.next(); // Consume "reversed"
+                self.bump_sync(); // Consume "reversed"
                 true
             } else {
                 false
@@ -3907,15 +3907,15 @@ impl<'a> Parser<'a> {
 
         let collection = self.parse_expression()?;
 
-        if let Some(token) = self.tokens.peek()
+        if let Some(token) = self.cursor.peek()
             && matches!(token.token, Token::Colon)
         {
-            self.tokens.next(); // Consume the colon if present
+            self.bump_sync(); // Consume the colon if present
         }
 
         let mut body = Vec::with_capacity(10);
 
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             if matches!(token.token, Token::KeywordEnd) {
                 break;
             }
@@ -3929,7 +3929,7 @@ impl<'a> Parser<'a> {
         self.expect_token(Token::KeywordEnd, "Expected 'end' after for-each loop body")?;
         self.expect_token(Token::KeywordFor, "Expected 'for' after 'end'")?;
 
-        let token_pos = self.tokens.peek().map_or(
+        let token_pos = self.cursor.peek().map_or(
             &TokenWithPosition {
                 token: Token::KeywordFor,
                 line: 0,
@@ -3949,20 +3949,20 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_count_loop(&mut self) -> Result<Statement, ParseError> {
-        self.tokens.next(); // Consume "count"
+        self.bump_sync(); // Consume "count"
 
         self.expect_token(Token::KeywordFrom, "Expected 'from' after 'count'")?;
 
         let start = self.parse_expression()?;
 
-        let downward = if let Some(token) = self.tokens.peek() {
+        let downward = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
                 if id.to_lowercase() == "down" {
-                    self.tokens.next(); // Consume "down"
+                    self.bump_sync(); // Consume "down"
                     self.expect_token(Token::KeywordTo, "Expected 'to' after 'down'")?;
                     true
                 } else if matches!(token.token, Token::KeywordTo) {
-                    self.tokens.next(); // Consume "to"
+                    self.bump_sync(); // Consume "to"
                     false
                 } else {
                     return Err(ParseError::new(
@@ -3972,7 +3972,7 @@ impl<'a> Parser<'a> {
                     ));
                 }
             } else if matches!(token.token, Token::KeywordTo) {
-                self.tokens.next(); // Consume "to"
+                self.bump_sync(); // Consume "to"
                 false
             } else {
                 return Err(ParseError::new(
@@ -3991,9 +3991,9 @@ impl<'a> Parser<'a> {
 
         let end = self.parse_expression()?;
 
-        let step = if let Some(token) = self.tokens.peek() {
+        let step = if let Some(token) = self.cursor.peek() {
             if matches!(token.token, Token::KeywordBy) {
-                self.tokens.next(); // Consume "by"
+                self.bump_sync(); // Consume "by"
                 Some(self.parse_expression()?)
             } else {
                 None
@@ -4003,15 +4003,15 @@ impl<'a> Parser<'a> {
         };
 
         // Parse optional "as <variable_name>" clause
-        let variable_name = if let Some(token) = self.tokens.peek() {
+        let variable_name = if let Some(token) = self.cursor.peek() {
             if matches!(token.token, Token::KeywordAs) {
-                self.tokens.next(); // Consume "as"
+                self.bump_sync(); // Consume "as"
 
                 // Expect an identifier for the variable name
-                if let Some(name_token) = self.tokens.peek() {
+                if let Some(name_token) = self.cursor.peek() {
                     if let Token::Identifier(name) = &name_token.token {
                         let var_name = name.clone();
-                        self.tokens.next(); // Consume the identifier
+                        self.bump_sync(); // Consume the identifier
                         Some(var_name)
                     } else {
                         return Err(ParseError::new(
@@ -4037,15 +4037,15 @@ impl<'a> Parser<'a> {
             None
         };
 
-        if let Some(token) = self.tokens.peek()
+        if let Some(token) = self.cursor.peek()
             && matches!(token.token, Token::Colon)
         {
-            self.tokens.next(); // Consume the colon if present
+            self.bump_sync(); // Consume the colon if present
         }
 
         let mut body = Vec::with_capacity(10);
 
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             if matches!(token.token, Token::KeywordEnd) {
                 break;
             }
@@ -4059,7 +4059,7 @@ impl<'a> Parser<'a> {
         self.expect_token(Token::KeywordEnd, "Expected 'end' after count loop body")?;
         self.expect_token(Token::KeywordCount, "Expected 'count' after 'end'")?;
 
-        let token_pos = self.tokens.peek().map_or(
+        let token_pos = self.cursor.peek().map_or(
             &TokenWithPosition {
                 token: Token::KeywordCount,
                 line: 0,
@@ -4082,7 +4082,7 @@ impl<'a> Parser<'a> {
 
     fn parse_action_definition(&mut self) -> Result<Statement, ParseError> {
         exec_trace!("Parsing action definition");
-        self.tokens.next(); // Consume "define"
+        self.bump_sync(); // Consume "define"
 
         exec_trace!("Expecting 'action' after 'define'");
         self.expect_token(Token::KeywordAction, "Expected 'action' after 'define'")?;
@@ -4091,10 +4091,10 @@ impl<'a> Parser<'a> {
         self.expect_token(Token::KeywordCalled, "Expected 'called' after 'action'")?;
 
         exec_trace!("Expecting identifier after 'called'");
-        let name = if let Some(token) = self.tokens.peek() {
+        let name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
                 exec_trace!("Found action name: {}", id);
-                self.tokens.next();
+                self.bump_sync();
                 id.clone()
             } else {
                 exec_trace!(
@@ -4122,7 +4122,7 @@ impl<'a> Parser<'a> {
         exec_trace!("Action name parsed: {}", name);
         let mut parameters = Vec::with_capacity(4);
 
-        if let Some(token) = self.tokens.peek().cloned()
+        if let Some(token) = self.cursor.peek().cloned()
             && (matches!(token.token, Token::KeywordNeeds)
                 || matches!(token.token, Token::KeywordWith))
         {
@@ -4132,16 +4132,16 @@ impl<'a> Parser<'a> {
                 "with"
             };
             exec_trace!("Found '{}' keyword, parsing parameters", _keyword);
-            self.tokens.next(); // Consume "needs" or "with"
+            self.bump_sync(); // Consume "needs" or "with"
 
-            while let Some(token) = self.tokens.peek().cloned() {
+            while let Some(token) = self.cursor.peek().cloned() {
                 exec_trace!("Checking token for parameter: {:?}", token.token);
                 let (param_name, param_line, param_column) =
                     if let Token::Identifier(id) = &token.token {
                         exec_trace!("Found parameter: {}", id);
                         let line = token.line;
                         let column = token.column;
-                        self.tokens.next();
+                        self.bump_sync();
 
                         (id.clone(), line, column)
                     } else {
@@ -4149,13 +4149,13 @@ impl<'a> Parser<'a> {
                         break;
                     };
 
-                let param_type = if let Some(token) = self.tokens.peek() {
+                let param_type = if let Some(token) = self.cursor.peek() {
                     if matches!(token.token, Token::KeywordAs) {
-                        self.tokens.next(); // Consume "as"
+                        self.bump_sync(); // Consume "as"
 
-                        if let Some(type_token) = self.tokens.peek() {
+                        if let Some(type_token) = self.cursor.peek() {
                             if let Token::Identifier(type_name) = &type_token.token {
-                                self.tokens.next();
+                                self.bump_sync();
 
                                 let typ = match type_name.as_str() {
                                     "text" => Type::Text,
@@ -4190,10 +4190,10 @@ impl<'a> Parser<'a> {
                     None
                 };
 
-                let default_value = if let Some(token) = self.tokens.peek() {
+                let default_value = if let Some(token) = self.cursor.peek() {
                     if let Token::Identifier(id) = &token.token {
                         if id.to_lowercase() == "default" {
-                            self.tokens.next(); // Consume "default"
+                            self.bump_sync(); // Consume "default"
 
                             Some(self.parse_expression()?)
                         } else {
@@ -4214,11 +4214,11 @@ impl<'a> Parser<'a> {
                     column: param_column,
                 });
 
-                if let Some(token) = self.tokens.peek().cloned() {
+                if let Some(token) = self.cursor.peek().cloned() {
                     if matches!(token.token, Token::KeywordAnd)
                         || matches!(token.token, Token::Identifier(ref id) if id.to_lowercase() == "and")
                     {
-                        self.tokens.next(); // Consume "and"
+                        self.bump_sync(); // Consume "and"
                     } else {
                         break;
                     }
@@ -4228,14 +4228,14 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let return_type = if let Some(token) = self.tokens.peek() {
+        let return_type = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
                 if id.to_lowercase() == "returns" {
-                    self.tokens.next(); // Consume "returns"
+                    self.bump_sync(); // Consume "returns"
 
-                    if let Some(type_token) = self.tokens.peek() {
+                    if let Some(type_token) = self.cursor.peek() {
                         if let Token::Identifier(type_name) = &type_token.token {
-                            self.tokens.next();
+                            self.bump_sync();
 
                             let typ = match type_name.as_str() {
                                 "text" => Type::Text,
@@ -4274,11 +4274,11 @@ impl<'a> Parser<'a> {
         };
 
         // Check for KeywordAnd that might be mistakenly present after the last parameter
-        if let Some(token) = self.tokens.peek().cloned()
+        if let Some(token) = self.cursor.peek().cloned()
             && let Token::Identifier(id) = &token.token
             && id == "and"
         {
-            self.tokens.next(); // Consume the extra "and"
+            self.bump_sync(); // Consume the extra "and"
         }
 
         self.expect_token(Token::Colon, "Expected ':' after action definition")?;
@@ -4289,7 +4289,7 @@ impl<'a> Parser<'a> {
 
         let mut body = Vec::with_capacity(10);
 
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             if matches!(token.token, Token::KeywordEnd) {
                 break;
             }
@@ -4302,13 +4302,13 @@ impl<'a> Parser<'a> {
 
         let before_count = self.tokens.clone().count();
 
-        if let Some(token) = self.tokens.peek() {
+        if let Some(token) = self.cursor.peek() {
             if matches!(token.token, Token::KeywordEnd) {
-                self.tokens.next(); // Consume "end"
+                self.bump_sync(); // Consume "end"
 
-                if let Some(token) = self.tokens.peek() {
+                if let Some(token) = self.cursor.peek() {
                     if matches!(token.token, Token::KeywordAction) {
-                        self.tokens.next(); // Consume "action"
+                        self.bump_sync(); // Consume "action"
                     } else {
                         return Err(ParseError::new(
                             "Expected 'action' after 'end'".to_string(),
@@ -4344,7 +4344,7 @@ impl<'a> Parser<'a> {
             "Parser made no progress while parsing end action tokens"
         );
 
-        let token_pos = self.tokens.peek().map_or(
+        let token_pos = self.cursor.peek().map_or(
             &TokenWithPosition {
                 token: Token::KeywordDefine,
                 line: 0,
@@ -4364,19 +4364,19 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assignment(&mut self) -> Result<Statement, ParseError> {
-        self.tokens.next(); // Consume "change"
+        self.bump_sync(); // Consume "change"
 
         let mut name = String::new();
         let mut has_identifier = false;
 
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             if let Token::Identifier(id) = &token.token {
                 has_identifier = true;
                 if !name.is_empty() {
                     name.push(' ');
                 }
                 name.push_str(id);
-                self.tokens.next();
+                self.bump_sync();
             } else if let Token::KeywordTo = &token.token {
                 break;
             } else {
@@ -4407,7 +4407,7 @@ impl<'a> Parser<'a> {
 
         let value = self.parse_expression()?;
 
-        let token_pos = self.tokens.peek().map_or(
+        let token_pos = self.cursor.peek().map_or(
             &TokenWithPosition {
                 token: Token::KeywordChange,
                 line: 0,
@@ -4425,7 +4425,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_arithmetic_operation(&mut self) -> Result<Statement, ParseError> {
-        let op_token = self.tokens.next().unwrap(); // Consume "add", "subtract", "multiply", or "divide"
+        let op_token = self.bump_sync().unwrap(); // Consume "add", "subtract", "multiply", or "divide"
 
         // For multiply and divide: variable comes first, then "by", then value
         // For add: value comes first, then "to", then variable
@@ -4491,14 +4491,14 @@ impl<'a> Parser<'a> {
         let mut name = String::new();
         let mut has_identifier = false;
 
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             if let Token::Identifier(id) = &token.token {
                 has_identifier = true;
                 if !name.is_empty() {
                     name.push(' ');
                 }
                 name.push_str(id);
-                self.tokens.next();
+                self.bump_sync();
             } else {
                 break;
             }
@@ -4507,8 +4507,8 @@ impl<'a> Parser<'a> {
         if !has_identifier {
             return Err(ParseError::new(
                 "Expected variable name".to_string(),
-                self.tokens.peek().map_or(0, |t| t.line),
-                self.tokens.peek().map_or(0, |t| t.column),
+                self.cursor.peek().map_or(0, |t| t.line),
+                self.cursor.peek().map_or(0, |t| t.column),
             ));
         }
 
@@ -4516,15 +4516,15 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_return_statement(&mut self) -> Result<Statement, ParseError> {
-        let return_token = self.tokens.next().unwrap(); // Consume "give" or "return"
+        let return_token = self.bump_sync().unwrap(); // Consume "give" or "return"
 
         if matches!(return_token.token, Token::KeywordGive) {
             self.expect_token(Token::KeywordBack, "Expected 'back' after 'give'")?;
         }
 
-        let value = if let Some(token) = self.tokens.peek().cloned() {
+        let value = if let Some(token) = self.cursor.peek().cloned() {
             if matches!(token.token, Token::NothingLiteral) {
-                self.tokens.next(); // Consume "nothing"
+                self.bump_sync(); // Consume "nothing"
                 None
             } else {
                 Some(self.parse_expression()?)
@@ -4541,31 +4541,31 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_open_file_statement(&mut self) -> Result<Statement, ParseError> {
-        let open_token = self.tokens.next().unwrap(); // Consume "open"
+        let open_token = self.bump_sync().unwrap(); // Consume "open"
 
         // Check if the next token is "file" or "url"
-        if let Some(next_token) = self.tokens.peek() {
+        if let Some(next_token) = self.cursor.peek() {
             match next_token.token {
                 Token::KeywordFile => {
                     // Existing file handling
-                    self.tokens.next(); // Consume "file"
+                    self.bump_sync(); // Consume "file"
                 }
                 Token::KeywordUrl => {
                     // New URL handling
-                    self.tokens.next(); // Consume "url"
+                    self.bump_sync(); // Consume "url"
 
                     // Continue with URL-specific parsing
-                    if let Some(token) = self.tokens.peek().cloned()
+                    if let Some(token) = self.cursor.peek().cloned()
                         && token.token == Token::KeywordAt
                     {
-                        self.tokens.next(); // Consume "at"
+                        self.bump_sync(); // Consume "at"
 
                         let url_expr = self.parse_primary_expression()?;
 
                         // Check for "and read content as" pattern
-                        if let Some(next_token) = self.tokens.peek().cloned() {
+                        if let Some(next_token) = self.cursor.peek().cloned() {
                             if next_token.token == Token::KeywordAnd {
-                                self.tokens.next(); // Consume "and"
+                                self.bump_sync(); // Consume "and"
                                 self.expect_token(
                                     Token::KeywordRead,
                                     "Expected 'read' after 'and'",
@@ -4579,10 +4579,10 @@ impl<'a> Parser<'a> {
                                     "Expected 'as' after 'content'",
                                 )?;
 
-                                let variable_name = if let Some(token) = self.tokens.peek().cloned()
+                                let variable_name = if let Some(token) = self.cursor.peek().cloned()
                                 {
                                     if let Token::Identifier(name) = &token.token {
-                                        self.tokens.next(); // Consume the identifier
+                                        self.bump_sync(); // Consume the identifier
                                         name.clone()
                                     } else {
                                         return Err(ParseError::new(
@@ -4611,12 +4611,12 @@ impl<'a> Parser<'a> {
                                 });
                             } else if next_token.token == Token::KeywordAs {
                                 // Handle "open url at "..." as variable" syntax
-                                self.tokens.next(); // Consume "as"
+                                self.bump_sync(); // Consume "as"
 
-                                let variable_name = if let Some(token) = self.tokens.peek().cloned()
+                                let variable_name = if let Some(token) = self.cursor.peek().cloned()
                                 {
                                     if let Token::Identifier(name) = &token.token {
-                                        self.tokens.next(); // Consume the identifier
+                                        self.bump_sync(); // Consume the identifier
                                         name.clone()
                                     } else {
                                         return Err(ParseError::new(
@@ -4681,35 +4681,35 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        if let Some(token) = self.tokens.peek().cloned()
+        if let Some(token) = self.cursor.peek().cloned()
             && token.token == Token::KeywordAt
         {
-            self.tokens.next(); // Consume "at"
+            self.bump_sync(); // Consume "at"
 
             let path_expr = self.parse_primary_expression()?;
 
             // Check for "for append", "and read content as" pattern AND direct "as" pattern
-            if let Some(next_token) = self.tokens.peek().cloned() {
+            if let Some(next_token) = self.cursor.peek().cloned() {
                 if next_token.token == Token::KeywordFor {
                     // Check for "for [mode] as" pattern where mode can be append, reading, or writing
-                    self.tokens.next(); // Consume "for"
+                    self.bump_sync(); // Consume "for"
 
-                    let mode = if let Some(token) = self.tokens.peek().cloned() {
+                    let mode = if let Some(token) = self.cursor.peek().cloned() {
                         match token.token {
                             Token::KeywordAppend => {
-                                self.tokens.next(); // Consume "append"
+                                self.bump_sync(); // Consume "append"
                                 FileOpenMode::Append
                             }
                             Token::KeywordAppending => {
-                                self.tokens.next(); // Consume "appending"
+                                self.bump_sync(); // Consume "appending"
                                 FileOpenMode::Append
                             }
                             Token::Identifier(ref mode_str) if mode_str == "reading" => {
-                                self.tokens.next(); // Consume "reading"
+                                self.bump_sync(); // Consume "reading"
                                 FileOpenMode::Read
                             }
                             Token::Identifier(ref mode_str) if mode_str == "writing" => {
-                                self.tokens.next(); // Consume "writing"
+                                self.bump_sync(); // Consume "writing"
                                 FileOpenMode::Write
                             }
                             _ => {
@@ -4731,9 +4731,9 @@ impl<'a> Parser<'a> {
 
                     self.expect_token(Token::KeywordAs, "Expected 'as' after file mode")?;
 
-                    let variable_name = if let Some(token) = self.tokens.peek().cloned() {
+                    let variable_name = if let Some(token) = self.cursor.peek().cloned() {
                         if let Token::Identifier(name) = &token.token {
-                            self.tokens.next(); // Consume the identifier
+                            self.bump_sync(); // Consume the identifier
                             name.clone()
                         } else {
                             return Err(ParseError::new(
@@ -4759,18 +4759,18 @@ impl<'a> Parser<'a> {
                     });
                 } else if next_token.token == Token::KeywordAnd {
                     // Original pattern: "open file at "path" and read content as variable"
-                    self.tokens.next(); // Consume "and"
+                    self.bump_sync(); // Consume "and"
                     self.expect_token(Token::KeywordRead, "Expected 'read' after 'and'")?;
                     self.expect_token(Token::KeywordContent, "Expected 'content' after 'read'")?;
                     self.expect_token(Token::KeywordAs, "Expected 'as' after 'content'")?;
 
-                    let variable_name = if let Some(token) = self.tokens.peek().cloned() {
+                    let variable_name = if let Some(token) = self.cursor.peek().cloned() {
                         if let Token::Identifier(name) = &token.token {
-                            self.tokens.next(); // Consume the identifier
+                            self.bump_sync(); // Consume the identifier
                             name.clone()
                         } else if let Token::KeywordContent = &token.token {
                             // Special case for "content" as an identifier
-                            self.tokens.next(); // Consume the "content" keyword
+                            self.bump_sync(); // Consume the "content" keyword
                             "content".to_string()
                         } else {
                             return Err(ParseError::new(
@@ -4794,11 +4794,11 @@ impl<'a> Parser<'a> {
                     });
                 } else if next_token.token == Token::KeywordAs {
                     // NEW pattern: "open file at "path" as variable"
-                    self.tokens.next(); // Consume "as"
+                    self.bump_sync(); // Consume "as"
 
-                    let variable_name = if let Some(token) = self.tokens.peek().cloned() {
+                    let variable_name = if let Some(token) = self.cursor.peek().cloned() {
                         if let Token::Identifier(id) = &token.token {
-                            self.tokens.next();
+                            self.bump_sync();
                             id.clone()
                         } else {
                             return Err(ParseError::new(
@@ -4845,9 +4845,9 @@ impl<'a> Parser<'a> {
 
         self.expect_token(Token::KeywordAs, "Expected 'as' after file path")?;
 
-        let variable_name = if let Some(token) = self.tokens.peek().cloned() {
+        let variable_name = if let Some(token) = self.cursor.peek().cloned() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next();
+                self.bump_sync();
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -4874,19 +4874,21 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_open_file_read_statement(&mut self) -> Result<Statement, ParseError> {
-        let open_token = self.tokens.next().unwrap(); // Consume "open"
+        let open_token = self.bump_sync().unwrap(); // Consume "open"
 
         self.expect_token(Token::KeywordFile, "Expected 'file' after 'open'")?;
         self.expect_token(Token::KeywordAt, "Expected 'at' after 'file'")?;
 
-        let path_expr = if let Some(token) = self.tokens.peek().cloned() {
+        let path_expr = if let Some(token) = self.cursor.peek() {
             if let Token::StringLiteral(path_str) = &token.token {
-                let token_clone = token;
-                self.tokens.next(); // Consume the string literal
+                let line = token.line;
+                let column = token.column;
+                let path = path_str.clone();
+                self.bump_sync(); // Consume the string literal
                 Expression::Literal(
-                    Literal::String(path_str.clone()),
-                    token_clone.line,
-                    token_clone.column,
+                    Literal::String(path),
+                    line,
+                    column,
                 )
             } else {
                 return Err(ParseError::new(
@@ -4907,12 +4909,12 @@ impl<'a> Parser<'a> {
         self.expect_token(Token::KeywordContent, "Expected 'content' after 'read'")?;
         self.expect_token(Token::KeywordAs, "Expected 'as' after 'content'")?;
 
-        let variable_name = if let Some(token) = self.tokens.peek().cloned() {
+        let variable_name = if let Some(token) = self.cursor.peek().cloned() {
             if let Token::Identifier(name) = &token.token {
-                self.tokens.next(); // Consume the identifier
+                self.bump_sync(); // Consume the identifier
                 name.clone()
             } else if let Token::KeywordContent = &token.token {
-                self.tokens.next(); // Consume the "content" keyword
+                self.bump_sync(); // Consume the "content" keyword
                 "content".to_string()
             } else {
                 return Err(ParseError::new(
@@ -4937,7 +4939,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_wait_for_statement(&mut self) -> Result<Statement, ParseError> {
-        let wait_token_pos = self.tokens.peek().map_or(
+        let wait_token_pos = self.cursor.peek().map_or(
             &TokenWithPosition {
                 token: Token::KeywordWait,
                 line: 0,
@@ -4947,34 +4949,34 @@ impl<'a> Parser<'a> {
             |v| v,
         );
 
-        self.tokens.next(); // Consume "wait"
+        self.bump_sync(); // Consume "wait"
         self.expect_token(Token::KeywordFor, "Expected 'for' after 'wait'")?;
 
         // Check for write mode (append or write)
-        let write_mode = if let Some(token) = self.tokens.peek() {
+        let write_mode = if let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordAppend => {
-                    self.tokens.next(); // Consume "append"
+                    self.bump_sync(); // Consume "append"
                     crate::parser::ast::WriteMode::Append
                 }
                 Token::KeywordWrite => {
-                    self.tokens.next(); // Consume "write"
+                    self.bump_sync(); // Consume "write"
                     crate::parser::ast::WriteMode::Overwrite
                 }
                 Token::Identifier(id) if id == "write" => {
-                    self.tokens.next(); // Consume "write" identifier
+                    self.bump_sync(); // Consume "write" identifier
                     crate::parser::ast::WriteMode::Overwrite
                 }
                 Token::KeywordProcess => {
                     // Handle "wait for process X to complete as exit_code"
-                    self.tokens.next(); // Consume "process"
+                    self.bump_sync(); // Consume "process"
 
                     let process_id = self.parse_primary_expression()?;
 
                     // Expect "to" and "complete"
-                    if let Some(token) = self.tokens.peek() {
+                    if let Some(token) = self.cursor.peek() {
                         if matches!(token.token, Token::KeywordTo) {
-                            self.tokens.next(); // Consume "to"
+                            self.bump_sync(); // Consume "to"
                         } else {
                             return Err(ParseError::new(
                                 "Expected 'to' after process ID".to_string(),
@@ -4984,10 +4986,10 @@ impl<'a> Parser<'a> {
                         }
                     }
 
-                    if let Some(token) = self.tokens.peek() {
+                    if let Some(token) = self.cursor.peek() {
                         if let Token::Identifier(id) = &token.token {
                             if id == "complete" {
-                                self.tokens.next(); // Consume "complete"
+                                self.bump_sync(); // Consume "complete"
                             } else {
                                 return Err(ParseError::new(
                                     "Expected 'complete' after 'to'".to_string(),
@@ -5005,9 +5007,9 @@ impl<'a> Parser<'a> {
                     }
 
                     // Check for optional "as variable_name"
-                    let variable_name = if let Some(token) = self.tokens.peek() {
+                    let variable_name = if let Some(token) = self.cursor.peek() {
                         if matches!(token.token, Token::KeywordAs) {
-                            self.tokens.next(); // Consume "as"
+                            self.bump_sync(); // Consume "as"
                             Some(self.parse_variable_name_simple()?)
                         } else {
                             None
@@ -5025,12 +5027,12 @@ impl<'a> Parser<'a> {
                 }
                 Token::KeywordRequest => {
                     // Handle "wait for request comes in on server as request_name"
-                    self.tokens.next(); // Consume "request"
+                    self.bump_sync(); // Consume "request"
 
                     // Expect "comes"
-                    if let Some(token) = self.tokens.peek() {
+                    if let Some(token) = self.cursor.peek() {
                         if token.token == Token::KeywordComes {
-                            self.tokens.next(); // Consume "comes"
+                            self.bump_sync(); // Consume "comes"
                         } else {
                             return Err(ParseError::new(
                                 "Expected 'comes' after 'request'".to_string(),
@@ -5056,9 +5058,9 @@ impl<'a> Parser<'a> {
                     let request_name = self.parse_variable_name_simple()?;
 
                     // Check for optional timeout
-                    let timeout = if let Some(token) = self.tokens.peek() {
+                    let timeout = if let Some(token) = self.cursor.peek() {
                         if matches!(token.token, Token::KeywordWith) {
-                            self.tokens.next(); // Consume "with"
+                            self.bump_sync(); // Consume "with"
                             self.expect_token(
                                 Token::KeywordTimeout,
                                 "Expected 'timeout' after 'with'",
@@ -5086,10 +5088,10 @@ impl<'a> Parser<'a> {
                     // Try to parse a duration expression
                     if let Ok(duration_expr) = self.parse_expression() {
                         // Check if next token is a time unit
-                        if let Some(token) = self.tokens.peek() {
+                        if let Some(token) = self.cursor.peek() {
                             match &token.token {
                                 Token::KeywordMilliseconds => {
-                                    self.tokens.next(); // Consume "milliseconds"
+                                    self.bump_sync(); // Consume "milliseconds"
                                     return Ok(Statement::WaitForDurationStatement {
                                         duration: duration_expr,
                                         unit: "milliseconds".to_string(),
@@ -5098,7 +5100,7 @@ impl<'a> Parser<'a> {
                                     });
                                 }
                                 Token::Identifier(id) if id == "seconds" => {
-                                    self.tokens.next(); // Consume "seconds"
+                                    self.bump_sync(); // Consume "seconds"
                                     return Ok(Statement::WaitForDurationStatement {
                                         duration: duration_expr,
                                         unit: "seconds".to_string(),
@@ -5133,12 +5135,12 @@ impl<'a> Parser<'a> {
             return Err(ParseError::new("Unexpected end of input".to_string(), 0, 0));
         };
 
-        if let Some(token) = self.tokens.peek() {
+        if let Some(token) = self.cursor.peek() {
             // Check for "content" keyword
             if matches!(token.token, Token::KeywordContent)
                 || matches!(token.token, Token::Identifier(ref id) if id == "content")
             {
-                self.tokens.next(); // Consume "content"
+                self.bump_sync(); // Consume "content"
 
                 let content = self.parse_expression()?;
 
@@ -5181,7 +5183,7 @@ impl<'a> Parser<'a> {
             column: 0,
             length: 0,
         };
-        let token_pos = self.tokens.peek().map_or(&default_token, |v| v);
+        let token_pos = self.cursor.peek().map_or(&default_token, |v| v);
         Ok(Statement::ExpressionStatement {
             expression: expr,
             line: token_pos.line,
@@ -5190,14 +5192,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_close_file_statement(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.tokens.next().unwrap(); // Consume "close"
+        let token_pos = self.bump_sync().unwrap(); // Consume "close"
 
         // Check if the next token is "file" (for "close file file_handle" syntax)
         // Otherwise, parse the expression directly (for "close file_handle" syntax)
-        if let Some(next_token) = self.tokens.peek()
+        if let Some(next_token) = self.cursor.peek()
             && next_token.token == Token::KeywordFile
         {
-            self.tokens.next(); // Consume "file"
+            self.bump_sync(); // Consume "file"
         }
 
         let file = self.parse_expression()?;
@@ -5210,7 +5212,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_create_directory_statement(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.tokens.next().unwrap(); // Consume "create"
+        let token_pos = self.bump_sync().unwrap(); // Consume "create"
         self.expect_token(
             Token::KeywordDirectory,
             "Expected 'directory' after 'create'",
@@ -5227,7 +5229,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_create_file_statement(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.tokens.next().unwrap(); // Consume "create"
+        let token_pos = self.bump_sync().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordFile, "Expected 'file' after 'create'")?;
         self.expect_token(Token::KeywordAt, "Expected 'at' after 'create file'")?;
 
@@ -5245,13 +5247,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_write_to_statement(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.tokens.next().unwrap(); // Consume "write"
+        let token_pos = self.bump_sync().unwrap(); // Consume "write"
 
         // Check if next token is "content" for "write content X into Y" syntax
-        if let Some(next_token) = self.tokens.peek()
+        if let Some(next_token) = self.cursor.peek()
             && matches!(next_token.token, Token::KeywordContent)
         {
-            self.tokens.next(); // Consume "content"
+            self.bump_sync(); // Consume "content"
 
             let content = self.parse_expression()?;
 
@@ -5289,13 +5291,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_delete_statement(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.tokens.next().unwrap(); // Consume "delete"
+        let token_pos = self.bump_sync().unwrap(); // Consume "delete"
 
         // Check if next token is "file" or "directory"
-        if let Some(next_token) = self.tokens.peek() {
+        if let Some(next_token) = self.cursor.peek() {
             match next_token.token {
                 Token::KeywordFile => {
-                    self.tokens.next(); // Consume "file"
+                    self.bump_sync(); // Consume "file"
                     self.expect_token(Token::KeywordAt, "Expected 'at' after 'delete file'")?;
                     let path = self.parse_primary_expression()?;
 
@@ -5306,7 +5308,7 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Token::KeywordDirectory => {
-                    self.tokens.next(); // Consume "directory"
+                    self.bump_sync(); // Consume "directory"
                     self.expect_token(Token::KeywordAt, "Expected 'at' after 'delete directory'")?;
                     let path = self.parse_primary_expression()?;
 
@@ -5337,16 +5339,16 @@ impl<'a> Parser<'a> {
     // Subprocess parsing functions
 
     fn parse_execute_command_statement(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.tokens.next().unwrap(); // Consume "execute"
+        let token_pos = self.bump_sync().unwrap(); // Consume "execute"
         self.expect_token(Token::KeywordCommand, "Expected 'command' after 'execute'")?;
 
         let command = self.parse_primary_expression()?;
 
         // Check for optional "with arguments"
-        let arguments = if let Some(token) = self.tokens.peek()
+        let arguments = if let Some(token) = self.cursor.peek()
             && matches!(token.token, Token::KeywordWith)
         {
-            self.tokens.next(); // Consume "with"
+            self.bump_sync(); // Consume "with"
             self.expect_token(Token::KeywordArguments, "Expected 'arguments' after 'with'")?;
             Some(self.parse_primary_expression()?)
         } else {
@@ -5354,10 +5356,10 @@ impl<'a> Parser<'a> {
         };
 
         // Check for optional "using shell"
-        let use_shell = if let Some(token) = self.tokens.peek()
+        let use_shell = if let Some(token) = self.cursor.peek()
             && matches!(token.token, Token::KeywordUsing)
         {
-            self.tokens.next(); // Consume "using"
+            self.bump_sync(); // Consume "using"
             self.expect_token(Token::KeywordShell, "Expected 'shell' after 'using'")?;
             true
         } else {
@@ -5365,11 +5367,11 @@ impl<'a> Parser<'a> {
         };
 
         // Check for optional "as variable"
-        let variable_name = if let Some(token) = self.tokens.peek()
+        let variable_name = if let Some(token) = self.cursor.peek()
             && matches!(token.token, Token::KeywordAs)
         {
-            self.tokens.next(); // Consume "as"
-            let var_token = self.tokens.next().ok_or_else(|| {
+            self.bump_sync(); // Consume "as"
+            let var_token = self.bump_sync().ok_or_else(|| {
                 ParseError::new(
                     "Expected identifier after 'as'".to_string(),
                     token_pos.line,
@@ -5401,16 +5403,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_spawn_process_statement(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.tokens.next().unwrap(); // Consume "spawn"
+        let token_pos = self.bump_sync().unwrap(); // Consume "spawn"
         self.expect_token(Token::KeywordCommand, "Expected 'command' after 'spawn'")?;
 
         let command = self.parse_primary_expression()?;
 
         // Check for optional "with arguments"
-        let arguments = if let Some(token) = self.tokens.peek()
+        let arguments = if let Some(token) = self.cursor.peek()
             && matches!(token.token, Token::KeywordWith)
         {
-            self.tokens.next(); // Consume "with"
+            self.bump_sync(); // Consume "with"
             self.expect_token(Token::KeywordArguments, "Expected 'arguments' after 'with'")?;
             Some(self.parse_primary_expression()?)
         } else {
@@ -5418,10 +5420,10 @@ impl<'a> Parser<'a> {
         };
 
         // Check for optional "using shell"
-        let use_shell = if let Some(token) = self.tokens.peek()
+        let use_shell = if let Some(token) = self.cursor.peek()
             && matches!(token.token, Token::KeywordUsing)
         {
-            self.tokens.next(); // Consume "using"
+            self.bump_sync(); // Consume "using"
             self.expect_token(Token::KeywordShell, "Expected 'shell' after 'using'")?;
             true
         } else {
@@ -5431,7 +5433,7 @@ impl<'a> Parser<'a> {
         // "as" is required for spawn (need to store process ID)
         self.expect_token(Token::KeywordAs, "Expected 'as' after spawn command")?;
 
-        let var_token = self.tokens.next().ok_or_else(|| {
+        let var_token = self.bump_sync().ok_or_else(|| {
             ParseError::new(
                 "Expected identifier after 'as'".to_string(),
                 token_pos.line,
@@ -5460,7 +5462,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_kill_process_statement(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.tokens.next().unwrap(); // Consume "kill"
+        let token_pos = self.bump_sync().unwrap(); // Consume "kill"
         self.expect_token(Token::KeywordProcess, "Expected 'process' after 'kill'")?;
 
         let process_id = self.parse_primary_expression()?;
@@ -5473,7 +5475,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_read_process_output_statement(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.tokens.next().unwrap(); // Consume "read"
+        let token_pos = self.bump_sync().unwrap(); // Consume "read"
         self.expect_token(Token::KeywordOutput, "Expected 'output' after 'read'")?;
         self.expect_token(Token::KeywordFrom, "Expected 'from' after 'read output'")?;
         self.expect_token(Token::KeywordProcess, "Expected 'process' after 'from'")?;
@@ -5482,7 +5484,7 @@ impl<'a> Parser<'a> {
 
         self.expect_token(Token::KeywordAs, "Expected 'as' after process ID")?;
 
-        let var_token = self.tokens.next().ok_or_else(|| {
+        let var_token = self.bump_sync().ok_or_else(|| {
             ParseError::new(
                 "Expected identifier after 'as'".to_string(),
                 token_pos.line,
@@ -5515,7 +5517,7 @@ impl<'a> Parser<'a> {
 
         loop {
             // Check for named arguments (name: value)
-            let arg_name = if let Some(name_token) = self.tokens.peek().cloned() {
+            let arg_name = if let Some(name_token) = self.cursor.peek().cloned() {
                 if let Token::Identifier(id) = &name_token.token {
                     // Check if next token is colon (named argument syntax)
                     if self
@@ -5523,8 +5525,8 @@ impl<'a> Parser<'a> {
                         .peek_next()
                         .map_or(false, |t| matches!(t.token, Token::Colon))
                     {
-                        self.tokens.next(); // Consume name
-                        self.tokens.next(); // Consume ":"
+                        self.bump_sync(); // Consume name
+                        self.bump_sync(); // Consume ":"
                         Some(id.to_string())
                     } else {
                         None
@@ -5545,9 +5547,9 @@ impl<'a> Parser<'a> {
                 value: arg_value,
             });
 
-            if let Some(token) = self.tokens.peek().cloned() {
+            if let Some(token) = self.cursor.peek().cloned() {
                 if matches!(token.token, Token::KeywordAnd) {
-                    self.tokens.next(); // Consume "and"
+                    self.bump_sync(); // Consume "and"
                     continue; // Continue parsing next argument
                 } else {
                     break;
@@ -5567,11 +5569,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_try_statement(&mut self) -> Result<Statement, ParseError> {
-        let try_token = self.tokens.next().unwrap(); // Consume "try"
+        let try_token = self.bump_sync().unwrap(); // Consume "try"
         self.expect_token(Token::Colon, "Expected ':' after 'try'")?;
 
         let mut body = Vec::new();
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             if matches!(
                 token.token,
                 Token::KeywordWhen
@@ -5588,22 +5590,22 @@ impl<'a> Parser<'a> {
         let mut otherwise_block = None;
 
         // Parse when clauses
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             match &token.token {
                 Token::KeywordWhen => {
-                    self.tokens.next(); // Consume "when"
+                    self.bump_sync(); // Consume "when"
 
                     // Parse error type
                     let (error_type, error_name) = if let Some(next_token) =
-                        self.tokens.peek().cloned()
+                        self.cursor.peek().cloned()
                     {
                         match &next_token.token {
                             Token::KeywordError => {
-                                self.tokens.next(); // Consume "error"
+                                self.bump_sync(); // Consume "error"
                                 (ast::ErrorType::General, "error".to_string())
                             }
                             Token::KeywordFile => {
-                                self.tokens.next(); // Consume "file"
+                                self.bump_sync(); // Consume "file"
                                 self.expect_token(
                                     Token::KeywordNot,
                                     "Expected 'not' after 'file'",
@@ -5615,7 +5617,7 @@ impl<'a> Parser<'a> {
                                 (ast::ErrorType::FileNotFound, "error".to_string())
                             }
                             Token::KeywordPermission => {
-                                self.tokens.next(); // Consume "permission"
+                                self.bump_sync(); // Consume "permission"
                                 self.expect_token(
                                     Token::KeywordDenied,
                                     "Expected 'denied' after 'permission'",
@@ -5623,13 +5625,13 @@ impl<'a> Parser<'a> {
                                 (ast::ErrorType::PermissionDenied, "error".to_string())
                             }
                             Token::KeywordProcess => {
-                                self.tokens.next(); // Consume "process"
+                                self.bump_sync(); // Consume "process"
 
                                 // Check what comes next to determine error type
-                                if let Some(next) = self.tokens.peek().cloned() {
+                                if let Some(next) = self.cursor.peek().cloned() {
                                     match &next.token {
                                         Token::KeywordNot => {
-                                            self.tokens.next(); // Consume "not"
+                                            self.bump_sync(); // Consume "not"
                                             self.expect_token(
                                                 Token::KeywordFound,
                                                 "Expected 'found' after 'not'",
@@ -5637,11 +5639,11 @@ impl<'a> Parser<'a> {
                                             (ast::ErrorType::ProcessNotFound, "error".to_string())
                                         }
                                         Token::Identifier(id) if id == "spawn" => {
-                                            self.tokens.next(); // Consume "spawn"
-                                            if let Some(failed) = self.tokens.peek().cloned() {
+                                            self.bump_sync(); // Consume "spawn"
+                                            if let Some(failed) = self.cursor.peek().cloned() {
                                                 if let Token::Identifier(fid) = &failed.token {
                                                     if fid == "failed" {
-                                                        self.tokens.next(); // Consume "failed"
+                                                        self.bump_sync(); // Consume "failed"
                                                         (
                                                             ast::ErrorType::ProcessSpawnFailed,
                                                             "error".to_string(),
@@ -5671,11 +5673,11 @@ impl<'a> Parser<'a> {
                                             }
                                         }
                                         Token::Identifier(id) if id == "kill" => {
-                                            self.tokens.next(); // Consume "kill"
-                                            if let Some(failed) = self.tokens.peek().cloned() {
+                                            self.bump_sync(); // Consume "kill"
+                                            if let Some(failed) = self.cursor.peek().cloned() {
                                                 if let Token::Identifier(fid) = &failed.token {
                                                     if fid == "failed" {
-                                                        self.tokens.next(); // Consume "failed"
+                                                        self.bump_sync(); // Consume "failed"
                                                         (
                                                             ast::ErrorType::ProcessKillFailed,
                                                             "error".to_string(),
@@ -5721,7 +5723,7 @@ impl<'a> Parser<'a> {
                                 }
                             }
                             Token::KeywordCommand => {
-                                self.tokens.next(); // Consume "command"
+                                self.bump_sync(); // Consume "command"
                                 self.expect_token(
                                     Token::KeywordNot,
                                     "Expected 'not' after 'command'",
@@ -5754,7 +5756,7 @@ impl<'a> Parser<'a> {
                     self.expect_token(Token::Colon, "Expected ':' after error type")?;
 
                     let mut when_body = Vec::new();
-                    while let Some(token) = self.tokens.peek().cloned() {
+                    while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(
                             token.token,
                             Token::KeywordWhen
@@ -5774,16 +5776,16 @@ impl<'a> Parser<'a> {
                     });
                 }
                 Token::KeywordCatch => {
-                    self.tokens.next(); // Consume "catch"
+                    self.bump_sync(); // Consume "catch"
 
                     // Check for optional "with error_name" syntax
-                    let error_name = if let Some(next_token) = self.tokens.peek() {
+                    let error_name = if let Some(next_token) = self.cursor.peek() {
                         if matches!(next_token.token, Token::KeywordWith) {
-                            self.tokens.next(); // Consume "with"
-                            if let Some(name_token) = self.tokens.peek() {
+                            self.bump_sync(); // Consume "with"
+                            if let Some(name_token) = self.cursor.peek() {
                                 if let Token::Identifier(name) = &name_token.token {
                                     let name = name.clone();
-                                    self.tokens.next(); // Consume identifier
+                                    self.bump_sync(); // Consume identifier
                                     name
                                 } else {
                                     "error".to_string()
@@ -5801,7 +5803,7 @@ impl<'a> Parser<'a> {
                     self.expect_token(Token::Colon, "Expected ':' after 'catch'")?;
 
                     let mut catch_body = Vec::new();
-                    while let Some(token) = self.tokens.peek().cloned() {
+                    while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(
                             token.token,
                             Token::KeywordWhen
@@ -5822,11 +5824,11 @@ impl<'a> Parser<'a> {
                     });
                 }
                 Token::KeywordOtherwise => {
-                    self.tokens.next(); // Consume "otherwise"
+                    self.bump_sync(); // Consume "otherwise"
                     self.expect_token(Token::Colon, "Expected ':' after 'otherwise'")?;
 
                     let mut otherwise_body = Vec::new();
-                    while let Some(token) = self.tokens.peek().cloned() {
+                    while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(token.token, Token::KeywordEnd) {
                             break;
                         }
@@ -5873,12 +5875,12 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_main_loop(&mut self) -> Result<Statement, ParseError> {
-        let main_token = self.tokens.next().unwrap(); // Consume "main"
+        let main_token = self.bump_sync().unwrap(); // Consume "main"
         self.expect_token(Token::KeywordLoop, "Expected 'loop' after 'main'")?;
         self.expect_token(Token::Colon, "Expected ':' after 'main loop'")?;
 
         let mut body = Vec::new();
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             if matches!(token.token, Token::KeywordEnd) {
                 break;
             }
@@ -5896,21 +5898,21 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_repeat_statement(&mut self) -> Result<Statement, ParseError> {
-        let repeat_token = self.tokens.next().unwrap(); // Consume "repeat"
+        let repeat_token = self.bump_sync().unwrap(); // Consume "repeat"
 
-        if let Some(token) = self.tokens.peek().cloned() {
+        if let Some(token) = self.cursor.peek().cloned() {
             match token.token {
                 Token::KeywordWhile => {
-                    self.tokens.next(); // Consume "while"
+                    self.bump_sync(); // Consume "while"
                     let condition = self.parse_expression()?;
-                    if let Some(token) = self.tokens.peek()
+                    if let Some(token) = self.cursor.peek()
                         && matches!(token.token, Token::Colon)
                     {
-                        self.tokens.next(); // Consume the colon if present
+                        self.bump_sync(); // Consume the colon if present
                     }
 
                     let mut body = Vec::new();
-                    while let Some(token) = self.tokens.peek().cloned() {
+                    while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(token.token, Token::KeywordEnd) {
                             break;
                         }
@@ -5928,16 +5930,16 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Token::KeywordUntil => {
-                    self.tokens.next(); // Consume "until"
+                    self.bump_sync(); // Consume "until"
                     let condition = self.parse_expression()?;
-                    if let Some(token) = self.tokens.peek()
+                    if let Some(token) = self.cursor.peek()
                         && matches!(token.token, Token::Colon)
                     {
-                        self.tokens.next(); // Consume the colon if present
+                        self.bump_sync(); // Consume the colon if present
                     }
 
                     let mut body = Vec::new();
-                    while let Some(token) = self.tokens.peek().cloned() {
+                    while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(token.token, Token::KeywordEnd) {
                             break;
                         }
@@ -5955,11 +5957,11 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Token::KeywordForever => {
-                    self.tokens.next(); // Consume "forever"
+                    self.bump_sync(); // Consume "forever"
                     self.expect_token(Token::Colon, "Expected ':' after 'forever'")?;
 
                     let mut body = Vec::new();
-                    while let Some(token) = self.tokens.peek().cloned() {
+                    while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(token.token, Token::KeywordEnd) {
                             break;
                         }
@@ -5976,10 +5978,10 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Token::Colon => {
-                    self.tokens.next(); // Consume ":"
+                    self.bump_sync(); // Consume ":"
 
                     let mut body = Vec::new();
-                    while let Some(token) = self.tokens.peek().cloned() {
+                    while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(token.token, Token::KeywordUntil) {
                             break;
                         }
@@ -6015,14 +6017,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_exit_statement(&mut self) -> Result<Statement, ParseError> {
-        let exit_token = self.tokens.next().unwrap(); // Consume "exit"
+        let exit_token = self.bump_sync().unwrap(); // Consume "exit"
 
         // Check for "loop" after "exit"
-        if let Some(token) = self.tokens.peek().cloned()
+        if let Some(token) = self.cursor.peek().cloned()
             && let Token::Identifier(id) = &token.token
             && id.to_lowercase() == "loop"
         {
-            self.tokens.next(); // Consume "loop"
+            self.bump_sync(); // Consume "loop"
         }
 
         Ok(Statement::ExitStatement {
@@ -6032,7 +6034,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_push_statement(&mut self) -> Result<Statement, ParseError> {
-        let push_token = self.tokens.next().unwrap(); // Consume "push"
+        let push_token = self.bump_sync().unwrap(); // Consume "push"
 
         self.expect_token(Token::KeywordWith, "Expected 'with' after 'push'")?;
 
@@ -6041,7 +6043,7 @@ impl<'a> Parser<'a> {
 
         self.expect_token(Token::KeywordAnd, "Expected 'and' after list expression")?;
 
-        let start_line = if let Some(token) = self.tokens.peek() {
+        let start_line = if let Some(token) = self.cursor.peek() {
             token.line
         } else {
             push_token.line
@@ -6049,7 +6051,7 @@ impl<'a> Parser<'a> {
 
         let mut value_expr = self.parse_primary_expression()?;
 
-        if let Some(token) = self.tokens.peek()
+        if let Some(token) = self.cursor.peek()
             && token.line == start_line
             && !Parser::is_statement_starter(&token.token)
         {
@@ -6068,11 +6070,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_container_action_definition(&mut self) -> Result<Statement, ParseError> {
-        self.tokens.next(); // Consume "action"
+        self.bump_sync(); // Consume "action"
 
-        let name = if let Some(token) = self.tokens.peek() {
+        let name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
-                self.tokens.next();
+                self.bump_sync();
                 id.clone()
             } else {
                 return Err(ParseError::new(
@@ -6095,22 +6097,22 @@ impl<'a> Parser<'a> {
         let mut parameters = Vec::new();
 
         // Check for parameters
-        if let Some(token) = self.tokens.peek().cloned()
+        if let Some(token) = self.cursor.peek().cloned()
             && matches!(token.token, Token::KeywordNeeds)
         {
-            self.tokens.next(); // Consume "needs"
+            self.bump_sync(); // Consume "needs"
             parameters = self.parse_parameter_list()?;
         }
 
         // Parse return type if present (after parameters or action name)
-        let return_type = if let Some(token) = self.tokens.peek().cloned()
+        let return_type = if let Some(token) = self.cursor.peek().cloned()
             && matches!(token.token, Token::Colon)
         {
-            self.tokens.next(); // Consume ':'
+            self.bump_sync(); // Consume ':'
 
             // Check if the next token is actually a type identifier
             // If it's not, this colon just marks the start of the action body (no return type)
-            if let Some(type_token) = self.tokens.peek().cloned() {
+            if let Some(type_token) = self.cursor.peek().cloned() {
                 if let Token::Identifier(type_name) = &type_token.token {
                     // Check if this identifier is a valid type name
                     let is_type = matches!(
@@ -6119,7 +6121,7 @@ impl<'a> Parser<'a> {
                     ) || type_name.chars().next().is_some_and(|c| c.is_uppercase());
 
                     if is_type {
-                        self.tokens.next(); // Consume type name
+                        self.bump_sync(); // Consume type name
                         Some(match type_name.as_str() {
                             "Text" => Type::Text,
                             "Number" => Type::Number,
@@ -6148,9 +6150,9 @@ impl<'a> Parser<'a> {
 
         // Parse action body until 'end'
         loop {
-            if let Some(token) = self.tokens.peek() {
+            if let Some(token) = self.cursor.peek() {
                 if token.token == Token::KeywordEnd {
-                    self.tokens.next(); // Consume 'end'
+                    self.bump_sync(); // Consume 'end'
                     break;
                 }
                 body.push(self.parse_statement()?);
@@ -6174,10 +6176,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_create_pattern_statement(&mut self) -> Result<Statement, ParseError> {
-        let create_token = self.tokens.next().unwrap(); // Consume "create"
+        let create_token = self.bump_sync().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordPattern, "Expected 'pattern' after 'create'")?;
 
-        let (pattern_name, pattern_token) = if let Some(token) = self.tokens.next() {
+        let (pattern_name, pattern_token) = if let Some(token) = self.bump_sync() {
             match &token.token {
                 Token::Identifier(name) => (name.clone(), token.clone()),
                 Token::KeywordUrl => ("url".to_string(), token.clone()),
@@ -6231,7 +6233,7 @@ impl<'a> Parser<'a> {
         let mut pattern_parts = Vec::new();
         let mut depth = 1; // Track nesting depth for proper end matching
 
-        while let Some(token) = self.tokens.peek() {
+        while let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordEnd => {
                     let mut tokens_clone = self.tokens.clone();
@@ -6241,12 +6243,12 @@ impl<'a> Parser<'a> {
                     {
                         depth -= 1;
                         if depth == 0 {
-                            self.tokens.next(); // Consume "end"
-                            self.tokens.next(); // Consume "pattern"
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "pattern"
                             break;
                         }
                     }
-                    pattern_parts.push(self.tokens.next().unwrap().clone());
+                    pattern_parts.push(self.bump_sync().unwrap().clone());
                 }
                 Token::KeywordCreate => {
                     // Check for nested pattern creation
@@ -6257,10 +6259,10 @@ impl<'a> Parser<'a> {
                     {
                         depth += 1;
                     }
-                    pattern_parts.push(self.tokens.next().unwrap().clone());
+                    pattern_parts.push(self.bump_sync().unwrap().clone());
                 }
                 _ => {
-                    pattern_parts.push(self.tokens.next().unwrap().clone());
+                    pattern_parts.push(self.bump_sync().unwrap().clone());
                 }
             }
         }
@@ -6286,18 +6288,18 @@ impl<'a> Parser<'a> {
 
     fn parse_extension_filter(&mut self) -> Result<Vec<Expression>, ParseError> {
         // Expect "extension", "extensions", or "pattern"
-        if let Some(token) = self.tokens.peek() {
+        if let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordExtension => {
-                    self.tokens.next(); // Consume "extension"
+                    self.bump_sync(); // Consume "extension"
                     // Parse single extension
                     let ext = self.parse_primary_expression()?;
                     Ok(vec![ext])
                 }
                 Token::KeywordExtensions => {
-                    self.tokens.next(); // Consume "extensions"
+                    self.bump_sync(); // Consume "extensions"
                     // Parse list of extensions
-                    let has_bracket = if let Some(token) = self.tokens.peek() {
+                    let has_bracket = if let Some(token) = self.cursor.peek() {
                         token.token == Token::LeftBracket
                     } else {
                         false
@@ -6322,7 +6324,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token::KeywordPattern => {
-                    self.tokens.next(); // Consume "pattern"
+                    self.bump_sync(); // Consume "pattern"
                     // Parse pattern expression (e.g., "*.wfl")
                     let expr = self.parse_primary_expression()?;
                     Ok(vec![expr])
@@ -7255,15 +7257,15 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_create_list_statement(&mut self) -> Result<Statement, ParseError> {
-        let create_token = self.tokens.next().unwrap(); // Consume "create"
+        let create_token = self.bump_sync().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordList, "Expected 'list' after 'create'")?;
 
         // Parse list name
-        let name = if let Some(token) = self.tokens.peek() {
+        let name = if let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::Identifier(n) => {
                     let name = n.clone();
-                    self.tokens.next(); // Consume the identifier
+                    self.bump_sync(); // Consume the identifier
                     name
                 }
                 _ => {
@@ -7288,15 +7290,15 @@ impl<'a> Parser<'a> {
         // Parse list items
         let mut initial_values = Vec::new();
 
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             match token.token {
                 Token::KeywordEnd => {
-                    self.tokens.next(); // Consume "end"
+                    self.bump_sync(); // Consume "end"
                     self.expect_token(Token::KeywordList, "Expected 'list' after 'end'")?;
                     break;
                 }
                 Token::KeywordAdd => {
-                    self.tokens.next(); // Consume "add"
+                    self.bump_sync(); // Consume "add"
                     let value = self.parse_expression()?;
                     initial_values.push(value);
                 }
@@ -7333,16 +7335,16 @@ impl<'a> Parser<'a> {
     /// let stmt = parser.parse_create_date_statement()?;
     /// ```
     fn parse_create_date_statement(&mut self) -> Result<Statement, ParseError> {
-        let create_token = self.tokens.next().unwrap(); // Consume "create"
+        let create_token = self.bump_sync().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordDate, "Expected 'date' after 'create'")?;
 
         // Parse the date variable name
         let name = self.parse_variable_name_simple()?;
 
         // Check if there's an "as" clause for a custom date value
-        let value = if let Some(token) = self.tokens.peek() {
+        let value = if let Some(token) = self.cursor.peek() {
             if token.token == Token::KeywordAs {
-                self.tokens.next(); // Consume "as"
+                self.bump_sync(); // Consume "as"
                 Some(self.parse_expression()?)
             } else {
                 None // Default to "today"
@@ -7377,16 +7379,16 @@ impl<'a> Parser<'a> {
     /// let stmt = parser.parse_create_time_statement().unwrap();
     /// ```
     fn parse_create_time_statement(&mut self) -> Result<Statement, ParseError> {
-        let create_token = self.tokens.next().unwrap(); // Consume "create"
+        let create_token = self.bump_sync().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordTime, "Expected 'time' after 'create'")?;
 
         // Parse the time variable name
         let name = self.parse_variable_name_simple()?;
 
         // Check if there's an "as" clause for a custom time value
-        let value = if let Some(token) = self.tokens.peek() {
+        let value = if let Some(token) = self.cursor.peek() {
             if token.token == Token::KeywordAs {
-                self.tokens.next(); // Consume "as"
+                self.bump_sync(); // Consume "as"
                 Some(self.parse_expression()?)
             } else {
                 None // Default to "now"
@@ -7404,15 +7406,15 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_map_creation(&mut self) -> Result<Statement, ParseError> {
-        let create_token = self.tokens.next().unwrap(); // Consume "create"
+        let create_token = self.bump_sync().unwrap(); // Consume "create"
         self.expect_token(Token::KeywordMap, "Expected 'map' after 'create'")?;
 
         // Parse map name
-        let name = if let Some(token) = self.tokens.peek() {
+        let name = if let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::Identifier(n) => {
                     let name = n.clone();
-                    self.tokens.next(); // Consume the identifier
+                    self.bump_sync(); // Consume the identifier
                     name
                 }
                 _ => {
@@ -7437,16 +7439,16 @@ impl<'a> Parser<'a> {
         // Parse map entries
         let mut entries = Vec::new();
 
-        while let Some(token) = self.tokens.peek().cloned() {
+        while let Some(token) = self.cursor.peek().cloned() {
             match &token.token {
                 Token::KeywordEnd => {
-                    self.tokens.next(); // Consume "end"
+                    self.bump_sync(); // Consume "end"
                     self.expect_token(Token::KeywordMap, "Expected 'map' after 'end'")?;
                     break;
                 }
                 Token::Identifier(key) => {
                     let key = key.clone();
-                    self.tokens.next(); // Consume the key
+                    self.bump_sync(); // Consume the key
 
                     // Expect "is"
                     self.expect_token(Token::KeywordIs, "Expected 'is' after map key")?;
@@ -7484,15 +7486,15 @@ impl<'a> Parser<'a> {
 
         // Save the position to potentially backtrack
         let _saved_position = self.tokens.clone();
-        let add_token = self.tokens.next().unwrap(); // Consume "add"
+        let add_token = self.bump_sync().unwrap(); // Consume "add"
 
         // Parse the value to add
         let value = self.parse_expression()?;
 
         // Check for "to" keyword
-        if let Some(token) = self.tokens.peek() {
+        if let Some(token) = self.cursor.peek() {
             if token.token == Token::KeywordTo {
-                self.tokens.next(); // Consume "to"
+                self.bump_sync(); // Consume "to"
 
                 // Parse the target name
                 let target_name = self.parse_variable_name_simple()?;
@@ -7550,7 +7552,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_remove_from_list_statement(&mut self) -> Result<Statement, ParseError> {
-        let remove_token = self.tokens.next().unwrap(); // Consume "remove"
+        let remove_token = self.bump_sync().unwrap(); // Consume "remove"
 
         // Parse the value to remove
         let value = self.parse_expression()?;
@@ -7570,16 +7572,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_clear_list_statement(&mut self) -> Result<Statement, ParseError> {
-        let clear_token = self.tokens.next().unwrap(); // Consume "clear"
+        let clear_token = self.bump_sync().unwrap(); // Consume "clear"
 
         // Parse the list name
         let list_name = self.parse_variable_name_simple()?;
 
         // Optionally consume "list" keyword if present
-        if let Some(token) = self.tokens.peek()
+        if let Some(token) = self.cursor.peek()
             && token.token == Token::KeywordList
         {
-            self.tokens.next(); // Consume "list"
+            self.bump_sync(); // Consume "list"
         }
 
         Ok(Statement::ClearListStatement {
@@ -7591,7 +7593,7 @@ impl<'a> Parser<'a> {
 
     // Web server parsing methods
     fn parse_listen_statement(&mut self) -> Result<Statement, ParseError> {
-        let listen_token = self.tokens.next().unwrap(); // Consume "listen"
+        let listen_token = self.bump_sync().unwrap(); // Consume "listen"
 
         // Expect "on"
         self.expect_token(Token::KeywordOn, "Expected 'on' after 'listen'")?;
@@ -7617,7 +7619,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_respond_statement(&mut self) -> Result<Statement, ParseError> {
-        let respond_token = self.tokens.next().unwrap(); // Consume "respond"
+        let respond_token = self.bump_sync().unwrap(); // Consume "respond"
 
         // Expect "to"
         self.expect_token(Token::KeywordTo, "Expected 'to' after 'respond'")?;
@@ -7637,7 +7639,7 @@ impl<'a> Parser<'a> {
 
         // Check for optional "and" clauses (status and/or content_type)
         loop {
-            if let Some(token) = self.tokens.peek()
+            if let Some(token) = self.cursor.peek()
                 && token.token == Token::KeywordAnd
             {
                 // Look ahead to see what comes after "and"
@@ -7646,23 +7648,23 @@ impl<'a> Parser<'a> {
 
                 if let Some(next_token) = tokens_clone.peek() {
                     if next_token.token == Token::KeywordStatus {
-                        self.tokens.next(); // Consume "and"
-                        self.tokens.next(); // Consume "status"
+                        self.bump_sync(); // Consume "and"
+                        self.bump_sync(); // Consume "status"
                         status = Some(self.parse_expression()?);
                         continue;
                     } else if let Token::Identifier(id) = &next_token.token
                         && (id == "content_type" || id == "content")
                     {
-                        self.tokens.next(); // Consume "and"
-                        self.tokens.next(); // Consume "content_type" or "content"
+                        self.bump_sync(); // Consume "and"
+                        self.bump_sync(); // Consume "content_type" or "content"
 
                         // If it was "content", expect "type" next
                         if id == "content"
-                            && let Some(type_token) = self.tokens.peek()
+                            && let Some(type_token) = self.cursor.peek()
                             && let Token::Identifier(type_id) = &type_token.token
                             && type_id == "type"
                         {
-                            self.tokens.next(); // Consume "type"
+                            self.bump_sync(); // Consume "type"
                         }
 
                         content_type = Some(self.parse_expression()?);
@@ -7685,7 +7687,7 @@ impl<'a> Parser<'a> {
 
     // Graceful shutdown and signal handling parsing methods
     fn parse_register_signal_handler_statement(&mut self) -> Result<Statement, ParseError> {
-        let register_token = self.tokens.next().unwrap(); // Consume "register"
+        let register_token = self.bump_sync().unwrap(); // Consume "register"
 
         // Expect "signal"
         self.expect_token(Token::KeywordSignal, "Expected 'signal' after 'register'")?;
@@ -7697,7 +7699,7 @@ impl<'a> Parser<'a> {
         self.expect_token(Token::KeywordFor, "Expected 'for' after 'handler'")?;
 
         // Parse signal type (SIGINT, SIGTERM, etc.)
-        let signal_type = match self.tokens.next() {
+        let signal_type = match self.bump_sync() {
             Some(token) => match &token.token {
                 Token::Identifier(signal) => signal.clone(),
                 _ => {
@@ -7732,7 +7734,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_stop_accepting_connections_statement(&mut self) -> Result<Statement, ParseError> {
-        let stop_token = self.tokens.next().unwrap(); // Consume "stop"
+        let stop_token = self.bump_sync().unwrap(); // Consume "stop"
 
         // Expect "accepting"
         self.expect_token(Token::KeywordAccepting, "Expected 'accepting' after 'stop'")?;
@@ -7757,7 +7759,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_close_server_statement(&mut self) -> Result<Statement, ParseError> {
-        let close_token = self.tokens.next().unwrap(); // Consume "close"
+        let close_token = self.bump_sync().unwrap(); // Consume "close"
 
         // Expect "server"
         self.expect_token(Token::KeywordServer, "Expected 'server' after 'close'")?;
