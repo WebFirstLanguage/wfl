@@ -228,7 +228,7 @@ impl<'a> Parser<'a> {
         let mut last_line = 0;
 
         while self.cursor.peek().is_some() {
-            let start_len = self.tokens.clone().count();
+            let start_pos = self.cursor.pos();
 
             if let Some(token) = self.cursor.peek() {
                 if token.line > last_line && last_line > 0 {
@@ -382,13 +382,11 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            let end_len = self.tokens.clone().count();
-
             // Special case for end of file - if we have processed all meaningful tokens,
             // and only trailing tokens remain (if any), just break
             if let Some(token) = self.cursor.peek()
                 && token.token == Token::KeywordEnd
-                && start_len <= 2
+                && self.cursor.remaining() <= 2
             {
                 // If we're at the end with just 1-2 tokens left, consume them and break
                 while self.bump_sync().is_some() {}
@@ -396,8 +394,10 @@ impl<'a> Parser<'a> {
             }
 
             assert!(
-                end_len < start_len,
-                "Parser made no progress - token {:?} caused infinite loop",
+                self.cursor.pos() > start_pos,
+                "Parser made no progress at line {} (stuck at position {}) - token {:?} caused infinite loop",
+                self.cursor.current_line(),
+                start_pos,
                 self.cursor.peek()
             );
         }
@@ -4300,7 +4300,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let before_count = self.tokens.clone().count();
+        let start_pos = self.cursor.pos();
 
         if let Some(token) = self.cursor.peek() {
             if matches!(token.token, Token::KeywordEnd) {
@@ -4338,10 +4338,10 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        let after_count = self.tokens.clone().count();
         assert!(
-            after_count < before_count,
-            "Parser made no progress while parsing end action tokens"
+            self.cursor.pos() > start_pos,
+            "Parser made no progress while parsing end action tokens at line {}",
+            self.cursor.current_line()
         );
 
         let token_pos = self.cursor.peek().map_or(
@@ -5513,7 +5513,7 @@ impl<'a> Parser<'a> {
     fn parse_argument_list(&mut self) -> Result<Vec<Argument>, ParseError> {
         let mut arguments = Vec::with_capacity(4);
 
-        let before_count = self.tokens.clone().count();
+        let start_pos = self.cursor.pos();
 
         loop {
             // Check for named arguments (name: value)
@@ -5559,10 +5559,10 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let after_count = self.tokens.clone().count();
         assert!(
-            after_count < before_count,
-            "Parser made no progress while parsing argument list"
+            self.cursor.pos() > start_pos,
+            "Parser made no progress while parsing argument list at line {}",
+            self.cursor.current_line()
         );
 
         Ok(arguments)
