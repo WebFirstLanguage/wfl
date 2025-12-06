@@ -4,7 +4,7 @@ use logos::Logos;
 #[logos(skip r"[ \t\f\r]+|//.*|#.*")] // Skip whitespace (excluding newline) and line comments (// and #)
 pub enum Token {
     #[token("\n")]
-    Newline,  // Keep for internal use (flushes multi-word identifiers)
+    Newline, // Keep for internal use (flushes multi-word identifiers)
 
     // NEW: Explicit end-of-line token emitted to parser
     Eol,

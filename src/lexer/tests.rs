@@ -326,7 +326,10 @@ fn test_eol_emission() {
     let tokens = lex_wfl_with_positions(input);
 
     // Count Eol tokens (should be 2)
-    let eol_count = tokens.iter().filter(|t| matches!(t.token, Token::Eol)).count();
+    let eol_count = tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Eol))
+        .count();
     assert_eq!(eol_count, 2, "Should have 2 Eol tokens for 2 newlines");
 }
 
@@ -337,12 +340,17 @@ fn test_multiword_identifier_with_eol() {
     let tokens = lex_wfl_with_positions(input);
 
     // Should have: store, "user name", as, "Alice", Eol
-    assert!(tokens.iter().any(|t| {
-        matches!(&t.token, Token::Identifier(s) if s == "user name")
-    }), "Multi-word identifier should be preserved");
+    assert!(
+        tokens
+            .iter()
+            .any(|t| { matches!(&t.token, Token::Identifier(s) if s == "user name") }),
+        "Multi-word identifier should be preserved"
+    );
 
-    assert!(tokens.iter().any(|t| matches!(t.token, Token::Eol)),
-        "Eol token should be emitted after newline");
+    assert!(
+        tokens.iter().any(|t| matches!(t.token, Token::Eol)),
+        "Eol token should be emitted after newline"
+    );
 }
 
 #[test]
@@ -352,6 +360,12 @@ fn test_consecutive_eol() {
     let tokens = lex_wfl_with_positions(input);
 
     // Should emit Eol for each newline
-    let eol_count = tokens.iter().filter(|t| matches!(t.token, Token::Eol)).count();
-    assert_eq!(eol_count, 4, "Should emit Eol for each newline (including blank lines)");
+    let eol_count = tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Eol))
+        .count();
+    assert_eq!(
+        eol_count, 4,
+        "Should emit Eol for each newline (including blank lines)"
+    );
 }

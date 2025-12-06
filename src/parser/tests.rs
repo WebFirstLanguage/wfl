@@ -1228,8 +1228,10 @@ fn test_eol_prevents_multiline_expression() {
 
     // Should either error or parse as incomplete
     // NOT as a valid x = 1 + 2 expression
-    assert!(result.is_err() || parser.errors.len() > 0,
-        "Multi-line expression should not be allowed");
+    assert!(
+        result.is_err() || parser.errors.len() > 0,
+        "Multi-line expression should not be allowed"
+    );
 }
 
 #[test]
@@ -1260,8 +1262,11 @@ fn test_crossline_not_index_access() {
     let program = parser.parse().expect("Should parse successfully");
 
     // Should parse as two separate statements
-    assert_eq!(program.statements.len(), 2,
-        "Should be 2 statements, not index access");
+    assert_eq!(
+        program.statements.len(),
+        2,
+        "Should be 2 statements, not index access"
+    );
 }
 
 #[test]

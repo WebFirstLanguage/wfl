@@ -157,7 +157,7 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                     Token::Eol,
                     token_line,
                     token_column,
-                    token_length,  // Length of '\n' = 1
+                    token_length, // Length of '\n' = 1
                 ));
             }
             Ok(other) => {

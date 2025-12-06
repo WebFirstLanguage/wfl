@@ -386,7 +386,9 @@ impl<'a> Parser<'a> {
 
                     // Skip tokens until we reach Eol or statement starter
                     while let Some(token) = self.cursor.peek() {
-                        if matches!(token.token, Token::Eol) || Parser::is_statement_starter(&token.token) {
+                        if matches!(token.token, Token::Eol)
+                            || Parser::is_statement_starter(&token.token)
+                        {
                             break;
                         }
                         self.bump_sync(); // Skip token
