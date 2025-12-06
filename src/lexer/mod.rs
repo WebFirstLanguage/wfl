@@ -51,10 +51,13 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
                 }
             }
             Ok(Token::Newline) => {
+                // Flush multi-word identifier if any
                 if let Some(id) = current_id.take() {
                     tokens.push(Token::Identifier(intern_string(id)));
                 }
-                // Newline token is not added to the output tokens list
+
+                // NEW: Emit Eol token
+                tokens.push(Token::Eol);
             }
             Ok(other) => {
                 if let Some(id) = current_id.take() {
@@ -139,6 +142,7 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                 }
             }
             Ok(Token::Newline) => {
+                // Flush multi-word identifier if any
                 if let Some(id) = current_id.take() {
                     tokens.push(TokenWithPosition::new(
                         Token::Identifier(intern_string(id)),
@@ -147,7 +151,14 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                         current_id_length,
                     ));
                 }
-                // Newline token is not added to the output tokens list
+
+                // NEW: Emit Eol token to mark statement boundary
+                tokens.push(TokenWithPosition::new(
+                    Token::Eol,
+                    token_line,
+                    token_column,
+                    token_length,  // Length of '\n' = 1
+                ));
             }
             Ok(other) => {
                 if let Some(id) = current_id.take() {
