@@ -236,121 +236,124 @@ impl<'a> Parser<'a> {
                 if first_token.token == Token::KeywordEnd {
                     if let Some(second_token) = self.cursor.peek_next() {
                         match &second_token.token {
-                        Token::KeywordAction => {
-                            exec_trace!(
-                                "Consuming orphaned 'end action' at line {}",
-                                first_token.line
-                            );
-                            self.bump_sync(); // Consume "end"
-                            self.bump_sync(); // Consume "action"
-                            continue;
+                            Token::KeywordAction => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end action' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "action"
+                                continue;
+                            }
+                            Token::KeywordCheck => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end check' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "check"
+                                continue;
+                            }
+                            Token::KeywordFor => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end for' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "for"
+                                continue;
+                            }
+                            Token::KeywordCount => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end count' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "count"
+                                continue;
+                            }
+                            Token::KeywordRepeat => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end repeat' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "repeat"
+                                continue;
+                            }
+                            Token::KeywordTry => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end try' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "try"
+                                continue;
+                            }
+                            Token::KeywordLoop => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end loop' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "loop"
+                                continue;
+                            }
+                            Token::KeywordMap => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end map' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "map"
+                                continue;
+                            }
+                            Token::KeywordWhile => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end while' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "while"
+                                continue;
+                            }
+                            Token::KeywordPattern => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end pattern' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "pattern"
+                                continue;
+                            }
+                            _ => {
+                                // Standalone "end" or unexpected pattern - consume and log error
+                                exec_trace!(
+                                    "Found unexpected 'end' followed by {:?} at line {}",
+                                    second_token.token,
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.errors.push(ParseError::new(
+                                    format!(
+                                        "Unexpected 'end' followed by {:?}",
+                                        second_token.token
+                                    ),
+                                    first_token.line,
+                                    first_token.column,
+                                ));
+                                continue;
+                            }
                         }
-                        Token::KeywordCheck => {
-                            exec_trace!(
-                                "Consuming orphaned 'end check' at line {}",
-                                first_token.line
-                            );
-                            self.bump_sync(); // Consume "end"
-                            self.bump_sync(); // Consume "check"
-                            continue;
-                        }
-                        Token::KeywordFor => {
-                            exec_trace!(
-                                "Consuming orphaned 'end for' at line {}",
-                                first_token.line
-                            );
-                            self.bump_sync(); // Consume "end"
-                            self.bump_sync(); // Consume "for"
-                            continue;
-                        }
-                        Token::KeywordCount => {
-                            exec_trace!(
-                                "Consuming orphaned 'end count' at line {}",
-                                first_token.line
-                            );
-                            self.bump_sync(); // Consume "end"
-                            self.bump_sync(); // Consume "count"
-                            continue;
-                        }
-                        Token::KeywordRepeat => {
-                            exec_trace!(
-                                "Consuming orphaned 'end repeat' at line {}",
-                                first_token.line
-                            );
-                            self.bump_sync(); // Consume "end"
-                            self.bump_sync(); // Consume "repeat"
-                            continue;
-                        }
-                        Token::KeywordTry => {
-                            exec_trace!(
-                                "Consuming orphaned 'end try' at line {}",
-                                first_token.line
-                            );
-                            self.bump_sync(); // Consume "end"
-                            self.bump_sync(); // Consume "try"
-                            continue;
-                        }
-                        Token::KeywordLoop => {
-                            exec_trace!(
-                                "Consuming orphaned 'end loop' at line {}",
-                                first_token.line
-                            );
-                            self.bump_sync(); // Consume "end"
-                            self.bump_sync(); // Consume "loop"
-                            continue;
-                        }
-                        Token::KeywordMap => {
-                            exec_trace!(
-                                "Consuming orphaned 'end map' at line {}",
-                                first_token.line
-                            );
-                            self.bump_sync(); // Consume "end"
-                            self.bump_sync(); // Consume "map"
-                            continue;
-                        }
-                        Token::KeywordWhile => {
-                            exec_trace!(
-                                "Consuming orphaned 'end while' at line {}",
-                                first_token.line
-                            );
-                            self.bump_sync(); // Consume "end"
-                            self.bump_sync(); // Consume "while"
-                            continue;
-                        }
-                        Token::KeywordPattern => {
-                            exec_trace!(
-                                "Consuming orphaned 'end pattern' at line {}",
-                                first_token.line
-                            );
-                            self.bump_sync(); // Consume "end"
-                            self.bump_sync(); // Consume "pattern"
-                            continue;
-                        }
-                        _ => {
-                            // Standalone "end" or unexpected pattern - consume and log error
-                            exec_trace!(
-                                "Found unexpected 'end' followed by {:?} at line {}",
-                                second_token.token,
-                                first_token.line
-                            );
-                            self.bump_sync(); // Consume "end"
-                            self.errors.push(ParseError::new(
-                                format!("Unexpected 'end' followed by {:?}", second_token.token),
-                                first_token.line,
-                                first_token.column,
-                            ));
-                            continue;
-                        }
+                    } else {
+                        // "end" at end of file
+                        exec_trace!(
+                            "Found standalone 'end' at end of file, line {}",
+                            first_token.line
+                        );
+                        self.bump_sync();
+                        break;
                     }
-                } else {
-                    // "end" at end of file
-                    exec_trace!(
-                        "Found standalone 'end' at end of file, line {}",
-                        first_token.line
-                    );
-                    self.bump_sync();
-                    break;
-                }
                 }
             }
 
@@ -4842,11 +4845,7 @@ impl<'a> Parser<'a> {
                 let column = token.column;
                 let path = path_str.clone();
                 self.bump_sync(); // Consume the string literal
-                Expression::Literal(
-                    Literal::String(path),
-                    line,
-                    column,
-                )
+                Expression::Literal(Literal::String(path), line, column)
             } else {
                 return Err(ParseError::new(
                     format!(

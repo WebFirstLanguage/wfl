@@ -249,8 +249,9 @@ impl<'a> Cursor<'a> {
     /// ```
     #[inline]
     pub fn at(&self, expected: Token) -> bool {
-        self.peek_kind()
-            .map_or(false, |t| std::mem::discriminant(t) == std::mem::discriminant(&expected))
+        self.peek_kind().map_or(false, |t| {
+            std::mem::discriminant(t) == std::mem::discriminant(&expected)
+        })
     }
 
     /// Consume token if it matches expected type.
@@ -464,10 +465,7 @@ mod tests {
         let tokens = make_tokens();
         let cursor = Cursor::new(&tokens);
 
-        assert_eq!(
-            cursor.peek_n(0).unwrap().token,
-            Token::KeywordStore
-        );
+        assert_eq!(cursor.peek_n(0).unwrap().token, Token::KeywordStore);
         assert_eq!(
             cursor.peek_n(1).unwrap().token,
             Token::Identifier("x".to_string())
