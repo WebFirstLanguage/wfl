@@ -32,7 +32,8 @@
       "Bash(gh release view:*)",
       "Bash(git rev-parse:*)",
       "Bash(cargo run:*)",
-      "Bash(./target/release/wfl.exe:*)"
+      "Bash(./target/release/wfl.exe:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []

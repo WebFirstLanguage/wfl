@@ -198,3 +198,4 @@ The codebase includes Cursor IDE rules in `.cursor/rules/wfl-rules.mdc`:
 WFL uses calendar-based versioning: **YY.MM.BUILD**
 - Example: `25.12.3` = Year 2025, December, Build 3
 - Major version always < 256 (Windows MSI compatibility)
+- keep a dev diary in the dev diary directory on the project root

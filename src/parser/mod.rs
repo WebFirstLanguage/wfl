@@ -1,10 +1,12 @@
 pub mod ast;
+mod cursor;
 #[cfg(test)]
 mod tests;
 
 use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use ast::*;
+use cursor::Cursor;
 use std::iter::Peekable;
 use std::slice::Iter;
 
@@ -151,15 +153,24 @@ fn is_reserved_pattern_name(name: &str) -> bool {
 }
 
 pub struct Parser<'a> {
-    tokens: Peekable<Iter<'a, TokenWithPosition>>,
+    /// Cursor for efficient token navigation (NEW)
+    cursor: Cursor<'a>,
+    /// Parse errors accumulated during parsing
     errors: Vec<ParseError>,
+    /// Known action names for call resolution
+    /// TODO: Remove in Phase 4 (move to semantic analysis)
     known_actions: std::collections::HashSet<String>,
+    /// Legacy iterator-based navigation (DEPRECATED - remove in Step 7)
+    #[deprecated(note = "Use cursor instead")]
+    #[allow(dead_code)]
+    tokens: Peekable<Iter<'a, TokenWithPosition>>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a [TokenWithPosition]) -> Self {
         Parser {
-            tokens: tokens.iter().peekable(),
+            cursor: Cursor::new(tokens),
+            tokens: tokens.iter().peekable(), // Keep during migration
             errors: Vec::with_capacity(4),
             known_actions: std::collections::HashSet::new(),
         }
