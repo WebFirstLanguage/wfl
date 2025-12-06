@@ -214,7 +214,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse(&mut self) -> Result<Program, Vec<ParseError>> {
         let mut program = Program::new();
-        program.statements.reserve(self.tokens.clone().count() / 5);
+        program.statements.reserve(self.cursor.remaining() / 5);
 
         let mut last_line = 0;
 
@@ -229,13 +229,11 @@ impl<'a> Parser<'a> {
             }
 
             // Comprehensive handling of "end" tokens that might be left unconsumed
-            // Check first two tokens to avoid borrow checker issues
-            let mut tokens_clone = self.tokens.clone();
-            if let Some(first_token) = tokens_clone.next()
-                && first_token.token == Token::KeywordEnd
-            {
-                if let Some(second_token) = tokens_clone.next() {
-                    match &second_token.token {
+            // Check first two tokens without cloning
+            if let Some(first_token) = self.cursor.peek() {
+                if first_token.token == Token::KeywordEnd {
+                    if let Some(second_token) = self.cursor.peek_next() {
+                        match &second_token.token {
                         Token::KeywordAction => {
                             exec_trace!(
                                 "Consuming orphaned 'end action' at line {}",
@@ -350,6 +348,7 @@ impl<'a> Parser<'a> {
                     );
                     self.tokens.next();
                     break;
+                }
                 }
             }
 
@@ -1719,12 +1718,10 @@ impl<'a> Parser<'a> {
     /// }
     /// ```
     fn peek_divided_by(&mut self) -> bool {
-        // Use nth(1) to directly access the token after "divided" without multiple advances
-        if let Some(next_token_pos) = self.tokens.clone().nth(1) {
-            matches!(next_token_pos.token, Token::KeywordBy)
-        } else {
-            false
-        }
+        // Look ahead one token to check for "by" keyword
+        self.cursor
+            .peek_next()
+            .map_or(false, |tok| matches!(tok.token, Token::KeywordBy))
     }
 
     /// Parses an expression, starting with the lowest precedence.
@@ -5510,14 +5507,15 @@ impl<'a> Parser<'a> {
             // Check for named arguments (name: value)
             let arg_name = if let Some(name_token) = self.tokens.peek().cloned() {
                 if let Token::Identifier(id) = &name_token.token {
-                    if let Some(next) = self.tokens.clone().nth(1) {
-                        if matches!(next.token, Token::Colon) {
-                            self.tokens.next(); // Consume name
-                            self.tokens.next(); // Consume ":"
-                            Some(id.to_string())
-                        } else {
-                            None
-                        }
+                    // Check if next token is colon (named argument syntax)
+                    if self
+                        .cursor
+                        .peek_next()
+                        .map_or(false, |t| matches!(t.token, Token::Colon))
+                    {
+                        self.tokens.next(); // Consume name
+                        self.tokens.next(); // Consume ":"
+                        Some(id.to_string())
                     } else {
                         None
                     }
