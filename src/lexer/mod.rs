@@ -93,6 +93,9 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
     let mut current_id_start_line = 0;
     let mut current_id_start_column = 0;
     let mut current_id_length = 0;
+    // NEW: Track byte positions for multi-word identifiers
+    let mut current_id_byte_start = 0;
+    let mut current_id_byte_end = 0;
 
     let mut _line = 1;
     let mut _column = 1;
@@ -134,55 +137,68 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                     id.push_str(&word);
                     // For multi-word identifiers, we need to account for the space and additional word
                     current_id_length += 1 + token_length; // +1 for the space
+                    current_id_byte_end = span.end;  // NEW: Update end byte position
                 } else {
                     current_id = Some(intern_string(word));
                     current_id_start_line = token_line;
                     current_id_start_column = token_column;
                     current_id_length = token_length;
+                    current_id_byte_start = span.start;  // NEW: Track start byte position
+                    current_id_byte_end = span.end;      // NEW: Track end byte position
                 }
             }
             Ok(Token::Newline) => {
                 // Flush multi-word identifier if any
                 if let Some(id) = current_id.take() {
-                    tokens.push(TokenWithPosition::new(
+                    tokens.push(TokenWithPosition::with_span(
                         Token::Identifier(intern_string(id)),
                         current_id_start_line,
                         current_id_start_column,
                         current_id_length,
+                        current_id_byte_start,
+                        current_id_byte_end,
                     ));
                 }
 
                 // NEW: Emit Eol token to mark statement boundary
-                tokens.push(TokenWithPosition::new(
+                tokens.push(TokenWithPosition::with_span(
                     Token::Eol,
                     token_line,
                     token_column,
                     token_length, // Length of '\n' = 1
+                    span.start,
+                    span.end,
                 ));
             }
             Ok(other) => {
                 if let Some(id) = current_id.take() {
-                    tokens.push(TokenWithPosition::new(
+                    tokens.push(TokenWithPosition::with_span(
                         Token::Identifier(intern_string(id)),
                         current_id_start_line,
                         current_id_start_column,
                         current_id_length,
+                        current_id_byte_start,
+                        current_id_byte_end,
                     ));
                 }
 
                 if let Token::StringLiteral(s) = &other {
-                    tokens.push(TokenWithPosition::new(
+                    tokens.push(TokenWithPosition::with_span(
                         Token::StringLiteral(intern_string(s.clone())),
                         token_line,
                         token_column,
                         token_length,
+                        span.start,
+                        span.end,
                     ));
                 } else {
-                    tokens.push(TokenWithPosition::new(
+                    tokens.push(TokenWithPosition::with_span(
                         other,
                         token_line,
                         token_column,
                         token_length,
+                        span.start,
+                        span.end,
                     ));
                 }
             }
@@ -197,11 +213,13 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
     }
 
     if let Some(id) = current_id.take() {
-        tokens.push(TokenWithPosition::new(
+        tokens.push(TokenWithPosition::with_span(
             Token::Identifier(intern_string(id)),
             current_id_start_line,
             current_id_start_column,
             current_id_length,
+            current_id_byte_start,
+            current_id_byte_end,
         ));
     }
     tokens

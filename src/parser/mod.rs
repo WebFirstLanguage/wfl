@@ -3974,6 +3974,8 @@ impl<'a> Parser<'a> {
                 line: 0,
                 column: 0,
                 length: 0,
+                byte_start: 0,
+                byte_end: 0,
             },
             |v| v,
         );
@@ -4111,6 +4113,8 @@ impl<'a> Parser<'a> {
                 line: 0,
                 column: 0,
                 length: 0,
+                byte_start: 0,
+                byte_end: 0,
             },
             |v| v,
         );
@@ -4403,6 +4407,8 @@ impl<'a> Parser<'a> {
                 line: 0,
                 column: 0,
                 length: 0,
+                byte_start: 0,
+                byte_end: 0,
             },
             |v| v,
         );
@@ -4466,6 +4472,8 @@ impl<'a> Parser<'a> {
                 line: 0,
                 column: 0,
                 length: 0,
+                byte_start: 0,
+                byte_end: 0,
             },
             |v| v,
         );
@@ -4995,6 +5003,8 @@ impl<'a> Parser<'a> {
                 line: 0,
                 column: 0,
                 length: 0,
+                byte_start: 0,
+                byte_end: 0,
             },
             |v| v,
         );
@@ -5232,6 +5242,8 @@ impl<'a> Parser<'a> {
             line: 0,
             column: 0,
             length: 0,
+            byte_start: 0,
+            byte_end: 0,
         };
         let token_pos = self.cursor.peek().map_or(&default_token, |v| v);
         Ok(Statement::ExpressionStatement {
