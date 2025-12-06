@@ -408,6 +408,65 @@ impl<'a> Cursor<'a> {
     pub fn current_column(&self) -> usize {
         self.peek().map_or(0, |t| t.column)
     }
+
+    /// Get span of current token (for error reporting).
+    ///
+    /// Returns a Span covering the current token's byte range.
+    /// If at EOF, returns a zero-length span.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::lexer::token::{Token, TokenWithPosition};
+    /// # use wfl::diagnostics::Span;
+    /// # let tokens = vec![TokenWithPosition::with_span(Token::KeywordStore, 1, 1, 5, 0, 5)];
+    /// let cursor = Cursor::new(&tokens);
+    /// let span = cursor.current_span();
+    /// assert_eq!(span.start, 0);
+    /// assert_eq!(span.end, 5);
+    /// ```
+    pub fn current_span(&self) -> crate::diagnostics::Span {
+        use crate::diagnostics::Span;
+        self.peek()
+            .map(|t| Span {
+                start: t.byte_start,
+                end: t.byte_end,
+            })
+            .unwrap_or(Span { start: 0, end: 0 })
+    }
+
+    /// Create ParseError from current token position.
+    ///
+    /// Convenience method that creates a ParseError with proper span
+    /// information from the current token.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::lexer::token::{Token, TokenWithPosition};
+    /// # let tokens = vec![TokenWithPosition::with_span(Token::KeywordStore, 1, 1, 5, 0, 5)];
+    /// let cursor = Cursor::new(&tokens);
+    /// let error = cursor.error("Test error".to_string());
+    /// assert_eq!(error.line, 1);
+    /// assert_eq!(error.column, 1);
+    /// assert_eq!(error.span.start, 0);
+    /// assert_eq!(error.span.end, 5);
+    /// ```
+    pub fn error(&self, message: String) -> crate::parser::ast::ParseError {
+        use crate::parser::ast::ParseError;
+        if let Some(token) = self.peek() {
+            ParseError::from_token(message, token)
+        } else {
+            ParseError::from_span(
+                message,
+                crate::diagnostics::Span { start: 0, end: 0 },
+                0,
+                0,
+            )
+        }
+    }
 }
 
 impl<'a> std::fmt::Debug for Cursor<'a> {
