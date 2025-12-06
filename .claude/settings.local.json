@@ -35,7 +35,9 @@
       "Bash(./target/release/wfl.exe:*)",
       "Bash(git add:*)",
       "Bash(powershell -Command \".\\target\\release\\wfl.exe TestPrograms/error_handling_comprehensive.wfl 2>&1 | Select-Object -First 15\")",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(findstr:*)",
+      "Bash(powershell -Command \"(Get-Content ''G:\\Logbie\\wfl\\src\\parser\\tests.rs'').Length\")"
     ],
     "deny": [],
     "ask": []
