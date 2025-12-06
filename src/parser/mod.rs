@@ -337,6 +337,33 @@ impl<'a> Parser<'a> {
                                 self.bump_sync(); // Consume "pattern"
                                 continue;
                             }
+                            Token::KeywordList => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end list' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "list"
+                                continue;
+                            }
+                            Token::KeywordContainer => {
+                                exec_trace!(
+                                    "Consuming orphaned 'end container' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "container"
+                                continue;
+                            }
+                            Token::Eol => {
+                                // Standalone "end" on its own line - consume it
+                                exec_trace!(
+                                    "Found standalone 'end' at line {}",
+                                    first_token.line
+                                );
+                                self.bump_sync(); // Consume "end"
+                                continue;
+                            }
                             _ => {
                                 // Standalone "end" or unexpected pattern - consume and log error
                                 exec_trace!(
@@ -1240,6 +1267,10 @@ impl<'a> Parser<'a> {
                 Token::KeywordEnd => {
                     self.bump_sync(); // Consume 'end'
                     break;
+                }
+                Token::Eol => {
+                    self.bump_sync(); // Skip Eol between property initializations
+                    continue;
                 }
                 Token::Identifier(prop_name) => {
                     let name = prop_name.clone();
@@ -6213,6 +6244,9 @@ impl<'a> Parser<'a> {
             None
         };
 
+        // Skip any Eol tokens before the body
+        self.skip_eol();
+
         let mut body = Vec::new();
 
         // Parse action body until 'end'
@@ -6221,6 +6255,10 @@ impl<'a> Parser<'a> {
                 if token.token == Token::KeywordEnd {
                     self.bump_sync(); // Consume 'end'
                     break;
+                }
+                if matches!(token.token, Token::Eol) {
+                    self.bump_sync(); // Skip Eol between statements
+                    continue;
                 }
                 body.push(self.parse_statement()?);
             } else {
