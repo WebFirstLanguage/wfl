@@ -218,17 +218,8 @@ impl<'a> Parser<'a> {
         let mut program = Program::new();
         program.statements.reserve(self.cursor.remaining() / 5);
 
-        let mut last_line = 0;
-
         while self.cursor.peek().is_some() {
             let start_pos = self.cursor.pos();
-
-            if let Some(token) = self.cursor.peek() {
-                if token.line > last_line && last_line > 0 {
-                    // This is especially important for statements like "push" that don't have
-                }
-                last_line = token.line;
-            }
 
             // Comprehensive handling of "end" tokens that might be left unconsumed
             // Check first two tokens without cloning
@@ -358,22 +349,36 @@ impl<'a> Parser<'a> {
             }
 
             match self.parse_statement() {
-                Ok(statement) => program.statements.push(statement),
+                Ok(statement) => {
+                    program.statements.push(statement);
+
+                    // Consume trailing Eol tokens (blank lines between statements)
+                    while let Some(token) = self.cursor.peek() {
+                        if matches!(token.token, Token::Eol) {
+                            self.bump_sync();
+                        } else {
+                            break;
+                        }
+                    }
+                }
                 Err(error) => {
                     self.errors.push(error);
 
-                    // This is especially important for consecutive push statements
-                    let current_line = if let Some(token) = self.cursor.peek() {
-                        token.line
-                    } else {
-                        0
-                    };
-
+                    // Skip tokens until we reach Eol or statement starter
                     while let Some(token) = self.cursor.peek() {
-                        if token.line > current_line || Parser::is_statement_starter(&token.token) {
+                        if matches!(token.token, Token::Eol) || Parser::is_statement_starter(&token.token) {
                             break;
                         }
                         self.bump_sync(); // Skip token
+                    }
+
+                    // Consume trailing Eol tokens if any
+                    while let Some(token) = self.cursor.peek() {
+                        if matches!(token.token, Token::Eol) {
+                            self.bump_sync();
+                        } else {
+                            break;
+                        }
                     }
                 }
             }
@@ -1721,20 +1726,13 @@ impl<'a> Parser<'a> {
     fn parse_binary_expression(&mut self, precedence: u8) -> Result<Expression, ParseError> {
         let mut left = self.parse_primary_expression()?;
 
-        let left_line = if let Some(token) = self.cursor.peek() {
-            token.line
-        } else {
-            0
-        };
-
-        while let Some(token_pos) = self.cursor.peek().cloned() {
-            let token = token_pos.token.clone();
+        while let Some(token_pos) = self.cursor.peek() {
+            let token = &token_pos.token;
             let line = token_pos.line;
             let column = token_pos.column;
 
-            // If we're on a new line or at a statement starter, stop parsing this expression
-            // This is crucial for statements like "push" that don't have explicit terminators
-            if line > left_line || Parser::is_statement_starter(&token) {
+            // Stop at Eol (statement boundary) or statement starter
+            if matches!(token, Token::Eol) || Parser::is_statement_starter(token) {
                 break;
             }
 
@@ -3249,10 +3247,8 @@ impl<'a> Parser<'a> {
                                     } => (*line, *col),
                                     _ => (token.line, token.column),
                                 };
-                                // Guard: require same line to avoid cross-line capture
-                                if token.line != base_line {
-                                    break;
-                                }
+                                // Since Eol terminates expressions, we can safely proceed
+                                // The index literal must come immediately after the base expression
                                 self.bump_sync(); // Consume the number
                                 expr = Expression::IndexAccess {
                                     collection: Box::new(expr),
@@ -5999,19 +5995,13 @@ impl<'a> Parser<'a> {
 
         self.expect_token(Token::KeywordAnd, "Expected 'and' after list expression")?;
 
-        let start_line = if let Some(token) = self.cursor.peek() {
-            token.line
-        } else {
-            push_token.line
-        };
-
         let mut value_expr = self.parse_primary_expression()?;
 
+        // Continue parsing as binary expression if not at Eol or statement starter
         if let Some(token) = self.cursor.peek()
-            && token.line == start_line
+            && !matches!(token.token, Token::Eol)
             && !Parser::is_statement_starter(&token.token)
         {
-            // so we can continue parsing the expression
             value_expr = self.parse_binary_expression(0)?;
         }
 
