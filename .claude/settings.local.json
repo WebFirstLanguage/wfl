@@ -33,7 +33,9 @@
       "Bash(git rev-parse:*)",
       "Bash(cargo run:*)",
       "Bash(./target/release/wfl.exe:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(powershell -Command \".\\target\\release\\wfl.exe TestPrograms/error_handling_comprehensive.wfl 2>&1 | Select-Object -First 15\")",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []
