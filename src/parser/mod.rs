@@ -995,6 +995,10 @@ impl<'a> Parser<'a> {
                         let event = self.parse_event_definition_full()?;
                         events.push(event);
                     }
+                    Token::Eol => {
+                        self.bump_sync(); // Skip Eol between definitions
+                        continue;
+                    }
                     _ => {
                         return Err(ParseError::new(
                             format!("Unexpected token in container body: {:?}", token.token),
@@ -5584,6 +5588,9 @@ impl<'a> Parser<'a> {
         let try_token = self.bump_sync().unwrap(); // Consume "try"
         self.expect_token(Token::Colon, "Expected ':' after 'try'")?;
 
+        // Skip any Eol tokens after the colon
+        self.skip_eol();
+
         let mut body = Vec::new();
         while let Some(token) = self.cursor.peek().cloned() {
             if matches!(
@@ -5594,6 +5601,10 @@ impl<'a> Parser<'a> {
                     | Token::KeywordEnd
             ) {
                 break;
+            }
+            if matches!(token.token, Token::Eol) {
+                self.bump_sync(); // Skip Eol between statements
+                continue;
             }
             body.push(self.parse_statement()?);
         }
@@ -5767,6 +5778,9 @@ impl<'a> Parser<'a> {
 
                     self.expect_token(Token::Colon, "Expected ':' after error type")?;
 
+                    // Skip any Eol tokens after the colon
+                    self.skip_eol();
+
                     let mut when_body = Vec::new();
                     while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(
@@ -5777,6 +5791,10 @@ impl<'a> Parser<'a> {
                                 | Token::KeywordEnd
                         ) {
                             break;
+                        }
+                        if matches!(token.token, Token::Eol) {
+                            self.bump_sync(); // Skip Eol between statements
+                            continue;
                         }
                         when_body.push(self.parse_statement()?);
                     }
@@ -5814,6 +5832,9 @@ impl<'a> Parser<'a> {
 
                     self.expect_token(Token::Colon, "Expected ':' after 'catch'")?;
 
+                    // Skip any Eol tokens after the colon
+                    self.skip_eol();
+
                     let mut catch_body = Vec::new();
                     while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(
@@ -5824,6 +5845,10 @@ impl<'a> Parser<'a> {
                                 | Token::KeywordEnd
                         ) {
                             break;
+                        }
+                        if matches!(token.token, Token::Eol) {
+                            self.bump_sync(); // Skip Eol between statements
+                            continue;
                         }
                         catch_body.push(self.parse_statement()?);
                     }
@@ -5839,10 +5864,17 @@ impl<'a> Parser<'a> {
                     self.bump_sync(); // Consume "otherwise"
                     self.expect_token(Token::Colon, "Expected ':' after 'otherwise'")?;
 
+                    // Skip any Eol tokens after the colon
+                    self.skip_eol();
+
                     let mut otherwise_body = Vec::new();
                     while let Some(token) = self.cursor.peek().cloned() {
                         if matches!(token.token, Token::KeywordEnd) {
                             break;
+                        }
+                        if matches!(token.token, Token::Eol) {
+                            self.bump_sync(); // Skip Eol between statements
+                            continue;
                         }
                         otherwise_body.push(self.parse_statement()?);
                     }
@@ -7324,6 +7356,9 @@ impl<'a> Parser<'a> {
         // Expect colon
         self.expect_token(Token::Colon, "Expected ':' after list name")?;
 
+        // Skip any Eol tokens after the colon
+        self.skip_eol();
+
         // Parse list items
         let mut initial_values = Vec::new();
 
@@ -7338,6 +7373,10 @@ impl<'a> Parser<'a> {
                     self.bump_sync(); // Consume "add"
                     let value = self.parse_expression()?;
                     initial_values.push(value);
+                }
+                Token::Eol => {
+                    self.bump_sync(); // Skip Eol between items
+                    continue;
                 }
                 _ => {
                     return Err(ParseError::new(
