@@ -14,7 +14,6 @@ use std::slice::Iter;
 pub struct Parser<'a> {
     tokens: Peekable<Iter<'a, TokenWithPosition>>,
     errors: Vec<ParseError>,
-    known_actions: std::collections::HashSet<String>,
 }
 
 impl<'a> Parser<'a> {
@@ -22,7 +21,6 @@ impl<'a> Parser<'a> {
         Parser {
             tokens: tokens.iter().peekable(),
             errors: Vec::with_capacity(4),
-            known_actions: std::collections::HashSet::new(),
         }
     }
 
@@ -442,8 +440,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token::KeywordWith => {
+                    // With the introduction of 'call' keyword, we still support
+                    // legacy syntax for builtin functions: `builtinName with args`
                     if let Expression::Variable(ref name, var_line, var_column) = left {
-                        if self.known_actions.contains(name) {
+                        if crate::builtins::is_builtin_function(name) {
                             self.tokens.next();
                             let arguments = self.parse_argument_list()?;
                             left = Expression::ActionCall {
@@ -787,8 +787,6 @@ impl<'a> Parser<'a> {
 
         self.expect_token(Token::KeywordEnd, "Expected 'end' after action body")?;
         self.expect_token(Token::KeywordAction, "Expected 'action' after 'end'")?;
-
-        self.known_actions.insert(name.clone());
 
         Ok(Statement::ActionDefinition {
             name,

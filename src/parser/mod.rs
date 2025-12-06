@@ -155,9 +155,6 @@ pub struct Parser<'a> {
     cursor: Cursor<'a>,
     /// Parse errors accumulated during parsing
     errors: Vec<ParseError>,
-    /// Known action names for call resolution
-    /// TODO: Remove in Phase 4 (move to semantic analysis)
-    known_actions: std::collections::HashSet<String>,
 }
 
 impl<'a> Parser<'a> {
@@ -165,7 +162,6 @@ impl<'a> Parser<'a> {
         Parser {
             cursor: Cursor::new(tokens),
             errors: Vec::with_capacity(4),
-            known_actions: std::collections::HashSet::new(),
         }
     }
 
@@ -1975,24 +1971,28 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token::KeywordWith => {
-                    // Only create an ActionCall if this is a known action name
-                    if let Expression::Variable(ref name, var_line, var_column) = left
-                        && self.known_actions.contains(name)
-                    {
-                        // This is a known action, treat it as an action call
-                        self.bump_sync(); // Consume "with"
-                        let arguments = self.parse_argument_list()?;
+                    // With the introduction of 'call' keyword, we still support
+                    // legacy syntax for builtin functions: `builtinName with args`
+                    // For user-defined actions, require `call actionName with args`
+                    if let Expression::Variable(ref name, var_line, var_column) = left {
+                        // Check if this is a builtin function
+                        if crate::builtins::is_builtin_function(name) {
+                            // Builtin function - keep legacy syntax
+                            self.bump_sync(); // Consume "with"
+                            let arguments = self.parse_argument_list()?;
 
-                        left = Expression::ActionCall {
-                            name: name.clone(),
-                            arguments,
-                            line: var_line,
-                            column: var_column,
-                        };
-                        continue; // Skip the rest of the loop since we've already updated left
+                            left = Expression::ActionCall {
+                                name: name.clone(),
+                                arguments,
+                                line: var_line,
+                                column: var_column,
+                            };
+                            continue;
+                        }
                     }
 
-                    // Default case - treat as concatenation
+                    // For all other cases (including user-defined actions),
+                    // treat 'with' as concatenation
                     self.bump_sync(); // Consume "with"
                     let right = self.parse_expression()?;
                     left = Expression::Concatenation {
@@ -2001,7 +2001,7 @@ impl<'a> Parser<'a> {
                         line: token_pos.line,
                         column: token_pos.column,
                     };
-                    continue; // Skip the rest of the loop since we've already updated left
+                    continue;
                 }
                 Token::KeywordAnd => {
                     // DON'T consume here - let precedence check happen first
@@ -2314,6 +2314,68 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
+    fn parse_call_expression(&mut self, call_line: usize, call_column: usize) -> Result<Expression, ParseError> {
+        // We've already consumed Token::KeywordCall in the caller
+
+        // Expect identifier for action name
+        let name = if let Some(token_pos) = self.cursor.peek().cloned() {
+            if let Token::Identifier(id) = &token_pos.token {
+                let name = id.clone();
+                self.bump_sync(); // Consume identifier
+                name
+            } else {
+                let error = ParseError::from_token(
+                    "Expected action name after 'call'".to_string(),
+                    &token_pos,
+                );
+                self.errors.push(error.clone());
+                return Err(error);
+            }
+        } else {
+            let error = ParseError::new(
+                "Expected action name after 'call'".to_string(),
+                call_line,
+                call_column,
+            );
+            self.errors.push(error.clone());
+            return Err(error);
+        };
+
+        // Check for 'with' keyword (optional for zero-argument calls)
+        if let Some(token_pos) = self.cursor.peek() {
+            if matches!(token_pos.token, Token::KeywordWith) {
+                self.bump_sync(); // Consume 'with'
+            } else {
+                // 'with' is optional if action takes no arguments
+                // Return zero-argument action call
+                return Ok(Expression::ActionCall {
+                    name,
+                    arguments: vec![],
+                    line: call_line,
+                    column: call_column,
+                });
+            }
+        } else {
+            // End of input after action name - zero arguments
+            return Ok(Expression::ActionCall {
+                name,
+                arguments: vec![],
+                line: call_line,
+                column: call_column,
+            });
+        }
+
+        // Parse argument list
+        let arguments = self.parse_argument_list()?;
+
+        Ok(Expression::ActionCall {
+            name,
+            arguments,
+            line: call_line,
+            column: call_column,
+        })
+    }
+
     fn parse_primary_expression(&mut self) -> Result<Expression, ParseError> {
         if let Some(token) = self.cursor.peek().cloned() {
             let result = match &token.token {
@@ -2431,6 +2493,12 @@ impl<'a> Parser<'a> {
                         token_pos.line,
                         token_pos.column,
                     ))
+                }
+                Token::KeywordCall => {
+                    let call_line = token.line;
+                    let call_column = token.column;
+                    self.bump_sync(); // Consume 'call'
+                    return self.parse_call_expression(call_line, call_column);
                 }
                 Token::Identifier(name) => {
                     self.bump_sync();
@@ -4184,6 +4252,14 @@ impl<'a> Parser<'a> {
             exec_trace!("Found '{}' keyword, parsing parameters", _keyword);
             self.bump_sync(); // Consume "needs" or "with"
 
+            // Skip optional "parameters" keyword for readability
+            if let Some(token) = self.cursor.peek() {
+                if matches!(token.token, Token::KeywordParameters) {
+                    self.bump_sync(); // Consume "parameters"
+                    exec_trace!("Skipped 'parameters' keyword");
+                }
+            }
+
             while let Some(token) = self.cursor.peek().cloned() {
                 exec_trace!("Checking token for parameter: {:?}", token.token);
                 let (param_name, param_line, param_column) =
@@ -4335,10 +4411,6 @@ impl<'a> Parser<'a> {
 
         // Skip any Eol tokens after the colon
         self.skip_eol();
-
-        // Add the action name to our known actions BEFORE parsing the body
-        // This allows recursive calls to be recognized as action calls
-        self.known_actions.insert(name.clone());
 
         let mut body = Vec::with_capacity(10);
 

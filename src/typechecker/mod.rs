@@ -2145,6 +2145,11 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
+                // For builtin functions, use special handling (variadic support, etc.)
+                if Analyzer::is_builtin_function(name) {
+                    return self.get_builtin_function_type(name, arguments.len());
+                }
+
                 let symbol_opt = self.analyzer.get_symbol(name);
 
                 if symbol_opt.is_none() {

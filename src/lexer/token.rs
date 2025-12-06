@@ -71,10 +71,14 @@ pub enum Token {
     KeywordDefine,
     #[token("action")]
     KeywordAction,
+    #[token("call")]
+    KeywordCall,
     #[token("called")]
     KeywordCalled,
     #[token("needs")]
     KeywordNeeds,
+    #[token("parameters")]
+    KeywordParameters,
     #[token("give")]
     KeywordGive,
     #[token("back")]
@@ -516,6 +520,7 @@ impl Token {
                 | Token::KeywordUntil
                 | Token::KeywordForever
                 | Token::KeywordAction
+                | Token::KeywordCall
                 | Token::KeywordWith
                 | Token::KeywordBreak
                 | Token::KeywordContinue

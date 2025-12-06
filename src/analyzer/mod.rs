@@ -1680,14 +1680,11 @@ impl Analyzer {
             Expression::ActionCall {
                 name,
                 arguments,
-                line: _,
-                column: _,
+                line,
+                column,
             } => {
-                // Add the action name to action_parameters to prevent it from being flagged as undefined
-                self.action_parameters.insert(name.clone());
-
+                // Analyze argument expressions first
                 for arg in arguments {
-                    // Mark variables used in action call arguments
                     self.analyze_expression(&arg.value);
 
                     // Special case for variables passed directly as arguments
@@ -1696,6 +1693,56 @@ impl Analyzer {
                         self.action_parameters.insert(var_name.clone());
                     }
                 }
+
+                // Skip validation for builtin functions - they have their own validation
+                if Self::is_builtin_function(name) {
+                    self.action_parameters.insert(name.clone());
+                    return;
+                }
+
+                // Validate user-defined action exists and has correct signature
+                if let Some(symbol) = self.current_scope.resolve(name) {
+                    match &symbol.kind {
+                        SymbolKind::Function { signatures } => {
+                            // Get first signature (actions have single signature)
+                            if let Some(first_signature) = signatures.first() {
+                                // Validate argument count
+                                if arguments.len() != first_signature.parameters.len() {
+                                    self.errors.push(SemanticError::new(
+                                        format!(
+                                            "Action '{}' expects {} argument(s), but {} were provided",
+                                            name,
+                                            first_signature.parameters.len(),
+                                            arguments.len()
+                                        ),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
+
+                                // TODO: Add parameter type validation in future phases
+                            }
+                        }
+                        _ => {
+                            // Symbol exists but is not a function/action
+                            self.errors.push(SemanticError::new(
+                                format!("'{}' is not an action", name),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    // Action not found in scope and not a builtin
+                    self.errors.push(SemanticError::new(
+                        format!("Undefined action '{}'", name),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                // Keep existing behavior for action parameters tracking
+                self.action_parameters.insert(name.clone());
             }
             Expression::Literal(_, _, _) => {}
             // Container-related expressions
@@ -2043,4 +2090,178 @@ mod tests {
         // Test base container cannot access derived properties
         assert!(!analyzer.is_container_property("BaseContainer", "derived_count"));
     }
+
+    // ===== Phase 4: Tests for action call validation =====
+
+    #[test]
+    fn test_undefined_action_call() {
+        let input = r#"
+define action called greet with parameters name:
+    print with name
+end action
+
+call unknownAction with "test"
+        "#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+
+        // Should have error for undefined action
+        assert!(!analyzer.errors.is_empty(), "Should have semantic errors");
+        assert!(
+            analyzer
+                .errors
+                .iter()
+                .any(|e| e.message.contains("Undefined action 'unknownAction'")),
+            "Should report undefined action 'unknownAction', got: {:?}",
+            analyzer.errors
+        );
+    }
+
+    #[test]
+    fn test_action_call_wrong_arg_count() {
+        let input = r#"
+define action called greet with parameters name:
+    print with name
+end action
+
+call greet with "Alice" and "Bob"
+        "#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+
+        // Should have error for wrong argument count
+        assert!(!analyzer.errors.is_empty(), "Should have semantic errors");
+        assert!(
+            analyzer
+                .errors
+                .iter()
+                .any(|e| e.message.contains("expects 1 argument(s), but 2 were provided")),
+            "Should report wrong argument count, got: {:?}",
+            analyzer.errors
+        );
+    }
+
+    #[test]
+    fn test_valid_action_call() {
+        let input = r#"
+define action called greet with parameters name:
+    print with name
+end action
+
+call greet with "Alice"
+        "#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+
+        // Should have no errors
+        assert!(
+            analyzer.errors.is_empty(),
+            "Should have no semantic errors, got: {:?}",
+            analyzer.errors
+        );
+    }
+
+    #[test]
+    fn test_recursive_action_call() {
+        let input = r#"
+define action called factorial with parameters n:
+    check if n is less than or equal to 1:
+        return 1
+    end check
+    return n times (call factorial with n minus 1)
+end action
+
+store result as call factorial with 5
+        "#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+
+        // Should have no errors (recursive calls should work)
+        assert!(
+            analyzer.errors.is_empty(),
+            "Recursive action calls should be valid, got: {:?}",
+            analyzer.errors
+        );
+    }
+
+    #[test]
+    fn test_forward_action_reference() {
+        let input = r#"
+define action called first:
+    call second with "test"
+end action
+
+define action called second with parameters msg:
+    print with msg
+end action
+        "#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+
+        // Should have no errors (forward references should work)
+        assert!(
+            analyzer.errors.is_empty(),
+            "Forward action references should be valid, got: {:?}",
+            analyzer.errors
+        );
+    }
+
+    #[test]
+    fn test_builtin_action_call_validation() {
+        let input = r#"
+print with "Hello"
+        "#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+
+        // Should have no errors (builtin functions should be recognized)
+        assert!(
+            analyzer.errors.is_empty(),
+            "Builtin function calls should be valid, got: {:?}",
+            analyzer.errors
+        );
+    }
+
+    #[test]
+    fn test_action_not_a_function_error() {
+        let input = r#"
+store x as 10
+call x with "test"
+        "#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+
+        // Should have error that 'x' is not an action
+        assert!(!analyzer.errors.is_empty(), "Should have semantic errors");
+        assert!(
+            analyzer
+                .errors
+                .iter()
+                .any(|e| e.message.contains("'x' is not an action")),
+            "Should report 'x' is not an action, got: {:?}",
+            analyzer.errors
+        );
+    }
 }
+

@@ -1280,3 +1280,217 @@ fn test_blank_lines_allowed() {
     let program = parser.parse().expect("Blank lines should be allowed");
     assert_eq!(program.statements.len(), 2);
 }
+
+// ===== Phase 4: Tests for 'call' keyword syntax =====
+
+#[test]
+fn test_call_syntax_basic() {
+    let input = r#"call greet with "Alice""#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Should parse call statement successfully");
+
+    if let Ok(Statement::ExpressionStatement { expression, .. }) = result {
+        if let Expression::ActionCall {
+            name, arguments, ..
+        } = expression
+        {
+            assert_eq!(name, "greet", "Action name should be 'greet'");
+            assert_eq!(arguments.len(), 1, "Should have 1 argument");
+
+            if let Expression::Literal(Literal::String(s), ..) = &arguments[0].value {
+                assert_eq!(s, "Alice", "Argument should be 'Alice'");
+            } else {
+                panic!("Argument should be a string literal");
+            }
+        } else {
+            panic!("Expected ActionCall expression, got: {expression:?}");
+        }
+    } else {
+        panic!("Expected ExpressionStatement, got: {result:?}");
+    }
+}
+
+#[test]
+fn test_call_syntax_multiple_args() {
+    let input = r#"call calculate with 10 and 20 and 30"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Should parse call with multiple args");
+
+    if let Ok(Statement::ExpressionStatement { expression, .. }) = result {
+        if let Expression::ActionCall {
+            name, arguments, ..
+        } = expression
+        {
+            assert_eq!(name, "calculate", "Action name should be 'calculate'");
+            assert_eq!(arguments.len(), 3, "Should have 3 arguments");
+
+            // Verify argument values
+            for (i, expected) in [10, 20, 30].iter().enumerate() {
+                if let Expression::Literal(Literal::Integer(n), ..) = arguments[i].value {
+                    assert_eq!(n, *expected, "Argument {} should be {}", i, expected);
+                } else {
+                    panic!("Argument {} should be an integer literal", i);
+                }
+            }
+        } else {
+            panic!("Expected ActionCall expression, got: {expression:?}");
+        }
+    } else {
+        panic!("Expected ExpressionStatement, got: {result:?}");
+    }
+}
+
+#[test]
+fn test_call_syntax_zero_args() {
+    let input = r#"call initialize"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Should parse call with zero args");
+
+    if let Ok(Statement::ExpressionStatement { expression, .. }) = result {
+        if let Expression::ActionCall {
+            name, arguments, ..
+        } = expression
+        {
+            assert_eq!(name, "initialize", "Action name should be 'initialize'");
+            assert_eq!(arguments.len(), 0, "Should have 0 arguments");
+        } else {
+            panic!("Expected ActionCall expression, got: {expression:?}");
+        }
+    } else {
+        panic!("Expected ExpressionStatement, got: {result:?}");
+    }
+}
+
+#[test]
+fn test_legacy_builtin_syntax_still_works() {
+    let input = r#"print with "Hello""#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Legacy builtin syntax should still work for backward compatibility"
+    );
+
+    if let Ok(Statement::ExpressionStatement { expression, .. }) = result {
+        if let Expression::ActionCall {
+            name, arguments, ..
+        } = expression
+        {
+            assert_eq!(name, "print", "Should parse as ActionCall to 'print'");
+            assert_eq!(arguments.len(), 1, "Should have 1 argument");
+        } else {
+            panic!("Expected ActionCall for builtin function, got: {expression:?}");
+        }
+    } else {
+        panic!("Expected ExpressionStatement, got: {result:?}");
+    }
+}
+
+#[test]
+fn test_concatenation_unchanged() {
+    let input = r#"store msg as "Hello" with " World""#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "String concatenation should still work with 'with'"
+    );
+
+    if let Ok(Statement::VariableDeclaration { value, .. }) = result {
+        if let Expression::Concatenation { left, right, .. } = value {
+            // Left should be string "Hello"
+            if let Expression::Literal(Literal::String(s), ..) = *left {
+                assert_eq!(s, "Hello", "Left side should be 'Hello'");
+            } else {
+                panic!("Left side should be string literal");
+            }
+
+            // Right should be string " World"
+            if let Expression::Literal(Literal::String(s), ..) = *right {
+                assert_eq!(s, " World", "Right side should be ' World'");
+            } else {
+                panic!("Right side should be string literal");
+            }
+        } else {
+            panic!("Expected Concatenation expression, got: {value:?}");
+        }
+    } else {
+        panic!("Expected VariableDeclaration, got: {result:?}");
+    }
+}
+
+#[test]
+fn test_call_in_variable_declaration() {
+    let input = r#"store result as call factorial with 5"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Should parse call in variable declaration");
+
+    if let Ok(Statement::VariableDeclaration { name, value, .. }) = result {
+        assert_eq!(name, "result", "Variable name should be 'result'");
+
+        if let Expression::ActionCall {
+            name: action_name,
+            arguments,
+            ..
+        } = value
+        {
+            assert_eq!(action_name, "factorial", "Action name should be 'factorial'");
+            assert_eq!(arguments.len(), 1, "Should have 1 argument");
+        } else {
+            panic!("Expected ActionCall in value, got: {value:?}");
+        }
+    } else {
+        panic!("Expected VariableDeclaration, got: {result:?}");
+    }
+}
+
+#[test]
+fn test_variable_concatenation_not_action_call() {
+    // This tests that variable concatenation doesn't get parsed as action call
+    let input = r#"store x as "test"
+store y as x with " more""#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let program = parser.parse().expect("Should parse successfully");
+    assert_eq!(program.statements.len(), 2, "Should have 2 statements");
+
+    // Second statement should be concatenation (since 'x' is not a builtin)
+    if let Statement::VariableDeclaration { value, .. } = &program.statements[1] {
+        if let Expression::Concatenation { left, right, .. } = value {
+            // Left should be variable 'x'
+            if let Expression::Variable(var_name, ..) = &**left {
+                assert_eq!(var_name, "x", "Left side should be variable 'x'");
+            } else {
+                panic!("Left side should be variable 'x'");
+            }
+
+            // Right should be string " more"
+            if let Expression::Literal(Literal::String(s), ..) = &**right {
+                assert_eq!(s, " more", "Right side should be ' more'");
+            } else {
+                panic!("Right side should be string literal");
+            }
+        } else {
+            panic!("Expected Concatenation (not ActionCall) for variable 'x', got: {value:?}");
+        }
+    } else {
+        panic!("Second statement should be VariableDeclaration");
+    }
+}

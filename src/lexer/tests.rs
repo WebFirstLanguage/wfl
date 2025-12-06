@@ -24,6 +24,7 @@ fn test_keyword_uniqueness() {
         Token::KeywordUntil,
         Token::KeywordForever,
         Token::KeywordAction,
+        Token::KeywordCall,
         Token::KeywordCalled,
         Token::KeywordWith,
         Token::KeywordNot,
@@ -115,6 +116,9 @@ fn test_container_keywords_lexing() {
         ("new", Token::KeywordNew),
         ("must", Token::KeywordMust),
         ("defaults", Token::KeywordDefaults),
+        ("call", Token::KeywordCall),
+        ("action", Token::KeywordAction),
+        ("called", Token::KeywordCalled),
     ];
 
     for (input, expected) in test_cases {
