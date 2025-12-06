@@ -7,8 +7,6 @@ use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use ast::*;
 use cursor::Cursor;
-use std::iter::Peekable;
-use std::slice::Iter;
 
 /// Checks if a pattern name conflicts with reserved keywords in WFL
 fn is_reserved_pattern_name(name: &str) -> bool {
@@ -153,36 +151,31 @@ fn is_reserved_pattern_name(name: &str) -> bool {
 }
 
 pub struct Parser<'a> {
-    /// Cursor for efficient token navigation (NEW)
+    /// Cursor for efficient token navigation
     cursor: Cursor<'a>,
     /// Parse errors accumulated during parsing
     errors: Vec<ParseError>,
     /// Known action names for call resolution
     /// TODO: Remove in Phase 4 (move to semantic analysis)
     known_actions: std::collections::HashSet<String>,
-    /// Legacy iterator-based navigation (DEPRECATED - remove in Step 7)
-    #[deprecated(note = "Use cursor instead")]
-    #[allow(dead_code)]
-    tokens: Peekable<Iter<'a, TokenWithPosition>>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a [TokenWithPosition]) -> Self {
         Parser {
             cursor: Cursor::new(tokens),
-            tokens: tokens.iter().peekable(), // Keep during migration
             errors: Vec::with_capacity(4),
             known_actions: std::collections::HashSet::new(),
         }
     }
 
-    /// Temporary helper: Consume token from both cursor and iterator to keep them synchronized
-    /// during migration. Will be removed in Step 7 when tokens field is deleted.
+    /// Consume token from cursor and advance position.
+    ///
+    /// This is a convenience wrapper around `cursor.bump()` that maintains
+    /// consistent naming with the rest of the parser.
     #[inline]
     fn bump_sync(&mut self) -> Option<&'a TokenWithPosition> {
-        let result = self.cursor.bump();
-        self.tokens.next(); // Keep iterator synchronized
-        result
+        self.cursor.bump()
     }
 
     /// Helper method to get text representation of contextual keywords
@@ -1266,10 +1259,8 @@ impl<'a> Parser<'a> {
             match &token.token {
                 Token::KeywordStore => self.parse_variable_declaration(),
                 Token::KeywordCreate => {
-                    // Check if it's "create container", "create interface", "create new", "create pattern", or regular "create"
-                    let mut tokens_clone = self.tokens.clone();
-                    tokens_clone.next(); // Skip "create"
-                    if let Some(next_token) = tokens_clone.next() {
+                    // Check what follows "create" keyword
+                    if let Some(next_token) = self.cursor.peek_next() {
                         match &next_token.token {
                             Token::KeywordContainer => self.parse_container_definition(),
                             Token::KeywordInterface => self.parse_interface_definition(),
@@ -1281,10 +1272,10 @@ impl<'a> Parser<'a> {
                             Token::KeywordMap => self.parse_map_creation(),
                             Token::KeywordDate => self.parse_create_date_statement(),
                             Token::KeywordTime => self.parse_create_time_statement(),
-                            _ => self.parse_variable_declaration(), // Default to variable declaration
+                            _ => self.parse_variable_declaration(),
                         }
                     } else {
-                        self.parse_variable_declaration() // Default to variable declaration
+                        self.parse_variable_declaration()
                     }
                 }
                 Token::KeywordDisplay => self.parse_display_statement(),
@@ -1329,45 +1320,15 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Token::KeywordOpen => {
-                    let mut tokens_clone = self.tokens.clone();
-                    let mut has_read_pattern = false;
-
-                    tokens_clone.next();
-
-                    if let Some(token) = tokens_clone.next()
-                        && token.token == Token::KeywordFile
-                        && let Some(token) = tokens_clone.next()
-                        && token.token == Token::KeywordAt
-                        && let Some(token) = tokens_clone.next()
-                        && let Token::StringLiteral(_) = token.token
-                        && let Some(token) = tokens_clone.next()
-                        && token.token == Token::KeywordAnd
-                        && let Some(token) = tokens_clone.next()
-                        && token.token == Token::KeywordRead
-                        && let Some(token) = tokens_clone.next()
-                        && token.token == Token::KeywordContent
-                        && let Some(token) = tokens_clone.next()
-                        && token.token == Token::KeywordAs
-                        && let Some(token) = tokens_clone.next()
-                        && let Token::Identifier(_) = token.token
-                    {
-                        has_read_pattern = true;
-                    }
-
-                    if has_read_pattern {
-                        self.parse_open_file_read_statement()
-                    } else {
-                        self.parse_open_file_statement()
-                    }
+                    // Parse open file statement (handles both regular and "read content" variants)
+                    self.parse_open_file_statement()
                 }
                 Token::KeywordExecute => self.parse_execute_command_statement(),
                 Token::KeywordSpawn => self.parse_spawn_process_statement(),
                 Token::KeywordKill => self.parse_kill_process_statement(),
                 Token::KeywordRead => {
                     // Look ahead to distinguish "read output from process" from other read variants
-                    let mut tokens_clone = self.tokens.clone();
-                    tokens_clone.next(); // Skip "read"
-                    if let Some(next_token) = tokens_clone.next() {
+                    if let Some(next_token) = self.cursor.peek_next() {
                         if matches!(next_token.token, Token::KeywordOutput) {
                             // It's "read output from process"
                             self.parse_read_process_output_statement()
@@ -1392,9 +1353,7 @@ impl<'a> Parser<'a> {
                 }
                 Token::KeywordClose => {
                     // Check if it's "close server" or regular "close file"
-                    let mut tokens_clone = self.tokens.clone();
-                    tokens_clone.next(); // Skip "close"
-                    if let Some(next_token) = tokens_clone.next() {
+                    if let Some(next_token) = self.cursor.peek_next() {
                         if matches!(next_token.token, Token::KeywordServer) {
                             self.parse_close_server_statement()
                         } else {
@@ -1414,9 +1373,7 @@ impl<'a> Parser<'a> {
                 Token::KeywordGive | Token::KeywordReturn => self.parse_return_statement(),
                 Token::Identifier(id) if id == "main" => {
                     // Check if next token is "loop"
-                    let mut tokens_clone = self.tokens.clone();
-                    tokens_clone.next(); // Skip "main"
-                    if let Some(next_token) = tokens_clone.peek() {
+                    if let Some(next_token) = self.cursor.peek_next() {
                         if matches!(next_token.token, Token::KeywordLoop) {
                             self.parse_main_loop()
                         } else {
@@ -5083,7 +5040,7 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     // Try to parse as "wait for X milliseconds/seconds"
-                    let checkpoint = self.tokens.clone();
+                    let checkpoint = self.cursor.checkpoint();
 
                     // Try to parse a duration expression
                     if let Ok(duration_expr) = self.parse_expression() {
@@ -5110,16 +5067,16 @@ impl<'a> Parser<'a> {
                                 }
                                 _ => {
                                     // Not a duration, restore checkpoint and parse as statement
-                                    self.tokens = checkpoint;
+                                    self.cursor.rewind(checkpoint);
                                 }
                             }
                         } else {
                             // No more tokens, restore checkpoint
-                            self.tokens = checkpoint;
+                            self.cursor.rewind(checkpoint);
                         }
                     } else {
                         // Failed to parse expression, restore checkpoint
-                        self.tokens = checkpoint;
+                        self.cursor.rewind(checkpoint);
                     }
 
                     // Fall back to parsing as a statement
@@ -6236,28 +6193,25 @@ impl<'a> Parser<'a> {
         while let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordEnd => {
-                    let mut tokens_clone = self.tokens.clone();
-                    tokens_clone.next(); // Skip "end"
-                    if let Some(next_token) = tokens_clone.next()
-                        && next_token.token == Token::KeywordPattern
-                    {
-                        depth -= 1;
-                        if depth == 0 {
-                            self.bump_sync(); // Consume "end"
-                            self.bump_sync(); // Consume "pattern"
-                            break;
+                    // Check if this is "end pattern"
+                    if let Some(next_token) = self.cursor.peek_next() {
+                        if next_token.token == Token::KeywordPattern {
+                            depth -= 1;
+                            if depth == 0 {
+                                self.bump_sync(); // Consume "end"
+                                self.bump_sync(); // Consume "pattern"
+                                break;
+                            }
                         }
                     }
                     pattern_parts.push(self.bump_sync().unwrap().clone());
                 }
                 Token::KeywordCreate => {
                     // Check for nested pattern creation
-                    let mut tokens_clone = self.tokens.clone();
-                    tokens_clone.next(); // Skip "create"
-                    if let Some(next_token) = tokens_clone.next()
-                        && next_token.token == Token::KeywordPattern
-                    {
-                        depth += 1;
+                    if let Some(next_token) = self.cursor.peek_next() {
+                        if next_token.token == Token::KeywordPattern {
+                            depth += 1;
+                        }
                     }
                     pattern_parts.push(self.bump_sync().unwrap().clone());
                 }
@@ -7485,7 +7439,7 @@ impl<'a> Parser<'a> {
         // 2. List operation: "add "item" to list" (appends to a list)
 
         // Save the position to potentially backtrack
-        let _saved_position = self.tokens.clone();
+        // Position saved in cursor - use checkpoint if needed
         let add_token = self.bump_sync().unwrap(); // Consume "add"
 
         // Parse the value to add
@@ -7643,10 +7597,7 @@ impl<'a> Parser<'a> {
                 && token.token == Token::KeywordAnd
             {
                 // Look ahead to see what comes after "and"
-                let mut tokens_clone = self.tokens.clone();
-                tokens_clone.next(); // Skip "and"
-
-                if let Some(next_token) = tokens_clone.peek() {
+                if let Some(next_token) = self.cursor.peek_next() {
                     if next_token.token == Token::KeywordStatus {
                         self.bump_sync(); // Consume "and"
                         self.bump_sync(); // Consume "status"
