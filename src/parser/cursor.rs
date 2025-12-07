@@ -252,7 +252,7 @@ impl<'a> Cursor<'a> {
     #[inline]
     #[allow(dead_code)]
     pub fn at(&self, expected: Token) -> bool {
-        self.peek_kind().map_or(false, |t| {
+        self.peek_kind().is_some_and(|t| {
             std::mem::discriminant(t) == std::mem::discriminant(&expected)
         })
     }

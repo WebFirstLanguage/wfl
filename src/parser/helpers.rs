@@ -352,6 +352,6 @@ impl<'a> Parser<'a> {
         // Look ahead one token to check for "by" keyword
         self.cursor
             .peek_next()
-            .map_or(false, |tok| matches!(tok.token, Token::KeywordBy))
+            .is_some_and(|tok| matches!(tok.token, Token::KeywordBy))
     }
 }

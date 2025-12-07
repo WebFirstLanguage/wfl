@@ -28,7 +28,6 @@ pub(crate) use variables::VariableParser;
 pub(crate) use web::WebParser;
 
 use super::{ParseError, Statement};
-use crate::lexer::token::Token;
 
 /// Main trait for statement parsing
 ///

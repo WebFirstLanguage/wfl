@@ -653,7 +653,7 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     if self
                         .cursor
                         .peek_next()
-                        .map_or(false, |t| matches!(t.token, Token::Colon))
+                        .is_some_and(|t| matches!(t.token, Token::Colon))
                     {
                         self.bump_sync(); // Consume name
                         self.bump_sync(); // Consume ":"

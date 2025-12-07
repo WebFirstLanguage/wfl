@@ -10,8 +10,7 @@ use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use ast::*;
 use cursor::Cursor;
-use expr::{BinaryExprParser, ExprParser, PrimaryExprParser};
-use helpers::is_reserved_pattern_name;
+use expr::ExprParser;
 use stmt::{
     ActionParser, CollectionParser, ContainerParser, ControlFlowParser, ErrorHandlingParser,
     IoParser, PatternParser, ProcessParser, StmtParser, VariableParser, WebParser,
@@ -49,17 +48,16 @@ impl<'a> Parser<'a> {
             let start_pos = self.cursor.pos();
 
             // Skip any leading Eol tokens
-            if let Some(token) = self.cursor.peek() {
-                if matches!(token.token, Token::Eol) {
+            if let Some(token) = self.cursor.peek()
+                && matches!(token.token, Token::Eol) {
                     self.bump_sync();
                     continue;
                 }
-            }
 
             // Comprehensive handling of "end" tokens that might be left unconsumed
             // Check first two tokens without cloning
-            if let Some(first_token) = self.cursor.peek() {
-                if first_token.token == Token::KeywordEnd {
+            if let Some(first_token) = self.cursor.peek()
+                && first_token.token == Token::KeywordEnd {
                     if let Some(second_token) = self.cursor.peek_next() {
                         match &second_token.token {
                             Token::KeywordAction => {
@@ -205,7 +203,6 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
-            }
 
             match self.parse_statement() {
                 Ok(statement) => {

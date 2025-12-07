@@ -80,12 +80,11 @@ impl<'a> ActionParser<'a> for Parser<'a> {
             self.bump_sync(); // Consume "needs" or "with"
 
             // Skip optional "parameters" keyword for readability
-            if let Some(token) = self.cursor.peek() {
-                if matches!(token.token, Token::KeywordParameters) {
+            if let Some(token) = self.cursor.peek()
+                && matches!(token.token, Token::KeywordParameters) {
                     self.bump_sync(); // Consume "parameters"
                     exec_trace!("Skipped 'parameters' keyword");
                 }
-            }
 
             while let Some(token) = self.cursor.peek().cloned() {
                 exec_trace!("Checking token for parameter: {:?}", token.token);
