@@ -96,22 +96,24 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                 Token::KeywordEnd => {
                     // Check if this is "end pattern"
                     if let Some(next_token) = self.cursor.peek_next()
-                        && next_token.token == Token::KeywordPattern {
-                            depth -= 1;
-                            if depth == 0 {
-                                self.bump_sync(); // Consume "end"
-                                self.bump_sync(); // Consume "pattern"
-                                break;
-                            }
+                        && next_token.token == Token::KeywordPattern
+                    {
+                        depth -= 1;
+                        if depth == 0 {
+                            self.bump_sync(); // Consume "end"
+                            self.bump_sync(); // Consume "pattern"
+                            break;
                         }
+                    }
                     pattern_parts.push(self.bump_sync().unwrap().clone());
                 }
                 Token::KeywordCreate => {
                     // Check for nested pattern creation
                     if let Some(next_token) = self.cursor.peek_next()
-                        && next_token.token == Token::KeywordPattern {
-                            depth += 1;
-                        }
+                        && next_token.token == Token::KeywordPattern
+                    {
+                        depth += 1;
+                    }
                     pattern_parts.push(self.bump_sync().unwrap().clone());
                 }
                 _ => {

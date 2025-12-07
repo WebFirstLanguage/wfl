@@ -295,7 +295,9 @@ impl<'a> Parser<'a> {
                 ))
             }
         } else {
-            Err(self.cursor.error(format!("{error_message}: unexpected end of input")))
+            Err(self
+                .cursor
+                .error(format!("{error_message}: unexpected end of input")))
         }
     }
 
