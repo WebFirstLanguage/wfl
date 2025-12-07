@@ -1,7 +1,7 @@
 //! File I/O and filesystem statement parsing
 
 use super::super::{Expression, FileOpenMode, Literal, ParseError, Parser, Statement};
-use crate::lexer::token::{Token, TokenWithPosition};
+use crate::lexer::token::Token;
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
 
 pub(crate) trait IoParser<'a>: ExprParser<'a> {

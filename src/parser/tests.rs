@@ -1229,7 +1229,7 @@ fn test_eol_prevents_multiline_expression() {
     // Should either error or parse as incomplete
     // NOT as a valid x = 1 + 2 expression
     assert!(
-        result.is_err() || parser.errors.len() > 0,
+        result.is_err() || !parser.errors.is_empty(),
         "Multi-line expression should not be allowed"
     );
 }

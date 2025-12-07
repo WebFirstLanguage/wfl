@@ -27,9 +27,8 @@ pub(crate) use processes::ProcessParser;
 pub(crate) use variables::VariableParser;
 pub(crate) use web::WebParser;
 
-use super::{ParseError, Parser, Statement};
-use crate::lexer::token::{Token, TokenWithPosition};
-use crate::parser::expr::ExprParser;
+use super::{ParseError, Statement};
+use crate::lexer::token::Token;
 
 /// Main trait for statement parsing
 ///
