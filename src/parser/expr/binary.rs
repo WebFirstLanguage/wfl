@@ -3,9 +3,9 @@
 //! This module handles parsing of binary operations, including arithmetic, logical,
 //! comparison, pattern matching, and custom language constructs.
 
-use crate::lexer::token::Token;
-use super::super::{Parser, ParseError, Expression, Operator, Argument};
+use super::super::{Argument, Expression, Operator, ParseError, Parser};
 use super::{ExprParser, PrimaryExprParser};
+use crate::lexer::token::Token;
 
 /// Trait for parsing binary expressions with operator precedence
 pub(crate) trait BinaryExprParser<'a> {
@@ -25,7 +25,11 @@ pub(crate) trait BinaryExprParser<'a> {
     /// # Parameters
     /// - `call_line`: Line number where the 'call' keyword was found
     /// - `call_column`: Column number where the 'call' keyword was found
-    fn parse_call_expression(&mut self, call_line: usize, call_column: usize) -> Result<Expression, ParseError>;
+    fn parse_call_expression(
+        &mut self,
+        call_line: usize,
+        call_column: usize,
+    ) -> Result<Expression, ParseError>;
 
     /// Parses a comma-separated or 'and'-separated argument list for action calls.
     fn parse_argument_list(&mut self) -> Result<Vec<Argument>, ParseError>;
@@ -570,7 +574,11 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
         Ok(left)
     }
 
-    fn parse_call_expression(&mut self, call_line: usize, call_column: usize) -> Result<Expression, ParseError> {
+    fn parse_call_expression(
+        &mut self,
+        call_line: usize,
+        call_column: usize,
+    ) -> Result<Expression, ParseError> {
         // We've already consumed Token::KeywordCall in the caller
 
         // Expect identifier for action name

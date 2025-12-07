@@ -1,6 +1,6 @@
 //! Action definition and call statement parsing
 
-use super::super::{Parser, ParseError, Statement, Expression, Parameter, Type};
+use super::super::{Expression, Parameter, ParseError, Parser, Statement, Type};
 use super::StmtParser;
 use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};

@@ -3,9 +3,9 @@
 //! This module contains common helper functions used throughout the parser,
 //! including token validation, error recovery, and pattern name checking.
 
+use super::{ParseError, Parser};
 use crate::exec_trace;
 use crate::lexer::token::Token;
-use super::{Parser, ParseError};
 
 /// Checks if a pattern name conflicts with reserved keywords in WFL
 pub(crate) fn is_reserved_pattern_name(name: &str) -> bool {
@@ -276,7 +276,11 @@ impl<'a> Parser<'a> {
     }
 
     /// Expect a specific token and consume it, or return an error
-    pub(crate) fn expect_token(&mut self, expected: Token, error_message: &str) -> Result<(), ParseError> {
+    pub(crate) fn expect_token(
+        &mut self,
+        expected: Token,
+        error_message: &str,
+    ) -> Result<(), ParseError> {
         if let Some(token) = self.cursor.peek() {
             if token.token == expected {
                 self.bump_sync();

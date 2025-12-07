@@ -2138,10 +2138,9 @@ call greet with "Alice" and "Bob"
         // Should have error for wrong argument count
         assert!(!analyzer.errors.is_empty(), "Should have semantic errors");
         assert!(
-            analyzer
-                .errors
-                .iter()
-                .any(|e| e.message.contains("expects 1 argument(s), but 2 were provided")),
+            analyzer.errors.iter().any(|e| e
+                .message
+                .contains("expects 1 argument(s), but 2 were provided")),
             "Should report wrong argument count, got: {:?}",
             analyzer.errors
         );
@@ -2264,4 +2263,3 @@ call x with "test"
         );
     }
 }
-

@@ -1,6 +1,6 @@
 //! Variable declaration and assignment statement parsing
 
-use super::super::{Parser, ParseError, Statement, Expression, Literal, Operator};
+use super::super::{Expression, Literal, Operator, ParseError, Parser, Statement};
 use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::ExprParser;
 

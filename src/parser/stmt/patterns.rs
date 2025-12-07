@@ -1,6 +1,9 @@
 //! Pattern matching and pattern definition statement parsing
 
-use super::super::{Parser, ParseError, Statement, Expression, PatternExpression, Literal, CharClass, Anchor, Quantifier};
+use super::super::{
+    Anchor, CharClass, Expression, Literal, ParseError, Parser, PatternExpression, Quantifier,
+    Statement,
+};
 use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::{ExprParser, PrimaryExprParser};

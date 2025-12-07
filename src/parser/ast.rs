@@ -766,9 +766,9 @@ pub enum Type {
 #[derive(Debug, Clone)]
 pub struct ParseError {
     pub message: String,
-    pub span: crate::diagnostics::Span,  // NEW: Byte-offset based span
-    pub line: usize,                     // KEEP for compatibility
-    pub column: usize,                   // KEEP for compatibility
+    pub span: crate::diagnostics::Span, // NEW: Byte-offset based span
+    pub line: usize,                    // KEEP for compatibility
+    pub column: usize,                  // KEEP for compatibility
 }
 
 impl ParseError {
@@ -807,7 +807,7 @@ impl ParseError {
         use crate::diagnostics::Span;
         ParseError {
             message,
-            span: Span { start: 0, end: 0 },  // Placeholder
+            span: Span { start: 0, end: 0 }, // Placeholder
             line,
             column,
         }

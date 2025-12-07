@@ -5,29 +5,29 @@
 //! and the main StmtParser trait combines all of them to provide the complete statement
 //! parsing interface.
 
-mod variables;
-mod collections;
-mod io;
-mod processes;
-mod web;
 mod actions;
-mod errors;
-mod control_flow;
-mod patterns;
+mod collections;
 mod containers;
+mod control_flow;
+mod errors;
+mod io;
+mod patterns;
+mod processes;
+mod variables;
+mod web;
 
-pub(crate) use variables::VariableParser;
-pub(crate) use collections::CollectionParser;
-pub(crate) use io::IoParser;
-pub(crate) use processes::ProcessParser;
-pub(crate) use web::WebParser;
 pub(crate) use actions::ActionParser;
-pub(crate) use errors::ErrorHandlingParser;
-pub(crate) use control_flow::ControlFlowParser;
-pub(crate) use patterns::PatternParser;
+pub(crate) use collections::CollectionParser;
 pub(crate) use containers::ContainerParser;
+pub(crate) use control_flow::ControlFlowParser;
+pub(crate) use errors::ErrorHandlingParser;
+pub(crate) use io::IoParser;
+pub(crate) use patterns::PatternParser;
+pub(crate) use processes::ProcessParser;
+pub(crate) use variables::VariableParser;
+pub(crate) use web::WebParser;
 
-use super::{Parser, ParseError, Statement};
+use super::{ParseError, Parser, Statement};
 use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::ExprParser;
 

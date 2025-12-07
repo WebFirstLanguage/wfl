@@ -459,12 +459,7 @@ impl<'a> Cursor<'a> {
         if let Some(token) = self.peek() {
             ParseError::from_token(message, token)
         } else {
-            ParseError::from_span(
-                message,
-                crate::diagnostics::Span { start: 0, end: 0 },
-                0,
-                0,
-            )
+            ParseError::from_span(message, crate::diagnostics::Span { start: 0, end: 0 }, 0, 0)
         }
     }
 }

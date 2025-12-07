@@ -311,8 +311,8 @@ impl DiagnosticReporter {
             }
         };
 
-        let mut diag = WflDiagnostic::error(message.clone())
-            .with_primary_label(span, "Error occurred here");
+        let mut diag =
+            WflDiagnostic::error(message.clone()).with_primary_label(span, "Error occurred here");
 
         if message.contains("Expected 'as' after variable name") {
             diag = diag.with_note(

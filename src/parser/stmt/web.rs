@@ -1,6 +1,6 @@
 //! Web server statement parsing
 
-use super::super::{Parser, ParseError, Statement, Expression};
+use super::super::{Expression, ParseError, Parser, Statement};
 use crate::lexer::token::Token;
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
 

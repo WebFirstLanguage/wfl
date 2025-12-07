@@ -1,6 +1,6 @@
 //! Error handling statement parsing (try/when/otherwise)
 
-use super::super::{Parser, ParseError, Statement, ast};
+use super::super::{ParseError, Parser, Statement, ast};
 use super::StmtParser;
 use crate::lexer::token::Token;
 use crate::parser::expr::ExprParser;

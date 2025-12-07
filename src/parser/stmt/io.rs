@@ -1,6 +1,6 @@
 //! File I/O and filesystem statement parsing
 
-use super::super::{Parser, ParseError, Statement, Expression, Literal, FileOpenMode};
+use super::super::{Expression, FileOpenMode, Literal, ParseError, Parser, Statement};
 use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
 

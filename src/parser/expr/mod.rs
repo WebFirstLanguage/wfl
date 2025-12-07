@@ -10,7 +10,7 @@ mod primary;
 pub(crate) use binary::BinaryExprParser;
 pub(crate) use primary::PrimaryExprParser;
 
-use super::{Parser, ParseError, Expression};
+use super::{Expression, ParseError, Parser};
 
 /// Main trait for expression parsing
 ///

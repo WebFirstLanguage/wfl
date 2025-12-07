@@ -1,8 +1,8 @@
 //! Collection and data structure statement parsing
 
-use super::super::{Parser, ParseError, Statement, Expression, Literal, Operator};
+use super::super::{Expression, Literal, Operator, ParseError, Parser, Statement};
 use crate::lexer::token::Token;
-use crate::parser::expr::{ExprParser, PrimaryExprParser, BinaryExprParser};
+use crate::parser::expr::{BinaryExprParser, ExprParser, PrimaryExprParser};
 
 pub(crate) trait CollectionParser<'a>: ExprParser<'a> {
     fn parse_create_list_statement(&mut self) -> Result<Statement, ParseError>;

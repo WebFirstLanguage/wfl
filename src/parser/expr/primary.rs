@@ -2,17 +2,17 @@
 //!
 //! This module handles parsing of atomic expressions (literals, variables, etc.)
 
+use super::super::{Argument, Expression, Literal, ParseError, Parser, UnaryOperator};
+use super::{BinaryExprParser, ExprParser};
 use crate::exec_trace;
 use crate::lexer::token::Token;
-use super::super::{Parser, ParseError, Expression, Literal, UnaryOperator, Argument};
-use super::{ExprParser, BinaryExprParser};
 use crate::parser::stmt::PatternParser;
 
 /// Trait for parsing primary (atomic) expressions
 pub(crate) trait PrimaryExprParser<'a> {
     /// Parses a primary expression (atomic expression like literals, variables, etc.)
     fn parse_primary_expression(&mut self) -> Result<Expression, ParseError>;
-    
+
     /// Parses a single list element without parsing binary operators
     fn parse_list_element(&mut self) -> Result<Expression, ParseError>;
 }
@@ -1194,7 +1194,6 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
             ))
         }
     }
-
 
     fn parse_list_element(&mut self) -> Result<Expression, ParseError> {
         // Parse a single list element without parsing binary operators

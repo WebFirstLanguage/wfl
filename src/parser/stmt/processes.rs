@@ -1,6 +1,6 @@
 //! Process spawning and management statement parsing
 
-use super::super::{Parser, ParseError, Statement, Expression, Literal, WriteMode};
+use super::super::{Expression, Literal, ParseError, Parser, Statement, WriteMode};
 use super::StmtParser;
 use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::{ExprParser, PrimaryExprParser};

@@ -1450,7 +1450,10 @@ fn test_call_in_variable_declaration() {
             ..
         } = value
         {
-            assert_eq!(action_name, "factorial", "Action name should be 'factorial'");
+            assert_eq!(
+                action_name, "factorial",
+                "Action name should be 'factorial'"
+            );
             assert_eq!(arguments.len(), 1, "Should have 1 argument");
         } else {
             panic!("Expected ActionCall in value, got: {value:?}");

@@ -1,6 +1,6 @@
 //! Control flow statement parsing (if, for, loops, repeat)
 
-use super::super::{Parser, ParseError, Statement, Expression};
+use super::super::{Expression, ParseError, Parser, Statement};
 use super::StmtParser;
 use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::ExprParser;

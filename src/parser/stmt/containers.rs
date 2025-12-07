@@ -1,7 +1,10 @@
 //! Container (OOP) statement parsing
 
-use super::super::{Parser, ParseError, Statement, Expression, PropertyDefinition, EventDefinition, PropertyInitializer, Argument, Type, Visibility};
-use super::{StmtParser, ActionParser};
+use super::super::{
+    Argument, EventDefinition, Expression, ParseError, Parser, PropertyDefinition,
+    PropertyInitializer, Statement, Type, Visibility,
+};
+use super::{ActionParser, StmtParser};
 use crate::lexer::token::Token;
 use crate::parser::expr::ExprParser;
 

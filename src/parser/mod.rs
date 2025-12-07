@@ -1,7 +1,7 @@
 pub mod ast;
 mod cursor;
-mod helpers;
 mod expr;
+mod helpers;
 mod stmt;
 #[cfg(test)]
 mod tests;
@@ -10,9 +10,12 @@ use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use ast::*;
 use cursor::Cursor;
+use expr::{BinaryExprParser, ExprParser, PrimaryExprParser};
 use helpers::is_reserved_pattern_name;
-use expr::{ExprParser, PrimaryExprParser, BinaryExprParser};
-use stmt::{StmtParser, VariableParser, CollectionParser, IoParser, ProcessParser, WebParser, ActionParser, ErrorHandlingParser, ControlFlowParser, PatternParser, ContainerParser};
+use stmt::{
+    ActionParser, CollectionParser, ContainerParser, ControlFlowParser, ErrorHandlingParser,
+    IoParser, PatternParser, ProcessParser, StmtParser, VariableParser, WebParser,
+};
 
 pub struct Parser<'a> {
     /// Cursor for efficient token navigation
@@ -169,10 +172,7 @@ impl<'a> Parser<'a> {
                             }
                             Token::Eol => {
                                 // Standalone "end" on its own line - consume it
-                                exec_trace!(
-                                    "Found standalone 'end' at line {}",
-                                    first_token.line
-                                );
+                                exec_trace!("Found standalone 'end' at line {}", first_token.line);
                                 self.bump_sync(); // Consume "end"
                                 continue;
                             }
