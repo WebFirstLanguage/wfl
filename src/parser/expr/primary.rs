@@ -6,6 +6,7 @@ use crate::exec_trace;
 use crate::lexer::token::Token;
 use super::super::{Parser, ParseError, Expression, Literal, UnaryOperator, Argument};
 use super::{ExprParser, BinaryExprParser};
+use crate::parser::stmt::PatternParser;
 
 /// Trait for parsing primary (atomic) expressions
 pub(crate) trait PrimaryExprParser<'a> {
