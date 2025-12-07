@@ -120,18 +120,16 @@ impl<'a> WebParser<'a> for Parser<'a> {
             Some(token) => match &token.token {
                 Token::Identifier(signal) => signal.clone(),
                 _ => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected signal type (SIGINT, SIGTERM, etc.)".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             },
             None => {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     "Expected signal type".to_string(),
-                    register_token.line,
-                    register_token.column,
+                    register_token,
                 ));
             }
         };

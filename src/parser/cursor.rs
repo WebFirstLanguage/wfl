@@ -426,6 +426,7 @@ impl<'a> Cursor<'a> {
     /// assert_eq!(span.start, 0);
     /// assert_eq!(span.end, 5);
     /// ```
+    #[allow(dead_code)]
     pub fn current_span(&self) -> crate::diagnostics::Span {
         use crate::diagnostics::Span;
         self.peek()
@@ -454,6 +455,7 @@ impl<'a> Cursor<'a> {
     /// assert_eq!(error.span.start, 0);
     /// assert_eq!(error.span.end, 5);
     /// ```
+    #[allow(dead_code)]
     pub fn error(&self, message: String) -> crate::parser::ast::ParseError {
         use crate::parser::ast::ParseError;
         if let Some(token) = self.peek() {

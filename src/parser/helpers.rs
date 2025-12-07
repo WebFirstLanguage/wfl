@@ -286,21 +286,16 @@ impl<'a> Parser<'a> {
                 self.bump_sync();
                 Ok(())
             } else {
-                Err(ParseError::new(
+                Err(ParseError::from_token(
                     format!(
                         "{}: expected {:?}, found {:?}",
                         error_message, expected, token.token
                     ),
-                    token.line,
-                    token.column,
+                    token,
                 ))
             }
         } else {
-            Err(ParseError::new(
-                format!("{error_message}: unexpected end of input"),
-                self.cursor.current_line(),
-                self.cursor.current_column(),
-            ))
+            Err(self.cursor.error(format!("{error_message}: unexpected end of input")))
         }
     }
 

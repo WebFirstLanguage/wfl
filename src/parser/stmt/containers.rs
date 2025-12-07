@@ -435,7 +435,6 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
         Ok((extends, implements))
     }
 
-    #[allow(clippy::type_complexity)]
     fn parse_container_body(
         &mut self,
     ) -> Result<

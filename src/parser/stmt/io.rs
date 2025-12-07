@@ -7,6 +7,7 @@ use crate::parser::expr::{ExprParser, PrimaryExprParser};
 pub(crate) trait IoParser<'a>: ExprParser<'a> {
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_open_file_statement(&mut self) -> Result<Statement, ParseError>;
+    #[allow(dead_code)]
     fn parse_open_file_read_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_close_file_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_write_to_statement(&mut self) -> Result<Statement, ParseError>;

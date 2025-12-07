@@ -28,20 +28,18 @@ impl<'a> VariableParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "constant"
                     is_constant = true;
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!(
                             "Expected 'constant' after 'new', found {:?}",
                             const_token.token
                         ),
-                        const_token.line,
-                        const_token.column,
+                        const_token,
                     ));
                 }
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     "Expected 'constant' after 'new'".to_string(),
-                    token_pos.line,
-                    token_pos.column,
+                    token_pos,
                 ));
             }
         }
@@ -57,17 +55,15 @@ impl<'a> VariableParser<'a> for Parser<'a> {
                     self.bump_sync();
                     id.clone()
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!("Expected identifier after 'as', found {:?}", token.token),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     "Expected identifier after 'as'".to_string(),
-                    token_pos.line,
-                    token_pos.column,
+                    token_pos,
                 ));
             };
 
@@ -85,20 +81,18 @@ impl<'a> VariableParser<'a> for Parser<'a> {
 
         if let Some(token) = self.cursor.peek().cloned() {
             if !matches!(token.token, Token::KeywordAs) {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!(
                         "Expected 'as' after variable name '{}', but found {:?}",
                         name, token.token
                     ),
-                    token.line,
-                    token.column,
+                    &token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 format!("Expected 'as' after variable name '{name}', but found end of input"),
-                token_pos.line,
-                token_pos.column,
+                token_pos,
             ));
         }
 
@@ -134,19 +128,17 @@ impl<'a> VariableParser<'a> for Parser<'a> {
             } else {
                 // Provide a more specific error message if we've seen at least one identifier
                 if has_identifier {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!(
                             "Expected 'to' after identifier(s), but found {:?}",
                             token.token
                         ),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!("Expected identifier or 'to', found {:?}", token.token),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
             }
