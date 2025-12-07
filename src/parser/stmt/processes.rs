@@ -51,7 +51,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
         {
             self.bump_sync(); // Consume "as"
             let var_token = self.bump_sync().ok_or_else(|| {
-                ParseError::from_token("Expected identifier after 'as'".to_string(), &token_pos)
+                ParseError::from_token("Expected identifier after 'as'".to_string(), token_pos)
             })?;
 
             if let Token::Identifier(name) = &var_token.token {
@@ -59,7 +59,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
             } else {
                 return Err(ParseError::from_token(
                     format!("Expected identifier, found {:?}", var_token.token),
-                    &var_token,
+                    var_token,
                 ));
             }
         } else {
@@ -108,7 +108,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
         self.expect_token(Token::KeywordAs, "Expected 'as' after spawn command")?;
 
         let var_token = self.bump_sync().ok_or_else(|| {
-            ParseError::from_token("Expected identifier after 'as'".to_string(), &token_pos)
+            ParseError::from_token("Expected identifier after 'as'".to_string(), token_pos)
         })?;
 
         let variable_name = if let Token::Identifier(name) = &var_token.token {
@@ -116,7 +116,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
         } else {
             return Err(ParseError::from_token(
                 format!("Expected identifier, found {:?}", var_token.token),
-                &var_token,
+                var_token,
             ));
         };
 
@@ -154,7 +154,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
         self.expect_token(Token::KeywordAs, "Expected 'as' after process ID")?;
 
         let var_token = self.bump_sync().ok_or_else(|| {
-            ParseError::from_token("Expected identifier after 'as'".to_string(), &token_pos)
+            ParseError::from_token("Expected identifier after 'as'".to_string(), token_pos)
         })?;
 
         let variable_name = if let Token::Identifier(name) = &var_token.token {
@@ -162,7 +162,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
         } else {
             return Err(ParseError::from_token(
                 format!("Expected identifier, found {:?}", var_token.token),
-                &var_token,
+                var_token,
             ));
         };
 
@@ -406,7 +406,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
 
         Err(ParseError::from_token(
             "Expected 'content' after 'write' or 'append'".to_string(),
-            &wait_token_pos,
+            wait_token_pos,
         ))
     }
 }

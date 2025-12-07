@@ -21,6 +21,7 @@ pub(crate) trait ContainerParser<'a>: ExprParser<'a> + ActionParser<'a> {
 
     fn parse_inheritance(&mut self) -> Result<(Option<String>, Vec<String>), ParseError>;
 
+    #[allow(clippy::type_complexity)]
     fn parse_container_body(
         &mut self,
     ) -> Result<
@@ -68,20 +69,18 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!(
                         "Expected identifier for container name, found {:?}",
                         token.token
                     ),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected identifier for container name, found end of input".to_string(),
-                line,
-                column,
+                start_token,
             ));
         };
 
@@ -125,20 +124,18 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!(
                         "Expected identifier for interface name, found {:?}",
                         token.token
                     ),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected identifier for interface name, found end of input".to_string(),
-                line,
-                column,
+                start_token,
             ));
         };
 
@@ -189,20 +186,18 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!(
                         "Expected identifier for container type, found {:?}",
                         token.token
                     ),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected identifier for container type, found end of input".to_string(),
-                line,
-                column,
+                start_token,
             ));
         };
 
@@ -214,20 +209,18 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!(
                         "Expected identifier for instance name, found {:?}",
                         token.token
                     ),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected identifier for instance name, found end of input".to_string(),
-                line,
-                column,
+                start_token,
             ));
         };
 
@@ -257,20 +250,18 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!(
                         "Expected identifier for event name, found {:?}",
                         token.token
                     ),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected identifier for event name, found end of input".to_string(),
-                line,
-                column,
+                start_token,
             ));
         };
 
@@ -294,20 +285,18 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!(
                         "Expected identifier for event name, found {:?}",
                         token.token
                     ),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected identifier for event name, found end of input".to_string(),
-                line,
-                column,
+                start_token,
             ));
         };
 
@@ -334,20 +323,18 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!(
                         "Expected identifier for event name, found {:?}",
                         token.token
                     ),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected identifier for event name, found end of input".to_string(),
-                line,
-                column,
+                start_token,
             ));
         };
 
@@ -371,20 +358,26 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
         {
             self.bump_sync(); // Consume 'extends'
 
+            let extends_token = self.cursor.peek().cloned();
             if let Some(token) = self.cursor.peek() {
                 if let Token::Identifier(id) = &token.token {
                     extends = Some(id.clone());
                     self.bump_sync(); // Consume the identifier
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected identifier after 'extends'".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
-            } else {
-                return Err(ParseError::new(
+            } else if let Some(ref ext_tok) = extends_token {
+                return Err(ParseError::from_token(
                     "Expected identifier after 'extends'".to_string(),
+                    ext_tok,
+                ));
+            } else {
+                return Err(ParseError::from_span(
+                    "Expected identifier after 'extends'".to_string(),
+                    crate::diagnostics::Span { start: 0, end: 0 },
                     0,
                     0,
                 ));
@@ -416,15 +409,15 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                             break;
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Expected identifier in implements list".to_string(),
-                            token.line,
-                            token.column,
+                            token,
                         ));
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_span(
                         "Expected identifier in implements list".to_string(),
+                        crate::diagnostics::Span { start: 0, end: 0 },
                         0,
                         0,
                     ));
@@ -481,19 +474,17 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                                     static_methods.push(method);
                                 }
                                 _ => {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Expected 'property' or 'action' after 'static'"
                                             .to_string(),
-                                        next_token.line,
-                                        next_token.column,
+                                        next_token,
                                     ));
                                 }
                             }
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected 'property' or 'action' after 'static'".to_string(),
-                                static_token.line,
-                                static_token.column,
+                                static_token,
                             ));
                         }
                     }
@@ -510,16 +501,16 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                         continue;
                     }
                     _ => {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             format!("Unexpected token in container body: {:?}", token.token),
-                            token.line,
-                            token.column,
+                            token,
                         ));
                     }
                 }
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_span(
                     "Unexpected end of input in container body".to_string(),
+                    crate::diagnostics::Span { start: 0, end: 0 },
                     0,
                     0,
                 ));
@@ -549,17 +540,15 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     "Expected property name after 'property'".to_string(),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected property name after 'property'".to_string(),
-                line,
-                column,
+                start_token,
             ));
         };
 
@@ -579,17 +568,15 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                             _ => Type::Custom(type_name.clone()),
                         })
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Expected type name after ':'".to_string(),
-                            type_token.line,
-                            type_token.column,
+                            type_token,
                         ));
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected type name after ':'".to_string(),
-                        line,
-                        column,
+                        start_token,
                     ));
                 }
             } else {
@@ -633,17 +620,15 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     "Expected event name after 'event'".to_string(),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected event name after 'event'".to_string(),
-                line,
-                column,
+                start_token,
             ));
         };
 
@@ -700,25 +685,24 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                                 column: prop_column,
                             });
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected 'is' or ':' after property name".to_string(),
-                                next_token.line,
-                                next_token.column,
+                                next_token,
                             ));
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_span(
                             "Expected 'is' or ':' after property name".to_string(),
+                            crate::diagnostics::Span { start: 0, end: 0 },
                             prop_line,
                             prop_column,
                         ));
                     }
                 }
                 _ => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!("Unexpected token in instantiation body: {:?}", token.token),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             }

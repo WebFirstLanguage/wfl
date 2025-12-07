@@ -118,31 +118,27 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                     if matches!(next_token.token, Token::KeywordCheck) {
                         self.bump_sync(); // Consume "check"
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             format!("Expected 'check' after 'end', found {:?}", next_token.token),
-                            next_token.line,
-                            next_token.column,
+                            next_token,
                         ));
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected 'check' after 'end', found end of input".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!("Expected 'end' after if block, found {:?}", token.token),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected 'end' after if block, found end of input".to_string(),
-                0,
-                0,
+                check_token,
             ));
         }
 
@@ -245,7 +241,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
             let then_stmt = if then_block.is_empty() {
                 return Err(ParseError::from_token(
                     "Expected statement after 'then'".to_string(),
-                    &if_token,
+                    if_token,
                 ));
             } else {
                 Box::new(then_block.into_iter().next().unwrap())
@@ -282,15 +278,15 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                 self.bump_sync();
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!("Expected identifier after 'each', found {:?}", token.token),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_span(
                 "Unexpected end of input after 'each'".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ));
@@ -365,7 +361,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
     where
         Self: StmtParser<'a>,
     {
-        self.bump_sync(); // Consume "count"
+        let count_token = self.bump_sync().unwrap(); // Consume "count"
 
         self.expect_token(Token::KeywordFrom, "Expected 'from' after 'count'")?;
 
@@ -381,27 +377,24 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "to"
                     false
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!("Expected 'to' or 'down to', found {:?}", token.token),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             } else if matches!(token.token, Token::KeywordTo) {
                 self.bump_sync(); // Consume "to"
                 false
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!("Expected 'to' or 'down to', found {:?}", token.token),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Unexpected end of input after count from expression".to_string(),
-                0,
-                0,
+                count_token,
             ));
         };
 
@@ -430,20 +423,18 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                         self.bump_sync(); // Consume the identifier
                         Some(var_name)
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             format!(
                                 "Expected identifier after 'as', found {:?}",
                                 name_token.token
                             ),
-                            name_token.line,
-                            name_token.column,
+                            name_token,
                         ));
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Unexpected end of input after 'as'".to_string(),
-                        0,
-                        0,
+                        count_token,
                     ));
                 }
             } else {
@@ -662,19 +653,18 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                         column: repeat_token.column,
                     })
                 }
-                _ => Err(ParseError::new(
+                _ => Err(ParseError::from_token(
                     format!(
                         "Expected 'while', 'until', 'forever', or ':' after 'repeat', found {:?}",
                         token.token
                     ),
-                    token.line,
-                    token.column,
+                    &token,
                 )),
             }
         } else {
             Err(ParseError::from_token(
                 "Unexpected end of input after 'repeat'".to_string(),
-                &repeat_token,
+                repeat_token,
             ))
         }
     }
