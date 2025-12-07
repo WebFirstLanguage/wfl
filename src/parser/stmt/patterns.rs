@@ -7,6 +7,7 @@ use super::super::{
 use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
+use crate::parser::helpers::is_reserved_pattern_name;
 
 pub(crate) trait PatternParser<'a>: ExprParser<'a> {
     fn parse_create_pattern_statement(&mut self) -> Result<Statement, ParseError>;
