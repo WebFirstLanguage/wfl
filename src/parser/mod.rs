@@ -2,6 +2,7 @@ pub mod ast;
 mod cursor;
 mod helpers;
 mod expr;
+mod stmt;
 #[cfg(test)]
 mod tests;
 
@@ -11,6 +12,7 @@ use ast::*;
 use cursor::Cursor;
 use helpers::is_reserved_pattern_name;
 use expr::{ExprParser, PrimaryExprParser, BinaryExprParser};
+use stmt::{StmtParser, VariableParser};
 
 pub struct Parser<'a> {
     /// Cursor for efficient token navigation
@@ -1054,246 +1056,8 @@ impl<'a> Parser<'a> {
         Ok((property_initializers, arguments))
     }
 
-    fn parse_statement(&mut self) -> Result<Statement, ParseError> {
-        if let Some(token) = self.cursor.peek().cloned() {
-            match &token.token {
-                Token::KeywordStore => self.parse_variable_declaration(),
-                Token::KeywordCreate => {
-                    // Check what follows "create" keyword
-                    if let Some(next_token) = self.cursor.peek_next() {
-                        match &next_token.token {
-                            Token::KeywordContainer => self.parse_container_definition(),
-                            Token::KeywordInterface => self.parse_interface_definition(),
-                            Token::KeywordNew => self.parse_container_instantiation(),
-                            Token::KeywordPattern => self.parse_create_pattern_statement(),
-                            Token::KeywordDirectory => self.parse_create_directory_statement(),
-                            Token::KeywordFile => self.parse_create_file_statement(),
-                            Token::KeywordList => self.parse_create_list_statement(),
-                            Token::KeywordMap => self.parse_map_creation(),
-                            Token::KeywordDate => self.parse_create_date_statement(),
-                            Token::KeywordTime => self.parse_create_time_statement(),
-                            _ => self.parse_variable_declaration(),
-                        }
-                    } else {
-                        self.parse_variable_declaration()
-                    }
-                }
-                Token::KeywordDisplay => self.parse_display_statement(),
-                Token::KeywordCheck => self.parse_if_statement(),
-                Token::KeywordIf => self.parse_single_line_if(),
-                Token::KeywordCount => self.parse_count_loop(),
-                Token::KeywordFor => self.parse_for_each_loop(),
-                Token::KeywordDefine => self.parse_action_definition(),
-                Token::KeywordChange => self.parse_assignment(),
-                Token::KeywordAdd => {
-                    // Peek ahead to determine if this is arithmetic or list operation
-                    // For arithmetic: "add 5 to variable" (number comes first)
-                    // For list: "add "item" to list" (any value to a list)
-                    // We'll try to parse as list operation first, fall back to arithmetic
-                    self.parse_add_operation()
-                }
-                Token::KeywordSubtract => self.parse_arithmetic_operation(),
-                Token::KeywordMultiply => self.parse_arithmetic_operation(),
-                Token::KeywordDivide => self.parse_arithmetic_operation(),
-                Token::KeywordRemove => self.parse_remove_from_list_statement(),
-                Token::KeywordClear => self.parse_clear_list_statement(),
-                Token::KeywordTry => self.parse_try_statement(),
-                Token::KeywordRepeat => self.parse_repeat_statement(),
-                Token::KeywordExit => self.parse_exit_statement(),
-                Token::KeywordPush => self.parse_push_statement(),
-                Token::KeywordEvent => self.parse_event_definition(),
-                Token::KeywordTrigger => self.parse_event_trigger(),
-                Token::KeywordOn => self.parse_event_handler(),
-                Token::KeywordParent => self.parse_parent_method_call(),
-                Token::KeywordBreak => {
-                    let token_pos = self.bump_sync().unwrap();
-                    Ok(Statement::BreakStatement {
-                        line: token_pos.line,
-                        column: token_pos.column,
-                    })
-                }
-                Token::KeywordContinue | Token::KeywordSkip => {
-                    let token_pos = self.bump_sync().unwrap();
-                    Ok(Statement::ContinueStatement {
-                        line: token_pos.line,
-                        column: token_pos.column,
-                    })
-                }
-                Token::KeywordOpen => {
-                    // Parse open file statement (handles both regular and "read content" variants)
-                    self.parse_open_file_statement()
-                }
-                Token::KeywordExecute => self.parse_execute_command_statement(),
-                Token::KeywordSpawn => self.parse_spawn_process_statement(),
-                Token::KeywordKill => self.parse_kill_process_statement(),
-                Token::KeywordRead => {
-                    // Look ahead to distinguish "read output from process" from other read variants
-                    if let Some(next_token) = self.cursor.peek_next() {
-                        if matches!(next_token.token, Token::KeywordOutput) {
-                            // It's "read output from process"
-                            self.parse_read_process_output_statement()
-                        } else {
-                            // "read" by itself is not a valid statement - treat as expression
-                            let token_pos = self.cursor.peek().unwrap();
-                            Err(ParseError::new(
-                                "Unexpected 'read' - did you mean 'read output from process'?"
-                                    .to_string(),
-                                token_pos.line,
-                                token_pos.column,
-                            ))
-                        }
-                    } else {
-                        let token_pos = self.cursor.peek().unwrap();
-                        Err(ParseError::new(
-                            "Unexpected 'read' at end of input".to_string(),
-                            token_pos.line,
-                            token_pos.column,
-                        ))
-                    }
-                }
-                Token::KeywordClose => {
-                    // Check if it's "close server" or regular "close file"
-                    if let Some(next_token) = self.cursor.peek_next() {
-                        if matches!(next_token.token, Token::KeywordServer) {
-                            self.parse_close_server_statement()
-                        } else {
-                            self.parse_close_file_statement()
-                        }
-                    } else {
-                        self.parse_close_file_statement()
-                    }
-                }
-                Token::KeywordDelete => self.parse_delete_statement(),
-                Token::KeywordWrite => self.parse_write_to_statement(),
-                Token::KeywordWait => self.parse_wait_for_statement(),
-                Token::KeywordListen => self.parse_listen_statement(),
-                Token::KeywordRespond => self.parse_respond_statement(),
-                Token::KeywordRegister => self.parse_register_signal_handler_statement(),
-                Token::KeywordStop => self.parse_stop_accepting_connections_statement(),
-                Token::KeywordGive | Token::KeywordReturn => self.parse_return_statement(),
-                Token::Identifier(id) if id == "main" => {
-                    // Check if next token is "loop"
-                    if let Some(next_token) = self.cursor.peek_next() {
-                        if matches!(next_token.token, Token::KeywordLoop) {
-                            self.parse_main_loop()
-                        } else {
-                            self.parse_expression_statement()
-                        }
-                    } else {
-                        self.parse_expression_statement()
-                    }
-                }
-                _ => self.parse_expression_statement(),
-            }
-        } else {
-            Err(ParseError::new("Unexpected end of input".to_string(), 0, 0))
-        }
-    }
-
-    fn parse_variable_declaration(&mut self) -> Result<Statement, ParseError> {
-        let token_pos = self.bump_sync().unwrap();
-        let is_store = matches!(token_pos.token, Token::KeywordStore);
-        let _keyword = if is_store { "store" } else { "create" };
-
-        // Check for "store new constant" syntax
-        let mut is_constant = false;
-        if is_store
-            && let Some(next_token) = self.cursor.peek()
-            && matches!(next_token.token, Token::KeywordNew)
-        {
-            self.bump_sync(); // Consume "new"
-            if let Some(const_token) = self.cursor.peek() {
-                if matches!(const_token.token, Token::KeywordConstant) {
-                    self.bump_sync(); // Consume "constant"
-                    is_constant = true;
-                } else {
-                    return Err(ParseError::new(
-                        format!(
-                            "Expected 'constant' after 'new', found {:?}",
-                            const_token.token
-                        ),
-                        const_token.line,
-                        const_token.column,
-                    ));
-                }
-            } else {
-                return Err(ParseError::new(
-                    "Expected 'constant' after 'new'".to_string(),
-                    token_pos.line,
-                    token_pos.column,
-                ));
-            }
-        }
-
-        let name = self.parse_variable_name_list()?;
-
-        // Handle special case: "create list as name"
-        if !is_store && name == "list" {
-            self.expect_token(Token::KeywordAs, "Expected 'as' after 'list'")?;
-
-            let list_name = if let Some(token) = self.cursor.peek() {
-                if let Token::Identifier(id) = &token.token {
-                    self.bump_sync();
-                    id.clone()
-                } else {
-                    return Err(ParseError::new(
-                        format!("Expected identifier after 'as', found {:?}", token.token),
-                        token.line,
-                        token.column,
-                    ));
-                }
-            } else {
-                return Err(ParseError::new(
-                    "Expected identifier after 'as'".to_string(),
-                    token_pos.line,
-                    token_pos.column,
-                ));
-            };
-
-            let empty_list =
-                Expression::Literal(Literal::List(Vec::new()), token_pos.line, token_pos.column);
-
-            return Ok(Statement::VariableDeclaration {
-                name: list_name,
-                value: empty_list,
-                is_constant: false,
-                line: token_pos.line,
-                column: token_pos.column,
-            });
-        }
-
-        if let Some(token) = self.cursor.peek().cloned() {
-            if !matches!(token.token, Token::KeywordAs) {
-                return Err(ParseError::new(
-                    format!(
-                        "Expected 'as' after variable name '{}', but found {:?}",
-                        name, token.token
-                    ),
-                    token.line,
-                    token.column,
-                ));
-            }
-        } else {
-            return Err(ParseError::new(
-                format!("Expected 'as' after variable name '{name}', but found end of input"),
-                token_pos.line,
-                token_pos.column,
-            ));
-        }
-
-        self.bump_sync(); // Consume the 'as' token
-
-        let value = self.parse_expression()?;
-
-        Ok(Statement::VariableDeclaration {
-            name,
-            value,
-            is_constant,
-            line: token_pos.line,
-            column: token_pos.column,
-        })
-    }
-
+    /// Helper method to parse a variable name that can consist of multiple identifiers.
+    /// Used by variable declarations and other statement parsers.
     fn parse_variable_name_list(&mut self) -> Result<String, ParseError> {
         let mut name_parts = Vec::with_capacity(3);
 
@@ -1387,48 +1151,35 @@ impl<'a> Parser<'a> {
         Ok(name_parts.join(" "))
     }
 
-    /// Consumes the next token if it matches the expected token, or returns a parse error with a custom message.
-    ///
-    /// Returns `Ok(())` if the next token matches `expected`. If the next token does not match or if the input is exhausted, returns a `ParseError` with the provided error message and token position.
-    ///
-    /// # Parameters
-    /// - `expected`: The token that is expected next in the input.
-    /// - `error_message`: The message to include in the error if the expectation is not met.
-    ///
-    /// # Returns
-    /// - `Ok(())` if the expected token is found and consumed.
-    /// - `Err(ParseError)` if the next token does not match or if the input ends unexpectedly.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// # use wfl::parser::Parser;
-    /// # use wfl::lexer::token::Token;
-    /// let mut parser = Parser::new(&tokens);
-    /// parser.expect_token(Token::Colon, "Expected ':' after name")?;
-    /// ```
-    /// Parses an expression, starting with the lowest precedence.
-    ///
-    /// Returns the parsed expression or a parse error if the expression is invalid.
+    /// Helper method to parse a simple variable name (space-separated identifiers).
+    /// Used by assignments, arithmetic operations, and other statement parsers.
+    fn parse_variable_name_simple(&mut self) -> Result<String, ParseError> {
+        let mut name = String::new();
+        let mut has_identifier = false;
 
-    /// Parses a binary expression with operator precedence.
-    ///
-    /// This method parses binary operations, handling operator precedence and associativity for a wide range of operators, including arithmetic, logical, comparison, pattern matching, and custom language constructs. It supports multi-token operators (such as "divided by", "is equal to", "is less than or equal to"), action calls, and special pattern-related expressions. The parser ensures correct grouping and evaluation order by recursively parsing sub-expressions with increasing precedence.
-    ///
-    /// # Parameters
-    /// - `precedence`: The minimum precedence level to consider when parsing operators. Operators with lower precedence will not be parsed at this level.
-    ///
-    /// # Returns
-    /// Returns an `Expression` representing the parsed binary expression, or a `ParseError` if the syntax is invalid.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// // Parses an arithmetic expression with correct precedence
-    /// let expr = parser.parse_binary_expression(0)?;
-    /// // Example: "a plus b times c" parses as a + (b * c)
-    /// ```
+        while let Some(token) = self.cursor.peek().cloned() {
+            if let Token::Identifier(id) = &token.token {
+                has_identifier = true;
+                if !name.is_empty() {
+                    name.push(' ');
+                }
+                name.push_str(id);
+                self.bump_sync();
+            } else {
+                break;
+            }
+        }
 
+        if !has_identifier {
+            return Err(ParseError::new(
+                "Expected variable name".to_string(),
+                self.cursor.peek().map_or(0, |t| t.line),
+                self.cursor.peek().map_or(0, |t| t.column),
+            ));
+        }
+
+        Ok(name)
+    }
 
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError> {
         self.bump_sync(); // Consume "display"
@@ -2371,160 +2122,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_assignment(&mut self) -> Result<Statement, ParseError> {
-        self.bump_sync(); // Consume "change"
-
-        let mut name = String::new();
-        let mut has_identifier = false;
-
-        while let Some(token) = self.cursor.peek().cloned() {
-            if let Token::Identifier(id) = &token.token {
-                has_identifier = true;
-                if !name.is_empty() {
-                    name.push(' ');
-                }
-                name.push_str(id);
-                self.bump_sync();
-            } else if let Token::KeywordTo = &token.token {
-                break;
-            } else {
-                // Provide a more specific error message if we've seen at least one identifier
-                if has_identifier {
-                    return Err(ParseError::new(
-                        format!(
-                            "Expected 'to' after identifier(s), but found {:?}",
-                            token.token
-                        ),
-                        token.line,
-                        token.column,
-                    ));
-                } else {
-                    return Err(ParseError::new(
-                        format!("Expected identifier or 'to', found {:?}", token.token),
-                        token.line,
-                        token.column,
-                    ));
-                }
-            }
-        }
-
-        self.expect_token(
-            Token::KeywordTo,
-            "Expected 'to' after variable name in change statement",
-        )?;
-
-        let value = self.parse_expression()?;
-
-        let token_pos = self.cursor.peek().map_or(
-            &TokenWithPosition {
-                token: Token::KeywordChange,
-                line: 0,
-                column: 0,
-                length: 0,
-                byte_start: 0,
-                byte_end: 0,
-            },
-            |v| v,
-        );
-        Ok(Statement::Assignment {
-            name,
-            value,
-            line: token_pos.line,
-            column: token_pos.column,
-        })
-    }
-
-    fn parse_arithmetic_operation(&mut self) -> Result<Statement, ParseError> {
-        let op_token = self.bump_sync().unwrap(); // Consume "add", "subtract", "multiply", or "divide"
-
-        // For multiply and divide: variable comes first, then "by", then value
-        // For add: value comes first, then "to", then variable
-        // For subtract: value comes first, then "from", then variable
-
-        let (name, value) = match op_token.token {
-            Token::KeywordAdd => {
-                // add 5 to cn1
-                let value = self.parse_expression()?;
-                self.expect_token(Token::KeywordTo, "Expected 'to' after value in add")?;
-                let name = self.parse_variable_name_simple()?;
-                (name, value)
-            }
-            Token::KeywordSubtract => {
-                // subtract 2 from cn1
-                let value = self.parse_expression()?;
-                self.expect_token(
-                    Token::KeywordFrom,
-                    "Expected 'from' after value in subtract",
-                )?;
-                let name = self.parse_variable_name_simple()?;
-                (name, value)
-            }
-            Token::KeywordMultiply | Token::KeywordDivide => {
-                // multiply cn1 by 3 or divide cn1 by 2
-                let name = self.parse_variable_name_simple()?;
-                self.expect_token(Token::KeywordBy, "Expected 'by' after variable name")?;
-                let value = self.parse_expression()?;
-                (name, value)
-            }
-            _ => unreachable!(),
-        };
-
-        // Create the appropriate operation
-        let operator = match op_token.token {
-            Token::KeywordAdd => Operator::Plus,
-            Token::KeywordSubtract => Operator::Minus,
-            Token::KeywordMultiply => Operator::Multiply,
-            Token::KeywordDivide => Operator::Divide,
-            _ => unreachable!(),
-        };
-
-        // Create a binary operation expression
-        let var_expr = Expression::Variable(name.clone(), op_token.line, op_token.column);
-        let binary_expr = Expression::BinaryOperation {
-            left: Box::new(var_expr),
-            operator,
-            right: Box::new(value),
-            line: op_token.line,
-            column: op_token.column,
-        };
-
-        // Return an assignment statement
-        Ok(Statement::Assignment {
-            name,
-            value: binary_expr,
-            line: op_token.line,
-            column: op_token.column,
-        })
-    }
-
-    fn parse_variable_name_simple(&mut self) -> Result<String, ParseError> {
-        let mut name = String::new();
-        let mut has_identifier = false;
-
-        while let Some(token) = self.cursor.peek().cloned() {
-            if let Token::Identifier(id) = &token.token {
-                has_identifier = true;
-                if !name.is_empty() {
-                    name.push(' ');
-                }
-                name.push_str(id);
-                self.bump_sync();
-            } else {
-                break;
-            }
-        }
-
-        if !has_identifier {
-            return Err(ParseError::new(
-                "Expected variable name".to_string(),
-                self.cursor.peek().map_or(0, |t| t.line),
-                self.cursor.peek().map_or(0, |t| t.column),
-            ));
-        }
-
-        Ok(name)
-    }
-
     fn parse_return_statement(&mut self) -> Result<Statement, ParseError> {
         let return_token = self.bump_sync().unwrap(); // Consume "give" or "return"
 
@@ -3181,25 +2778,6 @@ impl<'a> Parser<'a> {
             wait_token_pos.line,
             wait_token_pos.column,
         ))
-    }
-
-    fn parse_expression_statement(&mut self) -> Result<Statement, ParseError> {
-        let expr = self.parse_expression()?;
-
-        let default_token = TokenWithPosition {
-            token: Token::Identifier("expression".to_string()),
-            line: 0,
-            column: 0,
-            length: 0,
-            byte_start: 0,
-            byte_end: 0,
-        };
-        let token_pos = self.cursor.peek().map_or(&default_token, |v| v);
-        Ok(Statement::ExpressionStatement {
-            expression: expr,
-            line: token_pos.line,
-            column: token_pos.column,
-        })
     }
 
     fn parse_close_file_statement(&mut self) -> Result<Statement, ParseError> {
@@ -5784,6 +5362,164 @@ impl<'a> Parser<'a> {
             server,
             line: close_token.line,
             column: close_token.column,
+        })
+    }
+}
+
+// Implementation of StmtParser trait
+impl<'a> StmtParser<'a> for Parser<'a> {
+    fn parse_statement(&mut self) -> Result<Statement, ParseError> {
+        if let Some(token) = self.cursor.peek().cloned() {
+            match &token.token {
+                Token::KeywordStore => self.parse_variable_declaration(),
+                Token::KeywordCreate => {
+                    // Check what follows "create" keyword
+                    if let Some(next_token) = self.cursor.peek_next() {
+                        match &next_token.token {
+                            Token::KeywordContainer => self.parse_container_definition(),
+                            Token::KeywordInterface => self.parse_interface_definition(),
+                            Token::KeywordNew => self.parse_container_instantiation(),
+                            Token::KeywordPattern => self.parse_create_pattern_statement(),
+                            Token::KeywordDirectory => self.parse_create_directory_statement(),
+                            Token::KeywordFile => self.parse_create_file_statement(),
+                            Token::KeywordList => self.parse_create_list_statement(),
+                            Token::KeywordMap => self.parse_map_creation(),
+                            Token::KeywordDate => self.parse_create_date_statement(),
+                            Token::KeywordTime => self.parse_create_time_statement(),
+                            _ => self.parse_variable_declaration(),
+                        }
+                    } else {
+                        self.parse_variable_declaration()
+                    }
+                }
+                Token::KeywordDisplay => self.parse_display_statement(),
+                Token::KeywordCheck => self.parse_if_statement(),
+                Token::KeywordIf => self.parse_single_line_if(),
+                Token::KeywordCount => self.parse_count_loop(),
+                Token::KeywordFor => self.parse_for_each_loop(),
+                Token::KeywordDefine => self.parse_action_definition(),
+                Token::KeywordChange => self.parse_assignment(),
+                Token::KeywordAdd => {
+                    // Peek ahead to determine if this is arithmetic or list operation
+                    // For arithmetic: "add 5 to variable" (number comes first)
+                    // For list: "add "item" to list" (any value to a list)
+                    // We'll try to parse as list operation first, fall back to arithmetic
+                    self.parse_add_operation()
+                }
+                Token::KeywordSubtract => self.parse_arithmetic_operation(),
+                Token::KeywordMultiply => self.parse_arithmetic_operation(),
+                Token::KeywordDivide => self.parse_arithmetic_operation(),
+                Token::KeywordRemove => self.parse_remove_from_list_statement(),
+                Token::KeywordClear => self.parse_clear_list_statement(),
+                Token::KeywordTry => self.parse_try_statement(),
+                Token::KeywordRepeat => self.parse_repeat_statement(),
+                Token::KeywordExit => self.parse_exit_statement(),
+                Token::KeywordPush => self.parse_push_statement(),
+                Token::KeywordEvent => self.parse_event_definition(),
+                Token::KeywordTrigger => self.parse_event_trigger(),
+                Token::KeywordOn => self.parse_event_handler(),
+                Token::KeywordParent => self.parse_parent_method_call(),
+                Token::KeywordBreak => {
+                    let token_pos = self.bump_sync().unwrap();
+                    Ok(Statement::BreakStatement {
+                        line: token_pos.line,
+                        column: token_pos.column,
+                    })
+                }
+                Token::KeywordContinue | Token::KeywordSkip => {
+                    let token_pos = self.bump_sync().unwrap();
+                    Ok(Statement::ContinueStatement {
+                        line: token_pos.line,
+                        column: token_pos.column,
+                    })
+                }
+                Token::KeywordOpen => {
+                    // Parse open file statement (handles both regular and "read content" variants)
+                    self.parse_open_file_statement()
+                }
+                Token::KeywordExecute => self.parse_execute_command_statement(),
+                Token::KeywordSpawn => self.parse_spawn_process_statement(),
+                Token::KeywordKill => self.parse_kill_process_statement(),
+                Token::KeywordRead => {
+                    // Look ahead to distinguish "read output from process" from other read variants
+                    if let Some(next_token) = self.cursor.peek_next() {
+                        if matches!(next_token.token, Token::KeywordOutput) {
+                            // It's "read output from process"
+                            self.parse_read_process_output_statement()
+                        } else {
+                            // "read" by itself is not a valid statement - treat as expression
+                            let token_pos = self.cursor.peek().unwrap();
+                            Err(ParseError::new(
+                                "Unexpected 'read' - did you mean 'read output from process'?"
+                                    .to_string(),
+                                token_pos.line,
+                                token_pos.column,
+                            ))
+                        }
+                    } else {
+                        let token_pos = self.cursor.peek().unwrap();
+                        Err(ParseError::new(
+                            "Unexpected 'read' at end of input".to_string(),
+                            token_pos.line,
+                            token_pos.column,
+                        ))
+                    }
+                }
+                Token::KeywordClose => {
+                    // Check if it's "close server" or regular "close file"
+                    if let Some(next_token) = self.cursor.peek_next() {
+                        if matches!(next_token.token, Token::KeywordServer) {
+                            self.parse_close_server_statement()
+                        } else {
+                            self.parse_close_file_statement()
+                        }
+                    } else {
+                        self.parse_close_file_statement()
+                    }
+                }
+                Token::KeywordDelete => self.parse_delete_statement(),
+                Token::KeywordWrite => self.parse_write_to_statement(),
+                Token::KeywordWait => self.parse_wait_for_statement(),
+                Token::KeywordListen => self.parse_listen_statement(),
+                Token::KeywordRespond => self.parse_respond_statement(),
+                Token::KeywordRegister => self.parse_register_signal_handler_statement(),
+                Token::KeywordStop => self.parse_stop_accepting_connections_statement(),
+                Token::KeywordGive | Token::KeywordReturn => self.parse_return_statement(),
+                Token::Identifier(id) if id == "main" => {
+                    // Check if next token is "loop"
+                    if let Some(next_token) = self.cursor.peek_next() {
+                        if matches!(next_token.token, Token::KeywordLoop) {
+                            self.parse_main_loop()
+                        } else {
+                            self.parse_expression_statement()
+                        }
+                    } else {
+                        self.parse_expression_statement()
+                    }
+                }
+                _ => self.parse_expression_statement(),
+            }
+        } else {
+            Err(ParseError::new("Unexpected end of input".to_string(), 0, 0))
+        }
+    }
+
+    fn parse_expression_statement(&mut self) -> Result<Statement, ParseError> {
+        let expr = self.parse_expression()?;
+
+        let default_token = TokenWithPosition {
+            token: Token::Identifier("expression".to_string()),
+            line: 0,
+            column: 0,
+            length: 0,
+            byte_start: 0,
+            byte_end: 0,
+        };
+        let token_pos = self.cursor.peek().map_or(&default_token, |v| v);
+        Ok(Statement::ExpressionStatement {
+            expression: expr,
+            line: token_pos.line,
+            column: token_pos.column,
         })
     }
 }

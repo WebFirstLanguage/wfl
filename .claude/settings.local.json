@@ -38,7 +38,8 @@
       "Bash(ls:*)",
       "Bash(findstr:*)",
       "Bash(powershell -Command \"(Get-Content ''G:\\Logbie\\wfl\\src\\parser\\tests.rs'').Length\")",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(wc:*)"
     ],
     "deny": [],
     "ask": []
