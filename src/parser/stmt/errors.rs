@@ -103,26 +103,23 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                                                             "error".to_string(),
                                                         )
                                                     } else {
-                                                        return Err(ParseError::new(
+                                                        return Err(ParseError::from_token(
                                                             "Expected 'failed' after 'spawn'"
                                                                 .to_string(),
-                                                            failed.line,
-                                                            failed.column,
+                                                            &failed,
                                                         ));
                                                     }
                                                 } else {
-                                                    return Err(ParseError::new(
+                                                    return Err(ParseError::from_token(
                                                         "Expected 'failed' after 'spawn'"
                                                             .to_string(),
-                                                        failed.line,
-                                                        failed.column,
+                                                        &failed,
                                                     ));
                                                 }
                                             } else {
-                                                return Err(ParseError::new(
+                                                return Err(ParseError::from_token(
                                                     "Expected 'failed' after 'spawn'".to_string(),
-                                                    next.line,
-                                                    next.column,
+                                                    &next,
                                                 ));
                                             }
                                         }
@@ -137,42 +134,37 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                                                             "error".to_string(),
                                                         )
                                                     } else {
-                                                        return Err(ParseError::new(
+                                                        return Err(ParseError::from_token(
                                                             "Expected 'failed' after 'kill'"
                                                                 .to_string(),
-                                                            failed.line,
-                                                            failed.column,
+                                                            &failed,
                                                         ));
                                                     }
                                                 } else {
-                                                    return Err(ParseError::new(
+                                                    return Err(ParseError::from_token(
                                                         "Expected 'failed' after 'kill'"
                                                             .to_string(),
-                                                        failed.line,
-                                                        failed.column,
+                                                        &failed,
                                                     ));
                                                 }
                                             } else {
-                                                return Err(ParseError::new(
+                                                return Err(ParseError::from_token(
                                                     "Expected 'failed' after 'kill'".to_string(),
-                                                    next.line,
-                                                    next.column,
+                                                    &next,
                                                 ));
                                             }
                                         }
                                         _ => {
-                                            return Err(ParseError::new(
+                                            return Err(ParseError::from_token(
                                                 "Expected 'not found', 'spawn failed', or 'kill failed' after 'process'".to_string(),
-                                                next.line,
-                                                next.column,
+                                                &next,
                                             ));
                                         }
                                     }
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Unexpected end after 'process'".to_string(),
-                                        next_token.line,
-                                        next_token.column,
+                                        &next_token,
                                     ));
                                 }
                             }
@@ -189,21 +181,19 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                                 (ast::ErrorType::CommandNotFound, "error".to_string())
                             }
                             _ => {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     format!(
                                         "Expected 'error', 'file', 'permission', 'process', or 'command' after 'when', found {:?}",
                                         next_token.token
                                     ),
-                                    next_token.line,
-                                    next_token.column,
+                                    &next_token,
                                 ));
                             }
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Unexpected end of input after 'when'".to_string(),
-                            token.line,
-                            token.column,
+                            &token,
                         ));
                     };
 
@@ -316,13 +306,12 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                     break;
                 }
                 _ => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!(
                             "Expected 'when', 'catch', 'otherwise', or 'end', found {:?}",
                             token.token
                         ),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
             }
@@ -330,10 +319,9 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
 
         // Ensure at least one when or catch clause
         if when_clauses.is_empty() {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Try statement must have at least one 'when' or 'catch' clause".to_string(),
-                try_token.line,
-                try_token.column,
+                &try_token,
             ));
         }
 

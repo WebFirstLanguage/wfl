@@ -5,6 +5,7 @@
 
 use super::super::{Argument, Expression, Operator, ParseError, Parser};
 use super::{ExprParser, PrimaryExprParser};
+use crate::diagnostics::Span;
 use crate::lexer::token::Token;
 
 /// Trait for parsing binary expressions with operator precedence
@@ -62,8 +63,9 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     if self.peek_divided_by() {
                         Some((Operator::Divide, 2))
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_span(
                             "Expected 'by' after 'divided'".to_string(),
+                            Span { start: 0, end: 0 },
                             line,
                             column,
                         ));
@@ -86,8 +88,9 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                         Some((Operator::Equals, 0)) // "is equal" without "to" is valid too
                                     }
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_span(
                                         "Unexpected end of input after 'is equal'".into(),
+                                        Span { start: 0, end: 0 },
                                         line,
                                         column,
                                     ));
@@ -154,8 +157,9 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                         Some((Operator::GreaterThan, 0)) // "is greater" without "than" is valid too
                                     }
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_span(
                                         "Unexpected end of input after 'is greater'".into(),
+                                        Span { start: 0, end: 0 },
                                         line,
                                         column,
                                     ));
@@ -213,8 +217,9 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                         Some((Operator::LessThan, 0)) // "is less" without "than" is valid too
                                     }
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_span(
                                         "Unexpected end of input after 'is less'".into(),
+                                        Span { start: 0, end: 0 },
                                         line,
                                         column,
                                     ));
@@ -223,8 +228,9 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                             _ => Some((Operator::Equals, 0)), // Simple "is" means equals
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_span(
                             "Unexpected end of input after 'is'".into(),
+                            Span { start: 0, end: 0 },
                             line,
                             column,
                         ));
@@ -417,8 +423,9 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                         continue; // Skip the rest of the loop since we've already updated left
                     }
 
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_span(
                         "Expected 'with' after pattern in replace operation".to_string(),
+                        Span { start: 0, end: 0 },
                         line,
                         column,
                     ));
@@ -468,17 +475,19 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                 continue;
                             }
                             _ => {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_span(
                                     "Expected 'by' or 'on' after text in split operation"
                                         .to_string(),
+                                    Span { start: 0, end: 0 },
                                     line,
                                     column,
                                 ));
                             }
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_span(
                             "Expected 'by' or 'on' after text in split operation".to_string(),
+                            Span { start: 0, end: 0 },
                             line,
                             column,
                         ));

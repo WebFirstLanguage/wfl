@@ -29,18 +29,16 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
                     name
                 }
                 _ => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!("Expected identifier for list name, found {:?}", token.token),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected list name after 'create list'".to_string(),
-                create_token.line,
-                create_token.column,
+                &create_token,
             ));
         };
 
@@ -70,13 +68,12 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
                     continue;
                 }
                 _ => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!(
                             "Expected 'add' or 'end list' in list creation, found {:?}",
                             token.token
                         ),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
             }
@@ -177,17 +174,15 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
                 }
             } else {
                 // No "to" keyword, this is an error
-                Err(ParseError::new(
+                Err(ParseError::from_token(
                     "Expected 'to' after value in add statement".to_string(),
-                    add_token.line,
-                    add_token.column,
+                    &add_token,
                 ))
             }
         } else {
-            Err(ParseError::new(
+            Err(ParseError::from_token(
                 "Unexpected end of input after add value".to_string(),
-                add_token.line,
-                add_token.column,
+                &add_token,
             ))
         }
     }
@@ -245,18 +240,16 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
                     name
                 }
                 _ => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!("Expected identifier for map name, found {:?}", token.token),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected map name after 'create map'".to_string(),
-                create_token.line,
-                create_token.column,
+                &create_token,
             ));
         };
 
@@ -286,13 +279,12 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
                     entries.push((key, value));
                 }
                 _ => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!(
                             "Expected map key (identifier) or 'end map', found {:?}",
                             token.token
                         ),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
             }

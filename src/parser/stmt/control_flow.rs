@@ -243,10 +243,9 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
             })
         } else {
             let then_stmt = if then_block.is_empty() {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     "Expected statement after 'then'".to_string(),
-                    if_token.line,
-                    if_token.column,
+                    &if_token,
                 ));
             } else {
                 Box::new(then_block.into_iter().next().unwrap())
@@ -673,10 +672,9 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                 )),
             }
         } else {
-            Err(ParseError::new(
+            Err(ParseError::from_token(
                 "Unexpected end of input after 'repeat'".to_string(),
-                repeat_token.line,
-                repeat_token.column,
+                &repeat_token,
             ))
         }
     }

@@ -390,24 +390,6 @@ impl<'a> Cursor<'a> {
         self.peek().map_or(0, |t| t.line)
     }
 
-    /// Get column number of current token.
-    ///
-    /// Returns column number, or 0 if at EOF.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use wfl::parser::cursor::Cursor;
-    /// # use wfl::lexer::token::{Token, TokenWithPosition};
-    /// # let tokens = vec![TokenWithPosition::new(Token::KeywordStore, 1, 10, 5)];
-    /// let cursor = Cursor::new(&tokens);
-    /// assert_eq!(cursor.current_column(), 10);
-    /// ```
-    #[inline]
-    pub fn current_column(&self) -> usize {
-        self.peek().map_or(0, |t| t.column)
-    }
-
     /// Get span of current token (for error reporting).
     ///
     /// Returns a Span covering the current token's byte range.
@@ -623,7 +605,6 @@ mod tests {
         let cursor = Cursor::new(&tokens);
 
         assert_eq!(cursor.current_line(), 1);
-        assert_eq!(cursor.current_column(), 1);
     }
 
     #[test]
@@ -635,7 +616,6 @@ mod tests {
         assert_eq!(cursor.peek(), None);
         assert_eq!(cursor.remaining(), 0);
         assert_eq!(cursor.current_line(), 0);
-        assert_eq!(cursor.current_column(), 0);
     }
 
     #[test]

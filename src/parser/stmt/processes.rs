@@ -51,20 +51,15 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
         {
             self.bump_sync(); // Consume "as"
             let var_token = self.bump_sync().ok_or_else(|| {
-                ParseError::new(
-                    "Expected identifier after 'as'".to_string(),
-                    token_pos.line,
-                    token_pos.column,
-                )
+                ParseError::from_token("Expected identifier after 'as'".to_string(), &token_pos)
             })?;
 
             if let Token::Identifier(name) = &var_token.token {
                 Some(name.clone())
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!("Expected identifier, found {:?}", var_token.token),
-                    var_token.line,
-                    var_token.column,
+                    &var_token,
                 ));
             }
         } else {
@@ -113,20 +108,15 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
         self.expect_token(Token::KeywordAs, "Expected 'as' after spawn command")?;
 
         let var_token = self.bump_sync().ok_or_else(|| {
-            ParseError::new(
-                "Expected identifier after 'as'".to_string(),
-                token_pos.line,
-                token_pos.column,
-            )
+            ParseError::from_token("Expected identifier after 'as'".to_string(), &token_pos)
         })?;
 
         let variable_name = if let Token::Identifier(name) = &var_token.token {
             name.clone()
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 format!("Expected identifier, found {:?}", var_token.token),
-                var_token.line,
-                var_token.column,
+                &var_token,
             ));
         };
 
@@ -164,20 +154,15 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
         self.expect_token(Token::KeywordAs, "Expected 'as' after process ID")?;
 
         let var_token = self.bump_sync().ok_or_else(|| {
-            ParseError::new(
-                "Expected identifier after 'as'".to_string(),
-                token_pos.line,
-                token_pos.column,
-            )
+            ParseError::from_token("Expected identifier after 'as'".to_string(), &token_pos)
         })?;
 
         let variable_name = if let Token::Identifier(name) = &var_token.token {
             name.clone()
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 format!("Expected identifier, found {:?}", var_token.token),
-                var_token.line,
-                var_token.column,
+                &var_token,
             ));
         };
 
@@ -234,10 +219,9 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
                         if matches!(token.token, Token::KeywordTo) {
                             self.bump_sync(); // Consume "to"
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected 'to' after process ID".to_string(),
-                                token.line,
-                                token.column,
+                                token,
                             ));
                         }
                     }
@@ -247,17 +231,15 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
                             if id == "complete" {
                                 self.bump_sync(); // Consume "complete"
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected 'complete' after 'to'".to_string(),
-                                    token.line,
-                                    token.column,
+                                    token,
                                 ));
                             }
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected 'complete' after 'to'".to_string(),
-                                token.line,
-                                token.column,
+                                token,
                             ));
                         }
                     }
@@ -290,10 +272,9 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
                         if token.token == Token::KeywordComes {
                             self.bump_sync(); // Consume "comes"
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected 'comes' after 'request'".to_string(),
-                                token.line,
-                                token.column,
+                                token,
                             ));
                         }
                     }
@@ -388,7 +369,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
                 }
             }
         } else {
-            return Err(ParseError::new("Unexpected end of input".to_string(), 0, 0));
+            return Err(self.cursor.error("Unexpected end of input".to_string()));
         };
 
         if let Some(token) = self.cursor.peek() {
@@ -423,10 +404,9 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
             }
         }
 
-        Err(ParseError::new(
+        Err(ParseError::from_token(
             "Expected 'content' after 'write' or 'append'".to_string(),
-            wait_token_pos.line,
-            wait_token_pos.column,
+            &wait_token_pos,
         ))
     }
 }

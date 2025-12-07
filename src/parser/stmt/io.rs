@@ -382,10 +382,9 @@ impl<'a> IoParser<'a> for Parser<'a> {
                             }
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Expected mode after 'for'".to_string(),
-                            next_token.line,
-                            next_token.column,
+                            &next_token,
                         ));
                     };
 
@@ -443,7 +442,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                             ));
                         }
                     } else {
-                        return Err(ParseError::new("Unexpected end of input".to_string(), 0, 0));
+                        return Err(self.cursor.error("Unexpected end of input".to_string()));
                     };
 
                     return Ok(Statement::ReadFileStatement {
@@ -558,7 +557,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 ));
             }
         } else {
-            return Err(ParseError::new("Unexpected end of input".to_string(), 0, 0));
+            return Err(self.cursor.error("Unexpected end of input".to_string()));
         };
 
         self.expect_token(Token::KeywordAnd, "Expected 'and' after file path")?;
@@ -584,7 +583,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 ));
             }
         } else {
-            return Err(ParseError::new("Unexpected end of input".to_string(), 0, 0));
+            return Err(self.cursor.error("Unexpected end of input".to_string()));
         };
 
         Ok(Statement::ReadFileStatement {
@@ -732,10 +731,9 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 )),
             }
         } else {
-            Err(ParseError::new(
+            Err(ParseError::from_token(
                 "Expected 'file' or 'directory' after 'delete'".to_string(),
-                token_pos.line,
-                token_pos.column,
+                &token_pos,
             ))
         }
     }

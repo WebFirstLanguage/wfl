@@ -288,10 +288,9 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 Token::KeywordAs => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected a variable name before 'as'".to_string(),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
                 _ if token.token.is_structural_keyword() => {
@@ -481,19 +480,17 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                         } else {
                             // "read" by itself is not a valid statement - treat as expression
                             let token_pos = self.cursor.peek().unwrap();
-                            Err(ParseError::new(
+                            Err(ParseError::from_token(
                                 "Unexpected 'read' - did you mean 'read output from process'?"
                                     .to_string(),
-                                token_pos.line,
-                                token_pos.column,
+                                &token_pos,
                             ))
                         }
                     } else {
                         let token_pos = self.cursor.peek().unwrap();
-                        Err(ParseError::new(
+                        Err(ParseError::from_token(
                             "Unexpected 'read' at end of input".to_string(),
-                            token_pos.line,
-                            token_pos.column,
+                            &token_pos,
                         ))
                     }
                 }
@@ -532,7 +529,7 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                 _ => self.parse_expression_statement(),
             }
         } else {
-            Err(ParseError::new("Unexpected end of input".to_string(), 0, 0))
+            Err(self.cursor.error("Unexpected end of input".to_string()))
         }
     }
 

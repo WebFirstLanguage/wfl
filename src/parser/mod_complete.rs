@@ -230,7 +230,7 @@ impl<'a> Parser<'a> {
                 _ => self.parse_expression_statement(),
             }
         } else {
-            Err(ParseError::new("Unexpected end of input".to_string(), 0, 0))
+            Err(self.cursor.error("Unexpected end of input".to_string()))
         }
     }
 
@@ -256,11 +256,7 @@ impl<'a> Parser<'a> {
                     ));
                 }
             } else {
-                return Err(ParseError::new(
-                    "Expected identifier after 'as'".to_string(),
-                    token_pos.line,
-                    token_pos.column,
-                ));
+                return Err(ParseError::from_token("Expected identifier after 'as'".to_string(), &token_pos));
             };
 
             // Create an empty list literal
