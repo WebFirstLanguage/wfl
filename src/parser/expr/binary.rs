@@ -605,8 +605,9 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                 return Err(error);
             }
         } else {
-            let error = ParseError::new(
+            let error = ParseError::from_span(
                 "Expected action name after 'call'".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 call_line,
                 call_column,
             );

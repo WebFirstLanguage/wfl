@@ -321,7 +321,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
         if when_clauses.is_empty() {
             return Err(ParseError::from_token(
                 "Try statement must have at least one 'when' or 'catch' clause".to_string(),
-                &try_token,
+                try_token,
             ));
         }
 

@@ -56,21 +56,20 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                             self.bump_sync(); // Consume separator
                             elements.push(self.parse_list_element()?);
                         } else {
-                            return Err(ParseError::new(
+                            let err_token = next_token.clone();
+                            return Err(ParseError::from_token(
                                 format!(
                                     "Expected ']', ',' or 'and' in list literal, found {:?}",
-                                    next_token.token
+                                    err_token.token
                                 ),
-                                next_token.line,
-                                next_token.column,
+                                &err_token,
                             ));
                         }
                     }
 
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Unexpected end of input while parsing list literal".into(),
-                        bracket_token.line,
-                        bracket_token.column,
+                        bracket_token,
                     ));
                 }
                 Token::LeftParen => {
@@ -82,17 +81,15 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                             self.bump_sync(); // Consume ')'
                             return Ok(expr);
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 format!("Expected closing parenthesis, found {:?}", token.token),
-                                token.line,
-                                token.column,
+                                &token,
                             ));
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Expected closing parenthesis, found end of input".into(),
-                            token.line,
-                            token.column,
+                            &token,
                         ));
                     }
                 }
@@ -217,17 +214,15 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                         column: token_column,
                                     });
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Expected property name after '.'".to_string(),
-                                        property_token.line,
-                                        property_token.column,
+                                        &property_token,
                                     ));
                                 }
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected property name after '.'".to_string(),
-                                    token_line,
-                                    token_column,
+                                    &token,
                                 ));
                             }
                         } else if let Token::Identifier(id) = &next_token.token
@@ -314,20 +309,18 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                 token_pos.column,
                             ));
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 format!(
                                     "Expected string literal after 'pattern', found {:?}",
                                     pattern_token.token
                                 ),
-                                pattern_token.line,
-                                pattern_token.column,
+                                &pattern_token,
                             ));
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Unexpected end of input after 'pattern'".to_string(),
-                            token.line,
-                            token.column,
+                            &token,
                         ));
                     }
                 }
@@ -479,10 +472,9 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                     }
 
                     // Otherwise, this is an error - "process" without "is running" is not valid
-                    Err(ParseError::new(
+                    Err(ParseError::from_token(
                         "Expected 'is running' after process ID".to_string(),
-                        token_line,
-                        token_column,
+                        &token,
                     ))
                 }
                 Token::KeywordHeader => {
@@ -495,18 +487,16 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                         match &name_token.token {
                             Token::StringLiteral(name) => name.clone(),
                             _ => {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected string literal for header name".to_string(),
-                                    name_token.line,
-                                    name_token.column,
+                                    name_token,
                                 ));
                             }
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Expected header name after 'header'".to_string(),
-                            token_line,
-                            token_column,
+                            &token,
                         ));
                     };
 
@@ -554,20 +544,18 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
 
                                 // Parse format string
                                 let format_token = self.bump_sync().ok_or_else(|| {
-                                    ParseError::new(
+                                    ParseError::from_token(
                                         "Expected format string after 'as'".to_string(),
-                                        token_line,
-                                        token_column,
+                                        &token,
                                     )
                                 })?;
 
                                 let format = match &format_token.token {
                                     Token::StringLiteral(fmt) => fmt.clone(),
                                     _ => {
-                                        return Err(ParseError::new(
+                                        return Err(ParseError::from_token(
                                             "Expected string literal for time format".to_string(),
-                                            format_token.line,
-                                            format_token.column,
+                                            format_token,
                                         ));
                                     }
                                 };
@@ -578,19 +566,20 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                     column: token_column,
                                 })
                             }
-                            _ => Err(ParseError::new(
-                                "Expected 'in milliseconds' or 'formatted as' after 'current time'"
-                                    .to_string(),
-                                next_token.line,
-                                next_token.column,
-                            )),
+                            _ => {
+                                let err_token = next_token.clone();
+                                Err(ParseError::from_token(
+                                    "Expected 'in milliseconds' or 'formatted as' after 'current time'"
+                                        .to_string(),
+                                    &err_token,
+                                ))
+                            }
                         }
                     } else {
-                        Err(ParseError::new(
+                        Err(ParseError::from_token(
                             "Expected 'in milliseconds' or 'formatted as' after 'current time'"
                                 .to_string(),
-                            token_line,
-                            token_column,
+                            &token,
                         ))
                     }
                 }
@@ -800,17 +789,15 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                     column: token.column,
                                 })
                             }
-                            _ => Err(ParseError::new(
+                            _ => Err(ParseError::from_token(
                                 "Expected 'by' or 'on' after text in split expression".to_string(),
-                                token.line,
-                                token.column,
+                                &token,
                             )),
                         }
                     } else {
-                        Err(ParseError::new(
+                        Err(ParseError::from_token(
                             "Expected 'by' or 'on' after text in split expression".to_string(),
-                            token.line,
-                            token.column,
+                            &token,
                         ))
                     }
                 }
@@ -896,10 +883,9 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                             } else {
                                 // Not "contains X in Y", treat as error
                                 // We already parsed an expression after contains
-                                Err(ParseError::new(
+                                Err(ParseError::from_token(
                                     "Expected 'in' after expression in contains".to_string(),
-                                    token_line,
-                                    token_column,
+                                    &token,
                                 ))
                             }
                         }
@@ -976,15 +962,13 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                         Ok(Expression::Variable(name, token_line, token_column))
                     }
                 }
-                Token::Eol => Err(ParseError::new(
+                Token::Eol => Err(ParseError::from_token(
                     "Unexpected end of line in expression".to_string(),
-                    token.line,
-                    token.column,
+                    &token,
                 )),
-                _ => Err(ParseError::new(
+                _ => Err(ParseError::from_token(
                     format!("Unexpected token in expression: {:?}", token.token),
-                    token.line,
-                    token.column,
+                    &token,
                 )),
             };
 
@@ -1079,11 +1063,10 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                     column: token.column,
                                 };
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Member access not supported with expression arguments"
                                         .to_string(),
-                                    token.line,
-                                    token.column,
+                                    &token,
                                 ));
                             }
                         }
@@ -1115,21 +1098,19 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                         column: token.column,
                                     };
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         format!(
                                             "Expected ']' after array index, found {:?}",
                                             closing_token.token
                                         ),
-                                        closing_token.line,
-                                        closing_token.column,
+                                        &closing_token,
                                     ));
                                 }
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected ']' after array index, found end of input"
                                         .to_string(),
-                                    token.line,
-                                    token.column,
+                                    &token,
                                 ));
                             }
                         }
@@ -1146,11 +1127,10 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                     {
                                         name.clone()
                                     } else {
-                                        return Err(ParseError::new(
+                                        return Err(ParseError::from_token(
                                             "Static member access requires a container name"
                                                 .to_string(),
-                                            token.line,
-                                            token.column,
+                                            &token,
                                         ));
                                     };
 
@@ -1161,20 +1141,18 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                         column: token.column,
                                     };
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         format!(
                                             "Expected identifier after '.', found {:?}",
                                             member_token.token
                                         ),
-                                        member_token.line,
-                                        member_token.column,
+                                        &member_token,
                                     ));
                                 }
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Unexpected end of input after '.'".to_string(),
-                                    token.line,
-                                    token.column,
+                                    &token,
                                 ));
                             }
                         }
@@ -1187,8 +1165,9 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                 result
             }
         } else {
-            Err(ParseError::new(
+            Err(ParseError::from_span(
                 "Unexpected end of input while parsing expression".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ))

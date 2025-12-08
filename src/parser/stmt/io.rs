@@ -245,20 +245,18 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                         self.bump_sync(); // Consume the identifier
                                         name.clone()
                                     } else {
-                                        return Err(ParseError::new(
+                                        return Err(ParseError::from_token(
                                             format!(
                                                 "Expected identifier for variable name, found {:?}",
                                                 token.token
                                             ),
-                                            token.line,
-                                            token.column,
+                                            &token,
                                         ));
                                     }
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Unexpected end of input".to_string(),
-                                        0,
-                                        0,
+                                        open_token,
                                     ));
                                 };
 
@@ -279,20 +277,18 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                         self.bump_sync(); // Consume the identifier
                                         name.clone()
                                     } else {
-                                        return Err(ParseError::new(
+                                        return Err(ParseError::from_token(
                                             format!(
                                                 "Expected identifier for variable name, found {:?}",
                                                 token.token
                                             ),
-                                            token.line,
-                                            token.column,
+                                            &token,
                                         ));
                                     }
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Unexpected end of input".to_string(),
-                                        0,
-                                        0,
+                                        open_token,
                                     ));
                                 };
 
@@ -304,40 +300,36 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                     column: open_token.column,
                                 });
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     format!(
                                         "Expected 'and' or 'as' after URL, found {:?}",
                                         next_token.token
                                     ),
-                                    next_token.line,
-                                    next_token.column,
+                                    &next_token,
                                 ));
                             }
                         }
                     }
 
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected 'at' after 'url'".to_string(),
-                        open_token.line,
-                        open_token.column + 5, // Approximate position after "open url"
+                        open_token,
                     ));
                 }
                 _ => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!(
                             "Expected 'file' or 'url' after 'open', found {:?}",
                             next_token.token
                         ),
-                        next_token.line,
-                        next_token.column,
+                        next_token,
                     ));
                 }
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Unexpected end of input after 'open'".to_string(),
-                open_token.line,
-                open_token.column + 4, // Approximate position after "open"
+                open_token,
             ));
         }
 
@@ -373,11 +365,10 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                 FileOpenMode::Write
                             }
                             _ => {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected 'append', 'appending', 'reading', or 'writing' after 'for'"
                                         .to_string(),
-                                    token.line,
-                                    token.column,
+                                    &token,
                                 ));
                             }
                         }
@@ -395,17 +386,15 @@ impl<'a> IoParser<'a> for Parser<'a> {
                             self.bump_sync(); // Consume the identifier
                             name.clone()
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 format!("Expected identifier after 'as', found {:?}", token.token),
-                                token.line,
-                                token.column,
+                                &token,
                             ));
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Unexpected end of input after 'as'".to_string(),
-                            0,
-                            0,
+                            open_token,
                         ));
                     };
 
@@ -432,13 +421,12 @@ impl<'a> IoParser<'a> for Parser<'a> {
                             self.bump_sync(); // Consume the "content" keyword
                             "content".to_string()
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 format!(
                                     "Expected identifier for variable name, found {:?}",
                                     token.token
                                 ),
-                                token.line,
-                                token.column,
+                                &token,
                             ));
                         }
                     } else {
@@ -460,17 +448,15 @@ impl<'a> IoParser<'a> for Parser<'a> {
                             self.bump_sync();
                             id.clone()
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 format!("Expected identifier after 'as', found {:?}", token.token),
-                                token.line,
-                                token.column,
+                                &token,
                             ));
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Unexpected end of input after 'as'".to_string(),
-                            0,
-                            0,
+                            open_token,
                         ));
                     };
 
@@ -482,20 +468,18 @@ impl<'a> IoParser<'a> for Parser<'a> {
                         column: open_token.column,
                     });
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!(
                             "Expected 'and' or 'as' after file path, found {:?}",
                             next_token.token
                         ),
-                        next_token.line,
-                        next_token.column,
+                        &next_token,
                     ));
                 }
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     "Unexpected end of input after file path".to_string(),
-                    0,
-                    0,
+                    open_token,
                 ));
             }
         }
@@ -509,17 +493,15 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 self.bump_sync();
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!("Expected identifier after 'as', found {:?}", token.token),
-                    token.line,
-                    token.column,
+                    &token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Unexpected end of input after 'as'".to_string(),
-                0,
-                0,
+                open_token,
             ));
         };
 
@@ -547,13 +529,12 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the string literal
                 Expression::Literal(Literal::String(path), line, column)
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!(
                         "Expected string literal for file path, found {:?}",
                         token.token
                     ),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
@@ -573,13 +554,12 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the "content" keyword
                 "content".to_string()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!(
                         "Expected identifier for variable name, found {:?}",
                         token.token
                     ),
-                    token.line,
-                    token.column,
+                    &token,
                 ));
             }
         } else {
@@ -721,19 +701,18 @@ impl<'a> IoParser<'a> for Parser<'a> {
                         column: token_pos.column,
                     })
                 }
-                _ => Err(ParseError::new(
+                _ => Err(ParseError::from_token(
                     format!(
                         "Expected 'file' or 'directory' after 'delete', found {:?}",
                         next_token.token
                     ),
-                    next_token.line,
-                    next_token.column,
+                    next_token,
                 )),
             }
         } else {
             Err(ParseError::from_token(
                 "Expected 'file' or 'directory' after 'delete'".to_string(),
-                &token_pos,
+                token_pos,
             ))
         }
     }

@@ -46,19 +46,20 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                     "Expected identifier after 'called', found {:?}",
                     token.token
                 );
-                return Err(ParseError::new(
+                let err_token = token.clone();
+                return Err(ParseError::from_token(
                     format!(
                         "Expected identifier after 'called', found {:?}",
-                        token.token
+                        err_token.token
                     ),
-                    token.line,
-                    token.column,
+                    &err_token,
                 ));
             }
         } else {
             exec_trace!("Unexpected end of input after 'called'");
-            return Err(ParseError::new(
+            return Err(ParseError::from_span(
                 "Unexpected end of input after 'called'".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ));
@@ -120,18 +121,19 @@ impl<'a> ActionParser<'a> for Parser<'a> {
 
                                 Some(typ)
                             } else {
-                                return Err(ParseError::new(
+                                let err_token = type_token.clone();
+                                return Err(ParseError::from_token(
                                     format!(
                                         "Expected type name after 'as', found {:?}",
-                                        type_token.token
+                                        err_token.token
                                     ),
-                                    type_token.line,
-                                    type_token.column,
+                                    &err_token,
                                 ));
                             }
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_span(
                                 "Unexpected end of input after 'as'".to_string(),
+                                crate::diagnostics::Span { start: 0, end: 0 },
                                 0,
                                 0,
                             ));
@@ -200,18 +202,19 @@ impl<'a> ActionParser<'a> for Parser<'a> {
 
                             Some(typ)
                         } else {
-                            return Err(ParseError::new(
+                            let err_token = type_token.clone();
+                            return Err(ParseError::from_token(
                                 format!(
                                     "Expected type name after 'returns', found {:?}",
-                                    type_token.token
+                                    err_token.token
                                 ),
-                                type_token.line,
-                                type_token.column,
+                                &err_token,
                             ));
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_span(
                             "Unexpected end of input after 'returns'".to_string(),
+                            crate::diagnostics::Span { start: 0, end: 0 },
                             0,
                             0,
                         ));
@@ -266,29 +269,31 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                     if matches!(token.token, Token::KeywordAction) {
                         self.bump_sync(); // Consume "action"
                     } else {
-                        return Err(ParseError::new(
+                        let err_token = token.clone();
+                        return Err(ParseError::from_token(
                             "Expected 'action' after 'end'".to_string(),
-                            token.line,
-                            token.column,
+                            &err_token,
                         ));
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_span(
                         "Expected 'action' after 'end'".to_string(),
+                        crate::diagnostics::Span { start: 0, end: 0 },
                         0,
                         0,
                     ));
                 }
             } else {
-                return Err(ParseError::new(
+                let err_token = token.clone();
+                return Err(ParseError::from_token(
                     "Expected 'end' after action body".to_string(),
-                    token.line,
-                    token.column,
+                    &err_token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_span(
                 "Expected 'end' after action body".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ));
@@ -332,18 +337,19 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                 self.bump_sync();
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                let err_token = token.clone();
+                return Err(ParseError::from_token(
                     format!(
                         "Expected identifier after 'action', found {:?}",
-                        token.token
+                        err_token.token
                     ),
-                    token.line,
-                    token.column,
+                    &err_token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_span(
                 "Expected identifier after 'action'".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ));
@@ -419,8 +425,9 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                 }
                 body.push(self.parse_statement()?);
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_span(
                     "Unexpected end of input in action body".to_string(),
+                    crate::diagnostics::Span { start: 0, end: 0 },
                     0,
                     0,
                 ));
@@ -463,15 +470,16 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                                     _ => Type::Custom(type_name.clone()),
                                 })
                             } else {
-                                return Err(ParseError::new(
+                                let err_token = type_name_token.clone();
+                                return Err(ParseError::from_token(
                                     "Expected type name after ':'".to_string(),
-                                    type_name_token.line,
-                                    type_name_token.column,
+                                    &err_token,
                                 ));
                             }
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_span(
                                 "Expected type name after ':'".to_string(),
+                                crate::diagnostics::Span { start: 0, end: 0 },
                                 param_line,
                                 param_column,
                             ));
@@ -563,18 +571,19 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                 self.bump_sync(); // Consume the identifier
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                let err_token = token.clone();
+                return Err(ParseError::from_token(
                     format!(
                         "Expected identifier for method name, found {:?}",
-                        token.token
+                        err_token.token
                     ),
-                    token.line,
-                    token.column,
+                    &err_token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_span(
                 "Expected identifier for method name, found end of input".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 line,
                 column,
             ));

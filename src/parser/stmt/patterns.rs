@@ -56,18 +56,17 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                 Token::KeywordCategory => ("category".to_string(), token.clone()),
                 Token::KeywordScript => ("script".to_string(), token.clone()),
                 _ => {
-                    return Err(ParseError::new(
+                    let err_token = token.clone();
+                    return Err(ParseError::from_token(
                         "Expected pattern name after 'create pattern'".to_string(),
-                        token.line,
-                        token.column,
+                        &err_token,
                     ));
                 }
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected pattern name after 'create pattern'".to_string(),
-                create_token.line,
-                create_token.column,
+                create_token,
             ));
         };
 
@@ -76,13 +75,12 @@ impl<'a> PatternParser<'a> for Parser<'a> {
             // Consume tokens until we find "end pattern" to prevent cascading errors
             self.consume_pattern_body_on_error();
 
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 format!(
                     "'{}' is a predefined pattern in WFL. Please choose a different name.",
                     pattern_name
                 ),
-                pattern_token.line,
-                pattern_token.column,
+                &pattern_token,
             ));
         }
 
@@ -123,10 +121,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
         }
 
         if depth > 0 {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Expected 'end pattern' to close pattern definition".to_string(),
-                create_token.line,
-                create_token.column,
+                create_token,
             ));
         }
 
@@ -166,8 +163,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                         if let Expression::Literal(Literal::List(items), _, _) = list_expr {
                             Ok(items)
                         } else {
-                            Err(ParseError::new(
+                            Err(ParseError::from_span(
                                 "Expected list of extensions after 'extensions'".to_string(),
+                                crate::diagnostics::Span { start: 0, end: 0 },
                                 0,
                                 0,
                             ))
@@ -184,15 +182,18 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                     let expr = self.parse_primary_expression()?;
                     Ok(vec![expr])
                 }
-                _ => Err(ParseError::new(
-                    "Expected 'extension', 'extensions', or 'pattern' after 'with'".to_string(),
-                    token.line,
-                    token.column,
-                )),
+                _ => {
+                    let err_token = token.clone();
+                    Err(ParseError::from_token(
+                        "Expected 'extension', 'extensions', or 'pattern' after 'with'".to_string(),
+                        &err_token,
+                    ))
+                }
             }
         } else {
-            Err(ParseError::new(
+            Err(ParseError::from_span(
                 "Expected 'extension', 'extensions', or 'pattern' after 'with'".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ))
@@ -208,8 +209,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
             .collect();
 
         if filtered_tokens.is_empty() {
-            return Err(ParseError::new(
+            return Err(ParseError::from_span(
                 "Empty pattern definition".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ));
@@ -289,8 +291,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
         }
 
         if elements.is_empty() {
-            return Err(ParseError::new(
+            return Err(ParseError::from_span(
                 "Expected pattern element".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ));
@@ -308,8 +311,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
         i: &mut usize,
     ) -> Result<PatternExpression, ParseError> {
         if *i >= tokens.len() {
-            return Err(ParseError::new(
+            return Err(ParseError::from_span(
                 "Unexpected end of pattern".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ));
@@ -345,19 +349,17 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                             PatternExpression::CharacterClass(CharClass::Any)
                         }
                         _ => {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected 'letter', 'digit', 'whitespace', or 'character' after 'any'"
                                     .to_string(),
-                                tokens[*i].line,
-                                tokens[*i].column,
+                                &tokens[*i],
                             ));
                         }
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected character class after 'any'".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             }
@@ -383,10 +385,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                         quantifier: Quantifier::OneOrMore,
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Unexpected 'one' in pattern (did you mean 'one or more'?)".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             }
@@ -410,10 +411,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                         quantifier: Quantifier::ZeroOrMore,
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Unexpected 'zero' in pattern (did you mean 'zero or more'?)".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             }
@@ -446,17 +446,15 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                             quantifier: Quantifier::Exactly(n as u32),
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Expected number after 'exactly' in pattern".to_string(),
-                            tokens[*i].line,
-                            tokens[*i].column,
+                            &tokens[*i],
                         ));
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected number after 'exactly' in pattern".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             }
@@ -483,17 +481,15 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                         quantifier: Quantifier::AtLeast(n as u32),
                                     }
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Expected number after 'at least' in pattern".to_string(),
-                                        tokens[*i].line,
-                                        tokens[*i].column,
+                                        &tokens[*i],
                                     ));
                                 }
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected number after 'at least' in pattern".to_string(),
-                                    token.line,
-                                    token.column,
+                                    token,
                                 ));
                             }
                         }
@@ -514,33 +510,29 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                         quantifier: Quantifier::AtMost(n as u32),
                                     }
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Expected number after 'at most' in pattern".to_string(),
-                                        tokens[*i].line,
-                                        tokens[*i].column,
+                                        &tokens[*i],
                                     ));
                                 }
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected number after 'at most' in pattern".to_string(),
-                                    token.line,
-                                    token.column,
+                                    token,
                                 ));
                             }
                         }
                         _ => {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected 'least' or 'most' after 'at' in pattern".to_string(),
-                                tokens[*i].line,
-                                tokens[*i].column,
+                                &tokens[*i],
                             ));
                         }
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected 'least' or 'most' after 'at' in pattern".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             }
@@ -567,10 +559,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                             quantifier: Quantifier::Between(min_val, max as u32),
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Expected number after 'to' in pattern".to_string(),
-                            tokens[*i].line,
-                            tokens[*i].column,
+                            &tokens[*i],
                         ));
                     }
                 } else {
@@ -629,18 +620,16 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                         category.clone(),
                                     ))
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Expected string literal after 'unicode category'"
                                             .to_string(),
-                                        tokens[*i].line,
-                                        tokens[*i].column,
+                                        &tokens[*i],
                                     ));
                                 }
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected category name after 'unicode category'".to_string(),
-                                    tokens[*i - 1].line,
-                                    tokens[*i - 1].column,
+                                    &tokens[*i - 1],
                                 ));
                             }
                         }
@@ -653,18 +642,16 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                         script.clone(),
                                     ))
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Expected string literal after 'unicode script'"
                                             .to_string(),
-                                        tokens[*i].line,
-                                        tokens[*i].column,
+                                        &tokens[*i],
                                     ));
                                 }
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected script name after 'unicode script'".to_string(),
-                                    tokens[*i - 1].line,
-                                    tokens[*i - 1].column,
+                                    &tokens[*i - 1],
                                 ));
                             }
                         }
@@ -677,34 +664,30 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                         property.clone(),
                                     ))
                                 } else {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Expected string literal after 'unicode property'"
                                             .to_string(),
-                                        tokens[*i].line,
-                                        tokens[*i].column,
+                                        &tokens[*i],
                                     ));
                                 }
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected property name after 'unicode property'".to_string(),
-                                    tokens[*i - 1].line,
-                                    tokens[*i - 1].column,
+                                    &tokens[*i - 1],
                                 ));
                             }
                         }
                         _ => {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected 'letter', 'digit', 'category', 'script', or 'property' after 'unicode'".to_string(),
-                                tokens[*i].line,
-                                tokens[*i].column,
+                                &tokens[*i],
                             ));
                         }
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Incomplete unicode pattern".to_string(),
-                        tokens[*i - 1].line,
-                        tokens[*i - 1].column,
+                        &tokens[*i - 1],
                     ));
                 }
             }
@@ -718,10 +701,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                     *i += 3;
                     PatternExpression::Anchor(Anchor::StartOfText)
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected 'start of text'".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             }
@@ -745,10 +727,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                     }
 
                     if brace_count > 0 {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Unclosed capture group".to_string(),
-                            token.line,
-                            token.column,
+                            token,
                         ));
                     }
 
@@ -769,31 +750,27 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                     pattern: Box::new(inner_pattern),
                                 }
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected identifier after 'as'".to_string(),
-                                    tokens[*i].line,
-                                    tokens[*i].column,
+                                    &tokens[*i],
                                 ));
                             }
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected capture name after 'as'".to_string(),
-                                token.line,
-                                token.column,
+                                token,
                             ));
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Expected 'as' after capture group".to_string(),
-                            token.line,
-                            token.column,
+                            token,
                         ));
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected '{' after 'capture'".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             }
@@ -812,25 +789,22 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                             *i += 1;
                             PatternExpression::Backreference(name.clone())
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected capture name (in quotes) after 'same as captured'"
                                     .to_string(),
-                                tokens[*i].line,
-                                tokens[*i].column,
+                                &tokens[*i],
                             ));
                         }
                     } else {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Expected capture name after 'same as captured'".to_string(),
-                            token.line,
-                            token.column,
+                            token,
                         ));
                     }
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected 'as captured' after 'same'".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             }
@@ -839,10 +813,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
             Token::KeywordCheck => {
                 *i += 1;
                 if *i >= tokens.len() {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected 'ahead' or 'behind' after 'check'".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
 
@@ -854,10 +827,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                 };
 
                 if *i >= tokens.len() {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Expected 'ahead' or 'behind' after 'check'".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
 
@@ -887,10 +859,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                 }
 
                                 if brace_count != 0 {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Unmatched '{' in lookahead pattern".to_string(),
-                                        tokens[pattern_start - 1].line,
-                                        tokens[pattern_start - 1].column,
+                                        &tokens[pattern_start - 1],
                                     ));
                                 }
 
@@ -905,17 +876,15 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                     PatternExpression::Lookahead(Box::new(inner_pattern))
                                 }
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected '{' after 'check ahead for'".to_string(),
-                                    token.line,
-                                    token.column,
+                                    token,
                                 ));
                             }
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected 'for' after 'check ahead'".to_string(),
-                                token.line,
-                                token.column,
+                                token,
                             ));
                         }
                     }
@@ -944,10 +913,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                 }
 
                                 if brace_count != 0 {
-                                    return Err(ParseError::new(
+                                    return Err(ParseError::from_token(
                                         "Unmatched '{' in lookbehind pattern".to_string(),
-                                        tokens[pattern_start - 1].line,
-                                        tokens[pattern_start - 1].column,
+                                        &tokens[pattern_start - 1],
                                     ));
                                 }
 
@@ -962,25 +930,22 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                                     PatternExpression::Lookbehind(Box::new(inner_pattern))
                                 }
                             } else {
-                                return Err(ParseError::new(
+                                return Err(ParseError::from_token(
                                     "Expected '{' after 'check behind for'".to_string(),
-                                    token.line,
-                                    token.column,
+                                    token,
                                 ));
                             }
                         } else {
-                            return Err(ParseError::new(
+                            return Err(ParseError::from_token(
                                 "Expected 'for' after 'check behind'".to_string(),
-                                token.line,
-                                token.column,
+                                token,
                             ));
                         }
                     }
                     _ => {
-                        return Err(ParseError::new(
+                        return Err(ParseError::from_token(
                             "Expected 'ahead' or 'behind' after 'check'".to_string(),
-                            tokens[*i].line,
-                            tokens[*i].column,
+                            &tokens[*i],
                         ));
                     }
                 }
@@ -990,10 +955,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
             Token::KeywordBy => {
                 // This is likely a stray "by" after "followed" was consumed
                 // Just return an error suggesting the issue
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     "Found 'by' keyword - did you mean 'followed by'? Note: 'followed by' should be used between pattern elements".to_string(),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
 
@@ -1018,10 +982,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                 }
 
                 if paren_count != 0 {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Unmatched '(' in pattern".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
 
@@ -1030,10 +993,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                 *i = pattern_end + 1; // Skip past ')'
 
                 if inner_tokens.is_empty() {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         "Empty parentheses in pattern".to_string(),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
 
@@ -1049,10 +1011,9 @@ impl<'a> PatternParser<'a> for Parser<'a> {
             }
 
             _ => {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!("Unexpected token in pattern: {:?}", token.token),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         };

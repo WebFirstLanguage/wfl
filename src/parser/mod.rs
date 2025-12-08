@@ -184,10 +184,9 @@ impl<'a> Parser<'a> {
                                 first_token.line
                             );
                             self.bump_sync(); // Consume "end"
-                            self.errors.push(ParseError::new(
+                            self.errors.push(ParseError::from_token(
                                 format!("Unexpected 'end' followed by {:?}", second_token.token),
-                                first_token.line,
-                                first_token.column,
+                                first_token,
                             ));
                             continue;
                         }
@@ -281,10 +280,9 @@ impl<'a> Parser<'a> {
                     name_parts.push(id.clone());
                 }
                 Token::IntLiteral(_) | Token::FloatLiteral(_) => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!("Cannot use a number as a variable name: {:?}", token.token),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
                 Token::KeywordAs => {
@@ -294,13 +292,12 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 _ if token.token.is_structural_keyword() => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!(
                             "Cannot use reserved keyword '{:?}' as a variable name",
                             token.token
                         ),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
                 _ if token.token.is_contextual_keyword() => {
@@ -310,19 +307,19 @@ impl<'a> Parser<'a> {
                     name_parts.push(name);
                 }
                 _ => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!(
                             "Expected identifier for variable name, found {:?}",
                             token.token
                         ),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_span(
                 "Expected variable name but found end of input".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ));
@@ -338,23 +335,21 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 Token::IntLiteral(_) | Token::FloatLiteral(_) => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!(
                             "Expected 'as' after variable name, but found number: {:?}",
                             token.token
                         ),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
                 _ => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!(
                             "Expected 'as' after variable name, but found {:?}",
                             token.token
                         ),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
             }
@@ -383,11 +378,19 @@ impl<'a> Parser<'a> {
         }
 
         if !has_identifier {
-            return Err(ParseError::new(
-                "Expected variable name".to_string(),
-                self.cursor.peek().map_or(0, |t| t.line),
-                self.cursor.peek().map_or(0, |t| t.column),
-            ));
+            if let Some(token) = self.cursor.peek() {
+                return Err(ParseError::from_token(
+                    "Expected variable name".to_string(),
+                    token,
+                ));
+            } else {
+                return Err(ParseError::from_span(
+                    "Expected variable name".to_string(),
+                    crate::diagnostics::Span { start: 0, end: 0 },
+                    0,
+                    0,
+                ));
+            }
         }
 
         Ok(name)
@@ -483,14 +486,14 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                             Err(ParseError::from_token(
                                 "Unexpected 'read' - did you mean 'read output from process'?"
                                     .to_string(),
-                                &token_pos,
+                                token_pos,
                             ))
                         }
                     } else {
                         let token_pos = self.cursor.peek().unwrap();
                         Err(ParseError::from_token(
                             "Unexpected 'read' at end of input".to_string(),
-                            &token_pos,
+                            token_pos,
                         ))
                     }
                 }
