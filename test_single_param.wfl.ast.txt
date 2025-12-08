@@ -1,0 +1,54 @@
+AST output for: test_single_param.wfl
+==============================================
+
+Program with 2 statements:
+
+Statement #1: ActionDefinition {
+    name: "greet",
+    parameters: [
+        Parameter {
+            name: "parameters x",
+            param_type: None,
+            default_value: None,
+            line: 1,
+            column: 33,
+        },
+    ],
+    body: [
+        DisplayStatement {
+            value: Variable(
+                "x",
+                2,
+                13,
+            ),
+            line: 2,
+            column: 14,
+        },
+    ],
+    return_type: None,
+    line: 3,
+    column: 11,
+}
+
+Statement #2: ExpressionStatement {
+    expression: ActionCall {
+        name: "greet",
+        arguments: [
+            Argument {
+                name: None,
+                value: Literal(
+                    String(
+                        "Test",
+                    ),
+                    5,
+                    17,
+                ),
+            },
+        ],
+        line: 5,
+        column: 1,
+    },
+    line: 5,
+    column: 23,
+}
+

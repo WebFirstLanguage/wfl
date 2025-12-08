@@ -14,7 +14,6 @@ use std::slice::Iter;
 pub struct Parser<'a> {
     tokens: Peekable<Iter<'a, TokenWithPosition>>,
     errors: Vec<ParseError>,
-    known_actions: std::collections::HashSet<String>,
 }
 
 impl<'a> Parser<'a> {
@@ -22,7 +21,6 @@ impl<'a> Parser<'a> {
         Parser {
             tokens: tokens.iter().peekable(),
             errors: Vec::with_capacity(4),
-            known_actions: std::collections::HashSet::new(),
         }
     }
 
@@ -92,10 +90,9 @@ impl<'a> Parser<'a> {
                                 // Standalone "end" or unexpected pattern - consume and log error
                                 exec_trace!("Found unexpected 'end' followed by {:?} at line {}", second_token.token, first_token.line);
                                 self.tokens.next(); // Consume "end"
-                                self.errors.push(ParseError::new(
+                                self.errors.push(ParseError::from_token(
                                     format!("Unexpected 'end' followed by {:?}", second_token.token),
-                                    first_token.line,
-                                    first_token.column,
+                                    &first_token,
                                 ));
                                 continue;
                             }
@@ -232,7 +229,7 @@ impl<'a> Parser<'a> {
                 _ => self.parse_expression_statement(),
             }
         } else {
-            Err(ParseError::new("Unexpected end of input".to_string(), 0, 0))
+            Err(self.cursor.error("Unexpected end of input".to_string()))
         }
     }
 
@@ -251,18 +248,13 @@ impl<'a> Parser<'a> {
                     self.tokens.next();
                     id.clone()
                 } else {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!("Expected identifier after 'as', found {:?}", token.token),
-                        token.line,
-                        token.column,
+                        token,
                     ));
                 }
             } else {
-                return Err(ParseError::new(
-                    "Expected identifier after 'as'".to_string(),
-                    token_pos.line,
-                    token_pos.column,
-                ));
+                return Err(ParseError::from_token("Expected identifier after 'as'".to_string(), &token_pos));
             };
 
             // Create an empty list literal
@@ -325,16 +317,16 @@ impl<'a> Parser<'a> {
                     name_parts.push(id.clone());
                 }
                 _ => {
-                    return Err(ParseError::new(
+                    return Err(ParseError::from_token(
                         format!("Expected identifier for variable name, found {:?}", token.token),
-                        token.line,
-                        token.column,
+                        &token,
                     ));
                 }
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_span(
                 "Expected variable name but found end of input".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ));
@@ -360,15 +352,15 @@ impl<'a> Parser<'a> {
                 self.tokens.next();
                 Ok(())
             } else {
-                Err(ParseError::new(
+                Err(ParseError::from_token(
                     format!("{}: expected {:?}, found {:?}", error_message, expected, token.token),
-                    token.line,
-                    token.column,
+                    &token,
                 ))
             }
         } else {
-            Err(ParseError::new(
+            Err(ParseError::from_span(
                 format!("{}: unexpected end of input", error_message),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ))
@@ -442,8 +434,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Token::KeywordWith => {
+                    // With the introduction of 'call' keyword, we still support
+                    // legacy syntax for builtin functions: `builtinName with args`
                     if let Expression::Variable(ref name, var_line, var_column) = left {
-                        if self.known_actions.contains(name) {
+                        if crate::builtins::is_builtin_function(name) {
                             self.tokens.next();
                             let arguments = self.parse_argument_list()?;
                             left = Expression::ActionCall {
@@ -547,15 +541,15 @@ impl<'a> Parser<'a> {
                     let token_pos = self.tokens.next().unwrap();
                     Ok(Expression::Variable("count".to_string(), token_pos.line, token_pos.column))
                 }
-                _ => Err(ParseError::new(
+                _ => Err(ParseError::from_token(
                     format!("Unexpected token in expression: {:?}", token.token),
-                    token.line,
-                    token.column,
+                    &token,
                 )),
             }
         } else {
-            Err(ParseError::new(
+            Err(ParseError::from_span(
                 "Unexpected end of input while parsing expression".to_string(),
+                crate::diagnostics::Span { start: 0, end: 0 },
                 0,
                 0,
             ))
@@ -683,17 +677,15 @@ impl<'a> Parser<'a> {
                 self.tokens.next();
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!("Expected identifier after 'each', found {:?}", token.token),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Unexpected end of input after 'each'".to_string(),
-                0,
-                0,
+                &for_token,
             ));
         };
 
@@ -732,17 +724,15 @@ impl<'a> Parser<'a> {
                 self.tokens.next();
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!("Expected identifier after 'called', found {:?}", token.token),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }
         } else {
-            return Err(ParseError::new(
+            return Err(ParseError::from_token(
                 "Unexpected end of input after 'called'".to_string(),
-                0,
-                0,
+                &define_token,
             ));
         };
 
@@ -788,8 +778,6 @@ impl<'a> Parser<'a> {
         self.expect_token(Token::KeywordEnd, "Expected 'end' after action body")?;
         self.expect_token(Token::KeywordAction, "Expected 'action' after 'end'")?;
 
-        self.known_actions.insert(name.clone());
-
         Ok(Statement::ActionDefinition {
             name,
             parameters,
@@ -808,9 +796,8 @@ impl<'a> Parser<'a> {
                 self.tokens.next();
                 id.clone()
             } else {
-                return Err(ParseError::new(
+                return Err(ParseError::from_token(
                     format!("Expected identifier after 'change', found {:?}", token.token),
-                    token.line,
-                    token.column,
+                    token,
                 ));
             }

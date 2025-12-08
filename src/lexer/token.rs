@@ -4,7 +4,11 @@ use logos::Logos;
 #[logos(skip r"[ \t\f\r]+|//.*|#.*")] // Skip whitespace (excluding newline) and line comments (// and #)
 pub enum Token {
     #[token("\n")]
-    Newline,
+    Newline, // Keep for internal use (flushes multi-word identifiers)
+
+    // NEW: Explicit end-of-line token emitted to parser
+    Eol,
+
     #[token("store")]
     KeywordStore,
     #[token("create")]
@@ -67,10 +71,14 @@ pub enum Token {
     KeywordDefine,
     #[token("action")]
     KeywordAction,
+    #[token("call")]
+    KeywordCall,
     #[token("called")]
     KeywordCalled,
     #[token("needs")]
     KeywordNeeds,
+    #[token("parameters")]
+    KeywordParameters,
     #[token("give")]
     KeywordGive,
     #[token("back")]
@@ -450,15 +458,40 @@ pub struct TokenWithPosition {
     pub line: usize,
     pub column: usize,
     pub length: usize,
+    // NEW: Byte offset information for span tracking
+    pub byte_start: usize,
+    pub byte_end: usize,
 }
 
 impl TokenWithPosition {
+    // Keep for backward compatibility
     pub fn new(token: Token, line: usize, column: usize, length: usize) -> Self {
         Self {
             token,
             line,
             column,
             length,
+            byte_start: 0,
+            byte_end: 0,
+        }
+    }
+
+    // NEW: Constructor with full position info including byte offsets
+    pub fn with_span(
+        token: Token,
+        line: usize,
+        column: usize,
+        length: usize,
+        byte_start: usize,
+        byte_end: usize,
+    ) -> Self {
+        Self {
+            token,
+            line,
+            column,
+            length,
+            byte_start,
+            byte_end,
         }
     }
 }
@@ -487,6 +520,7 @@ impl Token {
                 | Token::KeywordUntil
                 | Token::KeywordForever
                 | Token::KeywordAction
+                | Token::KeywordCall
                 | Token::KeywordWith
                 | Token::KeywordBreak
                 | Token::KeywordContinue

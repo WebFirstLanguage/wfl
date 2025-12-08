@@ -297,18 +297,22 @@ impl DiagnosticReporter {
     ) -> WflDiagnostic {
         let message = error.message.clone();
 
-        let start_offset = self
-            .line_col_to_offset(file_id, error.line, error.column)
-            .unwrap_or(0);
-        let end_offset = start_offset + 1;
-
-        let mut diag = WflDiagnostic::error(message.clone()).with_primary_label(
+        // Use span directly if available (start != 0 or end != 0)
+        let span = if error.span.start != 0 || error.span.end != 0 {
+            error.span
+        } else {
+            // Fallback for old-style errors or errors without proper spans
+            let start_offset = self
+                .line_col_to_offset(file_id, error.line, error.column)
+                .unwrap_or(0);
             Span {
                 start: start_offset,
-                end: end_offset,
-            },
-            "Error occurred here",
-        );
+                end: start_offset + 1,
+            }
+        };
+
+        let mut diag =
+            WflDiagnostic::error(message.clone()).with_primary_label(span, "Error occurred here");
 
         if message.contains("Expected 'as' after variable name") {
             diag = diag.with_note(

@@ -8,7 +8,12 @@ fn test_parse_error_conversion() {
     let source = "store x as 42\nstore y as \"hello\"\nstore z as";
     let file_id = reporter.add_file("test.wfl", source);
 
-    let error = ParseError::new("Expected expression after 'as'".to_string(), 3, 11);
+    let error = ParseError::from_span(
+        "Expected expression after 'as'".to_string(),
+        Span { start: 0, end: 0 }, // Dummy span for test
+        3,
+        11,
+    );
 
     let diagnostic = reporter.convert_parse_error(file_id, &error);
     assert_eq!(diagnostic.severity, Severity::Error);

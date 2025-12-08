@@ -24,6 +24,7 @@ fn test_keyword_uniqueness() {
         Token::KeywordUntil,
         Token::KeywordForever,
         Token::KeywordAction,
+        Token::KeywordCall,
         Token::KeywordCalled,
         Token::KeywordWith,
         Token::KeywordNot,
@@ -115,6 +116,9 @@ fn test_container_keywords_lexing() {
         ("new", Token::KeywordNew),
         ("must", Token::KeywordMust),
         ("defaults", Token::KeywordDefaults),
+        ("call", Token::KeywordCall),
+        ("action", Token::KeywordAction),
+        ("called", Token::KeywordCalled),
     ];
 
     for (input, expected) in test_cases {
@@ -315,4 +319,57 @@ fn test_parse_string_invalid_escape() {
         Err(_) => { /* Expected - invalid escape */ }
         _ => panic!("Expected error token"),
     }
+}
+
+// Phase 2: Eol Token Tests
+
+#[test]
+fn test_eol_emission() {
+    use crate::lexer::lex_wfl_with_positions;
+    let input = "store x as 5\nstore y as 10\n";
+    let tokens = lex_wfl_with_positions(input);
+
+    // Count Eol tokens (should be 2)
+    let eol_count = tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Eol))
+        .count();
+    assert_eq!(eol_count, 2, "Should have 2 Eol tokens for 2 newlines");
+}
+
+#[test]
+fn test_multiword_identifier_with_eol() {
+    use crate::lexer::lex_wfl_with_positions;
+    let input = "store user name as \"Alice\"\n";
+    let tokens = lex_wfl_with_positions(input);
+
+    // Should have: store, "user name", as, "Alice", Eol
+    assert!(
+        tokens
+            .iter()
+            .any(|t| { matches!(&t.token, Token::Identifier(s) if s == "user name") }),
+        "Multi-word identifier should be preserved"
+    );
+
+    assert!(
+        tokens.iter().any(|t| matches!(t.token, Token::Eol)),
+        "Eol token should be emitted after newline"
+    );
+}
+
+#[test]
+fn test_consecutive_eol() {
+    use crate::lexer::lex_wfl_with_positions;
+    let input = "store x as 5\n\n\nstore y as 10\n";
+    let tokens = lex_wfl_with_positions(input);
+
+    // Should emit Eol for each newline
+    let eol_count = tokens
+        .iter()
+        .filter(|t| matches!(t.token, Token::Eol))
+        .count();
+    assert_eq!(
+        eol_count, 4,
+        "Should emit Eol for each newline (including blank lines)"
+    );
 }

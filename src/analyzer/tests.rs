@@ -84,6 +84,170 @@ fn test_wait_for_variable_definition() {
     analyzer.analyze(&program);
     
     assert_eq!(analyzer.errors.len(), 0);
-    
+
     assert!(analyzer.current_scope.resolve("currentLog").is_some());
+}
+
+// ===== Phase 4: Tests for action call validation =====
+
+#[test]
+fn test_undefined_action_call() {
+    let input = r#"
+action greet with name:
+    print with name
+end
+
+call unknownAction with "test"
+    "#;
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let mut analyzer = Analyzer::new();
+    let _ = analyzer.analyze(&program);
+
+    // Should have error for undefined action
+    assert!(!analyzer.errors.is_empty(), "Should have semantic errors");
+    assert!(
+        analyzer.errors.iter().any(|e| e.message.contains("Undefined action 'unknownAction'")),
+        "Should report undefined action 'unknownAction', got: {:?}",
+        analyzer.errors
+    );
+}
+
+#[test]
+fn test_action_call_wrong_arg_count() {
+    let input = r#"
+action greet with name:
+    print with name
+end
+
+call greet with "Alice" and "Bob"
+    "#;
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let mut analyzer = Analyzer::new();
+    let _ = analyzer.analyze(&program);
+
+    // Should have error for wrong argument count
+    assert!(!analyzer.errors.is_empty(), "Should have semantic errors");
+    assert!(
+        analyzer.errors.iter().any(|e| e.message.contains("expects 1 argument(s), but 2 were provided")),
+        "Should report wrong argument count, got: {:?}",
+        analyzer.errors
+    );
+}
+
+#[test]
+fn test_valid_action_call() {
+    let input = r#"
+action greet with name:
+    print with name
+end
+
+call greet with "Alice"
+    "#;
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let mut analyzer = Analyzer::new();
+    let _ = analyzer.analyze(&program);
+
+    // Should have no errors
+    assert!(
+        analyzer.errors.is_empty(),
+        "Should have no semantic errors, got: {:?}",
+        analyzer.errors
+    );
+}
+
+#[test]
+fn test_recursive_action_call() {
+    let input = r#"
+action factorial with n:
+    check if n is less than or equal to 1:
+        return 1
+    end
+    return n times (call factorial with n minus 1)
+end
+
+store result as call factorial with 5
+    "#;
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let mut analyzer = Analyzer::new();
+    let _ = analyzer.analyze(&program);
+
+    // Should have no errors (recursive calls should work)
+    assert!(
+        analyzer.errors.is_empty(),
+        "Recursive action calls should be valid, got: {:?}",
+        analyzer.errors
+    );
+}
+
+#[test]
+fn test_forward_action_reference() {
+    let input = r#"
+action first:
+    call second with "test"
+end
+
+action second with msg:
+    print with msg
+end
+    "#;
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let mut analyzer = Analyzer::new();
+    let _ = analyzer.analyze(&program);
+
+    // Should have no errors (forward references should work)
+    assert!(
+        analyzer.errors.is_empty(),
+        "Forward action references should be valid, got: {:?}",
+        analyzer.errors
+    );
+}
+
+#[test]
+fn test_builtin_action_call_validation() {
+    let input = r#"
+print with "Hello"
+    "#;
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let mut analyzer = Analyzer::new();
+    let _ = analyzer.analyze(&program);
+
+    // Should have no errors (builtin functions should be recognized)
+    assert!(
+        analyzer.errors.is_empty(),
+        "Builtin function calls should be valid, got: {:?}",
+        analyzer.errors
+    );
+}
+
+#[test]
+fn test_action_not_a_function_error() {
+    let input = r#"
+store x as 10
+call x with "test"
+    "#;
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let mut analyzer = Analyzer::new();
+    let _ = analyzer.analyze(&program);
+
+    // Should have error that 'x' is not an action
+    assert!(!analyzer.errors.is_empty(), "Should have semantic errors");
+    assert!(
+        analyzer.errors.iter().any(|e| e.message.contains("'x' is not an action")),
+        "Should report 'x' is not an action, got: {:?}",
+        analyzer.errors
+    );
 }
