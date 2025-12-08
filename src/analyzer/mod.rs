@@ -1387,9 +1387,7 @@ impl Analyzer {
 
     fn analyze_action_body(&mut self, statement: &Statement) {
         if let Statement::ActionDefinition {
-            parameters,
-            body,
-            ..
+            parameters, body, ..
         } = statement
         {
             // Create new scope for action body
