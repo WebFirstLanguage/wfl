@@ -598,6 +598,9 @@ impl Analyzer {
                     self.analyze_statement(stmt);
                 }
 
+                // Remove loop variable from action_parameters after the loop
+                self.action_parameters.remove(item_name);
+
                 let loop_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = loop_scope.parent {
                     self.current_scope = *parent;
@@ -1394,10 +1397,15 @@ impl Analyzer {
             let outer_scope = std::mem::take(&mut self.current_scope);
             self.current_scope = Scope::with_parent(outer_scope);
 
+            // Collect parameter names to remove them later
+            let mut param_names_to_remove = Vec::new();
+
             // Register parameters in action scope
             for param in parameters {
                 for part in param.name.split_whitespace() {
-                    self.action_parameters.insert(part.to_string());
+                    let part_string = part.to_string();
+                    self.action_parameters.insert(part_string.clone());
+                    param_names_to_remove.push(part_string);
                 }
 
                 let param_symbol = Symbol {
@@ -1416,6 +1424,11 @@ impl Analyzer {
             // Analyze body statements
             for stmt in body {
                 self.analyze_statement(stmt);
+            }
+
+            // Clean up: remove parameter names from action_parameters
+            for param_name in param_names_to_remove {
+                self.action_parameters.remove(&param_name);
             }
 
             // Restore outer scope
@@ -1712,17 +1725,10 @@ impl Analyzer {
                 // Analyze argument expressions first
                 for arg in arguments {
                     self.analyze_expression(&arg.value);
-
-                    // Special case for variables passed directly as arguments
-                    if let Expression::Variable(var_name, ..) = &arg.value {
-                        // Add the variable to action_parameters to prevent it from being flagged as undefined
-                        self.action_parameters.insert(var_name.clone());
-                    }
                 }
 
                 // Skip validation for builtin functions - they have their own validation
                 if Self::is_builtin_function(name) {
-                    self.action_parameters.insert(name.clone());
                     return;
                 }
 
@@ -1766,9 +1772,6 @@ impl Analyzer {
                         *column,
                     ));
                 }
-
-                // Keep existing behavior for action parameters tracking
-                self.action_parameters.insert(name.clone());
             }
             Expression::Literal(_, _, _) => {}
             // Container-related expressions
@@ -2242,6 +2245,73 @@ end action
         assert!(
             analyzer.errors.is_empty(),
             "Forward action references should be valid, got: {:?}",
+            analyzer.errors
+        );
+    }
+
+    #[test]
+    fn test_action_parameter_scope_leakage() {
+        let input = r#"
+define action called first with parameters leaked_param:
+    print with leaked_param
+end action
+
+define action called second:
+    print with leaked_param
+end action
+        "#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+
+        // Should have error for undefined variable 'leaked_param' in second action
+        assert!(
+            !analyzer.errors.is_empty(),
+            "Should have semantic errors for undefined variable"
+        );
+        assert!(
+            analyzer
+                .errors
+                .iter()
+                .any(|e| e.message.contains("Variable 'leaked_param' is not defined")),
+            "Should report undefined variable 'leaked_param', got: {:?}",
+            analyzer.errors
+        );
+    }
+
+    #[test]
+    fn test_foreach_loop_variable_scope_leakage() {
+        let input = r#"
+create list numbers:
+    add 1
+    add 2
+end list
+
+for each item in numbers:
+    display item
+end for
+
+display item
+        "#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+
+        // Should have error for undefined variable 'item' after the loop
+        assert!(
+            !analyzer.errors.is_empty(),
+            "Should have semantic errors for undefined variable"
+        );
+        assert!(
+            analyzer
+                .errors
+                .iter()
+                .any(|e| e.message.contains("Variable 'item' is not defined")),
+            "Should report undefined variable 'item', got: {:?}",
             analyzer.errors
         );
     }
