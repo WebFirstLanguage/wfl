@@ -322,6 +322,13 @@ impl Analyzer {
     }
 
     pub fn analyze(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
+        // PASS 1: Register all top-level action signatures
+        // This allows forward references between actions at the top level
+        for statement in &program.statements {
+            self.register_action_signature(statement);
+        }
+
+        // PASS 2: Analyze all statements (including action bodies)
         for statement in &program.statements {
             self.analyze_statement(statement);
         }
@@ -459,61 +466,10 @@ impl Analyzer {
                     self.analyze_expression(value);
                 }
             }
-            Statement::ActionDefinition {
-                name,
-                parameters,
-                body,
-                return_type,
-                ..
-            } => {
-                let symbol = Symbol {
-                    name: name.clone(),
-                    kind: SymbolKind::Function {
-                        signatures: vec![FunctionSignature {
-                            parameters: parameters.clone(),
-                            return_type: return_type.clone(),
-                        }],
-                    },
-                    symbol_type: None,
-                    line: 0, // Need location info
-                    column: 0,
-                };
-
-                if let Err(error) = self.current_scope.define(symbol) {
-                    self.errors.push(error);
-                }
-
-                let outer_scope = std::mem::take(&mut self.current_scope);
-                self.current_scope = Scope::with_parent(outer_scope);
-
-                for param in parameters {
-                    // Add each parameter to the action_parameters set for type checking
-                    // Handle space-separated parameter names (e.g., "label expected actual")
-                    for part in param.name.split_whitespace() {
-                        self.action_parameters.insert(part.to_string());
-                    }
-
-                    let param_symbol = Symbol {
-                        name: param.name.clone(),
-                        kind: SymbolKind::Variable { mutable: false }, // Parameters are immutable
-                        symbol_type: param.param_type.clone(),
-                        line: 0, // Need location info
-                        column: 0,
-                    };
-
-                    if let Err(error) = self.current_scope.define(param_symbol) {
-                        self.errors.push(error);
-                    }
-                }
-
-                for stmt in body {
-                    self.analyze_statement(stmt);
-                }
-
-                let function_scope = std::mem::take(&mut self.current_scope);
-                if let Some(parent) = function_scope.parent {
-                    self.current_scope = *parent;
-                }
+            Statement::ActionDefinition { .. } => {
+                // Signature was already registered in Pass 1
+                // Now analyze the body in Pass 2
+                self.analyze_action_body(statement);
             }
             Statement::IfStatement {
                 condition,
@@ -1397,6 +1353,78 @@ impl Analyzer {
             }
 
             _ => {}
+        }
+    }
+
+    fn register_action_signature(&mut self, statement: &Statement) {
+        if let Statement::ActionDefinition {
+            name,
+            parameters,
+            return_type,
+            line,
+            column,
+            ..
+        } = statement
+        {
+            let symbol = Symbol {
+                name: name.clone(),
+                kind: SymbolKind::Function {
+                    signatures: vec![FunctionSignature {
+                        parameters: parameters.clone(),
+                        return_type: return_type.clone(),
+                    }],
+                },
+                symbol_type: None,
+                line: *line,
+                column: *column,
+            };
+
+            if let Err(error) = self.current_scope.define(symbol) {
+                self.errors.push(error);
+            }
+        }
+    }
+
+    fn analyze_action_body(&mut self, statement: &Statement) {
+        if let Statement::ActionDefinition {
+            parameters,
+            body,
+            ..
+        } = statement
+        {
+            // Create new scope for action body
+            let outer_scope = std::mem::take(&mut self.current_scope);
+            self.current_scope = Scope::with_parent(outer_scope);
+
+            // Register parameters in action scope
+            for param in parameters {
+                for part in param.name.split_whitespace() {
+                    self.action_parameters.insert(part.to_string());
+                }
+
+                let param_symbol = Symbol {
+                    name: param.name.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: param.param_type.clone(),
+                    line: param.line,
+                    column: param.column,
+                };
+
+                if let Err(error) = self.current_scope.define(param_symbol) {
+                    self.errors.push(error);
+                }
+            }
+
+            // Analyze body statements
+            for stmt in body {
+                self.analyze_statement(stmt);
+            }
+
+            // Restore outer scope
+            let function_scope = std::mem::take(&mut self.current_scope);
+            if let Some(parent) = function_scope.parent {
+                self.current_scope = *parent;
+            }
         }
     }
 
