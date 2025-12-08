@@ -9,7 +9,7 @@ mod tests;
 use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use ast::*;
-use cursor::Cursor;
+pub use cursor::Cursor; // Re-export Cursor publicly for doctests
 use expr::ExprParser;
 use stmt::{
     ActionParser, CollectionParser, ContainerParser, ControlFlowParser, ErrorHandlingParser,

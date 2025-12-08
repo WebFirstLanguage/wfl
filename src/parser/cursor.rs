@@ -21,7 +21,7 @@ use crate::lexer::token::{Token, TokenWithPosition};
 ///
 /// ```
 /// # use wfl::lexer::token::{Token, TokenWithPosition};
-/// # use wfl::parser::cursor::Cursor;
+/// # use wfl::parser::Cursor;
 /// let tokens = vec![
 ///     TokenWithPosition::new(Token::KeywordStore, 1, 1, 5),
 ///     TokenWithPosition::new(Token::Identifier("x".to_string()), 1, 7, 1),
@@ -48,7 +48,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::TokenWithPosition;
     /// let tokens: Vec<TokenWithPosition> = vec![];
     /// let cursor = Cursor::new(&tokens);
@@ -66,7 +66,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![TokenWithPosition::new(Token::KeywordStore, 1, 1, 5)];
     /// let mut cursor = Cursor::new(&tokens);
@@ -86,7 +86,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::TokenWithPosition;
     /// let tokens: Vec<TokenWithPosition> = vec![];
     /// let cursor = Cursor::new(&tokens);
@@ -105,7 +105,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![TokenWithPosition::new(Token::KeywordStore, 1, 1, 5)];
     /// let cursor = Cursor::new(&tokens);
@@ -130,7 +130,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![
     /// #     TokenWithPosition::new(Token::KeywordStore, 1, 1, 5),
@@ -153,7 +153,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![
     /// #     TokenWithPosition::new(Token::KeywordStore, 1, 1, 5),
@@ -174,7 +174,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![TokenWithPosition::new(Token::KeywordStore, 1, 1, 5)];
     /// let cursor = Cursor::new(&tokens);
@@ -191,7 +191,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![
     /// #     TokenWithPosition::new(Token::KeywordStore, 1, 1, 5),
@@ -213,7 +213,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![
     /// #     TokenWithPosition::new(Token::KeywordStore, 1, 1, 5),
@@ -242,7 +242,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![TokenWithPosition::new(Token::KeywordStore, 1, 1, 5)];
     /// let cursor = Cursor::new(&tokens);
@@ -264,7 +264,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![
     /// #     TokenWithPosition::new(Token::KeywordStore, 1, 1, 5),
@@ -294,7 +294,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![
     /// #     TokenWithPosition::new(Token::KeywordStore, 1, 1, 5),
@@ -325,7 +325,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![
     /// #     TokenWithPosition::new(Token::KeywordStore, 1, 1, 5),
@@ -356,7 +356,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![
     /// #     TokenWithPosition::new(Token::KeywordStore, 1, 1, 5),
@@ -379,7 +379,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![TokenWithPosition::new(Token::KeywordStore, 42, 1, 5)];
     /// let cursor = Cursor::new(&tokens);
@@ -398,7 +398,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # use wfl::diagnostics::Span;
     /// # let tokens = vec![TokenWithPosition::with_span(Token::KeywordStore, 1, 1, 5, 0, 5)];
@@ -426,7 +426,7 @@ impl<'a> Cursor<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use wfl::parser::cursor::Cursor;
+    /// # use wfl::parser::Cursor;
     /// # use wfl::lexer::token::{Token, TokenWithPosition};
     /// # let tokens = vec![TokenWithPosition::with_span(Token::KeywordStore, 1, 1, 5, 0, 5)];
     /// let cursor = Cursor::new(&tokens);
