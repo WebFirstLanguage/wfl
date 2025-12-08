@@ -2274,7 +2274,10 @@ end action
         let _ = analyzer.analyze(&program);
 
         // Should have error for undefined variable 'leaked_param' in second action
-        assert!(!analyzer.errors.is_empty(), "Should have semantic errors for undefined variable");
+        assert!(
+            !analyzer.errors.is_empty(),
+            "Should have semantic errors for undefined variable"
+        );
         assert!(
             analyzer
                 .errors
