@@ -1115,7 +1115,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                             }
                         }
                         // Handle static member access: "Container.staticMember"
-                        Token::Identifier(id) if id == "." => {
+                        Token::Dot => {
                             self.bump_sync(); // Consume "."
 
                             if let Some(member_token) = self.cursor.peek().cloned() {

@@ -234,6 +234,11 @@ impl<'a> ActionParser<'a> for Parser<'a> {
             && let Token::Identifier(id) = &token.token
             && id == "and"
         {
+            // Report trailing "and" as an error
+            self.errors.push(ParseError::from_token(
+                "Unexpected trailing 'and' in action parameter list".to_string(),
+                &token,
+            ));
             self.bump_sync(); // Consume the extra "and"
         }
 

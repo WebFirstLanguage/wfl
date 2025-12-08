@@ -549,7 +549,6 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     Token::KeywordDivided => {
                         self.bump_sync(); // Consume "divided"
                         self.expect_token(Token::KeywordBy, "Expected 'by' after 'divided'")?;
-                        self.bump_sync(); // Consume "by"
                     }
                     Token::Percent => {
                         self.bump_sync(); // Consume "%"

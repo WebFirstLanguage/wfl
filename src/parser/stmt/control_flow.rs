@@ -172,7 +172,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                     is_multiline = true;
                     break;
                 }
-                Token::Newline => {
+                Token::Eol => {
                     self.bump_sync(); // Consume newline
                     is_multiline = true;
                     continue;
@@ -206,7 +206,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                 while let Some(token) = self.cursor.peek() {
                     match &token.token {
                         Token::KeywordEnd => break,
-                        Token::Newline => {
+                        Token::Eol => {
                             self.bump_sync(); // Consume newline
                             continue;
                         }

@@ -97,15 +97,15 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
 
         self.expect_token(Token::KeywordAnd, "Expected 'and' after list expression")?;
 
-        let mut value_expr = self.parse_primary_expression()?;
-
-        // Continue parsing as binary expression if not at Eol or statement starter
-        if let Some(token) = self.cursor.peek()
+        // Parse as binary expression if not at Eol or statement starter, otherwise just primary
+        let value_expr = if let Some(token) = self.cursor.peek()
             && !matches!(token.token, Token::Eol)
             && !Parser::is_statement_starter(&token.token)
         {
-            value_expr = self.parse_binary_expression(0)?;
-        }
+            self.parse_binary_expression(0)?
+        } else {
+            self.parse_primary_expression()?
+        };
 
         let stmt = Statement::PushStatement {
             list: list_expr,
