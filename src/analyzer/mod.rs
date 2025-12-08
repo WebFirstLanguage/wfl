@@ -598,6 +598,9 @@ impl Analyzer {
                     self.analyze_statement(stmt);
                 }
 
+                // Remove loop variable from action_parameters after the loop
+                self.action_parameters.remove(item_name);
+
                 let loop_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = loop_scope.parent {
                     self.current_scope = *parent;
@@ -1722,17 +1725,10 @@ impl Analyzer {
                 // Analyze argument expressions first
                 for arg in arguments {
                     self.analyze_expression(&arg.value);
-
-                    // Special case for variables passed directly as arguments
-                    if let Expression::Variable(var_name, ..) = &arg.value {
-                        // Add the variable to action_parameters to prevent it from being flagged as undefined
-                        self.action_parameters.insert(var_name.clone());
-                    }
                 }
 
                 // Skip validation for builtin functions - they have their own validation
                 if Self::is_builtin_function(name) {
-                    self.action_parameters.insert(name.clone());
                     return;
                 }
 
@@ -1776,9 +1772,6 @@ impl Analyzer {
                         *column,
                     ));
                 }
-
-                // Keep existing behavior for action parameters tracking
-                self.action_parameters.insert(name.clone());
             }
             Expression::Literal(_, _, _) => {}
             // Container-related expressions
@@ -2284,6 +2277,41 @@ end action
                 .iter()
                 .any(|e| e.message.contains("Variable 'leaked_param' is not defined")),
             "Should report undefined variable 'leaked_param', got: {:?}",
+            analyzer.errors
+        );
+    }
+
+    #[test]
+    fn test_foreach_loop_variable_scope_leakage() {
+        let input = r#"
+create list numbers:
+    add 1
+    add 2
+end list
+
+for each item in numbers:
+    display item
+end for
+
+display item
+        "#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+
+        // Should have error for undefined variable 'item' after the loop
+        assert!(
+            !analyzer.errors.is_empty(),
+            "Should have semantic errors for undefined variable"
+        );
+        assert!(
+            analyzer
+                .errors
+                .iter()
+                .any(|e| e.message.contains("Variable 'item' is not defined")),
+            "Should report undefined variable 'item', got: {:?}",
             analyzer.errors
         );
     }
