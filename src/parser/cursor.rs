@@ -121,7 +121,7 @@ impl<'a> Cursor<'a> {
     /// Peek at token N positions ahead without consuming.
     ///
     /// Returns a reference to the token at position `pos + n`,
-    /// or `None` if beyond end of stream.
+    /// or `None` if beyond end of stream or if the position would overflow.
     ///
     /// # Arguments
     ///
@@ -143,7 +143,10 @@ impl<'a> Cursor<'a> {
     /// ```
     #[inline]
     pub fn peek_n(&self, n: usize) -> Option<&'a TokenWithPosition> {
-        self.tokens.get(self.pos + n)
+        // Use checked addition to prevent integer overflow
+        self.pos
+            .checked_add(n)
+            .and_then(|index| self.tokens.get(index))
     }
 
     /// Peek at next token (position + 1).
@@ -630,5 +633,30 @@ mod tests {
         );
         assert_eq!(cursor.peek_kind_n(2), Some(&Token::KeywordAs));
         assert_eq!(cursor.peek_kind_n(10), None);
+    }
+
+    #[test]
+    fn peek_n_with_large_n_should_not_overflow() {
+        let tokens = make_tokens();
+        let cursor = Cursor::new(&tokens);
+
+        // Test with maximum usize value - should not panic or overflow
+        assert_eq!(cursor.peek_n(usize::MAX), None);
+    }
+
+    #[test]
+    fn peek_n_with_large_n_from_advanced_position() {
+        let tokens = make_tokens();
+        let mut cursor = Cursor::new(&tokens);
+
+        // Advance to near end
+        cursor.bump();
+        cursor.bump();
+        cursor.bump(); // Now at position 3
+
+        // Test with very large n - should not panic or overflow
+        assert_eq!(cursor.peek_n(usize::MAX - 2), None);
+        assert_eq!(cursor.peek_n(usize::MAX - 1), None);
+        assert_eq!(cursor.peek_n(usize::MAX), None);
     }
 }
