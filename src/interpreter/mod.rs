@@ -284,6 +284,7 @@ pub struct Interpreter {
     pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
+    disable_auto_call: RefCell<bool>, // Flag to disable auto-calling in specific contexts
 }
 
 // Process handle for managing subprocess state
@@ -1092,6 +1093,7 @@ impl Interpreter {
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
             config,
+            disable_auto_call: RefCell::new(false), // Initialize auto-call as enabled
         }
     }
 
@@ -4804,11 +4806,11 @@ impl Interpreter {
                             }
                         }
                         Value::Function(func) => {
-                            if func.params.is_empty() {
+                            if func.params.is_empty() && !*self.disable_auto_call.borrow() {
                                 // Auto-call zero-argument user-defined functions
                                 self.call_function(func, vec![], *line, *column).await
                             } else {
-                                // Return function object for functions with arguments
+                                // Return function object for functions with arguments, or when auto-call is disabled
                                 Ok(value)
                             }
                         }
@@ -4894,7 +4896,10 @@ impl Interpreter {
                 line,
                 column,
             } => {
+                // Temporarily disable auto-call to get the function object
+                *self.disable_auto_call.borrow_mut() = true;
                 let function_val = self.evaluate_expression(function, Rc::clone(&env)).await?;
+                *self.disable_auto_call.borrow_mut() = false;
 
                 let mut arg_values = Vec::new();
                 for arg in arguments {
