@@ -471,6 +471,10 @@ impl Analyzer {
 
                 self.mark_used_in_expression(value, usages);
             }
+            Statement::VariableDeclaration { value, .. } => {
+                // Mark variables used in nested variable declaration initializers
+                self.mark_used_in_expression(value, usages);
+            }
             Statement::ActionDefinition { body, .. } => {
                 for stmt in body {
                     self.mark_used_variables(stmt, usages);
@@ -541,6 +545,7 @@ impl Analyzer {
                 start,
                 end,
                 step,
+                variable_name,
                 body,
                 ..
             } => {
@@ -548,6 +553,13 @@ impl Analyzer {
                 self.mark_used_in_expression(end, usages);
                 if let Some(step_expr) = step {
                     self.mark_used_in_expression(step_expr, usages);
+                }
+
+                // Mark custom loop variable as used (similar to ForEachLoop)
+                if let Some(var_name) = variable_name {
+                    if let Some(usage) = usages.get_mut(var_name) {
+                        usage.used = true;
+                    }
                 }
 
                 for stmt in body {
@@ -1681,6 +1693,166 @@ mod tests {
         assert!(
             !diagnostics.iter().any(|d| d.message.contains("last_index")),
             "last_index should not be reported as unused when used in array access"
+        );
+    }
+
+    #[test]
+    fn test_nested_variable_declaration_tracks_usage() {
+        // Test that variables used in nested variable declarations are properly tracked
+        let program = Program {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: "x".to_string(),
+                    value: Expression::Literal(Literal::Integer(10), 1, 1),
+                    is_constant: false,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::IfStatement {
+                    condition: Expression::Literal(Literal::Boolean(true), 2, 1),
+                    then_block: vec![Statement::VariableDeclaration {
+                        name: "y".to_string(),
+                        value: Expression::BinaryOperation {
+                            left: Box::new(Expression::Variable("x".to_string(), 3, 20)),
+                            operator: Operator::Plus,
+                            right: Box::new(Expression::Literal(Literal::Integer(5), 3, 24)),
+                            line: 3,
+                            column: 20,
+                        },
+                        is_constant: false,
+                        line: 3,
+                        column: 5,
+                    }],
+                    else_block: None,
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+        // x should NOT be reported as unused because it's used in nested declaration
+        // This is the main bug fix - previously x would be incorrectly reported as unused
+        assert!(
+            !diagnostics.iter().any(|d| d.message.contains("'x'")),
+            "x should not be reported as unused when used in nested variable declaration"
+        );
+    }
+
+    #[test]
+    fn test_count_loop_custom_variable_not_unused() {
+        // Test that custom count loop variables are marked as used
+        let program = Program {
+            statements: vec![Statement::CountLoop {
+                start: Expression::Literal(Literal::Integer(1), 1, 12),
+                end: Expression::Literal(Literal::Integer(5), 1, 17),
+                step: None,
+                downward: false,
+                variable_name: Some("i".to_string()),
+                body: vec![Statement::DisplayStatement {
+                    value: Expression::Literal(
+                        Literal::String("iteration".to_string()),
+                        2,
+                        9,
+                    ),
+                    line: 2,
+                    column: 5,
+                }],
+                line: 1,
+                column: 1,
+            }],
+        };
+
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+        // Custom loop variable 'i' should NOT be reported as unused
+        // even though it's not explicitly referenced in the loop body
+        assert!(
+            !diagnostics.iter().any(|d| d.message.contains("'i'")),
+            "Custom count loop variable 'i' should not be reported as unused"
+        );
+    }
+
+    #[test]
+    fn test_deeply_nested_variable_usage() {
+        // Test that variables used deep in nested structures are tracked
+        let program = Program {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: "a".to_string(),
+                    value: Expression::Literal(Literal::Integer(1), 1, 1),
+                    is_constant: false,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::IfStatement {
+                    condition: Expression::Literal(Literal::Boolean(true), 2, 1),
+                    then_block: vec![Statement::IfStatement {
+                        condition: Expression::Literal(Literal::Boolean(true), 3, 5),
+                        then_block: vec![Statement::WhileLoop {
+                            condition: Expression::Literal(Literal::Boolean(false), 4, 9),
+                            body: vec![Statement::VariableDeclaration {
+                                name: "b".to_string(),
+                                value: Expression::Variable("a".to_string(), 5, 20),
+                                is_constant: false,
+                                line: 5,
+                                column: 13,
+                            }],
+                            line: 4,
+                            column: 9,
+                        }],
+                        else_block: None,
+                        line: 3,
+                        column: 5,
+                    }],
+                    else_block: None,
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+        // 'a' should NOT be reported as unused because it's used deep in nested context
+        assert!(
+            !diagnostics.iter().any(|d| d.message.contains("'a'")),
+            "'a' should not be reported as unused in deeply nested context"
+        );
+    }
+
+    #[test]
+    fn test_count_loop_default_variable() {
+        // Test that default "count" variable still works correctly
+        let program = Program {
+            statements: vec![Statement::CountLoop {
+                start: Expression::Literal(Literal::Integer(1), 1, 12),
+                end: Expression::Literal(Literal::Integer(5), 1, 17),
+                step: None,
+                downward: false,
+                variable_name: None, // Default "count" variable
+                body: vec![Statement::DisplayStatement {
+                    value: Expression::Variable("count".to_string(), 2, 9),
+                    line: 2,
+                    column: 5,
+                }],
+                line: 1,
+                column: 1,
+            }],
+        };
+
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+        // Should have no unused variable warnings
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "Default 'count' variable should work correctly"
         );
     }
 }
