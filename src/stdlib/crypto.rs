@@ -377,6 +377,7 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 // Native functions exposed to interpreter (API kept consistent)
 
 pub fn native_wflhash256(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    eprintln!("WARNING: WFL crypto functions are experimental and provide no security guarantees. USE AT OWN RISK.");
     if args.len() != 1 {
         return Err(RuntimeError::new(
             "Invalid argument count".to_string(),
@@ -401,6 +402,7 @@ pub fn native_wflhash256_binary(input: &[u8]) -> Result<String, RuntimeError> {
 }
 
 pub fn native_wflhash512(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    eprintln!("WARNING: WFL crypto functions are experimental and provide no security guarantees. USE AT OWN RISK.");
     if args.len() != 1 {
         return Err(RuntimeError::new(
             "Invalid argument count".to_string(),
@@ -419,6 +421,7 @@ pub fn native_wflhash512(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_wflhash256_with_salt(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    eprintln!("WARNING: WFL crypto functions are experimental and provide no security guarantees. USE AT OWN RISK.");
     if args.len() != 2 {
         return Err(RuntimeError::new(
             "Invalid argument count".to_string(),
@@ -441,6 +444,7 @@ pub fn native_wflhash256_with_salt(args: Vec<Value>) -> Result<Value, RuntimeErr
 }
 
 pub fn native_wflmac256(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    eprintln!("WARNING: WFL crypto functions are experimental and provide no security guarantees. USE AT OWN RISK.");
     if args.len() != 2 {
         return Err(RuntimeError::new(
             "Invalid argument count".to_string(),
