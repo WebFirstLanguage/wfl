@@ -2,10 +2,10 @@
 // These tests verify that the Rc<Scope> optimization prevents quadratic complexity
 // in deeply nested code structures.
 
+use std::time::Instant;
+use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::analyzer::Analyzer;
-use std::time::Instant;
 
 #[test]
 fn test_deeply_nested_if_statements_performance() {
@@ -16,7 +16,10 @@ fn test_deeply_nested_if_statements_performance() {
     for i in 0..20 {
         program.push_str(&format!("{}check if yes:\n", "    ".repeat(i)));
     }
-    program.push_str(&format!("{}store deeply_nested_var as 42\n", "    ".repeat(20)));
+    program.push_str(&format!(
+        "{}store deeply_nested_var as 42\n",
+        "    ".repeat(20)
+    ));
     for i in (0..20).rev() {
         program.push_str(&format!("{}end check\n", "    ".repeat(i)));
     }
@@ -29,11 +32,18 @@ fn test_deeply_nested_if_statements_performance() {
     let duration = start.elapsed();
 
     // Verify analysis succeeded
-    assert!(result.is_ok(), "Analysis should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Analysis should succeed: {:?}",
+        result.err()
+    );
 
     // With Box<Scope> cloning, this would take >1s or timeout
     // With Rc<Scope> optimization, should complete in under 100ms
-    println!("Deeply nested if statements (20 levels) analyzed in {}ms", duration.as_millis());
+    println!(
+        "Deeply nested if statements (20 levels) analyzed in {}ms",
+        duration.as_millis()
+    );
     assert!(
         duration.as_millis() < 500,
         "Analysis took {}ms, expected <500ms (may indicate O(N²) cloning issue)",
@@ -53,10 +63,22 @@ fn test_deeply_nested_loops_performance() {
         let item_var = format!("item{}", i);
         let next_items_var = format!("items{}", i + 1);
 
-        program.push_str(&format!("{}for each {} in {}:\n", "    ".repeat(i), item_var, items_var));
-        program.push_str(&format!("{}store {} as [1, 2]\n", "    ".repeat(i + 1), next_items_var));
+        program.push_str(&format!(
+            "{}for each {} in {}:\n",
+            "    ".repeat(i),
+            item_var,
+            items_var
+        ));
+        program.push_str(&format!(
+            "{}store {} as [1, 2]\n",
+            "    ".repeat(i + 1),
+            next_items_var
+        ));
     }
-    program.push_str(&format!("{}store nested_loop_var as 42\n", "    ".repeat(15)));
+    program.push_str(&format!(
+        "{}store nested_loop_var as 42\n",
+        "    ".repeat(15)
+    ));
     for i in (0..15).rev() {
         program.push_str(&format!("{}end for\n", "    ".repeat(i)));
     }
@@ -69,9 +91,16 @@ fn test_deeply_nested_loops_performance() {
     let duration = start.elapsed();
 
     // Verify analysis succeeded
-    assert!(result.is_ok(), "Analysis should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Analysis should succeed: {:?}",
+        result.err()
+    );
 
-    println!("Deeply nested loops (15 levels) analyzed in {}ms", duration.as_millis());
+    println!(
+        "Deeply nested loops (15 levels) analyzed in {}ms",
+        duration.as_millis()
+    );
     assert!(
         duration.as_millis() < 500,
         "Analysis took {}ms, expected <500ms",
@@ -126,9 +155,16 @@ fn test_mixed_nested_control_flow_performance() {
     let duration = start.elapsed();
 
     // Verify analysis succeeded
-    assert!(result.is_ok(), "Analysis should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Analysis should succeed: {:?}",
+        result.err()
+    );
 
-    println!("Mixed nested control flow (8 levels) analyzed in {}ms", duration.as_millis());
+    println!(
+        "Mixed nested control flow (8 levels) analyzed in {}ms",
+        duration.as_millis()
+    );
     assert!(
         duration.as_millis() < 200,
         "Analysis took {}ms, expected <200ms",
@@ -163,9 +199,16 @@ fn test_if_else_branches_performance() {
     let duration = start.elapsed();
 
     // Verify analysis succeeded
-    assert!(result.is_ok(), "Analysis should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Analysis should succeed: {:?}",
+        result.err()
+    );
 
-    println!("Nested if-else branches (12 levels) analyzed in {}ms", duration.as_millis());
+    println!(
+        "Nested if-else branches (12 levels) analyzed in {}ms",
+        duration.as_millis()
+    );
     assert!(
         duration.as_millis() < 300,
         "Analysis took {}ms, expected <300ms",

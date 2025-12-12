@@ -2,9 +2,9 @@
 // These tests ensure that the Rc<Scope> refactoring doesn't break
 // existing scope behavior: isolation, lookup, and resolution.
 
+use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::analyzer::Analyzer;
 
 #[test]
 fn test_scope_isolation() {
@@ -214,7 +214,9 @@ fn test_no_variable_shadowing_parent_scope() {
     assert!(result.is_err(), "Should error on variable shadowing");
     let errors = result.unwrap_err();
     assert!(
-        errors[0].message.contains("already been defined in an outer scope"),
+        errors[0]
+            .message
+            .contains("already been defined in an outer scope"),
         "Error should mention outer scope: {}",
         errors[0].message
     );

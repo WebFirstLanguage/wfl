@@ -499,8 +499,7 @@ impl Analyzer {
 
                 // Recover the outer scope Rc for variable tracking
                 let outer_scope = if let Some(parent_rc) = &then_scope.parent {
-                    Rc::try_unwrap(parent_rc.clone())
-                        .unwrap_or_else(|rc| (*rc).clone())
+                    Rc::try_unwrap(parent_rc.clone()).unwrap_or_else(|rc| (*rc).clone())
                 } else {
                     Scope::new() // Shouldn't happen, but provide fallback
                 };
@@ -512,8 +511,8 @@ impl Analyzer {
                 }
 
                 if let Some(parent_rc) = then_scope.parent {
-                    self.current_scope = Rc::try_unwrap(parent_rc)
-                        .unwrap_or_else(|rc| (*rc).clone());
+                    self.current_scope =
+                        Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
                 }
 
                 let mut defined_in_else = Vec::new();
@@ -530,8 +529,7 @@ impl Analyzer {
 
                     // Recover outer scope for variable tracking
                     let outer_scope_for_else = if let Some(parent_rc) = &else_scope.parent {
-                        Rc::try_unwrap(parent_rc.clone())
-                            .unwrap_or_else(|rc| (*rc).clone())
+                        Rc::try_unwrap(parent_rc.clone()).unwrap_or_else(|rc| (*rc).clone())
                     } else {
                         Scope::new()
                     };
@@ -543,8 +541,8 @@ impl Analyzer {
                     }
 
                     if let Some(parent_rc) = else_scope.parent {
-                        self.current_scope = Rc::try_unwrap(parent_rc)
-                            .unwrap_or_else(|rc| (*rc).clone());
+                        self.current_scope =
+                            Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
                     }
                 }
 
@@ -581,8 +579,8 @@ impl Analyzer {
 
                 let then_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent_rc) = then_scope.parent {
-                    self.current_scope = Rc::try_unwrap(parent_rc)
-                        .unwrap_or_else(|rc| (*rc).clone());
+                    self.current_scope =
+                        Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
                 }
 
                 if let Some(else_stmt) = else_stmt {
@@ -594,8 +592,8 @@ impl Analyzer {
 
                     let else_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent_rc) = else_scope.parent {
-                        self.current_scope = Rc::try_unwrap(parent_rc)
-                            .unwrap_or_else(|rc| (*rc).clone());
+                        self.current_scope =
+                            Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
                     }
                 }
             }
@@ -635,8 +633,8 @@ impl Analyzer {
 
                 let loop_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent_rc) = loop_scope.parent {
-                    self.current_scope = Rc::try_unwrap(parent_rc)
-                        .unwrap_or_else(|rc| (*rc).clone());
+                    self.current_scope =
+                        Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
                 }
             }
             Statement::CountLoop {
@@ -684,8 +682,8 @@ impl Analyzer {
 
                 let loop_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent_rc) = loop_scope.parent {
-                    self.current_scope = Rc::try_unwrap(parent_rc)
-                        .unwrap_or_else(|rc| (*rc).clone());
+                    self.current_scope =
+                        Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
                 }
             }
             Statement::WhileLoop {
@@ -703,8 +701,8 @@ impl Analyzer {
 
                 let loop_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent_rc) = loop_scope.parent {
-                    self.current_scope = Rc::try_unwrap(parent_rc)
-                        .unwrap_or_else(|rc| (*rc).clone());
+                    self.current_scope =
+                        Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
                 }
             }
             Statement::DisplayStatement { value, .. } => {
@@ -784,8 +782,8 @@ impl Analyzer {
 
                 let wait_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent_rc) = wait_scope.parent {
-                    let mut parent_mut = Rc::try_unwrap(parent_rc)
-                        .unwrap_or_else(|rc| (*rc).clone());
+                    let mut parent_mut =
+                        Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
                     for (name, symbol) in wait_scope.symbols {
                         if parent_mut.resolve(&name).is_none() {
                             let _ = parent_mut.define(symbol);
@@ -815,8 +813,8 @@ impl Analyzer {
 
                 let try_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent_rc) = try_scope.parent {
-                    self.current_scope = Rc::try_unwrap(parent_rc)
-                        .unwrap_or_else(|rc| (*rc).clone());
+                    self.current_scope =
+                        Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
                 }
 
                 // Analyze each when clause
@@ -843,8 +841,8 @@ impl Analyzer {
 
                     let when_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent_rc) = when_scope.parent {
-                        self.current_scope = Rc::try_unwrap(parent_rc)
-                            .unwrap_or_else(|rc| (*rc).clone());
+                        self.current_scope =
+                            Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
                     }
                 }
 
@@ -859,8 +857,8 @@ impl Analyzer {
 
                     let otherwise_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent_rc) = otherwise_scope.parent {
-                        self.current_scope = Rc::try_unwrap(parent_rc)
-                            .unwrap_or_else(|rc| (*rc).clone());
+                        self.current_scope =
+                            Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
                     }
                 }
             }
@@ -1480,8 +1478,7 @@ impl Analyzer {
             // Restore outer scope
             let function_scope = std::mem::take(&mut self.current_scope);
             if let Some(parent_rc) = function_scope.parent {
-                self.current_scope = Rc::try_unwrap(parent_rc)
-                    .unwrap_or_else(|rc| (*rc).clone());
+                self.current_scope = Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
             }
         }
     }
@@ -1586,8 +1583,7 @@ impl Analyzer {
 
     pub fn pop_scope(&mut self) {
         if let Some(parent_rc) = self.current_scope.parent.take() {
-            self.current_scope = Rc::try_unwrap(parent_rc)
-                .unwrap_or_else(|rc| (*rc).clone());
+            self.current_scope = Rc::try_unwrap(parent_rc).unwrap_or_else(|rc| (*rc).clone());
         }
     }
 

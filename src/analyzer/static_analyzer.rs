@@ -1752,11 +1752,7 @@ mod tests {
                 downward: false,
                 variable_name: Some("i".to_string()),
                 body: vec![Statement::DisplayStatement {
-                    value: Expression::Literal(
-                        Literal::String("iteration".to_string()),
-                        2,
-                        9,
-                    ),
+                    value: Expression::Literal(Literal::String("iteration".to_string()), 2, 9),
                     line: 2,
                     column: 5,
                 }],
