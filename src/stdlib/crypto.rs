@@ -10,6 +10,9 @@ use zeroize::Zeroize;
 /// Number of rounds in WFLHASH-P permutation
 const WFLHASH_ROUNDS: usize = 24;
 
+/// Maximum input size (100MB) to prevent DoS
+pub const MAX_INPUT_SIZE: usize = 100 * 1024 * 1024;
+
 /// WFLHASH IVs (Cube roots of primes 2, 3, 5, 7)
 const WFLHASH_IV: [[u64; 4]; 4] = [
     [
@@ -347,6 +350,13 @@ impl WflHashParams {
 // Core functions rewritten to use the buffered State logic
 
 fn wflhash_core(input: &[u8], params: &WflHashParams) -> Result<Vec<u8>, RuntimeError> {
+    if input.len() > MAX_INPUT_SIZE {
+        return Err(RuntimeError::new(
+            "Input exceeds maximum allowed size".to_string(),
+            0,
+            0,
+        ));
+    }
     let mut state = WflHashState::new();
     state.initialize(params);
     state.absorb_bytes(input);
@@ -382,6 +392,12 @@ pub fn native_wflhash256(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let params = WflHashParams::new(32);
     let hash = wflhash_core_text(input, &params)?;
     Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
+}
+
+pub fn native_wflhash256_binary(input: &[u8]) -> Result<String, RuntimeError> {
+    let params = WflHashParams::new(32);
+    let hash = wflhash_core(input, &params)?; // valid because wflhash_core checks size and doesn't check specific encoding
+    Ok(bytes_to_hex(&hash))
 }
 
 pub fn native_wflhash512(args: Vec<Value>) -> Result<Value, RuntimeError> {
