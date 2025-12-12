@@ -16,6 +16,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "type_of",
     "isnothing",
     "is_nothing",
+    "input",
     // Math functions (implemented in stdlib/math.rs)
     "abs",
     "round",
@@ -217,6 +218,7 @@ pub fn get_function_arity(name: &str) -> usize {
         "print" => 1,
         "typeof" | "type_of" => 1,
         "isnothing" | "is_nothing" => 1,
+        "input" => 1,
 
         // === MATH FUNCTIONS ===
         // Single argument functions
