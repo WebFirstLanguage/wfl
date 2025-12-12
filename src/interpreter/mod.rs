@@ -6118,8 +6118,13 @@ mod process_tests {
         let client = IoClient::new(config);
 
         // Use safe argument-based execution (no shell)
+        #[cfg(windows)]
+        let (cmd, args) = ("cmd", vec!["/C", "echo", "hello"]);
+        #[cfg(not(windows))]
+        let (cmd, args) = ("echo", vec!["hello"]);
+
         let result = client
-            .execute_command("echo", &["hello"], false, 0, 0)
+            .execute_command(cmd, &args, false, 0, 0)
             .await;
 
         assert!(result.is_ok(), "Failed to execute command");
@@ -6206,8 +6211,13 @@ mod process_tests {
         let client = IoClient::new(config);
 
         // Use shell command that works cross-platform (no args = shell execution)
+        #[cfg(windows)]
+        let (cmd, args) = ("cmd", vec!["/C", "echo", "test output"]);
+        #[cfg(not(windows))]
+        let (cmd, args) = ("echo", vec!["test output"]);
+
         let proc_id = client
-            .spawn_process("echo", &["test output"], false, 0, 0)
+            .spawn_process(cmd, &args, false, 0, 0)
             .await
             .expect("Failed to spawn process");
 
@@ -6231,8 +6241,13 @@ mod process_tests {
         let client = IoClient::new(config);
 
         // Use shell command that works cross-platform (no args = shell execution)
+        #[cfg(windows)]
+        let (cmd, args) = ("cmd", vec!["/C", "echo", "done"]);
+        #[cfg(not(windows))]
+        let (cmd, args) = ("echo", vec!["done"]);
+
         let proc_id = client
-            .spawn_process("echo", &["done"], false, 0, 0)
+            .spawn_process(cmd, &args, false, 0, 0)
             .await
             .expect("Failed to spawn process");
 
