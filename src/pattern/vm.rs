@@ -209,7 +209,7 @@ impl PatternVM {
         matches
     }
 
-    /// Execute pattern starting at a specific position
+    /// Execute pattern starting at a specific position using DFS (backtracking)
     fn execute_at_position(
         &mut self,
         program: &Program,
@@ -217,40 +217,41 @@ impl PatternVM {
         start_pos: usize,
     ) -> Result<bool, PatternError> {
         let initial_state = VMState::new(program.num_captures, program.num_saves);
-        let mut states = vec![VMState {
+        let mut stack = vec![VMState {
             pos: start_pos,
             ..initial_state
         }];
 
-        while !states.is_empty() {
-            self.step_count += 1;
-            if self.step_count > MAX_STEPS {
-                return Err(PatternError::StepLimitExceeded);
-            }
+        while let Some(mut state) = stack.pop() {
+            loop {
+                self.step_count += 1;
+                if self.step_count > MAX_STEPS {
+                    return Err(PatternError::StepLimitExceeded);
+                }
 
-            let mut next_states = Vec::new();
-
-            for state in states {
                 match self.step(program, text, state)? {
-                    StepResult::Continue(new_states) => {
-                        next_states.extend(new_states);
-                    }
-                    StepResult::Match(_) => {
-                        return Ok(true);
-                    }
-                    StepResult::Fail => {
-                        // This execution path failed, try others
+                    StepResult::Fail => break, // Break inner loop, backtrack
+                    StepResult::Match(_) => return Ok(true),
+                    StepResult::Continue(mut next_states) => {
+                        if next_states.len() == 1 {
+                            // Optimization: direct continue without stack
+                            state = next_states.pop().unwrap();
+                        } else {
+                            // Branching: Push in reverse order so first one (greedy) is processed first
+                            for s in next_states.into_iter().rev() {
+                                stack.push(s);
+                            }
+                            break; // Break inner loop to pop from stack
+                        }
                     }
                 }
             }
-
-            states = next_states;
         }
 
         Ok(false)
     }
 
-    /// Find a match starting at a specific position
+    /// Find a match starting at a specific position using DFS (backtracking)
     fn find_at_position(
         &mut self,
         program: &Program,
@@ -259,24 +260,20 @@ impl PatternVM {
         capture_names: &[String],
     ) -> Result<Option<MatchResult>, PatternError> {
         let initial_state = VMState::new(program.num_captures, program.num_saves);
-        let mut states = vec![VMState {
+        let mut stack = vec![VMState {
             pos: start_pos,
             ..initial_state
         }];
 
-        while !states.is_empty() {
-            self.step_count += 1;
-            if self.step_count > MAX_STEPS {
-                return Err(PatternError::StepLimitExceeded);
-            }
+        while let Some(mut state) = stack.pop() {
+            loop {
+                self.step_count += 1;
+                if self.step_count > MAX_STEPS {
+                    return Err(PatternError::StepLimitExceeded);
+                }
 
-            let mut next_states = Vec::new();
-
-            for state in states {
                 match self.step(program, text, state)? {
-                    StepResult::Continue(new_states) => {
-                        next_states.extend(new_states);
-                    }
+                    StepResult::Fail => break, // Break inner loop, backtrack
                     StepResult::Match(final_state) => {
                         // Found a match, construct result with captures
                         let mut captures: HashMap<String, String> = HashMap::new();
@@ -302,13 +299,20 @@ impl PatternVM {
                             captures,
                         )));
                     }
-                    StepResult::Fail => {
-                        // This execution path failed, try others
+                    StepResult::Continue(mut next_states) => {
+                        if next_states.len() == 1 {
+                            // Optimization: direct continue without stack
+                            state = next_states.pop().unwrap();
+                        } else {
+                            // Branching: Push in reverse order so first one (greedy) is processed first
+                            for s in next_states.into_iter().rev() {
+                                stack.push(s);
+                            }
+                            break; // Break inner loop to pop from stack
+                        }
                     }
                 }
             }
-
-            states = next_states;
         }
 
         Ok(None)
