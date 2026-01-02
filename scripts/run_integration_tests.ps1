@@ -135,20 +135,36 @@ if (-not (Test-Path "TestPrograms")) {
 
             Write-Host "[INFO] Testing: $($wflFile.Name)" -ForegroundColor Blue
 
-            # Run with timeout to prevent hangs
-            $process = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $wflFile.FullName -NoNewWindow -PassThru -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
-            $completed = $process.WaitForExit($TestTimeout * 1000)
+            # Run with timeout using background job
+            $job = Start-Job -ScriptBlock {
+                param($binaryPath, $testFile)
+                $output = & $binaryPath $testFile 2>&1
+                $exitCode = $LASTEXITCODE
+                # Return only the exit code as a structured object
+                return @{ ExitCode = $exitCode }
+            } -ArgumentList (Resolve-Path $BinaryPath).Path, $wflFile.FullName
 
-            if (-not $completed) {
+            # Wait for completion with timeout
+            $completed = Wait-Job -Job $job -Timeout $TestTimeout
+
+            if ($null -eq $completed) {
                 # Test timed out
-                $process.Kill()
+                Stop-Job -Job $job
+                Remove-Job -Job $job -Force
                 Write-Host "[ERROR] TIMEOUT $($wflFile.Name) (exceeded ${TestTimeout}s)" -ForegroundColor Red
                 $failedPrograms++
-            } elseif ($process.ExitCode -eq 0) {
-                Write-Host "[SUCCESS] PASS $($wflFile.Name)" -ForegroundColor Green
             } else {
-                Write-Host "[ERROR] FAIL $($wflFile.Name) (exit code: $($process.ExitCode))" -ForegroundColor Red
-                $failedPrograms++
+                # Get exit code from job result
+                $result = Receive-Job -Job $job
+                $exitCode = if ($result -and $result.ExitCode -ne $null) { $result.ExitCode } else { 0 }
+                Remove-Job -Job $job -Force
+
+                if ($exitCode -eq 0) {
+                    Write-Host "[SUCCESS] PASS $($wflFile.Name)" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL $($wflFile.Name) (exit code: $exitCode)" -ForegroundColor Red
+                    $failedPrograms++
+                }
             }
         }
 

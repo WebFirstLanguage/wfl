@@ -56,4 +56,30 @@ pub fn register_core(env: &mut Environment) {
         "is_nothing",
         Value::NativeFunction("is_nothing", native_isnothing),
     );
+    let _ = env.define("input", Value::NativeFunction("input", native_input));
+}
+
+pub fn native_input(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() > 1 {
+        return Err(RuntimeError::new(
+            format!("input expects at most 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    if let Some(prompt) = args.first() {
+        print!("{}", prompt);
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+    }
+
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| RuntimeError::new(format!("Failed to read input: {}", e), 0, 0))?;
+
+    // Trim the trailing newline
+    let trimmed = input.trim_end();
+    Ok(Value::Text(Rc::from(trimmed)))
 }

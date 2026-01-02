@@ -68,6 +68,150 @@ wfl --step program.wfl
 scripts/install_vscode_extension.ps1
 ```
 
+### MCP Server (AI Integration)
+```bash
+# Run LSP server for VSCode (default)
+wfl-lsp
+
+# Run MCP server for AI assistants (Claude Desktop, etc.)
+wfl-lsp --mcp
+
+# Test MCP server with example requests
+# Windows:
+.\wfl-lsp\examples\test_mcp_server.ps1
+# Linux/macOS:
+./wfl-lsp/examples/test_mcp_server.sh
+
+# Build and run example MCP client
+cargo run --example simple_mcp_client
+
+# Test specific tool
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"parse_wfl","arguments":{"source":"store x as 5"}}}' | wfl-lsp --mcp
+
+# List available tools
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | wfl-lsp --mcp
+
+# List available resources
+echo '{"jsonrpc":"2.0","id":1,"method":"resources/list"}' | wfl-lsp --mcp
+
+# Read workspace files
+echo '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"workspace://files"}}' | wfl-lsp --mcp
+```
+
+**MCP Tools Available:**
+- `parse_wfl` - Parse WFL code and return AST
+- `analyze_wfl` - Run semantic analysis and return diagnostics
+- `typecheck_wfl` - Check types and return errors
+- `lint_wfl` - Lint code and suggest improvements
+- `get_completions` - Get code completions at position
+- `get_symbol_info` - Get symbol information at position
+
+**MCP Resources Available:**
+- `workspace://files` - List all WFL files in workspace
+- `workspace://symbols` - Get all symbols across workspace
+- `workspace://diagnostics` - Get all diagnostics across workspace
+- `workspace://config` - Read .wflcfg configuration
+- `file:///{path}` - Read specific file contents
+
+**Documentation:**
+- [MCP User Guide](Docs/guides/wfl-mcp-guide.md)
+- [MCP API Reference](Docs/guides/wfl-mcp-api-reference.md)
+- [Claude Desktop Integration](Docs/guides/claude-desktop-integration.md)
+- [MCP Architecture](Docs/technical/wfl-mcp-architecture.md)
+
+## Git Workflow with Worktrees
+
+**MANDATORY: Always use git worktrees when working on WFL tasks.**
+
+Git worktrees allow you to work on multiple branches simultaneously without switching branches in your main working directory. This is the required workflow for all WFL development.
+
+### Creating a Worktree for a New Task
+
+```bash
+# Create a new worktree for a feature/bugfix
+git worktree add ../wfl-feature-name -b feature-branch-name
+
+# Create a worktree from an existing branch
+git worktree add ../wfl-existing-branch existing-branch-name
+
+# Example: Create worktree for adding new stdlib function
+git worktree add ../wfl-add-sqrt -b feature/add-sqrt-function
+```
+
+### Working in a Worktree
+
+```bash
+# Navigate to your worktree
+cd ../wfl-feature-name
+
+# Work normally - build, test, commit
+cargo build
+cargo test
+git add .
+git commit -m "feat: Add new feature"
+
+# Push your changes
+git push -u origin feature-branch-name
+```
+
+### Committing and Cleaning Up When Done
+
+**CRITICAL: Always commit your work and clean up worktrees when finished.**
+
+```bash
+# 1. Commit all changes in the worktree
+git add .
+git commit -m "Your commit message"
+git push
+
+# 2. Return to main repository
+cd ../wfl
+
+# 3. Remove the worktree
+git worktree remove ../wfl-feature-name
+
+# Or if the worktree has uncommitted changes you want to discard:
+git worktree remove --force ../wfl-feature-name
+
+# 4. List all worktrees to verify cleanup
+git worktree list
+```
+
+### Best Practices
+
+1. **One worktree per task**: Create a new worktree for each feature, bugfix, or experiment
+2. **Descriptive names**: Use clear names like `wfl-fix-parser-bug` or `wfl-add-crypto`
+3. **Clean up promptly**: Remove worktrees after merging or abandoning work
+4. **Commit before removing**: Always commit or stash changes before removing a worktree
+5. **Location convention**: Place worktrees as siblings to main repo (`../wfl-*`)
+
+### Common Worktree Commands
+
+```bash
+# List all worktrees
+git worktree list
+
+# Remove a worktree
+git worktree remove <path>
+
+# Force remove (discards uncommitted changes)
+git worktree remove --force <path>
+
+# Prune stale worktree references
+git worktree prune
+
+# Move a worktree to a new location
+git worktree move <old-path> <new-path>
+```
+
+### Why Worktrees?
+
+- **Parallel development**: Work on multiple branches simultaneously
+- **Clean state**: Each worktree has its own working directory and index
+- **No context switching**: No need to stash/unstash or switch branches
+- **Build isolation**: Separate build artifacts for each worktree
+- **Safety**: Prevents accidentally committing to wrong branch
+
 ## Architecture Overview
 
 WFL is a natural language programming language implemented in Rust with a traditional compiler pipeline enhanced for async execution.
@@ -126,6 +270,11 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 2. **Confirm tests fail** before writing implementation
 3. **Never modify tests to make them pass** - fix the implementation instead
 4. All TestPrograms/*.wfl files MUST pass after any change
+
+### Commit & Pull Request Guidelines
+- **Commit Messages**: Prefer Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`).
+- **PRs**: Clear description, linked issues, tests added/updated, repro steps for fixes.
+- **Pre‑PR Checks**: `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all`. CI must be green.
 
 ### Backward Compatibility
 **NEVER BREAK EXISTING WFL PROGRAMS**. WFL has a backward compatibility promise:

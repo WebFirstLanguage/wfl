@@ -1407,6 +1407,7 @@ impl TypeChecker {
                 content,
                 status,
                 content_type,
+                headers,
                 line: _line,
                 column: _column,
             } => {
@@ -1455,6 +1456,23 @@ impl TypeChecker {
                         );
                     }
                 }
+
+                // Check headers if provided (should be map of text -> text, or just Map<Any, Any>)
+                if let Some(headers_expr) = headers {
+                    let headers_type = self.infer_expression_type(headers_expr);
+                    match headers_type {
+                        Type::Map(_, _) | Type::Unknown => {}
+                        _ => {
+                            self.type_error(
+                                "Headers must be a map".to_string(),
+                                Some(Type::Map(Box::new(Type::Text), Box::new(Type::Text))),
+                                Some(headers_type),
+                                *_line,
+                                *_column,
+                            );
+                        }
+                    }
+                }
             }
             // Graceful shutdown and signal handling statements
             Statement::RegisterSignalHandlerStatement {
@@ -1497,6 +1515,22 @@ impl TypeChecker {
                 Literal::List(_) => Type::List(Box::new(Type::Any)),
             },
             Expression::Variable(name, _line, _column) => {
+                // Special cases that should be checked first
+                if name == "loopcounter" || name == "count" {
+                    return Type::Number;
+                }
+
+                // For builtin functions with overloads, use Type::Any parameters
+                // to avoid conflicts when the function accepts multiple parameter types
+                if Analyzer::is_builtin_function(name) {
+                    let param_count = builtins::get_function_arity(name);
+                    return Type::Function {
+                        parameters: vec![Type::Any; param_count],
+                        return_type: Box::new(self.get_builtin_function_type(name, param_count)),
+                    };
+                }
+
+                // For regular variables and user-defined functions, look up in symbol table
                 if let Some(symbol) = self.analyzer.get_symbol(name) {
                     if let Some(var_type) = &symbol.symbol_type {
                         var_type.clone()
@@ -1511,33 +1545,14 @@ impl TypeChecker {
                         Type::Unknown
                     }
                 } else {
-                    // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
+                    // Check if this is an action parameter or special function name
                     if self.analyzer.get_action_parameters().contains(name)
-                        || Analyzer::is_builtin_function(name)
                         || name == "helper_function"
                         || name == "nested_function"
                     {
-                        // It's an action parameter or a special function name, so don't report an error
-                        if name == "loopcounter" || name == "count" {
-                            // Special case for loopcounter and count - they're Numbers
-                            return Type::Number;
-                        }
-
-                        // For builtin functions, return their proper type
-                        if Analyzer::is_builtin_function(name) {
-                            let param_count = builtins::get_function_arity(name);
-                            return Type::Function {
-                                parameters: vec![Type::Any; param_count],
-                                return_type: Box::new(
-                                    self.get_builtin_function_type(name, param_count),
-                                ),
-                            };
-                        }
-
                         Type::Unknown
                     } else {
-                        // The analyzer already reports undefined variables, so we don't need to duplicate the error
-                        // Return Unknown type to continue type checking without cascading errors
+                        // The analyzer already reports undefined variables
                         Type::Unknown
                     }
                 }

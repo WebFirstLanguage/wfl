@@ -7,7 +7,33 @@
 /// 4. Cross-platform behavior is consistent where appropriate
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
+
+fn get_wfl_binary_path() -> PathBuf {
+    let current_dir = env::current_dir().unwrap();
+    let release_path = if cfg!(target_os = "windows") {
+        current_dir.join("target/release/wfl.exe")
+    } else {
+        current_dir.join("target/release/wfl")
+    };
+
+    if release_path.exists() {
+        return release_path;
+    }
+
+    let debug_path = if cfg!(target_os = "windows") {
+        current_dir.join("target/debug/wfl.exe")
+    } else {
+        current_dir.join("target/debug/wfl")
+    };
+
+    if debug_path.exists() {
+        return debug_path;
+    }
+
+    panic!("WFL binary not found. Run 'cargo build' or 'cargo build --release' first.");
+}
 
 #[cfg(windows)]
 #[test]
@@ -15,12 +41,7 @@ fn test_windows_permission_denied_suppressed() {
     // On Windows, this test verifies that PermissionDenied errors from sync_all()
     // don't cause write/close/append operations to fail
 
-    let wfl_binary = "target/release/wfl.exe";
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-
-    if !binary_path.exists() {
-        panic!("WFL binary not found. Run 'cargo build --release' first.");
-    }
+    let binary_path = get_wfl_binary_path();
 
     // Create a test that writes, appends, and closes files
     // This may trigger PermissionDenied on Windows with concurrent access
@@ -93,14 +114,7 @@ delete file at "test_sync_write_{}.txt"
 fn test_data_integrity_after_write() {
     // Cross-platform test: Verify data is correctly written and readable
 
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(binary_path.exists(), "WFL binary not found.");
+    let binary_path = get_wfl_binary_path();
 
     let pid = std::process::id();
     let test_program = format!(
@@ -162,14 +176,7 @@ delete file at "test_integrity_{}.txt"
 fn test_append_with_sync() {
     // Test that append operations work correctly with sync error handling
 
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(binary_path.exists(), "WFL binary not found.");
+    let binary_path = get_wfl_binary_path();
 
     let pid = std::process::id();
     let test_program = format!(
@@ -231,14 +238,7 @@ delete file at "test_append_sync_{}.txt"
 fn test_multiple_write_cycles_with_sync() {
     // Test rapid write/close cycles to stress-test sync error handling
 
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(binary_path.exists(), "WFL binary not found.");
+    let binary_path = get_wfl_binary_path();
 
     let pid = std::process::id();
     let test_program = format!(

@@ -2,15 +2,18 @@ use dashmap::DashMap;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
-use wfl::analyzer::Analyzer;
-use wfl::diagnostics::{DiagnosticReporter, WflDiagnostic};
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::{Parser, ast::Program};
-use wfl::typechecker::TypeChecker;
+
+pub mod core;
+pub mod mcp_server;
+
+pub use core::WflLanguageCore;
 
 #[derive(Debug)]
 pub struct WflLanguageServer {
     client: Client,
+    core: WflLanguageCore,
     document_map: DashMap<String, String>,
 }
 
@@ -18,6 +21,7 @@ impl WflLanguageServer {
     pub fn new(client: Client) -> Self {
         WflLanguageServer {
             client,
+            core: WflLanguageCore::new(),
             document_map: DashMap::new(),
         }
     }
@@ -35,136 +39,8 @@ impl WflLanguageServer {
     }
 
     fn analyze_document(&self, document_text: &str) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
-        let mut diagnostic_reporter = DiagnosticReporter::new();
-        let file_id = diagnostic_reporter.add_file("document.wfl", document_text.to_string());
-
-        let tokens = lex_wfl_with_positions(document_text);
-
-        let mut parser = Parser::new(&tokens);
-        match parser.parse() {
-            Ok(program) => {
-                let mut analyzer = Analyzer::new();
-                if let Err(errors) = analyzer.analyze(&program) {
-                    for error in errors {
-                        let wfl_diag = diagnostic_reporter.convert_semantic_error(file_id, &error);
-                        diagnostics.push(self.convert_to_lsp_diagnostic(
-                            &wfl_diag,
-                            &mut diagnostic_reporter,
-                            file_id,
-                        ));
-                    }
-                }
-
-                let mut type_checker = TypeChecker::new();
-                if let Err(errors) = type_checker.check_types(&program) {
-                    for error in errors {
-                        let wfl_diag = diagnostic_reporter.convert_type_error(file_id, &error);
-                        diagnostics.push(self.convert_to_lsp_diagnostic(
-                            &wfl_diag,
-                            &mut diagnostic_reporter,
-                            file_id,
-                        ));
-                    }
-                }
-            }
-            Err(errors) => {
-                for error in errors {
-                    let wfl_diag = diagnostic_reporter.convert_parse_error(file_id, &error);
-                    diagnostics.push(self.convert_to_lsp_diagnostic(
-                        &wfl_diag,
-                        &mut diagnostic_reporter,
-                        file_id,
-                    ));
-                }
-            }
-        }
-
-        diagnostics
-    }
-
-    fn convert_to_lsp_diagnostic(
-        &self,
-        wfl_diag: &WflDiagnostic,
-        diagnostic_reporter: &mut DiagnosticReporter,
-        file_id: usize,
-    ) -> Diagnostic {
-        let severity = match wfl_diag.severity {
-            wfl::diagnostics::Severity::Error => Some(DiagnosticSeverity::ERROR),
-            wfl::diagnostics::Severity::Warning => Some(DiagnosticSeverity::WARNING),
-            wfl::diagnostics::Severity::Note => Some(DiagnosticSeverity::INFORMATION),
-            wfl::diagnostics::Severity::Help => Some(DiagnosticSeverity::HINT),
-        };
-
-        let mut related_information = None;
-        if !wfl_diag.notes.is_empty() {
-            let related = wfl_diag
-                .notes
-                .iter()
-                .map(|note| DiagnosticRelatedInformation {
-                    location: Location {
-                        uri: Url::parse("file:///document.wfl").unwrap(),
-                        range: Range {
-                            start: Position {
-                                line: 0,
-                                character: 0,
-                            },
-                            end: Position {
-                                line: 0,
-                                character: 0,
-                            },
-                        },
-                    },
-                    message: note.clone(),
-                })
-                .collect();
-            related_information = Some(related);
-        }
-
-        let mut range = Range {
-            start: Position {
-                line: 0,
-                character: 0,
-            },
-            end: Position {
-                line: 0,
-                character: 1,
-            },
-        };
-
-        if let Some((span, _)) = wfl_diag.labels.first() {
-            // Use proper line/column conversion instead of rough estimation
-            if let Some((start_line, start_character)) =
-                diagnostic_reporter.offset_to_line_col(file_id, span.start)
-            {
-                let (end_line, end_character) = diagnostic_reporter
-                    .offset_to_line_col(file_id, span.end)
-                    .unwrap_or((start_line, start_character + 1)); // Default to start + 1 if end conversion fails
-
-                range = Range {
-                    start: Position {
-                        line: (start_line.saturating_sub(1)) as u32, // Convert to 0-based line numbering for LSP
-                        character: (start_character.saturating_sub(1)) as u32, // Convert to 0-based column numbering for LSP
-                    },
-                    end: Position {
-                        line: (end_line.saturating_sub(1)) as u32,
-                        character: (end_character.saturating_sub(1)) as u32,
-                    },
-                };
-            }
-        }
-
-        Diagnostic {
-            range,
-            severity,
-            code: None,
-            code_description: None,
-            source: Some("wfl".to_string()),
-            message: wfl_diag.message.clone(),
-            related_information,
-            tags: None,
-            data: None,
-        }
+        // Use the shared core for analysis
+        self.core.analyze_document(document_text)
     }
 
     fn collect_completion_items(

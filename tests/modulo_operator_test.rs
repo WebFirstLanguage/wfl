@@ -3,21 +3,37 @@ use std::env;
 ///
 /// This test verifies the implementation of the % operator for computing remainders.
 use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
+
+fn get_wfl_binary_path() -> PathBuf {
+    let current_dir = env::current_dir().unwrap();
+    let release_path = if cfg!(target_os = "windows") {
+        current_dir.join("target/release/wfl.exe")
+    } else {
+        current_dir.join("target/release/wfl")
+    };
+
+    if release_path.exists() {
+        return release_path;
+    }
+
+    let debug_path = if cfg!(target_os = "windows") {
+        current_dir.join("target/debug/wfl.exe")
+    } else {
+        current_dir.join("target/debug/wfl")
+    };
+
+    if debug_path.exists() {
+        return debug_path;
+    }
+
+    panic!("WFL binary not found. Run 'cargo build' or 'cargo build --release' first.");
+}
 
 #[test]
 fn test_modulo_operator_basic() {
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(
-        binary_path.exists(),
-        "WFL binary not found. Run 'cargo build --release' first."
-    );
+    let binary_path = get_wfl_binary_path();
 
     let test_program = r#"
 // Test basic modulo operations
@@ -82,14 +98,7 @@ display result
 
 #[test]
 fn test_modulo_with_even_odd_check() {
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(binary_path.exists(), "WFL binary not found.");
+    let binary_path = get_wfl_binary_path();
 
     let test_program = r#"
 // Test modulo for even/odd checking (like the nexus test)
@@ -138,14 +147,7 @@ end check
 
 #[test]
 fn test_modulo_by_zero_error() {
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(binary_path.exists(), "WFL binary not found.");
+    let binary_path = get_wfl_binary_path();
 
     let test_program = r#"
 // Test that modulo by zero raises an error
