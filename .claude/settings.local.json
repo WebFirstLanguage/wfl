@@ -41,7 +41,9 @@
       "Bash(git stash:*)",
       "Bash(wc:*)",
       "Bash(\"C:\\\\\\\\Program Files\\\\\\\\wfl\\\\\\\\bin\\\\\\\\wfl-lsp.exe\":*)",
-      "Bash(cargo search:*)"
+      "Bash(cargo search:*)",
+      "Bash(cargo doc:*)",
+      "Bash(./target/release/wfl-lsp.exe:*)"
     ],
     "deny": [],
     "ask": []

@@ -68,6 +68,57 @@ wfl --step program.wfl
 scripts/install_vscode_extension.ps1
 ```
 
+### MCP Server (AI Integration)
+```bash
+# Run LSP server for VSCode (default)
+wfl-lsp
+
+# Run MCP server for AI assistants (Claude Desktop, etc.)
+wfl-lsp --mcp
+
+# Test MCP server with example requests
+# Windows:
+.\wfl-lsp\examples\test_mcp_server.ps1
+# Linux/macOS:
+./wfl-lsp/examples/test_mcp_server.sh
+
+# Build and run example MCP client
+cargo run --example simple_mcp_client
+
+# Test specific tool
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"parse_wfl","arguments":{"source":"store x as 5"}}}' | wfl-lsp --mcp
+
+# List available tools
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | wfl-lsp --mcp
+
+# List available resources
+echo '{"jsonrpc":"2.0","id":1,"method":"resources/list"}' | wfl-lsp --mcp
+
+# Read workspace files
+echo '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"workspace://files"}}' | wfl-lsp --mcp
+```
+
+**MCP Tools Available:**
+- `parse_wfl` - Parse WFL code and return AST
+- `analyze_wfl` - Run semantic analysis and return diagnostics
+- `typecheck_wfl` - Check types and return errors
+- `lint_wfl` - Lint code and suggest improvements
+- `get_completions` - Get code completions at position
+- `get_symbol_info` - Get symbol information at position
+
+**MCP Resources Available:**
+- `workspace://files` - List all WFL files in workspace
+- `workspace://symbols` - Get all symbols across workspace
+- `workspace://diagnostics` - Get all diagnostics across workspace
+- `workspace://config` - Read .wflcfg configuration
+- `file:///{path}` - Read specific file contents
+
+**Documentation:**
+- [MCP User Guide](Docs/guides/wfl-mcp-guide.md)
+- [MCP API Reference](Docs/guides/wfl-mcp-api-reference.md)
+- [Claude Desktop Integration](Docs/guides/claude-desktop-integration.md)
+- [MCP Architecture](Docs/technical/wfl-mcp-architecture.md)
+
 ## Architecture Overview
 
 WFL is a natural language programming language implemented in Rust with a traditional compiler pipeline enhanced for async execution.
