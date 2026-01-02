@@ -36,6 +36,8 @@ fn print_help() {
     println!("    --edit             Open the specified file in the default editor");
     println!("    --lex              Dump lexer output to a text file and exit");
     println!("    --ast, --parse      Dump abstract syntax tree to a text file and exit");
+    println!("    --dump-env         Dump the current environment details for troubleshooting");
+    println!("        --output <file>    Specify an output file for the environment dump");
     println!("    --time             Measure and display execution time");
     println!();
     println!("Configuration Maintenance:");
@@ -90,12 +92,31 @@ async fn main() -> io::Result<()> {
     let mut edit_mode = false;
     let mut lex_dump = false;
     let mut ast_dump = false;
+    let mut dump_env_mode = false;
+    let mut output_path = None;
     let mut time_mode = false;
     let mut file_path = String::new();
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--dump-env" => {
+                dump_env_mode = true;
+                i += 1;
+                if i < args.len() && args[i] == "--output" {
+                    // This is handled in the next iteration or inner logic if we want to support ordered args
+                    // But current loop handles it fine if we just continue
+                }
+            }
+            "--output" => {
+                if i + 1 < args.len() && !args[i + 1].starts_with("--") {
+                    output_path = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    eprintln!("Error: --output requires a file path");
+                    process::exit(2);
+                }
+            }
             "--lex" => {
                 lex_dump = true;
                 i += 1;
@@ -253,6 +274,15 @@ async fn main() -> io::Result<()> {
                 }
             }
         }
+    }
+
+    // Handle environment dump
+    if dump_env_mode {
+        if let Err(e) = wfl::env_dump::dump_env(output_path.as_deref()) {
+            eprintln!("Error dumping environment: {e}");
+            process::exit(1);
+        }
+        return Ok(());
     }
 
     // Collect remaining arguments as script arguments
