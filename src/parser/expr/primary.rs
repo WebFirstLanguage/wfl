@@ -1154,9 +1154,15 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                             // Get line/column from the base expression
                             let (base_line, base_col) = match &expr {
                                 Expression::Variable(_, line, col)
-                                | Expression::FunctionCall { line, column: col, .. }
-                                | Expression::PropertyAccess { line, column: col, .. }
-                                | Expression::StaticMemberAccess { line, column: col, .. } => (*line, *col),
+                                | Expression::FunctionCall {
+                                    line, column: col, ..
+                                }
+                                | Expression::PropertyAccess {
+                                    line, column: col, ..
+                                }
+                                | Expression::StaticMemberAccess {
+                                    line, column: col, ..
+                                } => (*line, *col),
                                 _ => (token.line, token.column),
                             };
 

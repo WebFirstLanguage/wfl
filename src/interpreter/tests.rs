@@ -240,7 +240,10 @@ async fn test_zero_arg_native_function_with_explicit_parens() {
     // Should return a number between 0 and 1
     match result {
         Value::Number(n) => {
-            assert!(n >= 0.0 && n < 1.0, "random() should return value in [0, 1), got {n}");
+            assert!(
+                n >= 0.0 && n < 1.0,
+                "random() should return value in [0, 1), got {n}"
+            );
         }
         _ => panic!("Expected number from random(), got {result:?}"),
     }
