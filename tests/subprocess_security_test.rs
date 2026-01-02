@@ -65,7 +65,6 @@ fn test_shell_injection_blocked_by_default() {
 }
 
 #[test]
-#[ignore] // TODO: Fix variable scoping issue with execute command result
 fn test_safe_argument_execution() {
     let code = r#"
         wait for execute command "echo" with arguments ["hello", "world"] as result
@@ -164,7 +163,6 @@ fn test_redirection_blocked() {
 }
 
 #[test]
-#[ignore] // TODO: Fix variable scoping issue
 fn test_simple_command_without_args_works() {
     // Simple commands without shell features should work
     #[cfg(not(windows))]
@@ -188,18 +186,17 @@ fn test_simple_command_without_args_works() {
 }
 
 #[test]
-#[ignore] // TODO: Fix variable scoping issue
 fn test_spawn_with_safe_arguments() {
     let code = r#"
         spawn command "echo" with arguments ["test"] as proc_id
         wait for 200 milliseconds
-        wait for read output from process proc_id as output
+        wait for read output from process proc_id as proc_output
         wait for process proc_id to complete
-        display output
+        display proc_output
     "#;
 
     let result = run_wfl(code);
-    assert!(result.is_ok(), "Spawn with safe arguments should work");
+    assert!(result.is_ok(), "Spawn with safe arguments should work: {:?}", result);
     assert!(
         result.unwrap().contains("test"),
         "Output should contain expected text"
@@ -238,7 +235,6 @@ fn test_spawn_shell_blocked_by_default() {
 }
 
 #[test]
-#[ignore] // TODO: Fix variable scoping issue
 fn test_multiple_safe_processes() {
     let code = r#"
         spawn command "echo" with arguments ["test1"] as proc1

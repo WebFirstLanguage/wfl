@@ -1355,6 +1355,109 @@ impl Analyzer {
                 }
             }
 
+            Statement::ExecuteCommandStatement {
+                command,
+                arguments,
+                variable_name,
+                use_shell: _,
+                line,
+                column,
+            } => {
+                self.analyze_expression(command);
+                if let Some(args) = arguments {
+                    self.analyze_expression(args);
+                }
+
+                if let Some(var_name) = variable_name {
+                    let symbol = Symbol {
+                        name: var_name.clone(),
+                        kind: SymbolKind::Variable { mutable: true },
+                        // Result object with output, error, exit_code, success
+                        symbol_type: Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
+                        line: *line,
+                        column: *column,
+                    };
+
+                    if let Err(error) = self.current_scope.define(symbol) {
+                        self.errors.push(error);
+                    }
+                }
+            }
+
+            Statement::SpawnProcessStatement {
+                command,
+                arguments,
+                variable_name,
+                use_shell: _,
+                line,
+                column,
+            } => {
+                self.analyze_expression(command);
+                if let Some(args) = arguments {
+                    self.analyze_expression(args);
+                }
+
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::Text), // Process ID is a string (e.g. "proc1")
+                    line: *line,
+                    column: *column,
+                };
+
+                if let Err(error) = self.current_scope.define(symbol) {
+                    self.errors.push(error);
+                }
+            }
+
+            Statement::ReadProcessOutputStatement {
+                process_id,
+                variable_name,
+                line,
+                column,
+            } => {
+                self.analyze_expression(process_id);
+
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::Text),
+                    line: *line,
+                    column: *column,
+                };
+
+                if let Err(error) = self.current_scope.define(symbol) {
+                    self.errors.push(error);
+                }
+            }
+
+            Statement::KillProcessStatement { process_id, .. } => {
+                self.analyze_expression(process_id);
+            }
+
+            Statement::WaitForProcessStatement {
+                process_id,
+                variable_name,
+                line,
+                column,
+            } => {
+                self.analyze_expression(process_id);
+
+                if let Some(var_name) = variable_name {
+                    let symbol = Symbol {
+                        name: var_name.clone(),
+                        kind: SymbolKind::Variable { mutable: true },
+                        symbol_type: Some(Type::Number), // Exit code
+                        line: *line,
+                        column: *column,
+                    };
+
+                    if let Err(error) = self.current_scope.define(symbol) {
+                        self.errors.push(error);
+                    }
+                }
+            }
+
             _ => {}
         }
     }
@@ -1848,8 +1951,12 @@ impl Analyzer {
             } => {
                 // No sub-expressions to analyze
             }
-            Expression::ProcessRunning { .. } => {
-                // Phase 4 implementation
+            Expression::ProcessRunning {
+                process_id,
+                line: _,
+                column: _,
+            } => {
+                self.analyze_expression(process_id);
             }
         }
     }
