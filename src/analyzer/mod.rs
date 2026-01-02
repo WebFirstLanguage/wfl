@@ -1153,6 +1153,29 @@ impl Analyzer {
                     self.errors.push(e);
                 }
             }
+            Statement::MapCreation {
+                name,
+                entries,
+                line,
+                column,
+            } => {
+                // Analyze map entries
+                for (_, value) in entries {
+                    self.analyze_expression(value);
+                }
+
+                // Define the map variable
+                let symbol = Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
+                    line: *line,
+                    column: *column,
+                };
+                if let Err(e) = self.current_scope.define(symbol) {
+                    self.errors.push(e);
+                }
+            }
 
             Statement::InterfaceDefinition {
                 name,
@@ -1340,6 +1363,7 @@ impl Analyzer {
                 content,
                 status,
                 content_type,
+                headers,
                 ..
             } => {
                 // Analyze all expressions
@@ -1352,6 +1376,10 @@ impl Analyzer {
 
                 if let Some(ct_expr) = content_type {
                     self.analyze_expression(ct_expr);
+                }
+
+                if let Some(headers_expr) = headers {
+                    self.analyze_expression(headers_expr);
                 }
             }
 

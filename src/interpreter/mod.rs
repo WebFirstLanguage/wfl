@@ -3942,6 +3942,7 @@ impl Interpreter {
                 content,
                 status,
                 content_type,
+                headers,
                 line,
                 column,
             } => {
@@ -4015,12 +4016,44 @@ impl Interpreter {
                     "text/plain".to_string() // Default content type
                 };
 
+                // Evaluate headers (optional)
+                let headers_map = if let Some(headers_expr) = headers {
+                    let headers_val = self
+                        .evaluate_expression(headers_expr, Rc::clone(&env))
+                        .await?;
+                    match headers_val {
+                        Value::Object(obj_rc) => {
+                            let mut map = HashMap::new();
+                            let obj = obj_rc.borrow();
+                            for (k, v) in obj.iter() {
+                                let v_str = match v {
+                                    Value::Text(t) => t.as_ref().to_string(),
+                                    Value::Number(n) => n.to_string(),
+                                    Value::Bool(b) => b.to_string(),
+                                    _ => format!("{:?}", v),
+                                };
+                                map.insert(k.clone(), v_str);
+                            }
+                            map
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Headers must be a map/object".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    HashMap::new()
+                };
+
                 // Create response
                 let response = WflHttpResponse {
                     content: content_str,
                     status: status_code,
                     content_type: content_type_str,
-                    headers: HashMap::new(), // TODO: Add support for custom headers
+                    headers: headers_map,
                 };
 
                 // Send response
