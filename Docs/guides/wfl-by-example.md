@@ -14,9 +14,10 @@ This comprehensive guide teaches WFL through practical examples, building from s
 8. [Functions (Actions)](#functions-actions)
 9. [Containers (Objects/Classes)](#containers-objectsclasses)
 10. [File Input and Output](#file-input-and-output)
-11. [Async Operations and Web Requests](#async-operations-and-web-requests)
-12. [Error Handling](#error-handling)
-13. [Advanced Features](#advanced-features)
+11. [Web Servers and HTTP Services](#web-servers-and-http-services)
+12. [Async Operations and Web Requests](#async-operations-and-web-requests)
+13. [Error Handling](#error-handling)
+14. [Advanced Features](#advanced-features)
 
 ---
 
@@ -734,9 +735,132 @@ display "Last modified: " with last modified
 
 ---
 
+## Web Servers and HTTP Services
+
+WFL makes creating web servers natural and readable with its built-in web capabilities. Whether you're serving static files, creating APIs, or building web applications, WFL's syntax reads like English.
+
+**Simple web server:**
+
+```wfl
+// Start a web server
+listen on port 8080 as web_server
+
+display "Server started on http://127.0.0.1:8080"
+
+// Handle requests
+wait for request comes in on web_server as req
+respond to req with "Hello from WFL!"
+```
+
+**Serving file contents (exactly what you asked for!):**
+
+```wfl
+// Read a file and serve it as HTTP response
+listen on port 8080 as file_server
+
+wait for request comes in on file_server as req
+
+check if path is equal to "/":
+    try:
+        open file at "index.html" for reading as html_file
+        store content as read content from html_file
+        close file html_file
+        respond to req with content and content_type "text/html"
+    catch:
+        respond to req with "File not found" and status 404
+    end try
+otherwise:
+    respond to req with "Welcome to WFL Web Server" and content_type "text/plain"
+end check
+```
+
+**Handling different HTTP methods and paths:**
+
+```wfl
+listen on port 8080 as api_server
+
+wait for request comes in on api_server as req
+
+check if method is equal to "GET" and path is equal to "/api/status":
+    respond to req with "{\"status\": \"ok\"}" and content_type "application/json"
+
+check if method is equal to "POST" and path is equal to "/api/data":
+    // Read POST body and save to file
+    try:
+        create file at "uploads/data.txt" with body
+        respond to req with "Data saved successfully"
+    catch:
+        respond to req with "Save failed" and status 500
+    end try
+
+otherwise:
+    respond to req with "Not found" and status 404
+end check
+```
+
+**Complete file server with multiple file types:**
+
+```wfl
+listen on port 8080 as static_server
+
+wait for request comes in on static_server as req
+
+check if path is equal to "/":
+    // Serve HTML file
+    try:
+        open file at "public/index.html" for reading as file
+        store content as read content from file
+        close file
+        respond to req with content and content_type "text/html"
+    catch:
+        respond to req with "Index not found" and status 404
+    end try
+
+check if path is equal to "/style.css":
+    // Serve CSS file  
+    try:
+        open file at "public/style.css" for reading as file
+        store content as read content from file
+        close file
+        respond to req with content and content_type "text/css"
+    catch:
+        respond to req with "CSS not found" and status 404
+    end try
+
+check if path is equal to "/data.json":
+    // Serve JSON file
+    try:
+        open file at "public/data.json" for reading as file
+        store content as read content from file
+        close file
+        respond to req with content and content_type "application/json"
+    catch:
+        respond to req with "Data not found" and status 404
+    end try
+
+otherwise:
+    respond to req with "404 - Page not found" and status 404
+end check
+```
+
+**Request properties available:**
+- `method` - HTTP method (GET, POST, PUT, DELETE)
+- `path` - URL path (e.g., "/api/users")
+- `body` - Request body content
+- `headers` - HTTP headers
+- `client_ip` - Client's IP address
+
+**For more web server examples, see:**
+- [WFL Web Server Quick Start Guide](wfl-web-server-quickstart.md) - Complete tutorial
+- `TestPrograms/test_static_files.wfl` - Working file server
+- `TestPrograms/comprehensive_web_server_demo.wfl` - Advanced features
+- [Web Server Specification](../wflspecs/SPEC-web-server.md) - Complete feature documentation
+
+---
+
 ## Async Operations and Web Requests
 
-WFL supports asynchronous operations for web requests and concurrent tasks:
+WFL also supports making outbound HTTP requests and asynchronous operations for concurrent tasks:
 
 **Simple web request:**
 

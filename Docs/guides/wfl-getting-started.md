@@ -271,14 +271,36 @@ otherwise:
 end check
 ```
 
+### 4. Simple Web Server
+```wfl
+// Create a web server that serves files
+listen on port 8080 as web_server
+
+display "Web server started at http://127.0.0.1:8080"
+display "Visit the URL in your browser!"
+
+wait for request comes in on web_server as req
+
+check if path is equal to "/":
+    respond to req with "Welcome to WFL! This is your first web server."
+check if path is equal to "/hello":
+    respond to req with "Hello from WFL Web Server!"
+otherwise:
+    respond to req with "Page not found" and status 404
+end check
+
+display "Server responded to a request"
+```
+
 ## Next Steps
 
 Now that you've mastered the basics:
 
 1. **Explore More Examples**: Look at the programs in the `TestPrograms/` folder
 2. **Read the Language Reference**: Check out the detailed documentation in `Docs/language-reference/`
-3. **Try the WFL by Example Guide**: For a more comprehensive learning path
-4. **Use the Cookbook**: For solutions to common programming tasks
+3. **Try the WFL by Example Guide**: For a more comprehensive learning path, including [web servers](wfl-by-example.md#web-servers-and-http-services)
+4. **Learn Web Development**: Check out the [WFL Web Server Quick Start Guide](wfl-web-server-quickstart.md)
+5. **Use the Cookbook**: For solutions to common programming tasks
 
 ## Getting Help
 

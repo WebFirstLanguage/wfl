@@ -32,7 +32,7 @@ Implemented language features and syntax documentation:
 - **[Async Programming](wfldocs/WFL-async.md)** - Asynchronous operations and concurrency
 - **[Container System](wfldocs/WFL-containers.md)** - Object-oriented programming in WFL
 - **[Error Handling](wfldocs/WFL-errors.md)** - Understanding and handling errors
-- **[I/O Operations](wfldocs/WFL-io.md)** - File and network input/output
+- **[I/O Operations](wfldocs/WFL-io.md)** - File and network input/output (includes web servers)
 - **[Main Loop](wfldocs/WFL-main-loop.md)** - Event-driven programming
 - **[Loop Scoping](wfldocs/WFL-loop-scoping.md)** - Loop variable scoping and iteration behavior
 
@@ -40,7 +40,7 @@ Implemented language features and syntax documentation:
 
 Proposed and experimental features under development:
 
-- **[Web Server Implementation](wflspecs/SPEC-web-server.md)** - Planned web server functionality and API design
+- **[Web Server Implementation](wflspecs/SPEC-web-server.md)** - Complete web server functionality and API design (many features implemented)
 
 ## 📖 Guides and Tutorials
 
@@ -48,7 +48,8 @@ Best practices and learning resources:
 
 - **[WFL Foundation](guides/wfl-foundation.md)** - Core principles and design philosophy
 - **[Getting Started](guides/wfl-getting-started.md)** - Installation and first steps
-- **[WFL by Example](guides/wfl-by-example.md)** - Learn through practical examples
+- **[WFL by Example](guides/wfl-by-example.md)** - Learn through practical examples (includes web servers)
+- **[Web Server Quick Start](guides/wfl-web-server-quickstart.md)** - Create file-serving web servers in 5 minutes
 - **[WFL Cookbook](guides/wfl-cookbook.md)** - Recipes for common tasks
 - **[Building WFL](guides/building.md)** - Building from source
 - **[Deployment Guide](guides/wfl-deployment.md)** - Deploying WFL applications
@@ -185,7 +186,7 @@ When adding new documentation:
 
 - **Core Language Features (WFLDocs):** 11 comprehensive guides
 - **Planned Features (WFLSpecs):** 1 specification document
-- **User Guides:** 14 tutorials and how-tos
+- **User Guides:** 15 tutorials and how-tos
 - **IDE Integration:** 3 LSP and editor guides
 - **API Documentation:** 11 module references
 - **Technical Docs:** 19 internal documents (including moved files)

@@ -17,6 +17,7 @@ This document describes WFL's unified I/O vision. **Not all features described h
 | Feature Category | Status | Details |
 |-----------------|--------|---------|
 | **File I/O** | ✅ **Implemented** | `open file`, `read from`, `write to`, `close` - All file operations work as specified |
+| **Web Servers** | ✅ **Implemented** | `listen on port`, `wait for request`, `respond to` - Full HTTP server functionality |
 | **Basic HTTP** | ✅ **Implemented** | `wait for open url` for GET/POST requests - Async HTTP operations functional |
 | **Subprocess Execution** | ✅ **Implemented** | `execute command`, `spawn command`, process control, output streaming - Full subprocess support |
 | **HTTP Headers & Advanced** | 🔧 **Partial** | Basic requests work; advanced header manipulation may be limited |
@@ -48,6 +49,25 @@ wait for open url at "https://api.example.com/data" and read content as response
 wait for http post request to "https://api.example.com/endpoint" with data as result
 ```
 
+**Web Servers (Fully Working):**
+```wfl
+// Start an HTTP server
+listen on port 8080 as web_server
+
+// Handle incoming requests
+wait for request comes in on web_server as req
+
+// Read files and serve them
+try:
+    open file at "index.html" for reading as html_file
+    store content as read content from html_file
+    close file html_file
+    respond to req with content and content_type "text/html"
+catch:
+    respond to req with "File not found" and status 404
+end try
+```
+
 **Subprocess Execution (Fully Working):**
 ```wfl
 // Execute external commands
@@ -70,7 +90,9 @@ The following are **architectural specifications** for future development. Code 
 
 **For up-to-date information on implementation status, see:**
 - [WFL-spec.md](WFL-spec.md) - Current language features
-- [SPEC-web-server.md](../wflspecs/SPEC-web-server.md) - Planned web server features
+- [SPEC-web-server.md](../wflspecs/SPEC-web-server.md) - Complete web server feature documentation
+- [Web Server Quick Start Guide](../guides/wfl-web-server-quickstart.md) - 5-minute tutorial
+- [Web Server Examples](../examples/web-servers/) - Organized examples by complexity
 - Test programs in `TestPrograms/` - Working code examples
 
 ---
