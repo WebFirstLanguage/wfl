@@ -279,7 +279,6 @@ async fn test_zero_arg_function_explicit_call_with_parentheses() {
     let result = interpreter.interpret(&program).await.unwrap();
 
     // Should be 42 + 42 = 84 if both calls work correctly
-    // Note: This test is expected to fail until we fix the issue
     assert_eq!(
         result,
         Value::Number(84.0),
