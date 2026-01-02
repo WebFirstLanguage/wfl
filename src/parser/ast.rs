@@ -433,6 +433,7 @@ pub enum Statement {
         content: Expression,
         status: Option<Expression>,
         content_type: Option<Expression>,
+        headers: Option<Expression>,
         line: usize,
         column: usize,
     },
