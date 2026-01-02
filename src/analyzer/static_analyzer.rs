@@ -435,9 +435,51 @@ impl Analyzer {
                     }
                 }
             }
-            Statement::WhileLoop { body, .. }
-            | Statement::ForEachLoop { body, .. }
-            | Statement::CountLoop { body, .. } => {
+            Statement::WhileLoop { body, .. } => {
+                for stmt in body {
+                    self.collect_variable_declarations(stmt, usages);
+                }
+            }
+            Statement::ForEachLoop {
+                item_name,
+                body,
+                line,
+                column,
+                ..
+            } => {
+                // Register the loop variable
+                usages.insert(
+                    item_name.clone(),
+                    VariableUsage {
+                        name: item_name.clone(),
+                        defined_at: (*line, *column),
+                        used: false, // Will be marked true if actually used in body
+                    },
+                );
+
+                for stmt in body {
+                    self.collect_variable_declarations(stmt, usages);
+                }
+            }
+            Statement::CountLoop {
+                variable_name,
+                body,
+                line,
+                column,
+                ..
+            } => {
+                // Register custom loop variable if present
+                if let Some(var_name) = variable_name {
+                    usages.insert(
+                        var_name.clone(),
+                        VariableUsage {
+                            name: var_name.clone(),
+                            defined_at: (*line, *column),
+                            used: false, // Will be marked true if actually used in body
+                        },
+                    );
+                }
+
                 for stmt in body {
                     self.collect_variable_declarations(stmt, usages);
                 }
@@ -1741,6 +1783,9 @@ mod tests {
         );
     }
 
+    /// Tests that a custom loop variable is not reported as unused
+    /// even when not explicitly referenced in the loop body
+    /// (the loop construct implicitly "uses" the variable)
     #[test]
     fn test_count_loop_custom_variable_not_unused() {
         // Test that custom count loop variables are marked as used
@@ -1769,6 +1814,36 @@ mod tests {
         assert!(
             !diagnostics.iter().any(|d| d.message.contains("'i'")),
             "Custom count loop variable 'i' should not be reported as unused"
+        );
+    }
+
+    #[test]
+    fn test_count_loop_custom_variable_used_in_body() {
+        // Test that custom loop variable used in body is properly tracked
+        let program = Program {
+            statements: vec![Statement::CountLoop {
+                start: Expression::Literal(Literal::Integer(1), 1, 12),
+                end: Expression::Literal(Literal::Integer(3), 1, 17),
+                step: None,
+                downward: false,
+                variable_name: Some("i".to_string()), // Custom variable "i"
+                body: vec![Statement::DisplayStatement {
+                    value: Expression::Variable("i".to_string(), 2, 9), // USE "i" in body
+                    line: 2,
+                    column: 5,
+                }],
+                line: 1,
+                column: 1,
+            }],
+        };
+
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+        // Verify that "i" is NOT reported as unused when used in loop body
+        assert!(
+            !diagnostics.iter().any(|d| d.message.contains("'i'")),
+            "Custom loop variable 'i' should not be reported as unused when used in loop body"
         );
     }
 
