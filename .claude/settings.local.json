@@ -39,9 +39,14 @@
       "Bash(findstr:*)",
       "Bash(powershell -Command \"(Get-Content ''G:\\Logbie\\wfl\\src\\parser\\tests.rs'').Length\")",
       "Bash(git stash:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(\"C:\\\\\\\\Program Files\\\\\\\\wfl\\\\\\\\bin\\\\\\\\wfl-lsp.exe\":*)",
+      "Bash(cargo search:*)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enabledMcpjsonServers": [
+    "wfl"
+  ]
 }
