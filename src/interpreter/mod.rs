@@ -284,6 +284,7 @@ pub struct Interpreter {
     pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
+    disable_auto_call: RefCell<bool>, // Flag to disable auto-calling in specific contexts
 }
 
 // Process handle for managing subprocess state
@@ -1092,6 +1093,7 @@ impl Interpreter {
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
             config,
+            disable_auto_call: RefCell::new(false), // Initialize auto-call as enabled
         }
     }
 
@@ -3942,6 +3944,7 @@ impl Interpreter {
                 content,
                 status,
                 content_type,
+                headers,
                 line,
                 column,
             } => {
@@ -4015,12 +4018,44 @@ impl Interpreter {
                     "text/plain".to_string() // Default content type
                 };
 
+                // Evaluate headers (optional)
+                let headers_map = if let Some(headers_expr) = headers {
+                    let headers_val = self
+                        .evaluate_expression(headers_expr, Rc::clone(&env))
+                        .await?;
+                    match headers_val {
+                        Value::Object(obj_rc) => {
+                            let mut map = HashMap::new();
+                            let obj = obj_rc.borrow();
+                            for (k, v) in obj.iter() {
+                                let v_str = match v {
+                                    Value::Text(t) => t.as_ref().to_string(),
+                                    Value::Number(n) => n.to_string(),
+                                    Value::Bool(b) => b.to_string(),
+                                    _ => format!("{:?}", v),
+                                };
+                                map.insert(k.clone(), v_str);
+                            }
+                            map
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Headers must be a map/object".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    HashMap::new()
+                };
+
                 // Create response
                 let response = WflHttpResponse {
                     content: content_str,
                     status: status_code,
                     content_type: content_type_str,
-                    headers: HashMap::new(), // TODO: Add support for custom headers
+                    headers: headers_map,
                 };
 
                 // Send response
@@ -4804,11 +4839,11 @@ impl Interpreter {
                             }
                         }
                         Value::Function(func) => {
-                            if func.params.is_empty() {
+                            if func.params.is_empty() && !*self.disable_auto_call.borrow() {
                                 // Auto-call zero-argument user-defined functions
                                 self.call_function(func, vec![], *line, *column).await
                             } else {
-                                // Return function object for functions with arguments
+                                // Return function object for functions with arguments, or when auto-call is disabled
                                 Ok(value)
                             }
                         }
@@ -4894,19 +4929,18 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // For Variable expressions in function position, look up directly without auto-calling
-                let function_val =
-                    if let Expression::Variable(name, var_line, var_column) = function.as_ref() {
-                        env.borrow().get(name).ok_or_else(|| {
-                            RuntimeError::new(
-                                format!("Undefined function '{name}'"),
-                                *var_line,
-                                *var_column,
-                            )
-                        })?
-                    } else {
-                        self.evaluate_expression(function, Rc::clone(&env)).await?
-                    };
+                // Temporarily disable auto-call to get the function object
+                // Save previous state to restore even on error (prevents state leakage)
+                let previous_disable_auto_call = *self.disable_auto_call.borrow();
+                *self.disable_auto_call.borrow_mut() = true;
+
+                let result = self.evaluate_expression(function, Rc::clone(&env)).await;
+
+                // Restore previous state unconditionally (even on error)
+                *self.disable_auto_call.borrow_mut() = previous_disable_auto_call;
+
+                // Now check the result
+                let function_val = result?;
 
                 let mut arg_values = Vec::new();
                 for arg in arguments {
@@ -6130,12 +6164,9 @@ mod process_tests {
         let client = IoClient::new(config);
 
         // Use safe argument-based execution (no shell)
-        #[cfg(windows)]
-        let (cmd, args) = ("cmd", vec!["/C", "echo", "hello"]);
-        #[cfg(not(windows))]
-        let (cmd, args) = ("echo", vec!["hello"]);
-
-        let result = client.execute_command(cmd, &args, false, 0, 0).await;
+        let result = client
+            .execute_command("echo", &["hello"], false, 0, 0)
+            .await;
 
         assert!(result.is_ok(), "Failed to execute command");
         let (stdout, stderr, exit_code) = result.unwrap();
@@ -6221,13 +6252,8 @@ mod process_tests {
         let client = IoClient::new(config);
 
         // Use shell command that works cross-platform (no args = shell execution)
-        #[cfg(windows)]
-        let (cmd, args) = ("cmd", vec!["/C", "echo", "test output"]);
-        #[cfg(not(windows))]
-        let (cmd, args) = ("echo", vec!["test output"]);
-
         let proc_id = client
-            .spawn_process(cmd, &args, false, 0, 0)
+            .spawn_process("echo", &["test output"], false, 0, 0)
             .await
             .expect("Failed to spawn process");
 
@@ -6251,13 +6277,8 @@ mod process_tests {
         let client = IoClient::new(config);
 
         // Use shell command that works cross-platform (no args = shell execution)
-        #[cfg(windows)]
-        let (cmd, args) = ("cmd", vec!["/C", "echo", "done"]);
-        #[cfg(not(windows))]
-        let (cmd, args) = ("echo", vec!["done"]);
-
         let proc_id = client
-            .spawn_process(cmd, &args, false, 0, 0)
+            .spawn_process("echo", &["done"], false, 0, 0)
             .await
             .expect("Failed to spawn process");
 

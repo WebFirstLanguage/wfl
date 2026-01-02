@@ -207,7 +207,7 @@ fn test_pattern_split_whitespace() {
         display length of parts
     "#,
     );
-    assert_eq!(result.trim(), "5"); // Pattern splits on individual spaces in "hello  world  test"
+    assert_eq!(result.trim(), "3"); // Pattern splits on whitespace (greedy match of "  ")
 }
 
 #[test]

@@ -271,6 +271,11 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 3. **Never modify tests to make them pass** - fix the implementation instead
 4. All TestPrograms/*.wfl files MUST pass after any change
 
+### Commit & Pull Request Guidelines
+- **Commit Messages**: Prefer Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`).
+- **PRs**: Clear description, linked issues, tests added/updated, repro steps for fixes.
+- **Pre‑PR Checks**: `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all`. CI must be green.
+
 ### Backward Compatibility
 **NEVER BREAK EXISTING WFL PROGRAMS**. WFL has a backward compatibility promise:
 - All existing WFL code must continue to work
