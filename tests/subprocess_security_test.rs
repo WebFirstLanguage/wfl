@@ -1,4 +1,6 @@
+use std::env;
 use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 use tempfile::NamedTempFile;
 
@@ -21,16 +23,37 @@ impl TempWflFile {
     }
 }
 
+fn get_wfl_binary_path() -> PathBuf {
+    let current_dir = env::current_dir().unwrap();
+    let release_path = if cfg!(target_os = "windows") {
+        current_dir.join("target/release/wfl.exe")
+    } else {
+        current_dir.join("target/release/wfl")
+    };
+
+    if release_path.exists() {
+        return release_path;
+    }
+
+    let debug_path = if cfg!(target_os = "windows") {
+        current_dir.join("target/debug/wfl.exe")
+    } else {
+        current_dir.join("target/debug/wfl")
+    };
+
+    if debug_path.exists() {
+        return debug_path;
+    }
+
+    panic!("WFL binary not found. Run 'cargo build' or 'cargo build --release' first.");
+}
+
 fn run_wfl(code: &str) -> Result<String, String> {
     let temp_file = TempWflFile::new(code).expect("Failed to create temp file");
 
-    let wfl_exe = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
+    let binary_path = get_wfl_binary_path();
 
-    let output = Command::new(wfl_exe)
+    let output = Command::new(binary_path)
         .arg(temp_file.path())
         .output()
         .expect("Failed to execute WFL");
@@ -102,7 +125,7 @@ fn test_command_substitution_blocked() {
 
     #[cfg(windows)]
     let code = r#"
-        execute command "echo test" as result
+        execute command "hostname" as result
     "#;
 
     #[cfg(not(windows))]
@@ -118,7 +141,11 @@ fn test_command_substitution_blocked() {
     {
         // On Windows, just verify safe commands work
         let result = run_wfl(code);
-        assert!(result.is_ok(), "Simple safe command should work on Windows");
+        assert!(
+            result.is_ok(),
+            "Simple safe command should work on Windows. Error: {:?}",
+            result
+        );
     }
 }
 
@@ -131,7 +158,7 @@ fn test_background_execution_blocked() {
 
     #[cfg(windows)]
     let code = r#"
-        execute command "echo test" as result
+        execute command "hostname" as result
     "#;
 
     #[cfg(not(windows))]
@@ -146,7 +173,11 @@ fn test_background_execution_blocked() {
     #[cfg(windows)]
     {
         let result = run_wfl(code);
-        assert!(result.is_ok(), "Safe command should work");
+        assert!(
+            result.is_ok(),
+            "Safe command should work. Error: {:?}",
+            result
+        );
     }
 }
 

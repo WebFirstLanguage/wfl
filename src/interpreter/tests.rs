@@ -235,7 +235,7 @@ async fn test_zero_arg_function_bare_call_works() {
             give back 42
         end action
 
-        // Test bare call works  
+        // Test bare call works
         my_action
     "#;
 
@@ -266,7 +266,7 @@ async fn test_zero_arg_function_explicit_call_with_parentheses() {
         // Test both forms should work and return the same result
         store bare_call as my_action
         store explicit_call as my_action()
-        
+
         // Both should equal 42
         bare_call plus explicit_call
     "#;

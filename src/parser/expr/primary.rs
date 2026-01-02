@@ -1114,6 +1114,65 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                 ));
                             }
                         }
+                        // Handle function call with parentheses: "function(args)"
+                        Token::LeftParen => {
+                            self.bump_sync(); // Consume '('
+
+                            let mut arguments = Vec::new();
+
+                            // Check for empty argument list
+                            if let Some(next_token) = self.cursor.peek()
+                                && next_token.token != Token::RightParen
+                            {
+                                // Parse first argument
+                                let arg_expr = self.parse_expression()?;
+                                arguments.push(Argument {
+                                    name: None,
+                                    value: arg_expr,
+                                });
+
+                                // Parse additional arguments separated by commas
+                                while let Some(comma_token) = self.cursor.peek() {
+                                    if comma_token.token == Token::Comma {
+                                        self.bump_sync(); // Consume ','
+                                        let arg_expr = self.parse_expression()?;
+                                        arguments.push(Argument {
+                                            name: None,
+                                            value: arg_expr,
+                                        });
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+
+                            self.expect_token(
+                                Token::RightParen,
+                                "Expected ')' after function arguments",
+                            )?;
+
+                            // Get line/column from the base expression
+                            let (base_line, base_col) = match &expr {
+                                Expression::Variable(_, line, col)
+                                | Expression::FunctionCall {
+                                    line, column: col, ..
+                                }
+                                | Expression::PropertyAccess {
+                                    line, column: col, ..
+                                }
+                                | Expression::StaticMemberAccess {
+                                    line, column: col, ..
+                                } => (*line, *col),
+                                _ => (token.line, token.column),
+                            };
+
+                            expr = Expression::FunctionCall {
+                                function: Box::new(expr),
+                                arguments,
+                                line: base_line,
+                                column: base_col,
+                            };
+                        }
                         // Handle static member access: "Container.staticMember"
                         Token::Dot => {
                             self.bump_sync(); // Consume "."
@@ -1155,69 +1214,6 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                     &token,
                                 ));
                             }
-                        }
-                        Token::LeftParen => {
-                            // Handle function calls with parentheses: functionName()
-                            self.bump_sync(); // Consume '('
-
-                            let mut arguments = Vec::new();
-
-                            // Check for empty parentheses
-                            if let Some(next_token) = self.cursor.peek()
-                                && next_token.token == Token::RightParen
-                            {
-                                // Empty parentheses - no arguments
-                                self.bump_sync(); // Consume ')'
-                            } else {
-                                // Parse arguments
-                                let first_arg = self.parse_expression()?;
-                                arguments.push(Argument {
-                                    name: None,
-                                    value: first_arg,
-                                });
-
-                                // Parse additional arguments separated by commas
-                                while let Some(comma_token) = self.cursor.peek() {
-                                    if comma_token.token == Token::Comma {
-                                        self.bump_sync(); // Consume ','
-                                        let arg = self.parse_expression()?;
-                                        arguments.push(Argument {
-                                            name: None,
-                                            value: arg,
-                                        });
-                                    } else {
-                                        break;
-                                    }
-                                }
-
-                                // Expect closing parenthesis
-                                if let Some(close_token) = self.cursor.peek() {
-                                    if close_token.token == Token::RightParen {
-                                        self.bump_sync(); // Consume ')'
-                                    } else {
-                                        return Err(ParseError::from_token(
-                                            format!(
-                                                "Expected ')' after function arguments, found {:?}",
-                                                close_token.token
-                                            ),
-                                            close_token,
-                                        ));
-                                    }
-                                } else {
-                                    return Err(ParseError::from_token(
-                                        "Expected ')' after function arguments, found end of input"
-                                            .to_string(),
-                                        &token,
-                                    ));
-                                }
-                            }
-
-                            expr = Expression::FunctionCall {
-                                function: Box::new(expr),
-                                arguments,
-                                line: token.line,
-                                column: token.column,
-                            };
                         }
                         _ => break,
                     }

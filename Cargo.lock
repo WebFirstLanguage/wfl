@@ -3276,6 +3276,7 @@ version = "0.1.0"
 dependencies = [
  "dashmap",
  "env_logger",
+ "serde",
  "serde_json",
  "tokio",
  "tokio-test",
