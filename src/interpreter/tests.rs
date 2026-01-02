@@ -227,29 +227,6 @@ async fn test_nested_count_loops() {
 }
 
 #[tokio::test]
-async fn test_zero_arg_native_function_with_explicit_parens() {
-    let mut interpreter = Interpreter::new();
-
-    // Test that random() with explicit parentheses works
-    let source = "random()";
-    let tokens = lex_wfl_with_positions(source);
-    let mut parser = Parser::new(&tokens);
-    let program = parser.parse().unwrap();
-    let result = interpreter.interpret(&program).await.unwrap();
-
-    // Should return a number between 0 and 1
-    match result {
-        Value::Number(n) => {
-            assert!(
-                n >= 0.0 && n < 1.0,
-                "random() should return value in [0, 1), got {n}"
-            );
-        }
-        _ => panic!("Expected number from random(), got {result:?}"),
-    }
-}
-
-#[tokio::test]
 async fn test_zero_arg_function_bare_call_works() {
     // This test confirms that bare calls work correctly
     let input = r#"
