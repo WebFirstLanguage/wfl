@@ -12,10 +12,7 @@ pub fn dump_env(output_path: Option<&str>) -> io::Result<()> {
     report.push_str(&format!("WFL Version: {}\n", crate::version::VERSION));
 
     // Build Rust Version (captured in build.rs)
-    report.push_str(&format!(
-        "Build Rust Version: {}\n",
-        env!("RUSTC_VERSION")
-    ));
+    report.push_str(&format!("Build Rust Version: {}\n", env!("RUSTC_VERSION")));
 
     // OS and Arch
     report.push_str(&format!("OS: {}\n", env::consts::OS));
@@ -37,7 +34,7 @@ pub fn dump_env(output_path: Option<&str>) -> io::Result<()> {
             };
             report.push_str(&format!("WFL LSP Server: {}\n", lsp_status));
         } else {
-             report.push_str("WFL LSP Server: Unable to determine executable directory\n");
+            report.push_str("WFL LSP Server: Unable to determine executable directory\n");
         }
     } else {
         report.push_str("WFL LSP Server: Unable to determine executable path\n");
@@ -78,4 +75,37 @@ pub fn dump_env(output_path: Option<&str>) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dump_env_to_stdout() {
+        // We can't easily capture stdout here without a lot of boilerplate,
+        // but we can verify the function runs without error.
+        // For a more robust test, we would refactor dump_env to write to a generic Writer.
+        let result = dump_env(None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_dump_env_to_file() {
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join("wfl_env_dump_test.txt");
+        let path_str = file_path.to_str().unwrap();
+
+        let result = dump_env(Some(path_str));
+        assert!(result.is_ok());
+        assert!(file_path.exists());
+
+        let content = fs::read_to_string(path_str).unwrap();
+        assert!(content.contains("WFL Version:"));
+        assert!(content.contains("Build Rust Version:"));
+        assert!(content.contains("OS:"));
+
+        // Cleanup
+        let _ = fs::remove_file(file_path);
+    }
 }

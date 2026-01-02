@@ -109,7 +109,7 @@ async fn main() -> io::Result<()> {
                 }
             }
             "--output" => {
-                if i + 1 < args.len() && !args[i+1].starts_with("--") {
+                if i + 1 < args.len() && !args[i + 1].starts_with("--") {
                     output_path = Some(args[i + 1].clone());
                     i += 2;
                 } else {
