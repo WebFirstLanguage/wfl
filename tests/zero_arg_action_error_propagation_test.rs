@@ -5,38 +5,26 @@ use std::env;
 /// This test verifies the fix for a bug where `store res as faulty` would store
 /// the function value instead of calling it and catching errors.
 use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
-
-fn get_wfl_binary_path() -> PathBuf {
-    let current_dir = env::current_dir().unwrap();
-    let release_path = if cfg!(target_os = "windows") {
-        current_dir.join("target/release/wfl.exe")
-    } else {
-        current_dir.join("target/release/wfl")
-    };
-
-    if release_path.exists() {
-        return release_path;
-    }
-
-    let debug_path = if cfg!(target_os = "windows") {
-        current_dir.join("target/debug/wfl.exe")
-    } else {
-        current_dir.join("target/debug/wfl")
-    };
-
-    if debug_path.exists() {
-        return debug_path;
-    }
-
-    panic!("WFL binary not found. Run 'cargo build' or 'cargo build --release' first.");
-}
 
 #[test]
 fn test_zero_arg_action_error_propagation() {
     // Get the path to the WFL binary
-    let binary_path = get_wfl_binary_path();
+    let wfl_binary = if cfg!(target_os = "windows") {
+        "target/release/wfl.exe"
+    } else {
+        "target/release/wfl"
+    };
+
+    // Verify the binary exists
+    let binary_path = env::current_dir().unwrap().join(wfl_binary);
+
+    if !binary_path.exists() {
+        panic!(
+            "WFL binary not found at {:?}. Run 'cargo build --release' first.",
+            binary_path
+        );
+    }
 
     // Create a test WFL program
     let test_program = r#"
@@ -103,7 +91,21 @@ display test_passed
 #[test]
 fn test_zero_arg_action_auto_call() {
     // Get the path to the WFL binary
-    let binary_path = get_wfl_binary_path();
+    let wfl_binary = if cfg!(target_os = "windows") {
+        "target/release/wfl.exe"
+    } else {
+        "target/release/wfl"
+    };
+
+    // Verify the binary exists
+    let binary_path = env::current_dir().unwrap().join(wfl_binary);
+
+    if !binary_path.exists() {
+        panic!(
+            "WFL binary not found at {:?}. Run 'cargo build --release' first.",
+            binary_path
+        );
+    }
 
     // Create a test WFL program
     let test_program = r#"

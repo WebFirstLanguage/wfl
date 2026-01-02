@@ -5,7 +5,6 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_print(analyzer);
     register_typeof(analyzer);
     register_isnothing(analyzer);
-    register_input(analyzer);
 
     register_abs(analyzer);
     register_round(analyzer);
@@ -68,13 +67,6 @@ fn register_isnothing(analyzer: &mut Analyzer) {
     analyzer.register_builtin_function("isnothing", param_types.clone(), return_type.clone());
 
     analyzer.register_builtin_function("is_nothing", param_types, return_type);
-}
-
-fn register_input(analyzer: &mut Analyzer) {
-    let return_type = Type::Text;
-    let param_types = vec![Type::Text]; // Prompt
-
-    analyzer.register_builtin_function("input", param_types, return_type);
 }
 
 fn register_abs(analyzer: &mut Analyzer) {

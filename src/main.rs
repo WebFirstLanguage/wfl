@@ -539,7 +539,6 @@ async fn main() -> io::Result<()> {
         match Parser::new(&tokens_with_pos).parse() {
             Ok(program) => {
                 let mut analyzer = Analyzer::new();
-                wfl::stdlib::typechecker::register_stdlib_types(&mut analyzer);
 
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
@@ -648,7 +647,6 @@ async fn main() -> io::Result<()> {
                 exec_trace!("Program has {} statements", program.statements.len());
 
                 let mut analyzer = Analyzer::new();
-                wfl::stdlib::typechecker::register_stdlib_types(&mut analyzer);
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
                 let sema_diags = analyzer.analyze_static(&program, file_id);
