@@ -4894,7 +4894,18 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let function_val = self.evaluate_expression(function, Rc::clone(&env)).await?;
+                // For Variable expressions in function position, look up directly without auto-calling
+                let function_val = if let Expression::Variable(name, var_line, var_column) = function.as_ref() {
+                    env.borrow().get(name).ok_or_else(|| {
+                        RuntimeError::new(
+                            format!("Undefined function '{name}'"),
+                            *var_line,
+                            *var_column,
+                        )
+                    })?
+                } else {
+                    self.evaluate_expression(function, Rc::clone(&env)).await?
+                };
 
                 let mut arg_values = Vec::new();
                 for arg in arguments {

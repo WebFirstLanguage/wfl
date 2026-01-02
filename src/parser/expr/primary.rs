@@ -1114,6 +1114,59 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                 ));
                             }
                         }
+                        // Handle function call with parentheses: "function(args)"
+                        Token::LeftParen => {
+                            self.bump_sync(); // Consume '('
+
+                            let mut arguments = Vec::new();
+
+                            // Check for empty argument list
+                            if let Some(next_token) = self.cursor.peek()
+                                && next_token.token != Token::RightParen
+                            {
+                                // Parse first argument
+                                let arg_expr = self.parse_expression()?;
+                                arguments.push(Argument {
+                                    name: None,
+                                    value: arg_expr,
+                                });
+
+                                // Parse additional arguments separated by commas
+                                while let Some(comma_token) = self.cursor.peek() {
+                                    if comma_token.token == Token::Comma {
+                                        self.bump_sync(); // Consume ','
+                                        let arg_expr = self.parse_expression()?;
+                                        arguments.push(Argument {
+                                            name: None,
+                                            value: arg_expr,
+                                        });
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+
+                            self.expect_token(
+                                Token::RightParen,
+                                "Expected ')' after function arguments",
+                            )?;
+
+                            // Get line/column from the base expression
+                            let (base_line, base_col) = match &expr {
+                                Expression::Variable(_, line, col)
+                                | Expression::FunctionCall { line, column: col, .. }
+                                | Expression::PropertyAccess { line, column: col, .. }
+                                | Expression::StaticMemberAccess { line, column: col, .. } => (*line, *col),
+                                _ => (token.line, token.column),
+                            };
+
+                            expr = Expression::FunctionCall {
+                                function: Box::new(expr),
+                                arguments,
+                                line: base_line,
+                                column: base_col,
+                            };
+                        }
                         // Handle static member access: "Container.staticMember"
                         Token::Dot => {
                             self.bump_sync(); // Consume "."

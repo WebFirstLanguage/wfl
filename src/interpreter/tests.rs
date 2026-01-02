@@ -225,3 +225,23 @@ async fn test_nested_count_loops() {
     let result = interpreter.interpret(&program).await.unwrap();
     assert_eq!(result, Value::Number(18.0)); // (1×1 + 1×2) + (2×1 + 2×2) + (3×1 + 3×2) = 18
 }
+
+#[tokio::test]
+async fn test_zero_arg_native_function_with_explicit_parens() {
+    let mut interpreter = Interpreter::new();
+
+    // Test that random() with explicit parentheses works
+    let source = "random()";
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().unwrap();
+    let result = interpreter.interpret(&program).await.unwrap();
+
+    // Should return a number between 0 and 1
+    match result {
+        Value::Number(n) => {
+            assert!(n >= 0.0 && n < 1.0, "random() should return value in [0, 1), got {n}");
+        }
+        _ => panic!("Expected number from random(), got {result:?}"),
+    }
+}
