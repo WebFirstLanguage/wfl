@@ -284,6 +284,7 @@ pub struct Interpreter {
     pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
+    disable_auto_call: RefCell<bool>, // Flag to disable auto-calling in specific contexts
 }
 
 // Process handle for managing subprocess state
@@ -1092,6 +1093,7 @@ impl Interpreter {
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
             config,
+            disable_auto_call: RefCell::new(false), // Initialize auto-call as enabled
         }
     }
 
@@ -4837,11 +4839,11 @@ impl Interpreter {
                             }
                         }
                         Value::Function(func) => {
-                            if func.params.is_empty() {
+                            if func.params.is_empty() && !*self.disable_auto_call.borrow() {
                                 // Auto-call zero-argument user-defined functions
                                 self.call_function(func, vec![], *line, *column).await
                             } else {
-                                // Return function object for functions with arguments
+                                // Return function object for functions with arguments, or when auto-call is disabled
                                 Ok(value)
                             }
                         }
@@ -4927,7 +4929,18 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let function_val = self.evaluate_expression(function, Rc::clone(&env)).await?;
+                // Temporarily disable auto-call to get the function object
+                // Save previous state to restore even on error (prevents state leakage)
+                let previous_disable_auto_call = *self.disable_auto_call.borrow();
+                *self.disable_auto_call.borrow_mut() = true;
+
+                let result = self.evaluate_expression(function, Rc::clone(&env)).await;
+
+                // Restore previous state unconditionally (even on error)
+                *self.disable_auto_call.borrow_mut() = previous_disable_auto_call;
+
+                // Now check the result
+                let function_val = result?;
 
                 let mut arg_values = Vec::new();
                 for arg in arguments {

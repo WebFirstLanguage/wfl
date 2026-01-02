@@ -225,3 +225,63 @@ async fn test_nested_count_loops() {
     let result = interpreter.interpret(&program).await.unwrap();
     assert_eq!(result, Value::Number(18.0)); // (1×1 + 1×2) + (2×1 + 2×2) + (3×1 + 3×2) = 18
 }
+
+#[tokio::test]
+async fn test_zero_arg_function_bare_call_works() {
+    // This test confirms that bare calls work correctly
+    let input = r#"
+        // Define a zero-argument action
+        define action called my_action:
+            give back 42
+        end action
+
+        // Test bare call works  
+        my_action
+    "#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().unwrap();
+
+    let mut interpreter = Interpreter::default();
+    let result = interpreter.interpret(&program).await.unwrap();
+
+    assert_eq!(
+        result,
+        Value::Number(42.0),
+        "Bare call (my_action) should return 42"
+    );
+}
+
+#[tokio::test]
+async fn test_zero_arg_function_explicit_call_with_parentheses() {
+    // This test reproduces issue #193: zero-argument functions should work correctly
+    // when called explicitly with parentheses, not just as bare variable references.
+    let input = r#"
+        // Define a zero-argument action
+        define action called my_action:
+            give back 42
+        end action
+
+        // Test both forms should work and return the same result
+        store bare_call as my_action
+        store explicit_call as my_action()
+        
+        // Both should equal 42
+        bare_call plus explicit_call
+    "#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().unwrap();
+
+    let mut interpreter = Interpreter::default();
+    let result = interpreter.interpret(&program).await.unwrap();
+
+    // Should be 42 + 42 = 84 if both calls work correctly
+    assert_eq!(
+        result,
+        Value::Number(84.0),
+        "Both bare call (my_action) and explicit call (my_action()) should return 42, summing to 84"
+    );
+}
