@@ -4897,9 +4897,17 @@ impl Interpreter {
                 column,
             } => {
                 // Temporarily disable auto-call to get the function object
+                // Save previous state to restore even on error (prevents state leakage)
+                let previous_disable_auto_call = *self.disable_auto_call.borrow();
                 *self.disable_auto_call.borrow_mut() = true;
-                let function_val = self.evaluate_expression(function, Rc::clone(&env)).await?;
-                *self.disable_auto_call.borrow_mut() = false;
+
+                let result = self.evaluate_expression(function, Rc::clone(&env)).await;
+
+                // Restore previous state unconditionally (even on error)
+                *self.disable_auto_call.borrow_mut() = previous_disable_auto_call;
+
+                // Now check the result
+                let function_val = result?;
 
                 let mut arg_values = Vec::new();
                 for arg in arguments {
