@@ -1526,9 +1526,7 @@ impl TypeChecker {
                     let param_count = builtins::get_function_arity(name);
                     return Type::Function {
                         parameters: vec![Type::Any; param_count],
-                        return_type: Box::new(
-                            self.get_builtin_function_type(name, param_count),
-                        ),
+                        return_type: Box::new(self.get_builtin_function_type(name, param_count)),
                     };
                 }
 
