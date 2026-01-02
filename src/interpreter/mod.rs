@@ -284,7 +284,6 @@ pub struct Interpreter {
     pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
-    disable_auto_call: RefCell<bool>, // Flag to disable auto-calling in specific contexts
 }
 
 // Process handle for managing subprocess state
@@ -753,7 +752,7 @@ impl IoClient {
         use tokio::process::Command;
 
         // Clean up completed processes before spawning new one
-        self.cleanup_completed_processes().await;
+        // self.cleanup_completed_processes().await;
 
         // Check process limit
         {
@@ -1093,7 +1092,6 @@ impl Interpreter {
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
             config,
-            disable_auto_call: RefCell::new(false), // Initialize auto-call as enabled
         }
     }
 
@@ -3944,7 +3942,6 @@ impl Interpreter {
                 content,
                 status,
                 content_type,
-                headers,
                 line,
                 column,
             } => {
@@ -4018,44 +4015,12 @@ impl Interpreter {
                     "text/plain".to_string() // Default content type
                 };
 
-                // Evaluate headers (optional)
-                let headers_map = if let Some(headers_expr) = headers {
-                    let headers_val = self
-                        .evaluate_expression(headers_expr, Rc::clone(&env))
-                        .await?;
-                    match headers_val {
-                        Value::Object(obj_rc) => {
-                            let mut map = HashMap::new();
-                            let obj = obj_rc.borrow();
-                            for (k, v) in obj.iter() {
-                                let v_str = match v {
-                                    Value::Text(t) => t.as_ref().to_string(),
-                                    Value::Number(n) => n.to_string(),
-                                    Value::Bool(b) => b.to_string(),
-                                    _ => format!("{:?}", v),
-                                };
-                                map.insert(k.clone(), v_str);
-                            }
-                            map
-                        }
-                        _ => {
-                            return Err(RuntimeError::new(
-                                "Headers must be a map/object".to_string(),
-                                *line,
-                                *column,
-                            ));
-                        }
-                    }
-                } else {
-                    HashMap::new()
-                };
-
                 // Create response
                 let response = WflHttpResponse {
                     content: content_str,
                     status: status_code,
                     content_type: content_type_str,
-                    headers: headers_map,
+                    headers: HashMap::new(), // TODO: Add support for custom headers
                 };
 
                 // Send response
@@ -4839,11 +4804,11 @@ impl Interpreter {
                             }
                         }
                         Value::Function(func) => {
-                            if func.params.is_empty() && !*self.disable_auto_call.borrow() {
+                            if func.params.is_empty() {
                                 // Auto-call zero-argument user-defined functions
                                 self.call_function(func, vec![], *line, *column).await
                             } else {
-                                // Return function object for functions with arguments, or when auto-call is disabled
+                                // Return function object for functions with arguments
                                 Ok(value)
                             }
                         }
@@ -4929,18 +4894,7 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // Temporarily disable auto-call to get the function object
-                // Save previous state to restore even on error (prevents state leakage)
-                let previous_disable_auto_call = *self.disable_auto_call.borrow();
-                *self.disable_auto_call.borrow_mut() = true;
-
-                let result = self.evaluate_expression(function, Rc::clone(&env)).await;
-
-                // Restore previous state unconditionally (even on error)
-                *self.disable_auto_call.borrow_mut() = previous_disable_auto_call;
-
-                // Now check the result
-                let function_val = result?;
+                let function_val = self.evaluate_expression(function, Rc::clone(&env)).await?;
 
                 let mut arg_values = Vec::new();
                 for arg in arguments {

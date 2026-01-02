@@ -50,12 +50,6 @@ mod subprocess_tests {
 
     #[tokio::test]
     async fn test_execute_simple_command() {
-        #[cfg(windows)]
-        let code = r#"
-            wait for execute command "cmd /c echo Hello World" as result
-            display "Command executed"
-        "#;
-        #[cfg(not(windows))]
         let code = r#"
             wait for execute command "echo Hello World" as result
             display "Command executed"
@@ -71,11 +65,6 @@ mod subprocess_tests {
 
     #[tokio::test]
     async fn test_execute_command_stores_result() {
-        #[cfg(windows)]
-        let code = r#"
-            wait for execute command "cmd /c echo test" as result
-        "#;
-        #[cfg(not(windows))]
         let code = r#"
             wait for execute command "echo test" as result
         "#;
@@ -93,12 +82,6 @@ mod subprocess_tests {
 
     #[tokio::test]
     async fn test_execute_command_completes() {
-        #[cfg(windows)]
-        let code = r#"
-            wait for execute command "cmd /c echo test" as result
-            display "Execution completed"
-        "#;
-        #[cfg(not(windows))]
         let code = r#"
             wait for execute command "echo test" as result
             display "Execution completed"
@@ -195,14 +178,6 @@ mod subprocess_tests {
 
     #[tokio::test]
     async fn test_read_process_output() {
-        #[cfg(windows)]
-        let code = r#"
-            wait for spawn command "cmd /c echo test data" as proc
-            wait for 200 milliseconds
-            wait for read output from process proc as proc_output
-            display proc_output
-        "#;
-        #[cfg(not(windows))]
         let code = r#"
             wait for spawn command "echo test data" as proc
             wait for 200 milliseconds
@@ -260,12 +235,6 @@ mod subprocess_tests {
 
     #[tokio::test]
     async fn test_execute_with_shell() {
-        #[cfg(windows)]
-        let code = r#"
-            wait for execute command "cmd /c echo test args" as result
-            display "Command with shell executed"
-        "#;
-        #[cfg(not(windows))]
         // Test that shell commands work correctly
         let code = r#"
             wait for execute command "echo test args" as result
@@ -282,12 +251,6 @@ mod subprocess_tests {
 
     #[tokio::test]
     async fn test_execute_without_variable() {
-        #[cfg(windows)]
-        let code = r#"
-            wait for execute command "cmd /c echo test"
-            display "Done"
-        "#;
-        #[cfg(not(windows))]
         // Test executing without storing result
         let code = r#"
             wait for execute command "echo test"

@@ -8,9 +8,9 @@ try:
     store test_var as "test"
     display "📊 Request completed in " with test_var with "ms (Status: 200)"
     
-when error:
+catch:
     display "Caught error in Unicode test"
-    display "Error: " with error
+    display "Error: " with error_message
 end try
 
 display "=== Unicode Catch Test Complete ==="

@@ -1,6 +1,4 @@
-use std::env;
 use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
 use tempfile::NamedTempFile;
 
@@ -23,37 +21,16 @@ impl TempWflFile {
     }
 }
 
-fn get_wfl_binary_path() -> PathBuf {
-    let current_dir = env::current_dir().unwrap();
-    let release_path = if cfg!(target_os = "windows") {
-        current_dir.join("target/release/wfl.exe")
-    } else {
-        current_dir.join("target/release/wfl")
-    };
-
-    if release_path.exists() {
-        return release_path;
-    }
-
-    let debug_path = if cfg!(target_os = "windows") {
-        current_dir.join("target/debug/wfl.exe")
-    } else {
-        current_dir.join("target/debug/wfl")
-    };
-
-    if debug_path.exists() {
-        return debug_path;
-    }
-
-    panic!("WFL binary not found. Run 'cargo build' or 'cargo build --release' first.");
-}
-
 fn run_wfl(code: &str) -> Result<String, String> {
     let temp_file = TempWflFile::new(code).expect("Failed to create temp file");
 
-    let binary_path = get_wfl_binary_path();
+    let wfl_exe = if cfg!(target_os = "windows") {
+        "target/release/wfl.exe"
+    } else {
+        "target/release/wfl"
+    };
 
-    let output = Command::new(binary_path)
+    let output = Command::new(wfl_exe)
         .arg(temp_file.path())
         .output()
         .expect("Failed to execute WFL");
@@ -88,7 +65,6 @@ fn test_shell_injection_blocked_by_default() {
 }
 
 #[test]
-#[ignore] // TODO: Fix variable scoping issue with execute command result
 fn test_safe_argument_execution() {
     let code = r#"
         wait for execute command "echo" with arguments ["hello", "world"] as result
@@ -125,7 +101,7 @@ fn test_command_substitution_blocked() {
 
     #[cfg(windows)]
     let code = r#"
-        execute command "hostname" as result
+        execute command "echo test" as result
     "#;
 
     #[cfg(not(windows))]
@@ -141,11 +117,7 @@ fn test_command_substitution_blocked() {
     {
         // On Windows, just verify safe commands work
         let result = run_wfl(code);
-        assert!(
-            result.is_ok(),
-            "Simple safe command should work on Windows. Error: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "Simple safe command should work on Windows");
     }
 }
 
@@ -158,7 +130,7 @@ fn test_background_execution_blocked() {
 
     #[cfg(windows)]
     let code = r#"
-        execute command "hostname" as result
+        execute command "echo test" as result
     "#;
 
     #[cfg(not(windows))]
@@ -173,11 +145,7 @@ fn test_background_execution_blocked() {
     #[cfg(windows)]
     {
         let result = run_wfl(code);
-        assert!(
-            result.is_ok(),
-            "Safe command should work. Error: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "Safe command should work");
     }
 }
 
@@ -195,7 +163,6 @@ fn test_redirection_blocked() {
 }
 
 #[test]
-#[ignore] // TODO: Fix variable scoping issue
 fn test_simple_command_without_args_works() {
     // Simple commands without shell features should work
     #[cfg(not(windows))]
@@ -206,7 +173,7 @@ fn test_simple_command_without_args_works() {
 
     #[cfg(windows)]
     let code = r#"
-        wait for execute command "cd" as result
+        wait for execute command "hostname" as result
         display result
     "#;
 
@@ -219,18 +186,21 @@ fn test_simple_command_without_args_works() {
 }
 
 #[test]
-#[ignore] // TODO: Fix variable scoping issue
 fn test_spawn_with_safe_arguments() {
     let code = r#"
         spawn command "echo" with arguments ["test"] as proc_id
         wait for 200 milliseconds
-        wait for read output from process proc_id as output
+        wait for read output from process proc_id as proc_output
         wait for process proc_id to complete
-        display output
+        display proc_output
     "#;
 
     let result = run_wfl(code);
-    assert!(result.is_ok(), "Spawn with safe arguments should work");
+    assert!(
+        result.is_ok(),
+        "Spawn with safe arguments should work: {:?}",
+        result
+    );
     assert!(
         result.unwrap().contains("test"),
         "Output should contain expected text"
@@ -269,7 +239,6 @@ fn test_spawn_shell_blocked_by_default() {
 }
 
 #[test]
-#[ignore] // TODO: Fix variable scoping issue
 fn test_multiple_safe_processes() {
     let code = r#"
         spawn command "echo" with arguments ["test1"] as proc1

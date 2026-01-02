@@ -1,6 +1,4 @@
-use std::env;
 use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
 use tempfile::NamedTempFile;
 
@@ -25,39 +23,18 @@ impl TempWflFile {
 
 // Drop automatically cleans up the file when TempWflFile goes out of scope
 
-fn get_wfl_binary_path() -> PathBuf {
-    let current_dir = env::current_dir().unwrap();
-    let release_path = if cfg!(target_os = "windows") {
-        current_dir.join("target/release/wfl.exe")
-    } else {
-        current_dir.join("target/release/wfl")
-    };
-
-    if release_path.exists() {
-        return release_path;
-    }
-
-    let debug_path = if cfg!(target_os = "windows") {
-        current_dir.join("target/debug/wfl.exe")
-    } else {
-        current_dir.join("target/debug/wfl")
-    };
-
-    if debug_path.exists() {
-        return debug_path;
-    }
-
-    panic!("WFL binary not found. Run 'cargo build' or 'cargo build --release' first.");
-}
-
 fn run_wfl(code: &str) -> String {
     // Create temporary WFL file with automatic cleanup
     let temp_file = TempWflFile::new(code).expect("Failed to create temp file");
 
     // Run the WFL interpreter
-    let binary_path = get_wfl_binary_path();
+    let wfl_exe = if cfg!(target_os = "windows") {
+        "target/release/wfl.exe"
+    } else {
+        "target/release/wfl"
+    };
 
-    let output = Command::new(binary_path)
+    let output = Command::new(wfl_exe)
         .arg(temp_file.path())
         .output()
         .expect("Failed to execute WFL");
@@ -207,7 +184,7 @@ fn test_pattern_split_whitespace() {
         display length of parts
     "#,
     );
-    assert_eq!(result.trim(), "3"); // Pattern splits on whitespace (greedy match of "  ")
+    assert_eq!(result.trim(), "5"); // Pattern splits on individual spaces in "hello  world  test"
 }
 
 #[test]

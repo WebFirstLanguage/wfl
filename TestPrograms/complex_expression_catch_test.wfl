@@ -21,9 +21,9 @@ try:
     display "Log entry: " with log_entry
     display "Complex expression completed successfully"
     
-when error:
+catch:
     display "Caught error in complex expression test"
-    display "Error: " with error
+    display "Error: " with error_message
 end try
 
 display ""

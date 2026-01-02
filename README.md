@@ -247,47 +247,6 @@ WFL includes VSCode extension with:
 - Go-to definition
 - Hover documentation
 
-### 🤖 AI Integration (MCP Support)
-
-WFL now supports the Model Context Protocol (MCP), enabling AI assistants like Claude to analyze and understand your WFL code:
-
-**Quick Start with Claude Desktop:**
-
-1. Add to your Claude Desktop config (`%APPDATA%\Claude\claude_desktop_config.json`):
-```json
-{
-  "mcpServers": {
-    "wfl": {
-      "command": "wfl-lsp",
-      "args": ["--mcp"],
-      "cwd": "/path/to/your/wfl/project"
-    }
-  }
-}
-```
-
-2. Restart Claude Desktop
-
-3. Ask Claude to help with your WFL code!
-
-**Available Capabilities:**
-- **6 Tools**: parse_wfl, analyze_wfl, typecheck_wfl, lint_wfl, get_completions, get_symbol_info
-- **5 Resources**: workspace://files, workspace://symbols, workspace://diagnostics, workspace://config, file:///
-
-**Example Workflows:**
-```text
-# Ask Claude to analyze your code
-> "Find all errors in my WFL project"
-
-# Get help understanding code
-> "What does this WFL program do?"
-
-# Get coding assistance
-> "Help me write a function that processes a list"
-```
-
-See the [MCP User Guide](Docs/guides/wfl-mcp-guide.md) for complete documentation.
-
 Install the extension:
 ```powershell
 scripts/install_vscode_extension.ps1

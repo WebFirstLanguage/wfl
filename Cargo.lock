@@ -3239,7 +3239,7 @@ dependencies = [
 
 [[package]]
 name = "wfl"
-version = "26.1.3"
+version = "25.12.11"
 dependencies = [
  "bytes",
  "chrono",
@@ -3276,7 +3276,6 @@ version = "0.1.0"
 dependencies = [
  "dashmap",
  "env_logger",
- "serde",
  "serde_json",
  "tokio",
  "tokio-test",

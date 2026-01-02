@@ -347,8 +347,6 @@ pub enum Token {
     KeywordTimeout,
     #[token("header")]
     KeywordHeader,
-    #[token("headers")]
-    KeywordHeaders,
     #[token("current")]
     KeywordCurrent,
     #[token("milliseconds")]
@@ -591,8 +589,6 @@ impl Token {
                 | Token::KeywordAny
                 | Token::KeywordMust
                 | Token::KeywordDefaults
-                | Token::KeywordStatus
-                | Token::KeywordHeaders
         )
     }
 
