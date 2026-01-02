@@ -275,7 +275,7 @@ WFL now supports the Model Context Protocol (MCP), enabling AI assistants like C
 - **5 Resources**: workspace://files, workspace://symbols, workspace://diagnostics, workspace://config, file:///
 
 **Example Workflows:**
-```
+```text
 # Ask Claude to analyze your code
 > "Find all errors in my WFL project"
 
