@@ -173,7 +173,7 @@ fn test_simple_command_without_args_works() {
 
     #[cfg(windows)]
     let code = r#"
-        wait for execute command "cd" as result
+        wait for execute command "hostname" as result
         display result
     "#;
 

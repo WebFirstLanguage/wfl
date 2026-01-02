@@ -752,7 +752,7 @@ impl IoClient {
         use tokio::process::Command;
 
         // Clean up completed processes before spawning new one
-        self.cleanup_completed_processes().await;
+        // self.cleanup_completed_processes().await;
 
         // Check process limit
         {
