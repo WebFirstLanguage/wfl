@@ -1550,6 +1550,10 @@ impl Analyzer {
         self.current_scope.symbols.get_mut(name)
     }
 
+    pub fn define_symbol(&mut self, symbol: Symbol) -> Result<(), SemanticError> {
+        self.current_scope.define(symbol)
+    }
+
     pub fn register_builtin_function(
         &mut self,
         name: &str,

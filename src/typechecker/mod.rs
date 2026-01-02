@@ -1,4 +1,4 @@
-use crate::analyzer::Analyzer;
+use crate::analyzer::{Analyzer, Symbol, SymbolKind};
 use crate::builtins;
 use crate::parser::ast::{Expression, Literal, Operator, Program, Statement, Type, UnaryOperator};
 use std::fmt;
@@ -567,16 +567,14 @@ impl TypeChecker {
                 ..
             } => {
                 let collection_type = self.infer_expression_type(collection);
+                let mut item_type_inferred = Type::Unknown;
+
                 match collection_type {
                     Type::List(item_type) => {
-                        if let Some(symbol) = self.analyzer.get_symbol_mut(item_name) {
-                            symbol.symbol_type = Some(*item_type);
-                        }
+                        item_type_inferred = *item_type;
                     }
                     Type::Map(_, value_type) => {
-                        if let Some(symbol) = self.analyzer.get_symbol_mut(item_name) {
-                            symbol.symbol_type = Some(*value_type);
-                        }
+                        item_type_inferred = *value_type;
                     }
                     Type::Unknown | Type::Error => {}
                     _ => {
@@ -590,9 +588,27 @@ impl TypeChecker {
                     }
                 }
 
+                // Push a new scope for the loop body
+                self.analyzer.push_scope();
+
+                // Define the loop variable in the new scope
+                let symbol = Symbol {
+                    name: item_name.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: Some(item_type_inferred),
+                    line: *_line,
+                    column: *_column,
+                };
+
+                // Ignore errors (e.g., if already defined, though in a new scope it shouldn't be)
+                let _ = self.analyzer.define_symbol(symbol);
+
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
+
+                // Pop the scope
+                self.analyzer.pop_scope();
             }
             Statement::CountLoop {
                 start,
@@ -2923,6 +2939,53 @@ mod tests {
         );
     }
 
-    // TODO: Add test for type inference in for-each loops
-    // Test currently commented out due to analyzer access limitations
+    #[test]
+    fn test_foreach_type_inference() {
+        let program = Program {
+            statements: vec![
+                Statement::CreateListStatement {
+                    name: "numbers".to_string(),
+                    initial_values: vec![Expression::Literal(Literal::Integer(1), 1, 1)],
+                    line: 1,
+                    column: 1,
+                },
+                Statement::ForEachLoop {
+                    item_name: "item".to_string(),
+                    collection: Expression::Variable("numbers".to_string(), 2, 10),
+                    reversed: false,
+                    body: vec![Statement::ExpressionStatement {
+                        expression: Expression::BinaryOperation {
+                            left: Box::new(Expression::Variable("item".to_string(), 3, 5)),
+                            operator: crate::parser::ast::Operator::Minus,
+                            right: Box::new(Expression::Literal(
+                                Literal::String("text".to_string()),
+                                3,
+                                12,
+                            )),
+                            line: 3,
+                            column: 10,
+                        },
+                        line: 3,
+                        column: 1,
+                    }],
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&program);
+        assert!(
+            result.is_err(),
+            "Expected type error for incompatible operation on loop variable"
+        );
+
+        let errors = result.err().unwrap();
+        assert!(
+            errors.iter().any(|e| e.message.contains("Cannot perform")),
+            "Expected error about invalid operation, got: {:?}",
+            errors
+        );
+    }
 }
