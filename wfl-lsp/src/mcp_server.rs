@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -205,10 +205,7 @@ impl WflMcpServer {
     /// Handle tools/call request
     fn handle_tools_call(&self, id: Option<Value>, params: Value) -> JsonRpcResponse {
         // Extract tool name and arguments
-        let tool_name = params
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
 
         match tool_name {
             "parse_wfl" => self.handle_parse_wfl(id, params),
@@ -635,14 +632,41 @@ impl WflMcpServer {
         };
 
         let line = arguments.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-        let column = arguments.get("column").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let column = arguments
+            .get("column")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
 
         // Basic keyword completions (can be enhanced)
         let keywords = vec![
-            "store", "create", "display", "check if", "count from", "for each",
-            "define action", "give back", "try", "when", "otherwise", "repeat while",
-            "repeat until", "open file", "and", "or", "not", "is", "greater", "less",
-            "than", "equal", "to", "as", "called", "with", "in", "end",
+            "store",
+            "create",
+            "display",
+            "check if",
+            "count from",
+            "for each",
+            "define action",
+            "give back",
+            "try",
+            "when",
+            "otherwise",
+            "repeat while",
+            "repeat until",
+            "open file",
+            "and",
+            "or",
+            "not",
+            "is",
+            "greater",
+            "less",
+            "than",
+            "equal",
+            "to",
+            "as",
+            "called",
+            "with",
+            "in",
+            "end",
         ];
 
         let completions: Vec<_> = keywords
@@ -712,7 +736,10 @@ impl WflMcpServer {
         };
 
         let line = arguments.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-        let column = arguments.get("column").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let column = arguments
+            .get("column")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
 
         // Parse the code to extract symbols
         let tokens = lex_wfl_with_positions(source);

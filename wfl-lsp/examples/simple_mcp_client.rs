@@ -1,7 +1,7 @@
 // Simple example MCP client for WFL
 // Demonstrates how to interact with wfl-lsp in MCP mode
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
 
@@ -47,7 +47,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let init_response = send_request(init_request)?;
-    println!("Server version: {}\n", init_response["result"]["serverInfo"]["version"]);
+    println!(
+        "Server version: {}\n",
+        init_response["result"]["serverInfo"]["version"]
+    );
 
     // Example 2: List tools
     println!("2. Listing available tools...");
@@ -82,7 +85,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let parse_response = send_request(parse_request)?;
     let parse_result: Value = serde_json::from_str(
-        parse_response["result"]["content"][0]["text"].as_str().unwrap()
+        parse_response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
     )?;
     println!("Parse result: {}", parse_result["message"]);
     println!("Statement count: {}\n", parse_result["statement_count"]);
@@ -103,7 +108,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let analyze_response = send_request(analyze_request)?;
     let analyze_result: Value = serde_json::from_str(
-        analyze_response["result"]["content"][0]["text"].as_str().unwrap()
+        analyze_response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
     )?;
     println!("Analysis result: {}", analyze_result["message"]);
     if let Some(diagnostics) = analyze_result["diagnostics"].as_array() {
@@ -131,9 +138,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let completion_response = send_request(completion_request)?;
     let completion_result: Value = serde_json::from_str(
-        completion_response["result"]["content"][0]["text"].as_str().unwrap()
+        completion_response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
     )?;
-    println!("Completion count: {}", completion_result["completion_count"]);
+    println!(
+        "Completion count: {}",
+        completion_result["completion_count"]
+    );
     println!("First few completions:");
     if let Some(completions) = completion_result["completions"].as_array() {
         for (i, comp) in completions.iter().take(5).enumerate() {
@@ -151,7 +163,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let resources_response = send_request(resources_request)?;
-    let resources = resources_response["result"]["resources"].as_array().unwrap();
+    let resources = resources_response["result"]["resources"]
+        .as_array()
+        .unwrap();
     println!("Available resources: {}", resources.len());
     for resource in resources {
         println!("  - {}: {}", resource["uri"], resource["description"]);

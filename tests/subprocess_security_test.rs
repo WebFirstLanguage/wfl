@@ -141,7 +141,11 @@ fn test_command_substitution_blocked() {
     {
         // On Windows, just verify safe commands work
         let result = run_wfl(code);
-        assert!(result.is_ok(), "Simple safe command should work on Windows. Error: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Simple safe command should work on Windows. Error: {:?}",
+            result
+        );
     }
 }
 
@@ -169,7 +173,11 @@ fn test_background_execution_blocked() {
     #[cfg(windows)]
     {
         let result = run_wfl(code);
-        assert!(result.is_ok(), "Safe command should work. Error: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Safe command should work. Error: {:?}",
+            result
+        );
     }
 }
 

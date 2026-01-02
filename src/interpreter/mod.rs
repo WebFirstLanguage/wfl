@@ -6123,9 +6123,7 @@ mod process_tests {
         #[cfg(not(windows))]
         let (cmd, args) = ("echo", vec!["hello"]);
 
-        let result = client
-            .execute_command(cmd, &args, false, 0, 0)
-            .await;
+        let result = client.execute_command(cmd, &args, false, 0, 0).await;
 
         assert!(result.is_ok(), "Failed to execute command");
         let (stdout, stderr, exit_code) = result.unwrap();

@@ -75,9 +75,9 @@ pub fn native_input(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let mut input = String::new();
-    std::io::stdin().read_line(&mut input).map_err(|e| {
-        RuntimeError::new(format!("Failed to read input: {}", e), 0, 0)
-    })?;
+    std::io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| RuntimeError::new(format!("Failed to read input: {}", e), 0, 0))?;
 
     // Trim the trailing newline
     let trimmed = input.trim_end();
