@@ -598,10 +598,10 @@ impl Analyzer {
                 }
 
                 // Mark custom loop variable as used (similar to ForEachLoop)
-                if let Some(var_name) = variable_name {
-                    if let Some(usage) = usages.get_mut(var_name) {
-                        usage.used = true;
-                    }
+                if let Some(var_name) = variable_name
+                    && let Some(usage) = usages.get_mut(var_name)
+                {
+                    usage.used = true;
                 }
 
                 for stmt in body {
