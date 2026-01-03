@@ -1,0 +1,21 @@
+// Test Content-Length header with various content types
+// This test verifies that the web server correctly calculates Content-Length in bytes
+// Important: UTF-8 byte count differs from character count for non-ASCII content
+
+listen on port 8097 as test_server
+
+// Test 1: ASCII content "Hello" = 5 bytes
+wait for request comes in on test_server as req1 with timeout 5000
+respond to req1 with "Hello"
+
+// Test 2: Unicode content "Hello, 世界!" = 14 bytes (not 10 characters)
+// "Hello, " = 7 bytes, "世" = 3 bytes, "界" = 3 bytes, "!" = 1 byte
+wait for request comes in on test_server as req2 with timeout 5000
+respond to req2 with "Hello, 世界!"
+
+// Test 3: Empty content = 0 bytes
+wait for request comes in on test_server as req3 with timeout 5000
+respond to req3 with ""
+
+close server test_server
+display "Content-Length tests completed"

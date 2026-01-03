@@ -3678,16 +3678,22 @@ impl Interpreter {
                                             warp::http::StatusCode::from_u16(response.status)
                                                 .unwrap_or(warp::http::StatusCode::OK);
 
+                                        // Convert content to bytes for accurate Content-Length calculation
+                                        // HTTP Content-Length must match exact byte count of body
+                                        let content_bytes = response.content.into_bytes();
+                                        let content_length = content_bytes.len();
+
                                         let mut reply_builder = warp::http::Response::builder()
                                             .status(status_code)
-                                            .header("content-type", response.content_type);
+                                            .header("Content-Type", response.content_type)
+                                            .header("Content-Length", content_length);
 
                                         // Add additional headers
                                         for (name, value) in response.headers {
                                             reply_builder = reply_builder.header(name, value);
                                         }
 
-                                        match reply_builder.body(response.content) {
+                                        match reply_builder.body(content_bytes) {
                                             Ok(response) => Ok(response),
                                             Err(_) => Err(warp::reject::custom(ServerError(
                                                 "Failed to build response".to_string(),
@@ -4180,8 +4186,13 @@ impl Interpreter {
                 // Close the server
                 let mut web_servers = self.web_servers.borrow_mut();
                 if let Some(wfl_server) = web_servers.remove(&server_name) {
-                    // Abort the server task
+                    // Graceful shutdown: Give in-flight responses time to complete transmission
+                    // before forcefully aborting the server task
                     if let Some(handle) = wfl_server.server_handle {
+                        // Allow 50ms for pending HTTP responses to be transmitted
+                        // This prevents race condition where abort() closes the TCP connection
+                        // before response bytes reach the client, causing IncompleteMessage errors
+                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
                         handle.abort();
                     }
                 } else {

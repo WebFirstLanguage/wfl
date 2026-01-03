@@ -39,7 +39,15 @@
       "Bash(findstr:*)",
       "Bash(powershell -Command \"(Get-Content ''G:\\Logbie\\wfl\\src\\parser\\tests.rs'').Length\")",
       "Bash(git stash:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:github.com)",
+      "Bash(git -C \"G:\\\\Logbie\\\\wfl\" log --oneline -10)",
+      "Bash(git -C \"G:\\\\Logbie\\\\wfl\" show 7955077 --stat)",
+      "Bash(powershell -Command:*)",
+      "Bash(tee:*)",
+      "Bash(cargo doc:*)",
+      "Bash(gh run watch:*)"
     ],
     "deny": [],
     "ask": []
