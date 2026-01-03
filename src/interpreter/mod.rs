@@ -3678,16 +3678,13 @@ impl Interpreter {
                                             warp::http::StatusCode::from_u16(response.status)
                                                 .unwrap_or(warp::http::StatusCode::OK);
 
-                                        // Calculate content-length in bytes (UTF-8 encoding)
-                                        // HTTP Content-Length must be in bytes, not characters
-                                        // Using as_bytes().len() for clarity, even though String::len() returns bytes
-                                        #[allow(clippy::needless_as_bytes)]
-                                        let content_length = response.content.as_bytes().len();
+                                        // Content-Length in bytes (String::len() returns byte count in Rust)
+                                        let content_length = response.content.len().to_string();
 
                                         let mut reply_builder = warp::http::Response::builder()
                                             .status(status_code)
-                                            .header("content-type", response.content_type)
-                                            .header("content-length", content_length);
+                                            .header("Content-Type", response.content_type)
+                                            .header("Content-Length", content_length);
 
                                         // Add additional headers
                                         for (name, value) in response.headers {
