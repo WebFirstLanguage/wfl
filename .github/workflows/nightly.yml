@@ -101,8 +101,9 @@ jobs:
           else
             # Read version from .build_meta.json
             YEAR=$(jq -r '.year' .build_meta.json)
+            MONTH=$(jq -r '.month' .build_meta.json)
             BUILD=$(jq -r '.build' .build_meta.json)
-            VERSION="${YEAR}.${BUILD}"
+            VERSION="${YEAR}.${MONTH}.${BUILD}"
             echo "Using version from build_meta.json: $VERSION"
           fi
           
