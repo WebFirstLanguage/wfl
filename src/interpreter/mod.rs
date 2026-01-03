@@ -3678,8 +3678,10 @@ impl Interpreter {
                                             warp::http::StatusCode::from_u16(response.status)
                                                 .unwrap_or(warp::http::StatusCode::OK);
 
-                                        // Content-Length in bytes (String::len() returns byte count in Rust)
-                                        let content_length = response.content.len().to_string();
+                                        // Convert content to bytes for accurate Content-Length calculation
+                                        // HTTP Content-Length must match exact byte count of body
+                                        let content_bytes = response.content.into_bytes();
+                                        let content_length = content_bytes.len();
 
                                         let mut reply_builder = warp::http::Response::builder()
                                             .status(status_code)
@@ -3691,7 +3693,7 @@ impl Interpreter {
                                             reply_builder = reply_builder.header(name, value);
                                         }
 
-                                        match reply_builder.body(response.content) {
+                                        match reply_builder.body(content_bytes) {
                                             Ok(response) => Ok(response),
                                             Err(_) => Err(warp::reject::custom(ServerError(
                                                 "Failed to build response".to_string(),
