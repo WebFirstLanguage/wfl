@@ -4186,8 +4186,13 @@ impl Interpreter {
                 // Close the server
                 let mut web_servers = self.web_servers.borrow_mut();
                 if let Some(wfl_server) = web_servers.remove(&server_name) {
-                    // Abort the server task
+                    // Graceful shutdown: Give in-flight responses time to complete transmission
+                    // before forcefully aborting the server task
                     if let Some(handle) = wfl_server.server_handle {
+                        // Allow 50ms for pending HTTP responses to be transmitted
+                        // This prevents race condition where abort() closes the TCP connection
+                        // before response bytes reach the client, causing IncompleteMessage errors
+                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
                         handle.abort();
                     }
                 } else {
