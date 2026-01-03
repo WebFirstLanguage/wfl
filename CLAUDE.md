@@ -52,14 +52,18 @@ wfl --debug program.wfl
 wfl --lex program.wfl
 wfl --parse program.wfl
 
-# Check configuration
+# Check and fix configuration
 wfl --configCheck
+wfl --configFix
 
 # Run with execution timing
 wfl --time program.wfl
 
 # Run in single-step debug mode
 wfl --step program.wfl
+
+# Dump environment info
+wfl --dump-env
 ```
 
 ### VSCode Extension
@@ -116,6 +120,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `tests/` contains Rust unit and integration tests
 - `Docs/` contains all user-facing documentation
 - `Dev diary/` contains development history and progress notes
+- `.cursor/rules/` contains project-specific rules
 
 ## Critical Development Rules
 
@@ -196,6 +201,6 @@ The codebase includes Cursor IDE rules in `.cursor/rules/wfl-rules.mdc`:
 
 ### Version Scheme
 WFL uses calendar-based versioning: **YY.MM.BUILD**
-- Example: `25.12.3` = Year 2025, December, Build 3
+- Example: `26.1.4`
 - Major version always < 256 (Windows MSI compatibility)
 - keep a dev diary in the dev diary directory on the project root

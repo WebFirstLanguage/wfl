@@ -7,13 +7,21 @@
 - `wfl-lsp/`: Language Server workspace member; `vscode-extension/` for VS Code.
 - `Docs/`: Guides and technical notes (see `Docs/guides/building.md`).
 - `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`).
+- `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
 ## Build, Test, and Dev Commands
 - Build: `cargo build` (release: `cargo build --release`).
 - Run: `cargo run -- <file.wfl>` or `target/release/wfl <file.wfl>`.
 - Test: `cargo test`; integration requires release binary. Windows: `./scripts/run_integration_tests.ps1` (Linux/macOS: `.sh`).
 - Bench: `cargo bench` (Criterion).
-- WFL CLI: `wfl --lint|--fix|--debug|--lex|--parse|--configCheck <file.wfl>`.
+- WFL CLI:
+  - `wfl --lint` / `wfl --lint --fix [--in-place|--diff]`: Lint and fix code.
+  - `wfl --debug`: Debug WFL execution.
+  - `wfl --step`: Run in single-step execution mode.
+  - `wfl --time`: Measure execution time.
+  - `wfl --lex` / `wfl --parse`: Dump tokens or AST.
+  - `wfl --configCheck` / `wfl --configFix`: Check/fix configuration.
+  - `wfl --dump-env`: Dump environment for troubleshooting.
 - LSP/VS Code: `./scripts/configure_lsp.ps1` and `scripts/install_vscode_extension.ps1`.
 
 ## Coding Style & Naming
@@ -22,7 +30,7 @@
 - Naming: `snake_case` (fns/files), `CamelCase` (types/traits), `SCREAMING_SNAKE_CASE` (consts).
 
 ## Testing Guidelines
-- TDD is mandatory: write failing tests first (see `.augment/rules/DEVELOPMENT.md`).
+- TDD is mandatory: write failing tests first (see `.cursor/rules/wfl-rules.mdc`).
 - Locations: unit/integration in `tests/`; E2E in `TestPrograms/` with release build.
 - Conventions: feature‑oriented names (`*_test.rs`), keep perf benches under `benches/`.
 
@@ -34,8 +42,9 @@
 ## Agent‑Specific Policies
 - Backward compatibility is sacred: do not break existing WFL programs; run all `TestPrograms/`.
 - Integration tests require `cargo build --release` and provided scripts.
-- Keep docs current (see `.augment/rules/Docs.md`); update `Docs/` and relevant indexes when adding features. Major changes warrant a Dev Diary note.
+- Keep docs current; update `Docs/` and relevant indexes when adding features. Major changes warrant a Dev Diary note.
 - For security, review `SECURITY.md`; avoid logging secrets and prefer zeroization for sensitive data.
+- Refer to `.cursor/rules/wfl-rules.mdc` for additional project-specific rules.
 
 ## LSP Development Workflow
 - Location: LSP crate in `wfl-lsp/`; VS Code extension in `vscode-extension/`.
