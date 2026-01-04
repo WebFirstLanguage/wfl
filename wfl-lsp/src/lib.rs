@@ -818,6 +818,7 @@ enum SymbolInfo {
         description: String,
     },
     StdlibFunction {
+        #[allow(dead_code)]
         name: String,
         description: String,
         signature: String,

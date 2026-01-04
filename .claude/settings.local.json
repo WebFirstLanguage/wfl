@@ -48,7 +48,8 @@
       "Bash(tee:*)",
       "Bash(cargo doc:*)",
       "Bash(gh run watch:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(cargo fix:*)"
     ],
     "deny": [],
     "ask": []

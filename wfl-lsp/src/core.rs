@@ -1,7 +1,9 @@
 use dashmap::DashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, DiagnosticRelatedInformation, Location, Position, Range, Url};
+use tower_lsp::lsp_types::{
+    Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location, Position, Range, Url,
+};
 use wfl::analyzer::Analyzer;
 use wfl::diagnostics::{DiagnosticReporter, WflDiagnostic};
 use wfl::lexer::lex_wfl_with_positions;
@@ -93,7 +95,12 @@ impl WflLanguageCore {
 
     /// Analyze WFL source code and return diagnostics
     /// This is the core analysis pipeline shared by LSP and MCP
-    pub fn analyze_source(&self, source: &str, file_id: usize, diagnostic_reporter: &mut DiagnosticReporter) -> (Vec<WflDiagnostic>, Option<Program>) {
+    pub fn analyze_source(
+        &self,
+        source: &str,
+        file_id: usize,
+        diagnostic_reporter: &mut DiagnosticReporter,
+    ) -> (Vec<WflDiagnostic>, Option<Program>) {
         let mut diagnostics = Vec::new();
 
         let tokens = lex_wfl_with_positions(source);
@@ -138,7 +145,8 @@ impl WflLanguageCore {
         let mut diagnostic_reporter = DiagnosticReporter::new();
         let file_id = diagnostic_reporter.add_file("document.wfl", document_text.to_string());
 
-        let (wfl_diagnostics, _program) = self.analyze_source(document_text, file_id, &mut diagnostic_reporter);
+        let (wfl_diagnostics, _program) =
+            self.analyze_source(document_text, file_id, &mut diagnostic_reporter);
 
         for wfl_diag in wfl_diagnostics {
             diagnostics.push(Self::convert_to_lsp_diagnostic(
@@ -264,7 +272,11 @@ mod tests {
         let core = WflLanguageCore::new();
 
         // Add document
-        core.add_document("file:///test.wfl".to_string(), "store x as 5".to_string(), 1);
+        core.add_document(
+            "file:///test.wfl".to_string(),
+            "store x as 5".to_string(),
+            1,
+        );
 
         // Get document
         let doc = core.get_document("file:///test.wfl");
@@ -285,13 +297,19 @@ mod tests {
     fn test_analyze_valid_code() {
         let core = WflLanguageCore::new();
         let diagnostics = core.analyze_document("store x as 5");
-        assert!(diagnostics.is_empty(), "Valid code should have no diagnostics");
+        assert!(
+            diagnostics.is_empty(),
+            "Valid code should have no diagnostics"
+        );
     }
 
     #[test]
     fn test_analyze_invalid_code() {
         let core = WflLanguageCore::new();
         let diagnostics = core.analyze_document("store x as");
-        assert!(!diagnostics.is_empty(), "Invalid code should have diagnostics");
+        assert!(
+            !diagnostics.is_empty(),
+            "Invalid code should have diagnostics"
+        );
     }
 }

@@ -1,13 +1,11 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::core::WflLanguageCore;
-use wfl::analyzer::Analyzer;
-use wfl::diagnostics::DiagnosticReporter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::typechecker::TypeChecker;
@@ -15,6 +13,7 @@ use wfl::typechecker::TypeChecker;
 /// JSON-RPC 2.0 Request
 #[derive(Debug, Deserialize)]
 struct JsonRpcRequest {
+    #[allow(dead_code)]
     jsonrpc: String,
     id: Option<Value>,
     method: String,
@@ -205,10 +204,7 @@ impl WflMcpServer {
     /// Handle tools/call request
     fn handle_tools_call(&self, id: Option<Value>, params: Value) -> JsonRpcResponse {
         // Extract tool name and arguments
-        let tool_name = params
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
 
         match tool_name {
             "parse_wfl" => self.handle_parse_wfl(id, params),
@@ -618,7 +614,7 @@ impl WflMcpServer {
             }
         };
 
-        let source = match arguments.get("source").and_then(|v| v.as_str()) {
+        let _source = match arguments.get("source").and_then(|v| v.as_str()) {
             Some(s) => s,
             None => {
                 return JsonRpcResponse {
@@ -635,14 +631,41 @@ impl WflMcpServer {
         };
 
         let line = arguments.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-        let column = arguments.get("column").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let column = arguments
+            .get("column")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
 
         // Basic keyword completions (can be enhanced)
         let keywords = vec![
-            "store", "create", "display", "check if", "count from", "for each",
-            "define action", "give back", "try", "when", "otherwise", "repeat while",
-            "repeat until", "open file", "and", "or", "not", "is", "greater", "less",
-            "than", "equal", "to", "as", "called", "with", "in", "end",
+            "store",
+            "create",
+            "display",
+            "check if",
+            "count from",
+            "for each",
+            "define action",
+            "give back",
+            "try",
+            "when",
+            "otherwise",
+            "repeat while",
+            "repeat until",
+            "open file",
+            "and",
+            "or",
+            "not",
+            "is",
+            "greater",
+            "less",
+            "than",
+            "equal",
+            "to",
+            "as",
+            "called",
+            "with",
+            "in",
+            "end",
         ];
 
         let completions: Vec<_> = keywords
@@ -712,7 +735,10 @@ impl WflMcpServer {
         };
 
         let line = arguments.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-        let column = arguments.get("column").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let column = arguments
+            .get("column")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
 
         // Parse the code to extract symbols
         let tokens = lex_wfl_with_positions(source);
@@ -875,19 +901,17 @@ impl WflMcpServer {
         let mut wfl_files = Vec::new();
         if let Ok(entries) = fs::read_dir(workspace_root) {
             for entry in entries.flatten() {
-                if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_file() {
-                        if let Some(path) = entry.path().to_str() {
-                            if path.ends_with(".wfl") {
-                                let file_name = entry.file_name();
-                                wfl_files.push(json!({
-                                    "uri": format!("file:///{}", path.replace("\\", "/")),
-                                    "name": file_name.to_string_lossy(),
-                                    "mimeType": "text/x-wfl"
-                                }));
-                            }
-                        }
-                    }
+                if let Ok(file_type) = entry.file_type()
+                    && file_type.is_file()
+                    && let Some(path) = entry.path().to_str()
+                    && path.ends_with(".wfl")
+                {
+                    let file_name = entry.file_name();
+                    wfl_files.push(json!({
+                        "uri": format!("file:///{}", path.replace("\\", "/")),
+                        "name": file_name.to_string_lossy(),
+                        "mimeType": "text/x-wfl"
+                    }));
                 }
             }
         }
@@ -964,20 +988,20 @@ impl WflMcpServer {
         // Scan for .wfl files and extract symbols
         if let Ok(entries) = fs::read_dir(workspace_root) {
             for entry in entries.flatten() {
-                if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_file() {
-                        let path = entry.path();
-                        if path.extension().and_then(|s| s.to_str()) == Some("wfl") {
-                            if let Ok(content) = fs::read_to_string(&path) {
-                                let tokens = lex_wfl_with_positions(&content);
-                                let mut parser = Parser::new(&tokens);
-                                if let Ok(program) = parser.parse() {
-                                    all_symbols.push(json!({
-                                        "file": path.to_string_lossy(),
-                                        "statement_count": program.statements.len()
-                                    }));
-                                }
-                            }
+                if let Ok(file_type) = entry.file_type()
+                    && file_type.is_file()
+                {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("wfl")
+                        && let Ok(content) = fs::read_to_string(&path)
+                    {
+                        let tokens = lex_wfl_with_positions(&content);
+                        let mut parser = Parser::new(&tokens);
+                        if let Ok(program) = parser.parse() {
+                            all_symbols.push(json!({
+                                "file": path.to_string_lossy(),
+                                "statement_count": program.statements.len()
+                            }));
                         }
                     }
                 }
@@ -1067,25 +1091,25 @@ impl WflMcpServer {
         // Scan for .wfl files and collect diagnostics
         if let Ok(entries) = fs::read_dir(workspace_root) {
             for entry in entries.flatten() {
-                if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_file() {
-                        let path = entry.path();
-                        if path.extension().and_then(|s| s.to_str()) == Some("wfl") {
-                            if let Ok(content) = fs::read_to_string(&path) {
-                                let diagnostics = self.core.analyze_document(&content);
-                                if !diagnostics.is_empty() {
-                                    all_diagnostics.push(json!({
-                                        "file": path.to_string_lossy(),
-                                        "diagnostic_count": diagnostics.len(),
-                                        "diagnostics": diagnostics.iter().map(|d| {
-                                            json!({
-                                                "message": d.message,
-                                                "severity": format!("{:?}", d.severity)
-                                            })
-                                        }).collect::<Vec<_>>()
-                                    }));
-                                }
-                            }
+                if let Ok(file_type) = entry.file_type()
+                    && file_type.is_file()
+                {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("wfl")
+                        && let Ok(content) = fs::read_to_string(&path)
+                    {
+                        let diagnostics = self.core.analyze_document(&content);
+                        if !diagnostics.is_empty() {
+                            all_diagnostics.push(json!({
+                                "file": path.to_string_lossy(),
+                                "diagnostic_count": diagnostics.len(),
+                                "diagnostics": diagnostics.iter().map(|d| {
+                                    json!({
+                                        "message": d.message,
+                                        "severity": format!("{:?}", d.severity)
+                                    })
+                                }).collect::<Vec<_>>()
+                            }));
                         }
                     }
                 }
