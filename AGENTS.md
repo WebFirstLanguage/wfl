@@ -9,6 +9,13 @@
 - `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`).
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
+### Core Architecture
+The WFL compiler pipeline consists of:
+```
+Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
+```
+See `CLAUDE.md` for detailed component descriptions.
+
 ## Build, Test, and Dev Commands
 - Build: `cargo build` (release: `cargo build --release`).
 - Run: `cargo run -- <file.wfl>` or `target/release/wfl <file.wfl>`.
@@ -45,6 +52,10 @@
 - Keep docs current; update `Docs/` and relevant indexes when adding features. Major changes warrant a Dev Diary note.
 - For security, review `SECURITY.md`; avoid logging secrets and prefer zeroization for sensitive data.
 - Refer to `.cursor/rules/wfl-rules.mdc` for additional project-specific rules.
+
+## Technical Requirements
+- Rust Edition: 2024
+- Versioning Scheme: YY.MM.BUILD (e.g., 26.1.6)
 
 ## LSP Development Workflow
 - Location: LSP crate in `wfl-lsp/`; VS Code extension in `vscode-extension/`.
