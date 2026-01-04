@@ -47,7 +47,8 @@
       "Bash(powershell -Command:*)",
       "Bash(tee:*)",
       "Bash(cargo doc:*)",
-      "Bash(gh run watch:*)"
+      "Bash(gh run watch:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []
