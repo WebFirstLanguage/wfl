@@ -265,8 +265,14 @@ impl fmt::Display for Value {
             Value::Nothing => write!(f, "nothing"),
             Value::List(list) => {
                 let items = list.borrow();
-                let item_strings: Vec<String> = items.iter().map(|v| v.to_string()).collect();
-                write!(f, "[{}]", item_strings.join(", "))
+                write!(f, "[")?;
+                for (i, v) in items.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                write!(f, "]")
             }
             Value::Object(o) => {
                 let map = o.borrow();
