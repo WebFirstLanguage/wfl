@@ -180,6 +180,28 @@ The codebase includes Cursor IDE rules in `.cursor/rules/wfl-rules.mdc`:
 - All test programs must pass
 - Update bytecode when modifying parser
 
+## Coding Style & Naming
+
+- **Format**: `cargo fmt --all` (see `.rustfmt.toml`)
+- **Lint**: `cargo clippy --all-targets --all-features -- -D warnings`
+- **Naming Conventions**:
+    - Functions/Files: `snake_case`
+    - Types/Traits: `CamelCase`
+    - Constants: `SCREAMING_SNAKE_CASE`
+
+## Commit & Pull Request Guidelines
+
+- **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`.
+- **Pull Requests**:
+    - clear description
+    - linked issues
+    - tests added/updated
+    - repro steps for fixes
+- **Pre-PR checks**:
+    - `cargo fmt --all -- --check`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all --verbose`
+
 ## Technical Requirements
 
 ### Rust Environment
