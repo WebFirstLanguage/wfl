@@ -1,6 +1,6 @@
 [package]
 name = "wfl-lsp"
-version = "0.1.0"
+version = "26.1.10"
 edition = "2024"
 description = "Language Server Protocol implementation for the WebFirst Language (WFL)"
 license = "MIT"
