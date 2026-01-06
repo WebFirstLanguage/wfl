@@ -59,6 +59,8 @@ end count
 - **🚀 Modern Async Support**: Built-in async/await for concurrent operations
 - **🛡️ Type Safety**: Static type checking with intelligent inference
 - **🌐 Web-First Design**: Native HTTP and database support
+- **🌍 Built-in Web Server**: Create HTTP servers with `listen on port 8080` - no external frameworks needed
+- **📂 File Serving Made Simple**: Read files and serve them with natural syntax like `respond to request with content`
 - **🎨 Developer Experience**: Comprehensive tooling and real-time error checking
 - **♻️ Backward Compatibility**: Your code will always work with future versions
 
@@ -134,6 +136,42 @@ Run it:
 
 ```bash
 wfl hello.wfl
+```
+
+### Your First Web Server
+
+WFL makes creating web servers incredibly simple. Create `server.wfl`:
+
+```wfl
+// Start a web server on port 8080
+listen on port 8080 as web_server
+
+display "Server running at http://127.0.0.1:8080"
+
+// Handle incoming requests
+wait for request comes in on web_server as req
+
+check if path is equal to "/":
+    respond to req with "Hello from WFL Web Server!"
+check if path is equal to "/file":
+    // Read a file and serve its contents
+    try:
+        open file at "welcome.txt" for reading as file
+        store content as read content from file
+        close file
+        respond to req with content and content_type "text/plain"
+    catch:
+        respond to req with "File not found" and status 404
+    end try
+otherwise:
+    respond to req with "Page not found" and status 404
+end check
+```
+
+Run it and visit `http://127.0.0.1:8080` in your browser!
+
+```bash
+wfl server.wfl
 ```
 
 ## 📚 Language Overview
