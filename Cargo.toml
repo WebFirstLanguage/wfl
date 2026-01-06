@@ -1,6 +1,6 @@
 [package]
 name = "wfl"
-version = "26.1.9"
+version = "26.1.10"
 edition = "2024"
 description = "WFL (WebFirst Language) is a programming language designed to be readable and intuitive using natural language constructs."
 license = "Apache-2.0"
@@ -11,7 +11,7 @@ default-run = "wfl"
 name = "WFL"
 identifier = "com.logbie.wfl"
 icon = ["icons/wfl.png"]
-version = "26.1.9"
+version = "26.1.10"
 copyright = "© 2025 Logbie LLC"
 category = "Developer Tool"
 short_description = "WebFirst Language Compiler and Runtime"
