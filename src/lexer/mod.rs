@@ -7,7 +7,10 @@ use logos::Logos;
 use std::borrow::Cow;
 use token::{Token, TokenWithPosition};
 
-#[deprecated(since = "0.1.0", note = "Use normalize_line_endings_cow for better performance")]
+#[deprecated(
+    since = "0.1.0",
+    note = "Use normalize_line_endings_cow for better performance"
+)]
 pub fn normalize_line_endings(input: &str) -> String {
     normalize_line_endings_cow(input).into_owned()
 }
