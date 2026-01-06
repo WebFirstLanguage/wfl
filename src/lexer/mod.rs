@@ -4,14 +4,31 @@ pub mod token;
 mod tests;
 
 use logos::Logos;
+use std::borrow::Cow;
 use token::{Token, TokenWithPosition};
 
+#[deprecated(
+    since = "0.1.0",
+    note = "Use normalize_line_endings_cow for better performance"
+)]
 pub fn normalize_line_endings(input: &str) -> String {
-    input.replace("\r\n", "\n")
+    normalize_line_endings_cow(input).into_owned()
+}
+
+pub fn normalize_line_endings_cow(input: &str) -> Cow<'_, str> {
+    if !input.contains('\r') {
+        return Cow::Borrowed(input);
+    }
+    // Handle CRLF first as it's the most common case requiring normalization
+    if input.contains("\r\n") {
+        return Cow::Owned(input.replace("\r\n", "\n"));
+    }
+    // Handle standalone CR (Mac Classic)
+    Cow::Owned(input.replace('\r', "\n"))
 }
 
 pub fn lex_wfl(input: &str) -> Vec<Token> {
-    let input = normalize_line_endings(input);
+    let input = normalize_line_endings_cow(input);
     let mut lexer = Token::lexer(&input);
     let mut tokens = Vec::new();
     let mut current_id: Option<String> = None;
@@ -69,7 +86,7 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
 }
 
 pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
-    let input = normalize_line_endings(input);
+    let input = normalize_line_endings_cow(input);
     let mut lexer = Token::lexer(&input);
     let mut tokens = Vec::new();
     let mut current_id: Option<String> = None;
