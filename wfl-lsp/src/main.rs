@@ -49,17 +49,11 @@ async fn main() {
         }
     }
 
-    // Set up logging with default level (can be overridden by --log-level)
-    unsafe {
-        std::env::set_var("RUST_LOG", "info");
-    }
-    env_logger::init();
-
     // Parse remaining command-line arguments
     let mut mcp_mode = false;
     let mut _stdio_mode = true; // Default mode
     let mut _tcp_port: Option<u16> = None;
-    let mut _log_level = "info";
+    let mut log_level = "info";
     let mut _max_completion_items = 100;
     let mut _hover_timeout = 1000;
 
@@ -91,11 +85,7 @@ async fn main() {
             }
             "--log-level" => {
                 if i + 1 < args.len() {
-                    _log_level = &args[i + 1];
-                    // Update RUST_LOG environment variable
-                    unsafe {
-                        std::env::set_var("RUST_LOG", _log_level);
-                    }
+                    log_level = &args[i + 1];
                     i += 2;
                 } else {
                     eprintln!("Error: --log-level requires a level");
@@ -137,6 +127,20 @@ async fn main() {
             }
         }
     }
+
+    // Set up logging with the parsed log level
+    // Create a builder that respects existing RUST_LOG or uses the parsed level
+    let mut builder = env_logger::Builder::new();
+
+    // If RUST_LOG is already set, parse it; otherwise use the command line argument
+    if let Ok(rust_log) = std::env::var("RUST_LOG") {
+        builder.parse_filters(&rust_log);
+    } else {
+        // Use the parsed log level from command line
+        builder.parse_filters(log_level);
+    }
+
+    builder.init();
 
     // Run the appropriate server
     if mcp_mode {
