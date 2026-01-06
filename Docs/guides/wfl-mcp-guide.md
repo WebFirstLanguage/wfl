@@ -479,6 +479,7 @@ Planned improvements:
 
 ## See Also
 
+- [WFL MCP Configuration](wfl-mcp-configuration.md)
 - [WFL MCP API Reference](wfl-mcp-api-reference.md)
 - [WFL MCP Architecture](../technical/wfl-mcp-architecture.md)
 - [Claude Desktop MCP Integration](https://docs.anthropic.com/claude/mcp)
