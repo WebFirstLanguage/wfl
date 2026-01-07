@@ -52,7 +52,8 @@
       "Bash(cargo fix:*)",
       "Bash(wfl-lsptargetreleasewfl-lsp.exe --version)",
       "Bash(test:*)",
-      "Bash(cargo metadata:*)"
+      "Bash(cargo metadata:*)",
+      "Bash(git grep:*)"
     ],
     "deny": [],
     "ask": []
