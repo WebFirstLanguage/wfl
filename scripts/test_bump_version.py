@@ -36,20 +36,20 @@ class TestBumpVersion(unittest.TestCase):
 
     def test_same_year_increment(self):
         current_year = datetime.datetime.now().year
-        
+
         with open(self.build_meta, "w") as f:
             json.dump({"year": current_year, "build": 5}, f)
-        
+
         with patch('datetime.datetime') as mock_datetime:
             mock_datetime.now.return_value.year = current_year
             with patch('subprocess.run'):
                 bump_version.main()
-        
+
         with open(self.build_meta, "r") as f:
             meta = json.load(f)
             self.assertEqual(meta["year"], current_year)
             self.assertEqual(meta["build"], 6)  # Incremented from 5
-        
+
         with open(self.version_file, "r") as f:
             content = f.read()
             self.assertIn(f'"{current_year}.6"', content)
@@ -57,20 +57,20 @@ class TestBumpVersion(unittest.TestCase):
     def test_new_year_reset(self):
         current_year = datetime.datetime.now().year
         last_year = current_year - 1
-        
+
         with open(self.build_meta, "w") as f:
             json.dump({"year": last_year, "build": 42}, f)
-        
+
         with patch('datetime.datetime') as mock_datetime:
             mock_datetime.now.return_value.year = current_year
             with patch('subprocess.run'):
                 bump_version.main()
-        
+
         with open(self.build_meta, "r") as f:
             meta = json.load(f)
             self.assertEqual(meta["year"], current_year)
             self.assertEqual(meta["build"], 1)  # Reset to 1 for new year
-        
+
         with open(self.version_file, "r") as f:
             content = f.read()
             self.assertIn(f'"{current_year}.1"', content)
