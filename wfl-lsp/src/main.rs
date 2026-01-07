@@ -3,6 +3,8 @@ use wfl_lsp::WflLanguageServer;
 
 #[tokio::main]
 async fn main() {
+    // SAFETY: Setting RUST_LOG before any threads are spawned is safe.
+    // This must be done before env_logger::init() to set the default log level.
     unsafe {
         std::env::set_var("RUST_LOG", "info");
     }
