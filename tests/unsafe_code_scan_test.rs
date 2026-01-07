@@ -12,6 +12,7 @@ struct UnsafeViolation {
 }
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 enum UnsafeType {
     UnsafeBlock,    // unsafe { }
     UnsafeFunction, // unsafe fn
@@ -123,7 +124,7 @@ fn scan_file_for_unsafe(file_path: &Path) -> Vec<UnsafeViolation> {
         if let Some(start_pos) = trimmed.find("/*") {
             in_multiline_comment = true;
             // Check if the comment closes on the same line
-            if trimmed[start_pos..].find("*/").is_some() {
+            if trimmed[start_pos..].contains("*/") {
                 in_multiline_comment = false;
             }
             // Still check the part before /* for unsafe
