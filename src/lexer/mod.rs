@@ -1,8 +1,8 @@
-pub mod token;
-#[cfg(test)]
-mod tests;
 #[cfg(test)]
 mod position_tests;
+#[cfg(test)]
+mod tests;
+pub mod token;
 
 use logos::Logos;
 use std::borrow::Cow;
