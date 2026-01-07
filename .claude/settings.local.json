@@ -49,10 +49,7 @@
       "Bash(cargo doc:*)",
       "Bash(gh run watch:*)",
       "Bash(mkdir:*)",
-      "Bash(cargo fix:*)",
-      "Bash(wfl-lsptargetreleasewfl-lsp.exe --version)",
-      "Bash(test:*)",
-      "Bash(cargo metadata:*)"
+      "Bash(cargo fix:*)"
     ],
     "deny": [],
     "ask": []

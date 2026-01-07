@@ -1,9 +1,11 @@
 #[cfg(test)]
+mod tests;
+#[cfg(test)]
 mod position_tests;
 #[cfg(test)]
-mod tests;
-pub mod token;
+mod column_tests;
 
+pub mod token;
 use logos::Logos;
 use std::borrow::Cow;
 use token::{Token, TokenWithPosition};
