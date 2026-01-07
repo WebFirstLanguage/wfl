@@ -35,9 +35,7 @@ fn test_position_tracking_multiline() {
     let input = "store x as 5\nstore y as 10";
     let tokens = lex_wfl_with_positions(input);
 
-    let second_line_tokens: Vec<_> = tokens.iter()
-        .filter(|t| t.line == 2)
-        .collect();
+    let second_line_tokens: Vec<_> = tokens.iter().filter(|t| t.line == 2).collect();
 
     assert!(!second_line_tokens.is_empty());
     assert_eq!(second_line_tokens[0].token, Token::KeywordStore);
@@ -50,7 +48,8 @@ fn test_position_tracking_with_multiline_strings() {
     let tokens = lex_wfl_with_positions(input);
 
     // Find the string literal token
-    let str_token = tokens.iter()
+    let str_token = tokens
+        .iter()
         .find(|t| matches!(t.token, Token::StringLiteral(_)))
         .expect("Should find string literal");
 
@@ -66,7 +65,8 @@ fn test_position_tracking_with_multiline_strings() {
     // It contains one newline.
     // The Eol token following it comes from the \n after the string.
 
-    let display_token = tokens.iter()
+    let display_token = tokens
+        .iter()
         .find(|t| matches!(t.token, Token::KeywordDisplay))
         .expect("Should find display keyword");
 

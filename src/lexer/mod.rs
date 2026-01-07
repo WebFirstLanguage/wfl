@@ -1,9 +1,9 @@
 #[cfg(test)]
-mod tests;
+mod column_tests;
 #[cfg(test)]
 mod position_tests;
 #[cfg(test)]
-mod column_tests;
+mod tests;
 
 pub mod token;
 use logos::Logos;
