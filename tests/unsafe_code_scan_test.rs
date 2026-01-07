@@ -1,6 +1,5 @@
 /// Test that scans the entire Rust codebase for `unsafe` blocks and fails if any are found.
 /// This enforces memory safety standards across the WFL project.
-
 use std::fs;
 use std::path::Path;
 
@@ -14,10 +13,10 @@ struct UnsafeViolation {
 
 #[derive(Debug)]
 enum UnsafeType {
-    UnsafeBlock,     // unsafe { }
-    UnsafeFunction,  // unsafe fn
-    UnsafeImpl,      // unsafe impl
-    UnsafeTrait,     // unsafe trait
+    UnsafeBlock,    // unsafe { }
+    UnsafeFunction, // unsafe fn
+    UnsafeImpl,     // unsafe impl
+    UnsafeTrait,    // unsafe trait
 }
 
 impl std::fmt::Display for UnsafeType {
@@ -79,7 +78,7 @@ fn is_whitelisted_unsafe(file_path: &str, line_number: usize) -> bool {
         // These are safe because the mutex serializes all access to environment variables
         ("src/config.rs", 667) |  // set_var in test helper
         ("src/config.rs", 669) |  // remove_var in test helper
-        ("src/config.rs", 802)    // set_var in test function
+        ("src/config.rs", 802) // set_var in test function
     )
 }
 
@@ -126,7 +125,9 @@ fn scan_file_for_unsafe(file_path: &Path) -> Vec<UnsafeViolation> {
             }
             // Still check the part before /* for unsafe
             let before_comment = &trimmed[..start_pos];
-            if let Some(violation) = check_line_for_unsafe(before_comment, file_path, line_number, line) {
+            if let Some(violation) =
+                check_line_for_unsafe(before_comment, file_path, line_number, line)
+            {
                 violations.push(violation);
             }
             continue;
