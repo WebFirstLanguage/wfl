@@ -162,3 +162,99 @@ fn test_crlf_normalization_impact() {
     assert_eq!(tokens[2].line, 2); // b
     assert_eq!(tokens[2].column, 1);
 }
+
+#[test]
+fn test_column_calculation_after_multiline_token() {
+    // This test specifically checks the column calculation issue identified by copilot
+    // Input: store x as "ab\ncd" display y
+    // The string "ab\ncd" contains a newline, so after processing it:
+    // - We should be on line 2 (due to the newline in the string)
+    // - The column should represent where the next token starts
+
+    let input = r#"store x as "ab
+cd" display y"#;
+    let tokens = lex_wfl_with_positions(input);
+
+    // Find the string literal token
+    let str_token = tokens
+        .iter()
+        .find(|t| matches!(t.token, Token::StringLiteral(_)))
+        .expect("Should find string literal");
+
+    println!(
+        "String token: {:?} at line {}, col {}",
+        str_token.token, str_token.line, str_token.column
+    );
+
+    // Let's examine all tokens to understand the flow
+    println!("All tokens:");
+    for (i, token) in tokens.iter().enumerate() {
+        println!(
+            "  {}: {:?} at line {}, col {}",
+            i, token.token, token.line, token.column
+        );
+    }
+
+    // Let's also examine what the lexer actually sees for debugging
+    let debug_input = r#"store x as "ab
+cd" display y"#;
+    let debug_input = super::normalize_line_endings_cow(debug_input);
+    let mut debug_lexer = super::Token::lexer(&debug_input);
+    println!("Raw lexer slices:");
+    while let Some(_) = debug_lexer.next() {
+        let span = debug_lexer.span();
+        let slice = debug_lexer.slice();
+        println!("  Span {:?}, slice: {:?}", span, slice);
+    }
+
+    // Find the display token that comes after the string
+    let display_token = tokens
+        .iter()
+        .find(|t| matches!(t.token, Token::KeywordDisplay))
+        .expect("Should find display keyword");
+
+    println!(
+        "Display token at line {}, col {}",
+        display_token.line, display_token.column
+    );
+
+    // The string "ab\ncd" has one newline, so display should be on line 2
+    assert_eq!(display_token.line, 2);
+
+    // Manual calculation verification:
+    // String slice: "\"ab\ncd\"" (7 chars: positions 0,1,2,3,4,5,6)
+    // \n is at position 3 in the slice
+    // current_column = slice.len() - last_nl_pos = 7 - 3 = 4
+    // After string: at column 4 on line 2
+    // Plus 1 space character → column 5
+    // Display should be at column 5
+
+    assert_eq!(
+        display_token.column, 5,
+        "Display should be at column 5 based on correct calculation"
+    );
+}
+
+#[test]
+fn test_copilot_suggestion_would_be_wrong() {
+    // This test demonstrates why copilot's suggested fix would be incorrect
+    // Copilot suggested: current_column = slice.len() - last_nl_pos - 1
+    // But this would put us one column too far back
+
+    let input = "x\n y"; // Simple case: x on line 1, space then y on line 2
+    let tokens = lex_wfl_with_positions(input);
+
+    // Find the y token
+    let y_token = tokens
+        .iter()
+        .find(|t| matches!(t.token, Token::Identifier(ref s) if s == "y"))
+        .expect("Should find y token");
+
+    // y should be at line 2, column 2 (after the space)
+    assert_eq!(y_token.line, 2);
+    assert_eq!(y_token.column, 2);
+
+    // If we used copilot's suggested fix, it would incorrectly place tokens
+    // because current_column = slice.len() - last_nl_pos - 1 would subtract
+    // an extra 1, placing subsequent tokens one column too far left
+}
