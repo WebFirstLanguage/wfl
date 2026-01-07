@@ -1,8 +1,11 @@
-pub mod token;
-
+#[cfg(test)]
+mod column_tests;
+#[cfg(test)]
+mod position_tests;
 #[cfg(test)]
 mod tests;
 
+pub mod token;
 use logos::Logos;
 use std::borrow::Cow;
 use token::{Token, TokenWithPosition};
@@ -97,31 +100,38 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
     let mut current_id_byte_start = 0;
     let mut current_id_byte_end = 0;
 
-    let mut _line = 1;
-    let mut _column = 1;
-    let mut line_starts = vec![0];
-
-    for (i, c) in input.char_indices() {
-        if c == '\n' {
-            _line += 1;
-            _column = 1;
-            line_starts.push(i + 1);
-        } else {
-            _column += 1;
-        }
-    }
-
-    let position = |offset: usize| -> (usize, usize) {
-        let line_idx = line_starts.binary_search(&offset).unwrap_or_else(|i| i - 1);
-        let line = line_idx + 1;
-        let column = offset - line_starts[line_idx] + 1;
-        (line, column)
-    };
+    // Track position incrementally to avoid O(N) pre-scan and O(log N) lookup
+    let mut current_line = 1;
+    let mut current_column = 1;
+    let mut last_span_end = 0;
 
     while let Some(token_result) = lexer.next() {
         let span = lexer.span();
-        let (token_line, token_column) = position(span.start);
+
+        // Calculate skipped whitespace/comments length
+        // Logos is configured to skip [ \t\f\r] and comments.
+        // Since we normalize \r\n to \n and \r to \n, and \n is a Token,
+        // the skipped content does not contain newlines.
+        let skipped_len = span.start - last_span_end;
+        current_column += skipped_len;
+
+        let token_line = current_line;
+        let token_column = current_column;
         let token_length = span.end - span.start;
+
+        // Update position for the next token based on current token content
+        let slice = lexer.slice();
+        let newline_count = slice.as_bytes().iter().filter(|&&b| b == b'\n').count();
+        if newline_count > 0 {
+            current_line += newline_count;
+            // Guaranteed to exist if newline_count > 0
+            let last_nl_pos = slice.rfind('\n').unwrap();
+            current_column = slice.len() - last_nl_pos;
+        } else {
+            current_column += slice.len();
+        }
+
+        last_span_end = span.end;
 
         match token_result {
             Ok(Token::Error) => {

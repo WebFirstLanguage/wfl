@@ -3239,7 +3239,7 @@ dependencies = [
 
 [[package]]
 name = "wfl"
-version = "26.1.13"
+version = "26.1.12"
 dependencies = [
  "bytes",
  "chrono",
@@ -3272,7 +3272,7 @@ dependencies = [
 
 [[package]]
 name = "wfl-lsp"
-version = "26.1.13"
+version = "0.1.0"
 dependencies = [
  "dashmap",
  "env_logger",
