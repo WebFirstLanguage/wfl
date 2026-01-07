@@ -79,10 +79,7 @@ fn is_whitelisted_unsafe(file_path: &str, line_number: usize) -> bool {
         // These are safe because the mutex serializes all access to environment variables
         ("src/config.rs", 667) |  // set_var in test helper
         ("src/config.rs", 669) |  // remove_var in test helper
-        ("src/config.rs", 802) |  // set_var in test function
-        // LSP server - setting RUST_LOG before any threads spawn
-        // This is safe because it occurs before tokio runtime initialization
-        ("wfl-lsp/src/main.rs", 8)
+        ("src/config.rs", 802)    // set_var in test function
     )
 }
 
