@@ -12,6 +12,7 @@ BUILD_META_FILE = ".build_meta.json"
 VERSION_FILE = "src/version.rs"
 CARGO_TOML = "Cargo.toml"
 WIX_TOML = "wix.toml"
+WFL_LSP_CARGO_TOML = "wfl-lsp/Cargo.toml"
 VSCODE_EXTENSION_DIRS = ["vscode-extension", "vscode-wfl", "editors/vscode-wfl"]
 MODIFIED_FILES = []
 
@@ -113,6 +114,42 @@ def update_cargo_toml(version):
     MODIFIED_FILES.append(CARGO_TOML)
     return True
 
+def update_wfl_lsp_cargo_toml(version):
+    """Update version in wfl-lsp/Cargo.toml to match main package.
+
+    This ensures the LSP server workspace member reports the same version
+    as the main wfl package, maintaining consistency across the project.
+    """
+    if not os.path.exists(WFL_LSP_CARGO_TOML):
+        print(f"Warning: {WFL_LSP_CARGO_TOML} not found, skipping")
+        return False
+
+    print(f"Updating {WFL_LSP_CARGO_TOML}...")
+
+    with open(WFL_LSP_CARGO_TOML, "r") as f:
+        content = f.read()
+
+    # Update package version (should be line 3 based on current structure)
+    # Match: version = "X.Y.Z"
+    # Use count=1 to only update the [package] version, not any dependencies
+    new_content = re.sub(
+        r'(version = )"(\d+\.\d+\.\d+)"',
+        f'\\1"{version}"',
+        content,
+        count=1
+    )
+
+    # Verify the replacement occurred
+    if new_content == content:
+        print(f"Warning: No version string found in {WFL_LSP_CARGO_TOML}")
+        return False
+
+    with open(WFL_LSP_CARGO_TOML, "w") as f:
+        f.write(new_content)
+
+    MODIFIED_FILES.append(WFL_LSP_CARGO_TOML)
+    return True
+
 def update_cargo_lock():
     """Update Cargo.lock to match Cargo.toml version by running cargo update.
 
@@ -157,15 +194,25 @@ def update_cargo_lock():
         print(f"Error reading Cargo.toml: {e}")
         sys.exit(1)
 
-    # Run cargo update
+    # Run cargo update for BOTH packages
     try:
+        # Update main wfl package
         subprocess.run(
             ["cargo", "update", "--package", "wfl"],
             capture_output=True,
             text=True,
             check=True
         )
-        print("Cargo update completed successfully")
+        print("Cargo update for wfl completed successfully")
+
+        # Update wfl-lsp workspace member
+        subprocess.run(
+            ["cargo", "update", "--package", "wfl-lsp"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        print("Cargo update for wfl-lsp completed successfully")
 
     except subprocess.CalledProcessError as e:
         print(f"Error running cargo update: {e}")
@@ -203,8 +250,28 @@ def update_cargo_lock():
             print("Cargo.lock was not properly synchronized")
             sys.exit(1)
 
-        print(f"✓ Version synchronization verified: {expected_version}")
+        print(f"[OK] Version synchronization verified: {expected_version}")
         MODIFIED_FILES.append(CARGO_LOCK)
+
+        # Validate wfl-lsp version
+        wfl_lsp_match = re.search(
+            r'\[\[package\]\]\s*name = "wfl-lsp"\s*version = "([^"]+)"',
+            cargo_lock_content,
+            re.DOTALL
+        )
+        if not wfl_lsp_match:
+            print("Warning: Could not find wfl-lsp package in Cargo.lock")
+        else:
+            wfl_lsp_version = wfl_lsp_match.group(1)
+            print(f"Cargo.lock wfl-lsp version: {wfl_lsp_version}")
+
+            if expected_version != wfl_lsp_version:
+                print(f"Error: wfl-lsp version mismatch!")
+                print(f"  wfl-lsp/Cargo.toml: {expected_version}")
+                print(f"  Cargo.lock wfl-lsp: {wfl_lsp_version}")
+                sys.exit(1)
+
+            print(f"[OK] wfl-lsp version synchronized: {expected_version}")
 
     except Exception as e:
         print(f"Error validating Cargo.lock: {e}")
@@ -311,7 +378,8 @@ def main():
     # Update additional files based on arguments
     if args.update_all:
         update_cargo_toml(version)
-        # Update Cargo.lock after Cargo.toml to ensure version synchronization
+        update_wfl_lsp_cargo_toml(version)
+        # Update Cargo.lock AFTER both Cargo.toml files to ensure version synchronization
         update_cargo_lock()
         update_vscode_extensions(version)
         update_wix_toml(version)

@@ -662,7 +662,10 @@ mod tests {
     #[cfg(test)]
     fn set_test_env_var(val: Option<&str>) {
         match val {
+            // SAFETY: This is safe because all callers are protected by TEST_ENV_LOCK mutex,
+            // which serializes access to environment variables and prevents data races.
             Some(v) => unsafe { ::std::env::set_var("WFL_GLOBAL_CONFIG_PATH", v) },
+            // SAFETY: Same as above - mutex protection ensures thread safety.
             None => unsafe { ::std::env::remove_var("WFL_GLOBAL_CONFIG_PATH") },
         }
     }
@@ -794,6 +797,8 @@ mod tests {
         let mut file = fs::File::create(&config_path).unwrap();
         file.write_all(config_content.as_bytes()).unwrap();
 
+        // SAFETY: This is safe because it's called within with_test_global_path(),
+        // which holds the TEST_ENV_LOCK mutex to prevent data races.
         unsafe {
             ::std::env::set_var("WFL_GLOBAL_CONFIG_PATH", "/non/existent/path");
         }

@@ -225,4 +225,5 @@ The codebase includes Cursor IDE rules in `.cursor/rules/wfl-rules.mdc`:
 WFL uses calendar-based versioning: **YY.MM.BUILD**
 - Example: `26.1.4`
 - Major version always < 256 (Windows MSI compatibility)
+- **All workspace members (wfl, wfl-lsp) share the same version**
 - keep a dev diary in the dev diary directory on the project root

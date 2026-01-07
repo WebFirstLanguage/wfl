@@ -188,5 +188,27 @@ Setting up automated versioning requires some care to keep it reliable:
 * **Cargo.toml (Optional):** If this project will be published as a crate or you want to keep Cargo’s package version in sync, you might also update the `version` in `Cargo.toml`. Cargo’s version isn’t automatically used by our setup, since we’re using a custom scheme. But for consistency, consider aligning Cargo.toml’s version with the year.build or at least updating it periodically. Some projects use `env!("CARGO_PKG_VERSION")` in Rust to get the version, but here we maintain a separate version constant for custom formatting. Just be mindful if crate publishing becomes a goal.
 * **Testing the Setup:** It’s wise to test the version bump script and workflow on a non-critical branch or repository. Ensure that when a push happens, the workflow runs, updates the files, commits, and doesn’t trigger again. You can simulate a year change by tweaking the JSON and system date (or temporarily altering the script logic) to verify the reset logic. Monitoring the GitHub Actions logs will show the printed new version and the success of git push.
 
-By following this plan, the WFL project will have a **durable, automated versioning system**. Every build’s version is uniquely identified, the version constant in Rust ensures the running program knows its version, and the Git history/tags provide a record of each build. This reduces manual effort and potential errors in bumping versions, allowing the team to focus on development while the infrastructure handles version tracking.
+By following this plan, the WFL project will have a **durable, automated versioning system**. Every build's version is uniquely identified, the version constant in Rust ensures the running program knows its version, and the Git history/tags provide a record of each build. This reduces manual effort and potential errors in bumping versions, allowing the team to focus on development while the infrastructure handles version tracking.
+
+## 7. Workspace Member Versioning
+
+As of version 26.1.10, the WFL project includes multiple workspace members:
+- `wfl`: Main compiler and runtime
+- `wfl-lsp`: Language Server Protocol implementation
+
+**Version Policy:** All workspace members share the same version number to maintain consistency and simplify version management. When the version is bumped, the script updates `Cargo.toml` in both the root and all workspace member directories (`wfl-lsp/Cargo.toml`).
+
+**Implementation Details:**
+- The version bump script (`scripts/bump_version.py`) includes an `update_wfl_lsp_cargo_toml()` function that synchronizes the wfl-lsp version
+- Both `wfl` and `wfl-lsp` packages are updated in `Cargo.lock` via separate `cargo update` commands
+- Version validation ensures both packages report identical versions in Cargo.lock
+- This ensures users see consistent version numbers when running `wfl --version` or querying the LSP server version
+
+**Rationale:**
+- Both tools are part of the same WFL project and shipped together
+- They share the same release cycle and git repository
+- Calendar-based versioning (YY.MM.BUILD) represents the project state, not individual component maturity
+- Having different versions would confuse users about compatibility
+
 *Implemented on 2025-05-19 - The automated versioning system has been implemented as described in this document.*
+*Updated on 2026-01-06 - Added workspace member versioning synchronization for wfl-lsp.*
