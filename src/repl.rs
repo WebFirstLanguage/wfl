@@ -399,21 +399,23 @@ mod tests {
 
         let stdout_fd = std::io::stdout().as_raw_fd();
 
-        // Duplicate stdout safely - OwnedFd provides RAII cleanup
-        let stdout_dup_fd = libc::dup(stdout_fd);
+        // SAFETY: Duplicating a valid file descriptor is safe. We check the result.
+        let stdout_dup_fd = unsafe { libc::dup(stdout_fd) };
         assert!(stdout_dup_fd >= 0, "Failed to duplicate stdout");
+        // SAFETY: We just created this FD with dup() and verified it's valid (>= 0).
+        // OwnedFd will take ownership and close it on drop.
         let stdout_dup = unsafe { OwnedFd::from_raw_fd(stdout_dup_fd) };
 
-        // Close stdout safely
-        let close_result = libc::close(stdout_fd);
+        // SAFETY: Closing a valid file descriptor is safe. We check the result.
+        let close_result = unsafe { libc::close(stdout_fd) };
         assert_eq!(close_result, 0, "Failed to close stdout");
 
         let result = repl.handle_repl_command(".clear");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CommandResult::ClearedScreen);
 
-        // Restore stdout safely
-        let dup2_result = libc::dup2(stdout_dup.as_raw_fd(), stdout_fd);
+        // SAFETY: dup2 with valid file descriptors is safe. We check the result.
+        let dup2_result = unsafe { libc::dup2(stdout_dup.as_raw_fd(), stdout_fd) };
         assert!(dup2_result >= 0, "Failed to restore stdout");
     }
 }

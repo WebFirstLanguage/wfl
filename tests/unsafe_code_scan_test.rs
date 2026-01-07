@@ -71,9 +71,12 @@ fn is_whitelisted_unsafe(file_path: &str, line_number: usize) -> bool {
 
     matches!(
         (normalized_path.as_str(), line_number),
-        // Unix FD test - OwnedFd::from_raw_fd is unavoidable FFI
-        // This is necessary for safe RAII-based file descriptor management
-        ("src/repl.rs", 405) |
+        // Unix FD test - libc FFI calls for file descriptor manipulation
+        // These are necessary for testing edge cases with closed stdout
+        ("src/repl.rs", 403) |  // libc::dup - duplicate file descriptor
+        ("src/repl.rs", 407) |  // OwnedFd::from_raw_fd - RAII wrapper
+        ("src/repl.rs", 410) |  // libc::close - close file descriptor
+        ("src/repl.rs", 418) |  // libc::dup2 - restore file descriptor
         // Config tests - env var manipulation protected by TEST_ENV_LOCK mutex
         // These are safe because the mutex serializes all access to environment variables
         ("src/config.rs", 667) |  // set_var in test helper
