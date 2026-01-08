@@ -9,6 +9,12 @@ pub struct ImportTestContext {
     files: HashMap<String, String>,
 }
 
+impl Default for ImportTestContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ImportTestContext {
     /// Create a new test context with a temporary directory
     pub fn new() -> Self {

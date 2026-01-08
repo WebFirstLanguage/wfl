@@ -1534,10 +1534,7 @@ impl Interpreter {
             Statement::ReadProcessOutputStatement { line, column, .. } => (*line, *column),
             Statement::KillProcessStatement { line, column, .. } => (*line, *column),
             Statement::WaitForProcessStatement { line, column, .. } => (*line, *column),
-            Statement::ImportStatement { line, column, .. } => {
-                // ImportStatements should be processed before interpretation
-                unreachable!("ImportStatement should not reach the interpreter")
-            }
+            Statement::ImportStatement { line, column, .. } => (*line, *column)
         };
 
         let result = match stmt {
@@ -4499,7 +4496,10 @@ impl Interpreter {
             }
             Statement::ImportStatement { line, column, .. } => {
                 // ImportStatements should be processed before interpretation
-                unreachable!("ImportStatement should not reach the interpreter - it should be processed during parsing at {}:{}", line, column)
+                unreachable!(
+                    "ImportStatement should not reach the interpreter - it should be processed during parsing at {}:{}",
+                    line, column
+                )
             }
         };
 

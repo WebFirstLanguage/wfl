@@ -2,8 +2,8 @@
 //!
 //! This module handles loading and inlining imported files during parsing.
 
-use super::ast::{Expression, Literal, ParseError, Program, Statement};
 use super::Parser;
+use super::ast::{Expression, Literal, ParseError, Program, Statement};
 use crate::diagnostics::Span;
 use crate::lexer::lex_wfl_with_positions;
 use std::collections::HashSet;
@@ -11,10 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Process all import statements in a program and inline the imported code
-pub fn process_imports(
-    program: Program,
-    base_path: &Path,
-) -> Result<Program, Vec<ParseError>> {
+pub fn process_imports(program: Program, base_path: &Path) -> Result<Program, Vec<ParseError>> {
     let mut processor = ImportProcessor::new(base_path);
     processor.process_program(program)
 }
@@ -126,8 +123,38 @@ impl ImportProcessor {
 
         // Recursively process imports in the imported file (while still on the stack)
         let processed = self.process_program(imported_program).map_err(|errors| {
-            // Just return the first error for simplicity
-            errors.into_iter().next().unwrap()
+            // Aggregate multiple errors into a comprehensive error message
+            if errors.len() == 1 {
+                // Only one error, preserve it as-is but add context
+                let err = &errors[0];
+                make_error(
+                    &format!(
+                        "Error in imported file '{}': {}",
+                        resolved_path.display(),
+                        err.message
+                    ),
+                    line,
+                    column,
+                )
+            } else {
+                // Multiple errors: create a summary that preserves all error information
+                let error_list: Vec<String> = errors
+                    .iter()
+                    .enumerate()
+                    .map(|(i, err)| format!("  {}. {}", i + 1, err.message))
+                    .collect();
+
+                make_error(
+                    &format!(
+                        "Multiple errors in imported file '{}' ({} errors):\n{}",
+                        resolved_path.display(),
+                        errors.len(),
+                        error_list.join("\n")
+                    ),
+                    line,
+                    column,
+                )
+            }
         })?;
 
         // Restore original base_path
@@ -202,17 +229,46 @@ impl ImportProcessor {
         parser.set_base_path(parent_dir.to_path_buf());
 
         let program = parser.parse_without_imports().map_err(|errors| {
-            // Return the first error with context
-            let first_error = &errors[0];
-            make_error(
-                &format!(
-                    "Error parsing imported file '{}': {}",
-                    path.display(),
-                    first_error.message
-                ),
-                line,
-                column,
-            )
+            // Provide comprehensive error information for parse failures
+            if errors.len() == 1 {
+                // Single parse error
+                let err = &errors[0];
+                make_error(
+                    &format!(
+                        "Parse error in imported file '{}': {}",
+                        path.display(),
+                        err.message
+                    ),
+                    line,
+                    column,
+                )
+            } else {
+                // Multiple parse errors: list all of them
+                let error_list: Vec<String> = errors
+                    .iter()
+                    .enumerate()
+                    .map(|(i, err)| {
+                        format!(
+                            "  {}. {} (line {}, col {})",
+                            i + 1,
+                            err.message,
+                            err.line,
+                            err.column
+                        )
+                    })
+                    .collect();
+
+                make_error(
+                    &format!(
+                        "Multiple parse errors in imported file '{}' ({} errors):\n{}",
+                        path.display(),
+                        errors.len(),
+                        error_list.join("\n")
+                    ),
+                    line,
+                    column,
+                )
+            }
         })?;
 
         Ok(program)
@@ -221,10 +277,5 @@ impl ImportProcessor {
 
 /// Helper function to create a ParseError with dummy span
 fn make_error(message: &str, line: usize, column: usize) -> ParseError {
-    ParseError::from_span(
-        message.to_string(),
-        Span { start: 0, end: 1 },
-        line,
-        column,
-    )
+    ParseError::from_span(message.to_string(), Span { start: 0, end: 1 }, line, column)
 }

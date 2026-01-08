@@ -33,7 +33,7 @@ impl<'a> ModuleParser<'a> for Parser<'a> {
                 } else {
                     return Err(ParseError::from_token(
                         "Expected 'from' after 'module'".to_string(),
-                        &load_token,
+                        load_token,
                     ));
                 }
 
@@ -46,7 +46,7 @@ impl<'a> ModuleParser<'a> for Parser<'a> {
         } else {
             return Err(ParseError::from_token(
                 "Expected path after 'load'".to_string(),
-                &load_token,
+                load_token,
             ));
         };
 
@@ -57,7 +57,7 @@ impl<'a> ModuleParser<'a> for Parser<'a> {
             }
             _ => Err(ParseError::from_token(
                 "Import path must be a string literal".to_string(),
-                &load_token,
+                load_token,
             )),
         }
     }
