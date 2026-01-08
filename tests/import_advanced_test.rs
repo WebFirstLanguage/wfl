@@ -261,3 +261,66 @@ end check
     assert_eq!(lines[0], "Admin access granted");
     assert_eq!(lines[1], "Regular user");
 }
+
+#[test]
+fn test_nested_imports_in_subdirectories() {
+    // Test that imports inside subdirectories resolve relative to the importing file
+    // Main: main.wfl
+    // Imports: lib/a.wfl
+    // lib/a.wfl imports: util.wfl (should resolve to lib/util.wfl, not ./util.wfl)
+
+    let util = r#"store util_value as "from_util""#;
+
+    let lib_a = r#"
+load module from "util.wfl"
+store a_value as util_value with "_and_a"
+"#;
+
+    let main = r#"
+load module from "lib/a.wfl"
+display a_value
+"#;
+
+    let mut ctx = ImportTestContext::new();
+    ctx.add_file("main.wfl", main);
+    ctx.add_file("lib/a.wfl", lib_a);
+    ctx.add_file("lib/util.wfl", util);
+
+    let result = ctx.run("main.wfl");
+
+    // Should successfully import util.wfl from lib/ directory
+    assert_eq!(result.trim(), "from_util_and_a");
+}
+
+#[test]
+fn test_deeply_nested_imports_in_subdirectories() {
+    // Test deeper nesting: main → lib/a → lib/inner/b → lib/inner/util
+
+    let util = r#"store base as "util""#;
+
+    let inner_b = r#"
+load module from "util.wfl"
+store b_val as base with "_b"
+"#;
+
+    let lib_a = r#"
+load module from "inner/b.wfl"
+store a_val as b_val with "_a"
+"#;
+
+    let main = r#"
+load module from "lib/a.wfl"
+display a_val
+"#;
+
+    let mut ctx = ImportTestContext::new();
+    ctx.add_file("main.wfl", main);
+    ctx.add_file("lib/a.wfl", lib_a);
+    ctx.add_file("lib/inner/b.wfl", inner_b);
+    ctx.add_file("lib/inner/util.wfl", util);
+
+    let result = ctx.run("main.wfl");
+
+    // Should resolve: lib/inner/util.wfl from lib/inner/b.wfl
+    assert_eq!(result.trim(), "util_b_a");
+}

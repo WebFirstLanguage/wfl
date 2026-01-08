@@ -116,11 +116,22 @@ impl ImportProcessor {
         // Load and parse the file
         let imported_program = self.load_and_parse(&resolved_path, line, column)?;
 
+        // Save current base_path and update it to the imported file's directory
+        // This ensures nested imports are resolved relative to the importing file
+        let old_base_path = self.base_path.clone();
+        self.base_path = resolved_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .to_path_buf();
+
         // Recursively process imports in the imported file (while still on the stack)
         let processed = self.process_program(imported_program).map_err(|errors| {
             // Just return the first error for simplicity
             errors.into_iter().next().unwrap()
         })?;
+
+        // Restore original base_path
+        self.base_path = old_base_path;
 
         // Remove from stack after all recursive imports are processed
         self.import_stack.pop();
