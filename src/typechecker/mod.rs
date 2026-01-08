@@ -1503,8 +1503,7 @@ impl TypeChecker {
                 unreachable!(
                     "ImportStatement should not reach the typechecker - \
                      it should be processed during parsing at {}:{}",
-                    line,
-                    column
+                    line, column
                 )
             }
         }

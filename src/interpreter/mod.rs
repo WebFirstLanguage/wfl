@@ -1534,7 +1534,7 @@ impl Interpreter {
             Statement::ReadProcessOutputStatement { line, column, .. } => (*line, *column),
             Statement::KillProcessStatement { line, column, .. } => (*line, *column),
             Statement::WaitForProcessStatement { line, column, .. } => (*line, *column),
-            Statement::ImportStatement { line, column, .. } => (*line, *column)
+            Statement::ImportStatement { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {

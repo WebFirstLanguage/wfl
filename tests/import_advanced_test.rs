@@ -64,7 +64,12 @@ display shared
 
     // Check that C is loaded only once and shared value is accessible
     let lines: Vec<&str> = result.trim().lines().collect();
-    assert_eq!(lines.len(), 4, "Expected 4 lines of output, got: {}", result);
+    assert_eq!(
+        lines.len(),
+        4,
+        "Expected 4 lines of output, got: {}",
+        result
+    );
     assert_eq!(lines[0], "C loaded");
     assert_eq!(lines[1], "A loaded");
     assert_eq!(lines[2], "B loaded");

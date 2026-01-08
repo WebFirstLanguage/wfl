@@ -43,7 +43,9 @@ fn test_import_missing_file_error() {
         result
     );
     assert!(
-        result.contains("Cannot find") || result.contains("not found") || result.contains("Searched"),
+        result.contains("Cannot find")
+            || result.contains("not found")
+            || result.contains("Searched"),
         "Error should indicate file not found, got: {}",
         result
     );
