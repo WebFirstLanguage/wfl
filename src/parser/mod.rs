@@ -49,7 +49,8 @@ impl<'a> Parser<'a> {
         self.cursor.bump()
     }
 
-    pub fn parse(&mut self) -> Result<Program, Vec<ParseError>> {
+    /// Parse without processing imports (used internally for recursive imports)
+    pub(crate) fn parse_without_imports(&mut self) -> Result<Program, Vec<ParseError>> {
         let mut program = Program::new();
         program.statements.reserve(self.cursor.remaining() / 5);
 
@@ -269,11 +270,17 @@ impl<'a> Parser<'a> {
         }
 
         if self.errors.is_empty() {
-            // Process imports to inline imported files
-            import_processor::process_imports(program, &self.base_path)
+            Ok(program)
         } else {
             Err(self.errors.clone())
         }
+    }
+
+    /// Parse a WFL program and process all imports
+    pub fn parse(&mut self) -> Result<Program, Vec<ParseError>> {
+        let program = self.parse_without_imports()?;
+        // Process imports to inline imported files
+        import_processor::process_imports(program, &self.base_path)
     }
 
     // Container-related parsing methods

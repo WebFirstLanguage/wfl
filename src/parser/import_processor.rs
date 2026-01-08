@@ -116,14 +116,14 @@ impl ImportProcessor {
         // Load and parse the file
         let imported_program = self.load_and_parse(&resolved_path, line, column)?;
 
-        // Remove from stack
-        self.import_stack.pop();
-
-        // Recursively process imports in the imported file
+        // Recursively process imports in the imported file (while still on the stack)
         let processed = self.process_program(imported_program).map_err(|errors| {
             // Just return the first error for simplicity
             errors.into_iter().next().unwrap()
         })?;
+
+        // Remove from stack after all recursive imports are processed
+        self.import_stack.pop();
 
         Ok(processed.statements)
     }
@@ -185,12 +185,12 @@ impl ImportProcessor {
         // Lex
         let tokens = lex_wfl_with_positions(&source);
 
-        // Parse
+        // Parse without processing imports (we'll handle that recursively)
         let parent_dir = path.parent().unwrap_or(Path::new("."));
         let mut parser = Parser::new(&tokens);
         parser.set_base_path(parent_dir.to_path_buf());
 
-        let program = parser.parse().map_err(|errors| {
+        let program = parser.parse_without_imports().map_err(|errors| {
             // Return the first error with context
             let first_error = &errors[0];
             make_error(
