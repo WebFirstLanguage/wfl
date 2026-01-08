@@ -11,6 +11,7 @@ mod containers;
 mod control_flow;
 mod errors;
 mod io;
+mod modules;
 mod patterns;
 mod processes;
 mod variables;
@@ -22,6 +23,7 @@ pub(crate) use containers::ContainerParser;
 pub(crate) use control_flow::ControlFlowParser;
 pub(crate) use errors::ErrorHandlingParser;
 pub(crate) use io::IoParser;
+pub(crate) use modules::ModuleParser;
 pub(crate) use patterns::PatternParser;
 pub(crate) use processes::ProcessParser;
 pub(crate) use variables::VariableParser;
@@ -41,6 +43,7 @@ pub(crate) trait StmtParser<'a>:
     VariableParser<'a>
     + CollectionParser<'a>
     + IoParser<'a>
+    + ModuleParser<'a>
     + ProcessParser<'a>
     + WebParser<'a>
     + ActionParser<'a>

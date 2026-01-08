@@ -91,6 +91,10 @@ pub enum Token {
     KeywordClose,
     #[token("file")]
     KeywordFile,
+    #[token("load")]
+    KeywordLoad,
+    #[token("module")]
+    KeywordModule,
     #[token("directory")]
     KeywordDirectory,
     #[token("delete")]

@@ -148,6 +148,9 @@ fn stmt_type(stmt: &Statement) -> String {
                 "WaitForProcessStatement".to_string()
             }
         }
+        Statement::ImportStatement { path, .. } => {
+            format!("ImportStatement '{:?}'", path)
+        }
         Statement::WaitForStatement { .. } => "WaitForStatement".to_string(),
         Statement::WaitForDurationStatement { .. } => "WaitForDurationStatement".to_string(),
         Statement::TryStatement { .. } => "TryStatement".to_string(),
@@ -1531,6 +1534,10 @@ impl Interpreter {
             Statement::ReadProcessOutputStatement { line, column, .. } => (*line, *column),
             Statement::KillProcessStatement { line, column, .. } => (*line, *column),
             Statement::WaitForProcessStatement { line, column, .. } => (*line, *column),
+            Statement::ImportStatement { line, column, .. } => {
+                // ImportStatements should be processed before interpretation
+                unreachable!("ImportStatement should not reach the interpreter")
+            }
         };
 
         let result = match stmt {
@@ -4489,6 +4496,10 @@ impl Interpreter {
                 }
 
                 Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::ImportStatement { line, column, .. } => {
+                // ImportStatements should be processed before interpretation
+                unreachable!("ImportStatement should not reach the interpreter - it should be processed during parsing at {}:{}", line, column)
             }
         };
 

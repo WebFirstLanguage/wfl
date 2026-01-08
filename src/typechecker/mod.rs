@@ -1498,6 +1498,26 @@ impl TypeChecker {
                 // TODO: Add type checking for server expression
                 // For now, just accept any type
             }
+            Statement::ImportStatement {
+                path,
+                line: _line,
+                column: _column,
+            } => {
+                // Type check that path is a string
+                let path_type = self.infer_expression_type(path);
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
+                {
+                    self.type_error(
+                        "Import path must be a string".to_string(),
+                        Some(Type::Text),
+                        Some(path_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+                // Note: ImportStatements should be processed before type checking
+                // This is just a fallback check
+            }
         }
     }
 
