@@ -6,8 +6,7 @@ This document explains how version synchronization works in the WFL project and 
 
 The WFL project uses multiple files to track version information:
 - `Cargo.toml` - Main Rust package version AND `package.metadata.bundle` version
-- `wfl-lsp/Cargo.toml` - LSP server workspace member version
-- `Cargo.lock` - Lock file with exact dependency versions (including WFL and wfl-lsp)
+- `Cargo.lock` - Lock file with exact dependency versions (including WFL itself)
 - `src/version.rs` - Runtime version constant
 - `.build_meta.json` - Build metadata with version tracking
 - Various package.json files for VS Code extensions
@@ -16,19 +15,6 @@ The WFL project uses multiple files to track version information:
 **Important**: The `Cargo.toml` file contains TWO version fields that must be synchronized:
 1. `[package] version = "X.Y.Z"` - Main package version
 2. `[package.metadata.bundle] version = "X.Y.Z"` - Bundle metadata version
-
-## Workspace Member Versioning
-
-The WFL project uses a Cargo workspace with multiple members:
-- `wfl` (main package)
-- `wfl-lsp` (Language Server Protocol server)
-
-**Version Policy:** All workspace members MUST use the same version number as the main `wfl` package. This ensures:
-- Consistent version reporting across all WFL tools
-- Simplified release management
-- Clear indication of compatibility between tools
-
-The version bump script automatically synchronizes versions across all workspace members when run with `--update-all`.
 
 ## The Problem
 
@@ -86,20 +72,14 @@ cargo update
 echo "Main package version:"
 grep '^version = ' Cargo.toml | head -1
 
-echo "wfl-lsp package version:"
-grep '^version = ' wfl-lsp/Cargo.toml | head -1
-
 echo "Bundle metadata version:"
 grep -A10 '\[package\.metadata\.bundle\]' Cargo.toml | grep 'version = '
 
-echo "Cargo.lock wfl version:"
-grep 'name = "wfl"' -A1 Cargo.lock | grep version
-
-echo "Cargo.lock wfl-lsp version:"
-grep 'name = "wfl-lsp"' -A1 Cargo.lock | grep version
+echo "Cargo.lock version:"
+grep 'name = "wfl"' -A1 Cargo.lock
 
 # Build to ensure everything works
-cargo build --workspace
+cargo build
 ```
 
 ### Step 3: Commit Changes
@@ -178,10 +158,8 @@ The CI pipeline should validate version synchronization:
 ```bash
 # Check current versions across files
 echo "Main package: $(grep '^version = ' Cargo.toml | head -1)"
-echo "wfl-lsp package: $(grep '^version = ' wfl-lsp/Cargo.toml | head -1)"
 echo "Bundle metadata: $(grep -A10 '\[package\.metadata\.bundle\]' Cargo.toml | grep 'version = ')"
-echo "Cargo.lock wfl: $(grep -A1 'name = "wfl"' Cargo.lock | grep version)"
-echo "Cargo.lock wfl-lsp: $(grep -A1 'name = "wfl-lsp"' Cargo.lock | grep version)"
+echo "Cargo.lock: $(grep -A1 'name = "wfl"' Cargo.lock | grep version)"
 echo "Runtime: $(cargo run -- --version 2>/dev/null | grep version)"
 
 # Test version bump script

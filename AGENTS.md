@@ -9,58 +9,99 @@
 - `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`).
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
-### Core Architecture
+## Core Architecture
 The WFL compiler pipeline consists of:
 ```
 Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
+              ↓       ↓         ↓           ↓              ↓
+            Tokens   AST    Validated   Type Info    Execution
 ```
-See `CLAUDE.md` for detailed component descriptions.
+
+### Key Components
+- **Lexer** (`src/lexer/`): High-performance tokenization using Logos crate.
+- **Parser** (`src/parser/`): Recursive descent parser with natural language constructs and error recovery.
+- **Analyzer** (`src/analyzer/`): Semantic validation and static analysis.
+- **Type Checker** (`src/typechecker/`): Static type analysis with intelligent inference.
+- **Interpreter** (`src/interpreter/`): Async-capable direct AST execution using Tokio runtime. Includes subprocess handling and web server support.
+- **Pattern Module** (`src/pattern/`): Pattern matching engine with bytecode VM (Unicode support).
+- **Standard Library** (`src/stdlib/`): Built-in modules (Math, Text, List, FS, Crypto, Time, Web).
 
 ## Build, Test, and Dev Commands
-- Build: `cargo build` (release: `cargo build --release`).
-- Run: `cargo run -- <file.wfl>` or `target/release/wfl <file.wfl>`.
-- Test: `cargo test`; integration requires release binary. Windows: `./scripts/run_integration_tests.ps1` (Linux/macOS: `.sh`).
-- Bench: `cargo bench` (Criterion).
-- WFL CLI:
-  - `wfl --lint` / `wfl --lint --fix [--in-place|--diff]`: Lint and fix code.
-  - `wfl --debug`: Debug WFL execution.
-  - `wfl --step`: Run in single-step execution mode.
-  - `wfl --time`: Measure execution time.
-  - `wfl --lex` / `wfl --parse`: Dump tokens or AST.
-  - `wfl --configCheck` / `wfl --configFix`: Check/fix configuration.
-  - `wfl --dump-env`: Dump environment for troubleshooting.
-- LSP/VS Code: `./scripts/configure_lsp.ps1` and `scripts/install_vscode_extension.ps1`.
+- **Build**: `cargo build` (release: `cargo build --release`).
+- **Run**: `cargo run -- <file.wfl>` or `target/release/wfl <file.wfl>`.
+- **Test**: `cargo test`; integration requires release binary.
+  - Windows: `./scripts/run_integration_tests.ps1`
+  - Linux/macOS: `./scripts/run_integration_tests.sh`
+- **Bench**: `cargo bench` (Criterion).
+- **Format**: `cargo fmt --all`.
+- **Lint**: `cargo clippy --all-targets --all-features -- -D warnings`.
+
+### WFL CLI
+- `wfl <file>`: Run a WFL program.
+- `wfl`: Start interactive REPL.
+- `wfl --lint <file>`: Lint WFL code.
+- `wfl --fix <file> --in-place`: Auto-fix WFL code.
+- `wfl --debug <file>`: Debug WFL execution.
+- `wfl --step <file>`: Run in single-step debug mode.
+- `wfl --time <file>`: Run with execution timing.
+- `wfl --lex <file>` / `wfl --parse <file>`: Dump tokens or AST.
+- `wfl --configCheck` / `wfl --configFix`: Check/fix configuration.
+- `wfl --dump-env`: Dump environment for troubleshooting.
+- `wfl --analyze <file>`: Run static analysis.
+
+## Key Language Features
+- **Natural Language Syntax**: `store name as "value"`, `check if x is greater than 5`.
+- **Type Safety**: Static typing with intelligent type inference.
+- **Async Support**: Built-in async/await using Tokio runtime.
+- **Pattern Matching**: Regex-like engine with Unicode support.
+- **Container System**: OOP with containers.
+- **Security**: WFLHASH custom crypto, secure subprocess spawning.
 
 ## Coding Style & Naming
-- Rust 2024; format with `cargo fmt --all` (see `.rustfmt.toml`).
-- Lint clean: `cargo clippy --all-targets --all-features -- -D warnings`.
-- Naming: `snake_case` (fns/files), `CamelCase` (types/traits), `SCREAMING_SNAKE_CASE` (consts).
+- **Format**: `cargo fmt --all` (see `.rustfmt.toml`).
+- **Lint**: `cargo clippy --all-targets --all-features -- -D warnings`.
+- **Naming**:
+  - Functions/Files: `snake_case`
+  - Types/Traits: `CamelCase`
+  - Constants: `SCREAMING_SNAKE_CASE`
 
 ## Testing Guidelines
-- TDD is mandatory: write failing tests first (see `.cursor/rules/wfl-rules.mdc`).
-- Locations: unit/integration in `tests/`; E2E in `TestPrograms/` with release build.
-- Conventions: feature‑oriented names (`*_test.rs`), keep perf benches under `benches/`.
+- **TDD is mandatory**: Write failing tests FIRST for any feature or bug fix.
+- **Locations**:
+  - Unit/Integration: `tests/`
+  - End-to-End: `TestPrograms/` (must pass with release build)
+- **Conventions**: feature‑oriented names (`*_test.rs`), keep perf benches under `benches/`.
 
 ## Commit & Pull Request Guidelines
-- Prefer Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`). Version bumps may include `[skip ci]`.
-- PRs: clear description, linked issues, tests added/updated, repro steps for fixes.
-- Pre‑PR checks: `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all --verbose`. CI must be green.
+- **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`.
+- **Pull Requests**: Clear description, linked issues, tests added/updated, repro steps.
+- **Pre‑PR Checks**:
+  - `cargo fmt --all -- --check`
+  - `cargo clippy --all-targets --all-features -- -D warnings`
+  - `cargo test --all --verbose`
 
 ## Agent‑Specific Policies
-- Backward compatibility is sacred: do not break existing WFL programs; run all `TestPrograms/`.
-- Integration tests require `cargo build --release` and provided scripts.
-- Keep docs current; update `Docs/` and relevant indexes when adding features. Major changes warrant a Dev Diary note.
-- For security, review `SECURITY.md`; avoid logging secrets and prefer zeroization for sensitive data.
-- Refer to `.cursor/rules/wfl-rules.mdc` for additional project-specific rules.
+- **Backward Compatibility**: Sacred. Never break existing WFL programs. Run all `TestPrograms/`.
+- **Integration Tests**: Require `cargo build --release` and provided scripts.
+- **Documentation**: Keep `Docs/` current. Major changes warrant a Dev Diary note.
+- **Security**: Review `SECURITY.md`. Avoid logging secrets. Use zeroization.
+- **Rules**: Refer to `.cursor/rules/wfl-rules.mdc`.
 
 ## Technical Requirements
-- Rust Edition: 2024
-- Versioning Scheme: YY.MM.BUILD (e.g., 26.1.6)
+- **Rust Edition**: 2024 (Min: 1.75+, Dev: 1.91.1+)
+- **Versioning**: YY.MM.BUILD (e.g., 26.1.12). Major version always < 256 (Windows MSI compatibility).
+- **Key Dependencies**:
+  - `logos`: Lexer
+  - `tokio`: Async runtime
+  - `reqwest`: HTTP client
+  - `sqlx`: DB support
+  - `warp`: Web server
+  - `tower-lsp`: LSP server
+  - `zeroize`, `subtle`: Crypto
 
 ## LSP Development Workflow
-- Location: LSP crate in `wfl-lsp/`; VS Code extension in `vscode-extension/`.
-- Build/Run: `cargo build -p wfl-lsp`; dev run via `cargo run -p wfl-lsp` (stdio by default; see guide for flags).
-- Editor setup: `scripts/configure_lsp.ps1` and `scripts/install_vscode_extension.ps1` wire VS Code to the LSP.
-- Logging: enable trace logs with `RUST_LOG=trace cargo run -p wfl-lsp` (PowerShell: `$env:RUST_LOG='trace'; cargo run -p wfl-lsp`).
-- Integration: many LSP features rely on the compiler; ensure `cargo build --release` provides `target/release/wfl`.
-- Docs: see `Docs/guides/wfl-lsp-guide.md` and `Docs/guides/wfl-lsp-quick-reference.md` for protocol details and troubleshooting.
+- **Location**: `wfl-lsp/` (LSP), `vscode-extension/` (VS Code).
+- **Build/Run**: `cargo build -p wfl-lsp`.
+- **Debug**: `RUST_LOG=trace cargo run -p wfl-lsp`.
+- **Setup**: `scripts/configure_lsp.ps1`, `scripts/install_vscode_extension.ps1`.
+- **Docs**: `Docs/guides/wfl-lsp-guide.md`.
