@@ -1,9 +1,11 @@
 use logos::Logos;
 
 #[derive(Logos, Debug, PartialEq, Clone)]
-#[logos(skip r"[ \t\f\r]+|//.*|#.*")] // Skip whitespace (excluding newline) and line comments (// and #)
+#[logos(skip r"[ \t\f]+|//.*|#.*")] // Skip whitespace (excluding newline and CR) and line comments
 pub enum Token {
     #[token("\n")]
+    #[token("\r\n")]
+    #[token("\r")]
     Newline, // Keep for internal use (flushes multi-word identifiers)
 
     // NEW: Explicit end-of-line token emitted to parser
@@ -444,6 +446,13 @@ fn parse_string(lex: &mut logos::Lexer<Token>) -> Result<String, ()> {
                     return Err(());
                 }
             }
+        } else if ch == '\r' {
+            // Check next char
+            let next_char = chars.clone().next();
+            if next_char == Some('\n') {
+                chars.next(); // consume \n
+            }
+            result.push('\n');
         } else {
             result.push(ch);
         }

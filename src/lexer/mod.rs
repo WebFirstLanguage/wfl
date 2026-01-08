@@ -31,8 +31,9 @@ pub fn normalize_line_endings_cow(input: &str) -> Cow<'_, str> {
 }
 
 pub fn lex_wfl(input: &str) -> Vec<Token> {
-    let input = normalize_line_endings_cow(input);
-    let mut lexer = Token::lexer(&input);
+    // Bolt: We no longer normalize line endings globally to avoid allocation.
+    // Token::Newline now matches \r\n, \n, and \r.
+    let mut lexer = Token::lexer(input);
     let mut tokens = Vec::new();
     let mut current_id: Option<String> = None;
 
@@ -89,8 +90,9 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
 }
 
 pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
-    let input = normalize_line_endings_cow(input);
-    let mut lexer = Token::lexer(&input);
+    // Bolt: We no longer normalize line endings globally to avoid allocation.
+    // Token::Newline now matches \r\n, \n, and \r.
+    let mut lexer = Token::lexer(input);
     let mut tokens = Vec::new();
     let mut current_id: Option<String> = None;
     let mut current_id_start_line = 0;
@@ -109,9 +111,6 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
         let span = lexer.span();
 
         // Calculate skipped whitespace/comments length
-        // Logos is configured to skip [ \t\f\r] and comments.
-        // Since we normalize \r\n to \n and \r to \n, and \n is a Token,
-        // the skipped content does not contain newlines.
         let skipped_len = span.start - last_span_end;
         current_column += skipped_len;
 
@@ -121,12 +120,56 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
 
         // Update position for the next token based on current token content
         let slice = lexer.slice();
-        let newline_count = slice.as_bytes().iter().filter(|&&b| b == b'\n').count();
+
+        let mut newline_count = 0;
+        let mut last_nl_end_dist = 0;
+
+        // Optimization: Only scan tokens that CAN contain newlines.
+        // Most tokens (Identifiers, Keywords, IntLiterals, etc.) do not.
+        let needs_scan = match &token_result {
+             Ok(Token::Newline) => true,
+             Ok(Token::StringLiteral(_)) => true,
+             Ok(Token::Error) => true, // Errors might include newlines depending on logos config
+             _ => false,
+        };
+
+        if needs_scan {
+             match &token_result {
+                 Ok(Token::Newline) => {
+                     // We know Newline token is exactly one newline sequence
+                     newline_count = 1;
+                     // Column resets to 1 (distance 0 from end of newline)
+                     last_nl_end_dist = 0;
+                 },
+                 _ => {
+                     // Scan bytes for StringLiteral or Error
+                     let bytes = slice.as_bytes();
+                     let mut i = 0;
+                     let len = bytes.len();
+                     while i < len {
+                         if bytes[i] == b'\n' {
+                             newline_count += 1;
+                             last_nl_end_dist = len - (i + 1);
+                         } else if bytes[i] == b'\r' {
+                             if i + 1 < len && bytes[i+1] == b'\n' {
+                                 // \r\n. Count it when we hit \n (next iteration) or skip \r?
+                                 // If we don't count here, next iter sees \n and counts.
+                                 // Dist will be updated then.
+                             } else {
+                                 // Standalone \r
+                                 newline_count += 1;
+                                 last_nl_end_dist = len - (i + 1);
+                             }
+                         }
+                         i += 1;
+                     }
+                 }
+             }
+        }
+
         if newline_count > 0 {
             current_line += newline_count;
-            // Guaranteed to exist if newline_count > 0
-            let last_nl_pos = slice.rfind('\n').unwrap();
-            current_column = slice.len() - last_nl_pos;
+            current_column = 1 + last_nl_end_dist;
         } else {
             current_column += slice.len();
         }
@@ -175,7 +218,7 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                     Token::Eol,
                     token_line,
                     token_column,
-                    token_length, // Length of '\n' = 1
+                    token_length,
                     span.start,
                     span.end,
                 ));
