@@ -7,28 +7,7 @@ mod tests;
 
 pub mod token;
 use logos::Logos;
-use std::borrow::Cow;
 use token::{Token, TokenWithPosition};
-
-#[deprecated(
-    since = "0.1.0",
-    note = "Use normalize_line_endings_cow for better performance"
-)]
-pub fn normalize_line_endings(input: &str) -> String {
-    normalize_line_endings_cow(input).into_owned()
-}
-
-pub fn normalize_line_endings_cow(input: &str) -> Cow<'_, str> {
-    if !input.contains('\r') {
-        return Cow::Borrowed(input);
-    }
-    // Handle CRLF first as it's the most common case requiring normalization
-    if input.contains("\r\n") {
-        return Cow::Owned(input.replace("\r\n", "\n"));
-    }
-    // Handle standalone CR (Mac Classic)
-    Cow::Owned(input.replace('\r', "\n"))
-}
 
 pub fn lex_wfl(input: &str) -> Vec<Token> {
     // Bolt: We no longer normalize line endings globally to avoid allocation.

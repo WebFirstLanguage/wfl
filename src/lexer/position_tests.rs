@@ -56,37 +56,11 @@ fn test_position_tracking_with_multiline_strings() {
     assert_eq!(str_token.line, 1);
 
     // The next token should be on the correct line (line 2 due to \n in string, or line 3 if the string itself had a newline)
-    // The input has "store x as "line1\nline2"\n"
-    // "store" (L1), "x" (L1), "as" (L1), "line1\nline2" (L1..L2), \n (L2->L3 or EOL)
-
-    // Let's trace how the lexer should handle this:
-    // "store x as " (line 1)
-    // "line1\nline2" starts at line 1.
-    // It contains one newline.
-    // The Eol token following it comes from the \n after the string.
-
     let display_token = tokens
         .iter()
         .find(|t| matches!(t.token, Token::KeywordDisplay))
         .expect("Should find display keyword");
 
-    // "line1\nline2" consumes 1 newline. So we are at line 2.
-    // Then there is a \n in the input. That moves us to line 3.
-    // Wait, let's verify exact behavior.
-    // The string token itself spans line 1 to 2.
-    // The `\n` after the string is a Token::Newline (or Eol).
-
-    // Let's verify the line of 'display'.
-    // Line 1: store x as "line1\nline2"
-    // Line 2: (part of string)
-    // Line 3: display x
-    // Actually, "line1\nline2" is 12 chars + quotes = 14 chars.
-    // Input:
-    // L1: store x as "line1
-    // L2: line2"
-    // L3: display x
-
-    // If the input string literally contains a newline character:
     assert_eq!(display_token.line, 3, "Display token should be on line 3");
 }
 
@@ -139,7 +113,6 @@ fn test_position_tracking_mixed_content() {
     assert_eq!(tokens[0].column, 4);
 
     // \n: Eol at col 12 (store=5, +3 spaces = 12?)
-    // "   " (3) + "store" (5) + "   " (3) = 11. \n is at 12.
     assert_eq!(tokens[1].token, Token::Eol);
     assert_eq!(tokens[1].line, 1);
     // Note: The lexer emits Eol for \n.
@@ -151,14 +124,49 @@ fn test_position_tracking_mixed_content() {
 }
 
 #[test]
-fn test_crlf_normalization_impact() {
-    // The lexer normalizes CRLF to LF before processing.
-    // So "a\r\nb" becomes "a\nb".
+fn test_crlf_impact() {
+    // Verify that CRLF is handled as a single newline in terms of line count,
+    // and that position tracking works correctly after it.
     let input = "a\r\nb";
     let tokens = lex_wfl_with_positions(input);
 
     assert_eq!(tokens[0].line, 1); // a
-    assert_eq!(tokens[1].token, Token::Eol); // \n
+    assert_eq!(tokens[1].token, Token::Eol); // \r\n
     assert_eq!(tokens[2].line, 2); // b
     assert_eq!(tokens[2].column, 1);
+}
+
+#[test]
+fn test_mixed_line_endings() {
+    // Test mixing \n, \r\n, and \r
+    let input = "a\nb\r\nc\rd";
+    let tokens = lex_wfl_with_positions(input);
+
+    // a (L1)
+    assert_eq!(tokens[0].line, 1);
+
+    // \n (L1->L2)
+    assert_eq!(tokens[1].token, Token::Eol);
+    assert_eq!(tokens[1].line, 1);
+
+    // b (L2)
+    assert_eq!(tokens[2].token, Token::Identifier("b".to_string()));
+    assert_eq!(tokens[2].line, 2);
+
+    // \r\n (L2->L3)
+    assert_eq!(tokens[3].token, Token::Eol);
+    assert_eq!(tokens[3].line, 2);
+
+    // c (L3)
+    assert_eq!(tokens[4].token, Token::Identifier("c".to_string()));
+    assert_eq!(tokens[4].line, 3);
+
+    // \r (L3->L4)
+    assert_eq!(tokens[5].token, Token::Eol);
+    assert_eq!(tokens[5].line, 3);
+
+    // d (L4)
+    assert_eq!(tokens[6].token, Token::Identifier("d".to_string()));
+    assert_eq!(tokens[6].line, 4);
+    assert_eq!(tokens[6].column, 1);
 }

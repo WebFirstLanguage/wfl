@@ -446,13 +446,6 @@ fn parse_string(lex: &mut logos::Lexer<Token>) -> Result<String, ()> {
                     return Err(());
                 }
             }
-        } else if ch == '\r' {
-            // Check next char
-            let next_char = chars.clone().next();
-            if next_char == Some('\n') {
-                chars.next(); // consume \n
-            }
-            result.push('\n');
         } else {
             result.push(ch);
         }
