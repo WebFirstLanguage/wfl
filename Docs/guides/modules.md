@@ -534,6 +534,8 @@ Use it to organize your code, create reusable libraries, and build maintainable 
 
 ## See Also
 
-- [Language Reference](../wfldocs/language-reference.md)
-- [Best Practices](best-practices.md)
-- [Standard Library](../wfldocs/stdlib-reference.md)
+- [WFL Language Specification](../wfldocs/WFL-spec.md)
+- [Getting Started Guide](wfl-getting-started.md)
+- [WFL by Example](wfl-by-example.md)
+- [Standard Library Reference](../api/wfl-standard-library.md)
+- [WFL Cookbook](wfl-cookbook.md)
