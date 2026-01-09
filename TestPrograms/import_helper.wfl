@@ -1,7 +1,0 @@
-// Helper file for import testing
-
-define action called test_helper_action:
-    display "Helper action executed successfully"
-end action
-
-store shared_variable as "shared_data_from_helper"

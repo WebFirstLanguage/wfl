@@ -138,17 +138,17 @@ if [ -f "TestPrograms/simple_web_test.wfl" ]; then
     fi
 fi
 
-# Test 2: web_server_basic_test.wfl (if exists)
-if [ -f "TestPrograms/web_server_basic_test.wfl" ]; then
+# Test 2: web_server_test.wfl (if exists)
+if [ -f "TestPrograms/web_server_test.wfl" ]; then
     ((total_tests++))
     # Read the file to find the port
-    port=$(grep -oP 'port\s+\K\d+' "TestPrograms/web_server_basic_test.wfl" 2>/dev/null || echo "")
+    port=$(grep -oP 'port\s+\K\d+' "TestPrograms/web_server_test.wfl" 2>/dev/null || echo "")
     if [ -n "$port" ]; then
-        if test_wfl_webserver "TestPrograms/web_server_basic_test.wfl" "$port" "" "$TIMEOUT"; then
+        if test_wfl_webserver "TestPrograms/web_server_test.wfl" "$port" "" "$TIMEOUT"; then
             ((passed_tests++))
         fi
     else
-        echo -e "${YELLOW}[SKIP]${NC} web_server_basic_test.wfl - could not determine port"
+        echo -e "${YELLOW}[SKIP]${NC} web_server_test.wfl - could not determine port"
         ((total_tests--))
     fi
 fi

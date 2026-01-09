@@ -96,24 +96,7 @@ mod file_io_error_handling_tests {
                 invalid_path,
                 result.err()
             );
-
-            // Clean up after each iteration in case the invalid path created unexpected files
-            // For example, empty path "" might create "file1", "con" might create a file named "con"
-            // Only include invalid_path in cleanup if it's a valid simple filename
-            let mut files_to_cleanup = vec!["file1", "con"];
-            // Validate that invalid_path is a simple filename without path separators or null bytes
-            if !invalid_path.is_empty()
-                && !invalid_path.contains('\0')
-                && !invalid_path.contains('/')
-                && !invalid_path.contains('\\')
-            {
-                files_to_cleanup.push(invalid_path);
-            }
-            cleanup_test_files(&files_to_cleanup);
         }
-
-        // Final cleanup for any remaining test artifacts
-        cleanup_test_files(&["file1", "con"]);
     }
 
     #[tokio::test]

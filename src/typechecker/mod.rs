@@ -1498,14 +1498,6 @@ impl TypeChecker {
                 // TODO: Add type checking for server expression
                 // For now, just accept any type
             }
-            Statement::ImportStatement { line, column, .. } => {
-                // ImportStatements are processed during parsing and should never reach the typechecker
-                unreachable!(
-                    "ImportStatement should not reach the typechecker - \
-                     it should be processed during parsing at {}:{}",
-                    line, column
-                )
-            }
         }
     }
 

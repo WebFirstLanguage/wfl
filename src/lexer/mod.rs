@@ -106,47 +106,44 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
         // Optimization: Only scan tokens that CAN contain newlines.
         // Most tokens (Identifiers, Keywords, IntLiterals, etc.) do not.
         let needs_scan = match &token_result {
-            Ok(Token::Newline) => true,
-            Ok(Token::StringLiteral(_)) => true,
-            Ok(Token::Error) => true, // Errors might include newlines depending on logos config
-            _ => false,
+             Ok(Token::Newline) => true,
+             Ok(Token::StringLiteral(_)) => true,
+             Ok(Token::Error) => true, // Errors might include newlines depending on logos config
+             _ => false,
         };
 
         if needs_scan {
-            match &token_result {
-                Ok(Token::Newline) => {
-                    // We know Newline token is exactly one newline sequence
-                    newline_count = 1;
-                    // Column resets to 1 (distance 0 from end of newline)
-                    last_nl_end_dist = 0;
-                }
-                _ => {
-                    // Scan bytes for StringLiteral or Error
-                    let bytes = slice.as_bytes();
-                    let mut i = 0;
-                    let len = bytes.len();
-                    while i < len {
-                        if bytes[i] == b'\n' {
-                            newline_count += 1;
-                            last_nl_end_dist = len - (i + 1);
-                        } else if bytes[i] == b'\r' {
-                            if i + 1 < len && bytes[i + 1] == b'\n' {
-                                // \r\n is a single newline sequence
-                                newline_count += 1;
-                                // Distance is measured from after the \n (i+2)
-                                last_nl_end_dist = len - (i + 2);
-                                // Skip the \n on next iteration
-                                i += 1;
-                            } else {
-                                // Standalone \r
-                                newline_count += 1;
-                                last_nl_end_dist = len - (i + 1);
-                            }
-                        }
-                        i += 1;
-                    }
-                }
-            }
+             match &token_result {
+                 Ok(Token::Newline) => {
+                     // We know Newline token is exactly one newline sequence
+                     newline_count = 1;
+                     // Column resets to 1 (distance 0 from end of newline)
+                     last_nl_end_dist = 0;
+                 },
+                 _ => {
+                     // Scan bytes for StringLiteral or Error
+                     let bytes = slice.as_bytes();
+                     let mut i = 0;
+                     let len = bytes.len();
+                     while i < len {
+                         if bytes[i] == b'\n' {
+                             newline_count += 1;
+                             last_nl_end_dist = len - (i + 1);
+                         } else if bytes[i] == b'\r' {
+                             if i + 1 < len && bytes[i+1] == b'\n' {
+                                 // \r\n. Count it when we hit \n (next iteration) or skip \r?
+                                 // If we don't count here, next iter sees \n and counts.
+                                 // Dist will be updated then.
+                             } else {
+                                 // Standalone \r
+                                 newline_count += 1;
+                                 last_nl_end_dist = len - (i + 1);
+                             }
+                         }
+                         i += 1;
+                     }
+                 }
+             }
         }
 
         if newline_count > 0 {

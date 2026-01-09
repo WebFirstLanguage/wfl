@@ -671,7 +671,6 @@ async fn main() -> io::Result<()> {
         // Use exec_trace for compilation debug output
         exec_trace!("Parsing and executing script...");
         let mut parser = Parser::new(&tokens_with_pos);
-        parser.set_base_path(script_dir.to_path_buf());
         match parser.parse() {
             Ok(program) => {
                 exec_trace!("AST: [large output suppressed]");
