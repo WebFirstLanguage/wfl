@@ -2694,8 +2694,8 @@ impl TypeChecker {
         &mut self,
         statements: &[Statement],
         expected_type: &Type,
-        line: usize,
-        column: usize,
+        _line: usize,
+        _column: usize,
     ) {
         for statement in statements {
             match statement {
@@ -2730,9 +2730,9 @@ impl TypeChecker {
                     else_block,
                     ..
                 } => {
-                    self.check_return_statements(then_block, expected_type, line, column);
+                    self.check_return_statements(then_block, expected_type, _line, _column);
                     if let Some(else_stmts) = else_block {
-                        self.check_return_statements(else_stmts, expected_type, line, column);
+                        self.check_return_statements(else_stmts, expected_type, _line, _column);
                     }
                 }
                 Statement::SingleLineIf {
@@ -2743,15 +2743,15 @@ impl TypeChecker {
                     self.check_return_statements(
                         &[*(*then_stmt).clone()],
                         expected_type,
-                        line,
-                        column,
+                        _line,
+                        _column,
                     );
                     if let Some(else_stmt) = else_stmt {
                         self.check_return_statements(
                             &[*(*else_stmt).clone()],
                             expected_type,
-                            line,
-                            column,
+                            _line,
+                            _column,
                         );
                     }
                 }
@@ -2761,7 +2761,7 @@ impl TypeChecker {
                 | Statement::RepeatUntilLoop { body, .. }
                 | Statement::ForeverLoop { body, .. }
                 | Statement::MainLoop { body, .. } => {
-                    self.check_return_statements(body, expected_type, line, column);
+                    self.check_return_statements(body, expected_type, _line, _column);
                 }
                 _ => {}
             }
