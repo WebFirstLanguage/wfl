@@ -3,6 +3,8 @@ mod column_tests;
 #[cfg(test)]
 mod position_tests;
 #[cfg(test)]
+mod string_line_ending_tests;
+#[cfg(test)]
 mod tests;
 
 pub mod token;
@@ -131,11 +133,14 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                             last_nl_end_dist = len - (i + 1);
                         } else if bytes[i] == b'\r' {
                             if i + 1 < len && bytes[i + 1] == b'\n' {
-                                // \r\n. Count it when we hit \n (next iteration) or skip \r?
-                                // If we don't count here, next iter sees \n and counts.
-                                // Dist will be updated then.
+                                // Handle \r\n as a single newline (2-byte sequence)
+                                newline_count += 1;
+                                // Distance from end is calculated after BOTH bytes
+                                last_nl_end_dist = len - (i + 2);
+                                // Skip the \n byte on next iteration since we processed it here
+                                i += 1;
                             } else {
-                                // Standalone \r
+                                // Standalone \r (Mac-style line ending)
                                 newline_count += 1;
                                 last_nl_end_dist = len - (i + 1);
                             }
