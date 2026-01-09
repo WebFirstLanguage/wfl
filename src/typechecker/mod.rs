@@ -2610,7 +2610,8 @@ impl TypeChecker {
         if !valid_signals.contains(&signal_type) {
             self.type_error(
                 format!(
-                    "Invalid signal type: '{signal_type}'. Supported signals include: SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGUSR1, SIGUSR2"
+                    "Invalid signal type: '{signal_type}'. Supported signals include: {}",
+                    valid_signals.join(", ")
                 ),
                 None,
                 None,
