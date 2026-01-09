@@ -24,7 +24,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Type Checker** (`src/typechecker/`): Static type analysis with intelligent inference.
 - **Interpreter** (`src/interpreter/`): Async-capable direct AST execution using Tokio runtime. Includes subprocess handling and web server support.
 - **Pattern Module** (`src/pattern/`): Pattern matching engine with bytecode VM (Unicode support).
-- **Standard Library** (`src/stdlib/`): Built-in modules (Math, Text, List, FS, Crypto, Time, Web).
+- **Standard Library** (`src/stdlib/`): Built-in modules (Math, Text, List, FS, Crypto, Time).
 
 ## Build, Test, and Dev Commands
 - **Build**: `cargo build` (release: `cargo build --release`).
@@ -89,7 +89,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 
 ## Technical Requirements
 - **Rust Edition**: 2024 (Min: 1.75+, Dev: 1.91.1+)
-- **Versioning**: YY.MM.BUILD (e.g., 26.1.12). Major version always < 256 (Windows MSI compatibility).
+- **Versioning**: YY.MM.BUILD (e.g., 26.1.13). Major version always < 256 (Windows MSI compatibility).
 - **Key Dependencies**:
   - `logos`: Lexer
   - `tokio`: Async runtime
@@ -104,4 +104,4 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Build/Run**: `cargo build -p wfl-lsp`.
 - **Debug**: `RUST_LOG=trace cargo run -p wfl-lsp`.
 - **Setup**: `scripts/configure_lsp.ps1`, `scripts/install_vscode_extension.ps1`.
-- **Docs**: `Docs/guides/wfl-lsp-guide.md`.
+- **Docs**: `Docs/guides/wfl-lsp-guide.md`, `Docs/guides/wfl-mcp-guide.md`.

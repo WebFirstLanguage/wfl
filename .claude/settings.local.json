@@ -49,7 +49,9 @@
       "Bash(cargo doc:*)",
       "Bash(gh run watch:*)",
       "Bash(mkdir:*)",
-      "Bash(cargo fix:*)"
+      "Bash(cargo fix:*)",
+      "Bash(../target/release/wfl.exe:*)",
+      "Bash(git fetch:*)"
     ],
     "deny": [],
     "ask": []

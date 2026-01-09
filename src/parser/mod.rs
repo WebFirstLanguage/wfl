@@ -2,7 +2,6 @@ pub mod ast;
 mod cursor;
 mod expr;
 mod helpers;
-mod import_processor;
 mod stmt;
 #[cfg(test)]
 mod tests;
@@ -14,7 +13,7 @@ pub use cursor::Cursor; // Re-export Cursor publicly for doctests
 use expr::ExprParser;
 use stmt::{
     ActionParser, CollectionParser, ContainerParser, ControlFlowParser, ErrorHandlingParser,
-    IoParser, ModuleParser, PatternParser, ProcessParser, StmtParser, VariableParser, WebParser,
+    IoParser, PatternParser, ProcessParser, StmtParser, VariableParser, WebParser,
 };
 
 pub struct Parser<'a> {
@@ -22,8 +21,6 @@ pub struct Parser<'a> {
     cursor: Cursor<'a>,
     /// Parse errors accumulated during parsing
     errors: Vec<ParseError>,
-    /// Base path for resolving relative imports
-    base_path: std::path::PathBuf,
 }
 
 impl<'a> Parser<'a> {
@@ -31,13 +28,7 @@ impl<'a> Parser<'a> {
         Parser {
             cursor: Cursor::new(tokens),
             errors: Vec::with_capacity(4),
-            base_path: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
         }
-    }
-
-    /// Set the base path for resolving relative imports
-    pub fn set_base_path(&mut self, path: std::path::PathBuf) {
-        self.base_path = path;
     }
 
     /// Consume token from cursor and advance position.
@@ -49,8 +40,7 @@ impl<'a> Parser<'a> {
         self.cursor.bump()
     }
 
-    /// Parse without processing imports (used internally for recursive imports)
-    pub(crate) fn parse_without_imports(&mut self) -> Result<Program, Vec<ParseError>> {
+    pub fn parse(&mut self) -> Result<Program, Vec<ParseError>> {
         let mut program = Program::new();
         program.statements.reserve(self.cursor.remaining() / 5);
 
@@ -276,13 +266,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse a WFL program and process all imports
-    pub fn parse(&mut self) -> Result<Program, Vec<ParseError>> {
-        let program = self.parse_without_imports()?;
-        // Process imports to inline imported files
-        import_processor::process_imports(program, &self.base_path)
-    }
-
     // Container-related parsing methods
 
     /// Helper method to parse a variable name that can consist of multiple identifiers.
@@ -487,10 +470,6 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                 Token::KeywordOpen => {
                     // Parse open file statement (handles both regular and "read content" variants)
                     self.parse_open_file_statement()
-                }
-                Token::KeywordLoad => {
-                    // Parse load module statement
-                    self.parse_load_statement()
                 }
                 Token::KeywordExecute => self.parse_execute_command_statement(),
                 Token::KeywordSpawn => self.parse_spawn_process_statement(),

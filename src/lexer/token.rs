@@ -1,9 +1,11 @@
 use logos::Logos;
 
 #[derive(Logos, Debug, PartialEq, Clone)]
-#[logos(skip r"[ \t\f\r]+|//.*|#.*")] // Skip whitespace (excluding newline) and line comments (// and #)
+#[logos(skip r"[ \t\f]+|//[^\r\n]*|#[^\r\n]*")] // Skip whitespace and line comments (stop at line endings)
 pub enum Token {
     #[token("\n")]
+    #[token("\r\n")]
+    #[token("\r")]
     Newline, // Keep for internal use (flushes multi-word identifiers)
 
     // NEW: Explicit end-of-line token emitted to parser
@@ -91,10 +93,6 @@ pub enum Token {
     KeywordClose,
     #[token("file")]
     KeywordFile,
-    #[token("load")]
-    KeywordLoad,
-    #[token("module")]
-    KeywordModule,
     #[token("directory")]
     KeywordDirectory,
     #[token("delete")]

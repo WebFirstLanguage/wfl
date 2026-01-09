@@ -223,11 +223,6 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
-    ImportStatement {
-        path: Expression,
-        line: usize,
-        column: usize,
-    },
     CreateDirectoryStatement {
         path: Expression,
         line: usize,

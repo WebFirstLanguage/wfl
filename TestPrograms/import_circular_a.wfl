@@ -1,5 +1,0 @@
-// This file imports B, which imports A - creates circular dependency
-// This test should FAIL with a circular dependency error
-
-load module from "TestPrograms/import_circular_b.wfl"
-display "This should not print"
