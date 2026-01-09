@@ -1,0 +1,13 @@
+// Example from: Docs/03-language-basics/loops-and-iteration.md
+// Demonstrates for each loops
+
+create list fruits:
+    add "apple"
+    add "banana"
+    add "orange"
+end list
+
+display "My favorite fruits:"
+for each fruit in fruits:
+    display "  - " with fruit
+end for

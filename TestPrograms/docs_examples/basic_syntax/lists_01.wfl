@@ -1,0 +1,23 @@
+// Example from: Docs/03-language-basics/lists-and-collections.md
+// Demonstrates list creation and operations
+
+create list fruits:
+    add "apple"
+    add "banana"
+    add "orange"
+end list
+
+display "My fruits:"
+for each fruit in fruits:
+    display "  - " with fruit
+end for
+
+// List operations
+store size as length of fruits
+display "Total fruits: " with size
+
+// Note: contains currently only works for text, not lists
+// This is a known limitation to be fixed
+
+push with fruits and "grape"
+display "Added grape, new size: " with length of fruits

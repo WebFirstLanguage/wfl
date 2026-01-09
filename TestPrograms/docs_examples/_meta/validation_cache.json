@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WFL Documentation Validation Cache",
+  "description": "Cache of validation results to avoid re-validating unchanged files",
+  "type": "object",
+  "properties": {
+    "cache_version": {
+      "type": "string",
+      "description": "Version of cache format",
+      "const": "1.0"
+    },
+    "wfl_version": {
+      "type": "string",
+      "description": "Version of WFL compiler used for validation"
+    },
+    "last_full_validation": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp of last full validation run"
+    },
+    "files": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-zA-Z0-9_/-]+\\.wfl$": {
+          "type": "object",
+          "properties": {
+            "content_hash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "last_validated": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "validation_result": {
+              "type": "string",
+              "enum": [
+                "pass",
+                "fail",
+                "skip"
+              ]
+            },
+            "validation_time_ms": {
+              "type": "number",
+              "description": "Time taken to validate in milliseconds"
+            },
+            "layers_passed": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "cache_version",
+    "wfl_version",
+    "files"
+  ],
+  "files": {
+    "docs_examples/basic_syntax/hello_world.wfl": {
+      "content_hash": "sha256:be2be1dfd36cde98afaa632bac0df89113490f5b6fdfadaf610fcdffe45ae13b",
+      "last_validated": "2026-01-09T11:05:24.070922+00:00",
+      "validation_result": "pass",
+      "validation_time_ms": 47.69182205200195,
+      "layers_passed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  },
+  "wfl_version": "WebFirst Language (WFL) version 26.1.13",
+  "last_full_validation": "2026-01-09T11:05:24.081134+00:00"
+}

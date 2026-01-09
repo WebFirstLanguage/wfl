@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WFL Documentation Expected Errors",
+  "description": "Registry of expected error patterns for error_example type examples",
+  "type": "object",
+  "patternProperties": {
+    "^[a-zA-Z0-9_/-]+\\.wfl$": {
+      "type": "object",
+      "properties": {
+        "error_category": {
+          "type": "string",
+          "enum": ["parse", "semantic", "type", "runtime"],
+          "description": "Category of error"
+        },
+        "error_pattern": {
+          "type": "string",
+          "description": "Regex pattern for expected error message"
+        },
+        "failure_layer": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Which validation layer should fail"
+        },
+        "error_explanation": {
+          "type": "string",
+          "description": "Human-readable explanation of why this error occurs"
+        },
+        "correction": {
+          "type": "string",
+          "description": "How to fix this error"
+        }
+      },
+      "required": ["error_category", "error_pattern", "failure_layer"]
+    }
+  }
+}

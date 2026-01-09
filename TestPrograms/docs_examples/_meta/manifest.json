@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wfl.example.com/schemas/docs-examples-manifest.json",
+  "title": "WFL Documentation Examples Manifest",
+  "description": "Registry of all code examples used in WFL documentation with validation metadata",
+  "type": "object",
+  "patternProperties": {
+    "^[a-zA-Z0-9_/-]+\\.wfl$": {
+      "type": "object",
+      "required": ["doc_section", "type", "validate_layers"],
+      "properties": {
+        "doc_section": {
+          "type": "string",
+          "description": "Path to the documentation file and optional anchor (e.g., 'Docs/03-language-basics/variables-and-types.md#declaration')"
+        },
+        "doc_line_range": {
+          "type": "array",
+          "description": "Optional line range in the documentation where this example appears [start_line, end_line]",
+          "items": {"type": "integer"},
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "type": {
+          "type": "string",
+          "enum": ["executable", "snippet", "error_example", "interactive"],
+          "description": "Type of example: executable (full program), snippet (partial code), error_example (intentional error), interactive (requires user interaction)"
+        },
+        "validate_layers": {
+          "type": "array",
+          "description": "Which validation layers to run: 1=parse, 2=analyze, 3=typecheck, 4=lint, 5=execute",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "minItems": 1
+        },
+        "skip_execution": {
+          "type": "boolean",
+          "description": "If true, skip Layer 5 (execution). Used for snippets and interactive examples",
+          "default": false
+        },
+        "expected_exit_code": {
+          "type": "integer",
+          "description": "Expected exit code for Layer 5 execution",
+          "default": 0
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Maximum execution time in seconds",
+          "default": 30,
+          "minimum": 1,
+          "maximum": 600
+        },
+        "expected_failure_layer": {
+          "type": "integer",
+          "description": "For error_example type: which layer should fail (1-4)",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "expected_error_pattern": {
+          "type": "string",
+          "description": "For error_example type: regex pattern that the error message must match"
+        },
+        "tags": {
+          "type": "array",
+          "description": "Categorization tags (e.g., 'beginner', 'variables', 'web-server')",
+          "items": {"type": "string"}
+        },
+        "content_hash": {
+          "type": "string",
+          "description": "SHA-256 hash of file content for change detection",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "last_validated": {
+          "type": "string",
+          "description": "ISO 8601 timestamp of last successful validation",
+          "format": "date-time"
+        },
+        "validation_result": {
+          "type": "string",
+          "enum": ["pass", "fail", "skip", "pending"],
+          "description": "Result of last validation run"
+        },
+        "doc_purpose": {
+          "type": "string",
+          "description": "Human-readable explanation of what this example demonstrates"
+        },
+        "fix_suggestion": {
+          "type": "string",
+          "description": "For error_example type: how to fix the error"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"type": {"const": "error_example"}}
+          },
+          "then": {
+            "required": ["expected_failure_layer", "expected_error_pattern"]
+          }
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "docs_examples/basic_syntax/hello_world.wfl": {
+    "doc_section": "Docs/02-getting-started/hello-world.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "getting-started", "hello-world"],
+    "doc_purpose": "Demonstrates the simplest WFL program"
+  },
+  "docs_examples/basic_syntax/variables_01.wfl": {
+    "doc_section": "Docs/03-language-basics/variables-and-types.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "variables", "types", "typeof"],
+    "doc_purpose": "Demonstrates variable declaration and type inference"
+  },
+  "docs_examples/basic_syntax/operators_01.wfl": {
+    "doc_section": "Docs/03-language-basics/operators-and-expressions.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "operators", "arithmetic"],
+    "doc_purpose": "Demonstrates arithmetic operators"
+  },
+  "docs_examples/basic_syntax/control_flow_01.wfl": {
+    "doc_section": "Docs/03-language-basics/control-flow.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "conditionals", "control-flow"],
+    "doc_purpose": "Demonstrates conditional statements"
+  },
+  "docs_examples/basic_syntax/loops_01.wfl": {
+    "doc_section": "Docs/03-language-basics/loops-and-iteration.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "loops", "count"],
+    "doc_purpose": "Demonstrates count loops"
+  },
+  "docs_examples/basic_syntax/for_each_01.wfl": {
+    "doc_section": "Docs/03-language-basics/loops-and-iteration.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "loops", "for-each", "lists"],
+    "doc_purpose": "Demonstrates for each loops"
+  }
+}

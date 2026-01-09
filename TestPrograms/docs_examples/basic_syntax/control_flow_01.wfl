@@ -1,0 +1,27 @@
+// Example from: Docs/03-language-basics/control-flow.md
+// Demonstrates conditional statements
+
+store age as 25
+
+check if age is greater than or equal to 18:
+    display "You are an adult"
+otherwise:
+    display "You are a minor"
+end check
+
+// Multiple conditions
+store score as 85
+
+check if score is greater than or equal to 90:
+    display "Grade: A"
+otherwise:
+    check if score is greater than or equal to 80:
+        display "Grade: B"
+    otherwise:
+        check if score is greater than or equal to 70:
+            display "Grade: C"
+        otherwise:
+            display "Grade: F"
+        end check
+    end check
+end check

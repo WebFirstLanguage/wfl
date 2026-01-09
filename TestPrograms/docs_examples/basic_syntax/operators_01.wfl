@@ -1,0 +1,19 @@
+// Example from: Docs/03-language-basics/operators-and-expressions.md
+// Demonstrates arithmetic operators
+
+store x as 10
+store y as 3
+
+store sum as x plus y
+store difference as x minus y
+store product as x times y
+store quotient as x divided by y
+store remainder as x % y
+
+display "x = " with x
+display "y = " with y
+display "Sum: " with sum
+display "Difference: " with difference
+display "Product: " with product
+display "Quotient: " with quotient
+display "Remainder: " with remainder

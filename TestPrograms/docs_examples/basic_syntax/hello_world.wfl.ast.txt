@@ -1,0 +1,17 @@
+AST output for: G:\Logbie\wfl\TestPrograms\docs_examples\basic_syntax\hello_world.wfl
+==============================================
+
+Program with 1 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "Hello, World!",
+        ),
+        4,
+        9,
+    ),
+    line: 4,
+    column: 24,
+}
+

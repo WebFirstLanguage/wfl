@@ -1,0 +1,19 @@
+// Example from: Docs/03-language-basics/actions-functions.md
+// Demonstrates action definition and calling
+
+define action called greet with parameters name:
+    display "Hello, " with name with "!"
+end action
+
+define action called compute_area with parameters width and height:
+    store result_area as width times height
+    return result_area
+end action
+
+// Call actions
+call greet with "Alice"
+call greet with "Bob"
+
+// Single parameter action calls work
+// Multi-parameter action calls need testing
+display "Actions demo complete"

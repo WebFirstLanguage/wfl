@@ -1,7 +1,7 @@
 # WFL (WebFirst Language)
 
 <div align="center">
-  <img src="https://img.shields.io/badge/version-25.9.1-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-26.1.17-blue" alt="Version">
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="Status">
   <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License">
   <img src="https://img.shields.io/badge/rust-1.75+-brown" alt="Rust Version">
@@ -49,7 +49,7 @@ otherwise:
 end check
 
 count from 1 to 5:
-    display "Counting: " with the current count
+    display "Counting: " with count
 end count
 ```
 
@@ -156,10 +156,10 @@ check if path is equal to "/":
 check if path is equal to "/file":
     // Read a file and serve its contents
     try:
-        open file at "welcome.txt" for reading as file
-        store content as read content from file
-        close file
-        respond to req with content and content_type "text/plain"
+        open file at "welcome.txt" for reading as myfile
+        wait for store file_content as read content from myfile
+        close file myfile
+        respond to req with file_content and content_type "text/plain"
     catch:
         respond to req with "File not found" and status 404
     end try
@@ -183,13 +183,13 @@ wfl server.wfl
 store age as 25
 store name as "Alice"
 store pi as 3.14159
-store is active as yes
+store is_active as yes
 store items as [1, 2, 3, 4, 5]
 
 // Type inference
-display typeof(age)       // "Number"
-display typeof(name)      // "Text"
-display typeof(items)     // "List"
+display typeof of age       // "Number"
+display typeof of name      // "Text"
+display typeof of items     // "List"
 ```
 
 ### Control Flow
@@ -198,15 +198,17 @@ display typeof(items)     // "List"
 // Conditional statements
 check if age is greater than 18:
     display "You can vote!"
-otherwise check if age is 18:
-    display "You just became eligible to vote!"
 otherwise:
-    display "You'll be able to vote in the future"
+    check if age is 18:
+        display "You just became eligible to vote!"
+    otherwise:
+        display "You'll be able to vote in the future"
+    end check
 end check
 
 // Loops
 count from 1 to 10:
-    display "Number: " with the current count
+    display "Number: " with count
 end count
 
 for each item in items:
@@ -217,29 +219,30 @@ end for
 ### Actions (Functions)
 
 ```wfl
-action greet with name:
+define action called greet with parameters name:
     display "Hello, " with name with "!"
 end action
 
-action calculate area with width and height:
+define action called calculate_area with parameters width and height:
     store result as width times height
     return result
 end action
 
 // Using actions
 call greet with "World"
-store room area as calculate area with 10 and 20
 ```
 
 ### Error Handling
 
 ```wfl
 try:
-    store result as risky operation()
+    open file at "data.txt" for reading as datafile
+    wait for store result as read content from datafile
+    close file datafile
     display "Success: " with result
-when error:
-    display "An error occurred: " with error message
-otherwise:
+catch:
+    display "An error occurred while reading file"
+finally:
     display "Operation completed"
 end try
 ```
@@ -324,7 +327,7 @@ WFL now supports the Model Context Protocol (MCP), enabling AI assistants like C
 > "Help me write a function that processes a list"
 ```
 
-See the [MCP User Guide](Docs/guides/wfl-mcp-guide.md) for complete documentation.
+See the [MCP User Guide](Docs/02-getting-started/editor-setup.md#mcp-integration-ai-assistance) for complete documentation.
 
 Install the extension:
 ```powershell
@@ -548,7 +551,7 @@ Key components:
 | Code Quality Tools | ✅ Complete | Linter, analyzer, formatter |
 | Bytecode VM | 🔄 Planned | Performance optimization |
 
-**Current Version**: v25.9.1 (September 2025)
+**Current Version**: v26.1.17 (January 2026)
 **Development Status**: Active Alpha Development
 **Next Milestone**: Performance optimization and bytecode VM
 </details>
@@ -575,31 +578,58 @@ The previous format (YYYY.BUILD) exceeded Windows MSI installer limitations, whi
 
 ## 📖 Documentation
 
-### 📚 Core Documentation
-- **[📋 Documentation Index](Docs/wfl-documentation-index.md)** - Complete navigation guide
-- **[📖 Language Specification](Docs/language-reference/wfl-spec.md)** - Complete language reference
-- **[🚀 Getting Started Guide](Docs/guides/wfl-getting-started.md)** - Installation and first steps
-- **[📚 WFL by Example](Docs/guides/wfl-by-example.md)** - Learn through practical examples
+**→ [📚 Complete Documentation Hub](Docs/README.md)** ← Start here!
 
-### 🔧 Language Reference
-- **[Variables Guide](Docs/language-reference/wfl-variables.md)** - Working with data
-- **[Control Flow](Docs/language-reference/wfl-control-flow.md)** - Conditionals and loops
-- **[Actions Guide](Docs/language-reference/wfl-actions.md)** - Functions and code organization
-- **[Async Programming](Docs/language-reference/wfl-async.md)** - Asynchronous operations
-- **[Container System](Docs/language-reference/wfl-containers.md)** - Object-oriented programming
-- **[Error Handling](Docs/language-reference/wfl-errors.md)** - Error types and debugging
+### Core Documentation
 
-### 📦 API Reference
-- **[Standard Library](Docs/api/wfl-standard-library.md)** - Built-in functions reference
-- **[Core Module](Docs/api/core-module.md)** - Core language functions
-- **[Math Module](Docs/api/math-module.md)** - Mathematical operations
-- **[Text Module](Docs/api/text-module.md)** - String manipulation
-- **[List Module](Docs/api/list-module.md)** - List operations
+- **[Introduction](Docs/01-introduction/index.md)** - What is WFL and why it matters
+  - [What is WFL?](Docs/01-introduction/what-is-wfl.md)
+  - [Key Features](Docs/01-introduction/key-features.md)
+  - [Natural Language Philosophy](Docs/01-introduction/natural-language-philosophy.md)
+  - [First Look](Docs/01-introduction/first-look.md)
+  - [Why WFL?](Docs/01-introduction/why-wfl.md)
 
-### 🛠️ Development Guides
-- **[Building WFL](Docs/guides/building.md)** - Building from source
-- **[WFL Cookbook](Docs/guides/wfl-cookbook.md)** - Recipes for common tasks
-- **[Migration Guide](Docs/guides/wfl-migration-guide.md)** - Migrating from other languages
+- **[Getting Started](Docs/02-getting-started/index.md)** - Installation and first steps
+  - [Installation](Docs/02-getting-started/installation.md)
+  - [Hello, World!](Docs/02-getting-started/hello-world.md)
+  - [Your First Program](Docs/02-getting-started/your-first-program.md)
+  - [REPL Guide](Docs/02-getting-started/repl-guide.md)
+  - [Editor Setup](Docs/02-getting-started/editor-setup.md)
+
+- **[Language Basics](Docs/03-language-basics/index.md)** - Core programming concepts
+  - [Variables and Types](Docs/03-language-basics/variables-and-types.md)
+  - [Operators and Expressions](Docs/03-language-basics/operators-and-expressions.md)
+  - [Control Flow](Docs/03-language-basics/control-flow.md)
+  - [Loops and Iteration](Docs/03-language-basics/loops-and-iteration.md)
+  - [Actions (Functions)](Docs/03-language-basics/actions-functions.md)
+  - [Lists and Collections](Docs/03-language-basics/lists-and-collections.md)
+  - [Error Handling](Docs/03-language-basics/error-handling.md)
+
+- **[Advanced Features](Docs/04-advanced-features/index.md)** - Web servers, async, OOP, and more
+  - [Async Programming](Docs/04-advanced-features/async-programming.md)
+  - [Web Servers](Docs/04-advanced-features/web-servers.md)
+  - [File I/O](Docs/04-advanced-features/file-io.md)
+  - [Pattern Matching](Docs/04-advanced-features/pattern-matching.md)
+  - [Containers (OOP)](Docs/04-advanced-features/containers-oop.md)
+  - [Subprocess Execution](Docs/04-advanced-features/subprocess-execution.md)
+  - [Interoperability](Docs/04-advanced-features/interoperability.md)
+
+- **[Standard Library](Docs/05-standard-library/index.md)** - 181+ built-in functions
+  - [Core Module](Docs/05-standard-library/core-module.md) - display, typeof, isnothing
+  - [Math Module](Docs/05-standard-library/math-module.md) - abs, round, floor, ceil, clamp
+  - [Text Module](Docs/05-standard-library/text-module.md) - String manipulation
+  - [List Module](Docs/05-standard-library/list-module.md) - List operations
+  - [Filesystem Module](Docs/05-standard-library/filesystem-module.md) - File operations
+  - [Time Module](Docs/05-standard-library/time-module.md) - Date and time
+  - [Random Module](Docs/05-standard-library/random-module.md) - Random numbers
+  - [Crypto Module](Docs/05-standard-library/crypto-module.md) - WFLHASH functions
+  - [Pattern Module](Docs/05-standard-library/pattern-module.md) - Pattern matching
+
+### Additional Resources
+
+- **[Foundation Documents](Docs/)** - Philosophy and policy
+  - [WFL Foundation](Docs/wfl-foundation.md) - 19 guiding principles
+  - [Documentation Policy](Docs/wfl-documentation-policy.md) - How we write docs
 
 ## 🤝 Contributing
 

@@ -1,0 +1,18 @@
+// Example from: Docs/03-language-basics/variables-and-types.md
+// Demonstrates basic variable declaration and types
+
+store name as "Alice"
+store age as 25
+store is_active as yes
+store account_balance as 1250.75
+
+display "Name: " with name
+display "Age: " with age
+display "Active: " with is_active
+display "Balance: " with account_balance
+
+// Type checking
+display "Type of name: " with typeof of name
+display "Type of age: " with typeof of age
+display "Type of is_active: " with typeof of is_active
+display "Type of account_balance: " with typeof of account_balance

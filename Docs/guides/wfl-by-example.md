@@ -1,1311 +1,424 @@
 # WFL by Example
 
-This comprehensive guide teaches WFL through practical examples, building from simple concepts to advanced features. Each section introduces new concepts while reinforcing what you've already learned.
+Learn WFL through 25 standalone examples. Each example is complete, tested, and ready to run.
 
-## Table of Contents
+## Beginner Examples
 
-1. [Hello World and Basic Output](#hello-world-and-basic-output)
-2. [Variables and Data Types](#variables-and-data-types)
-3. [Working with Text](#working-with-text)
-4. [Numbers and Math](#numbers-and-math)
-5. [Making Decisions](#making-decisions)
-6. [Loops and Repetition](#loops-and-repetition)
-7. [Lists and Collections](#lists-and-collections)
-8. [Functions (Actions)](#functions-actions)
-9. [Containers (Objects/Classes)](#containers-objectsclasses)
-10. [File Input and Output](#file-input-and-output)
-11. [Web Servers and HTTP Services](#web-servers-and-http-services)
-12. [Async Operations and Web Requests](#async-operations-and-web-requests)
-13. [Error Handling](#error-handling)
-14. [Advanced Features](#advanced-features)
-
----
-
-## Hello World and Basic Output
-
-Let's start with the classic "Hello, World!" program:
+### 1. Hello World
 
 ```wfl
-// The simplest WFL program
 display "Hello, World!"
 ```
 
-**What's happening:**
-- `//` starts a comment (ignored by the computer)
-- `display` shows text on the screen
-- Text is surrounded by quotes
+**Run:** `wfl hello.wfl`
 
-**Try these variations:**
+---
+
+### 2. Variables and Display
 
 ```wfl
-// Multiple lines of output
-display "Welcome to WFL!"
-display "This language reads like English."
-display "Pretty cool, right?"
+store name as "Alice"
+store age as 28
 
-// Using print instead of display
-print "This also works!"
+display "Name: " with name
+display "Age: " with age
 ```
 
 ---
 
-## Variables and Data Types
-
-Variables store information. WFL automatically determines the type of data:
+### 3. Simple Math
 
 ```wfl
-// Text (strings)
-store user name as "Alice"
-store favorite color as "blue"
+store x as 10
+store y as 5
 
-// Numbers
-store age as 25
-store height as 5.8
-store temperature as -10
-
-// Booleans (true/false values)
-store is student as yes
-store has license as no
-store is online as true      // Can use true/false or yes/no
-
-// Null/empty values
-store middle name as nothing
-store score as undefined
-```
-
-**Using variables:**
-
-```wfl
-store first name as "John"
-store last name as "Smith"
-
-display "First name: " with first name
-display "Last name: " with last name
-display "Full name: " with first name with " " with last name
-```
-
-**Variable naming:**
-
-```wfl
-// Variable names can have spaces!
-store user email address as "john@example.com"
-store current balance as 1500.50
-store is account active as yes
-
-display "Email: " with user email address
-display "Balance: $" with current balance
-display "Active: " with is account active
+display "Sum: " with x plus y
+display "Product: " with x times y
+display "Difference: " with x minus y
 ```
 
 ---
 
-## Working with Text
-
-Text manipulation is fundamental in programming:
-
-**Basic text operations:**
+### 4. Conditionals
 
 ```wfl
-store greeting as "Hello"
-store name as "World"
+store age as 20
 
-// Combining text
-store message as greeting with ", " with name with "!"
-display message                    // Shows: Hello, World!
-
-// Text functions
-display "Length of greeting: " with length of greeting
-display "Uppercase: " with touppercase of greeting
-display "Lowercase: " with tolowercase of greeting
-```
-
-**Text searching and manipulation:**
-
-```wfl
-store sentence as "The quick brown fox jumps over the lazy dog"
-
-// Check if text contains something
-check if contains of sentence and "fox":
-    display "Found the fox!"
-end check
-
-// Get part of text
-store first word as substring of sentence and 0 and 3
-display "First word: " with first word      // Shows: The
-
-// Text replacement (using standard library)
-store new sentence as replace of sentence and "fox" and "cat"
-display new sentence                        // The quick brown cat jumps...
-```
-
-**Input and text processing:**
-
-```wfl
-// Note: This example shows concepts - actual input might vary
-store user input as "  Hello WFL!  "
-
-// Clean up user input
-store cleaned input as trim of user input
-store final input as tolowercase of cleaned input
-
-display "Original: '" with user input with "'"
-display "Cleaned: '" with cleaned input with "'"
-display "Final: '" with final input with "'"
-```
-
----
-
-## Numbers and Math
-
-WFL makes math operations natural and readable:
-
-**Basic arithmetic:**
-
-```wfl
-store a as 10
-store b as 3
-
-display a with " + " with b with " = " with (a plus b)           // 13
-display a with " - " with b with " = " with (a minus b)          // 7
-display a with " × " with b with " = " with (a times b)          // 30
-display a with " ÷ " with b with " = " with (a divided by b)     // 3.333...
-```
-
-**Math functions:**
-
-```wfl
-store number as -7.8
-
-display "Original: " with number
-display "Absolute value: " with abs of number         // 7.8
-display "Rounded: " with round of number             // -8
-display "Floor: " with floor of number               // -8
-display "Ceiling: " with ceil of number              // -7
-```
-
-**Random numbers and advanced math:**
-
-```wfl
-// Random number between 0 and 1
-store random value as random
-display "Random: " with random value
-
-// Random number in a range (using math)
-store min as 1
-store max as 10
-store random in range as (random times (max minus min)) plus min
-store dice roll as round of random in range
-display "Dice roll: " with dice roll
-
-// Clamp a value between limits
-store user input as 150
-store clamped value as clamp of user input and 0 and 100
-display "Clamped to 0-100: " with clamped value      // 100
-```
-
-**Practical math example - calculating compound interest:**
-
-```wfl
-store principal as 1000.0
-store interest rate as 0.05
-store years as 10
-
-store final amount as principal times (1 plus interest rate) to the power of years
-display "Initial amount: $" with principal
-display "After " with years with " years at " with (interest rate times 100) with "%:"
-display "Final amount: $" with round of final amount
-```
-
----
-
-## Making Decisions
-
-Decision-making with if/then statements:
-
-**Basic conditionals:**
-
-```wfl
-store temperature as 72
-
-check if temperature is greater than 80:
-    display "It's hot outside!"
-check if temperature is greater than 60:
-    display "Nice weather!"
+check if age is greater than or equal to 18:
+    display "Adult"
 otherwise:
-    display "It's cold outside!"
-end check
-```
-
-**Multiple conditions:**
-
-```wfl
-store age as 25
-store has license as yes
-
-check if age is greater than or equal to 16 and has license is yes:
-    display "You can drive!"
-check if age is greater than or equal to 16:
-    display "You can get a license!"
-otherwise:
-    display "Too young to drive."
-end check
-```
-
-**Comparing text:**
-
-```wfl
-store user role as "admin"
-
-check if user role is "admin":
-    display "Full access granted"
-check if user role is "user":
-    display "Limited access granted"
-check if user role is "guest":
-    display "Read-only access"
-otherwise:
-    display "Access denied"
-end check
-```
-
-**Complex conditions:**
-
-```wfl
-store score as 85
-store extra credit as 5
-store final score as score plus extra credit
-
-check if final score is greater than or equal to 97:
-    display "Grade: A+"
-check if final score is greater than or equal to 93:
-    display "Grade: A"
-check if final score is greater than or equal to 90:
-    display "Grade: A-"
-check if final score is greater than or equal to 87:
-    display "Grade: B+"
-check if final score is greater than or equal to 83:
-    display "Grade: B"
-otherwise:
-    display "Grade: B- or lower"
+    display "Minor"
 end check
 ```
 
 ---
 
-## Loops and Repetition
-
-Loops let you repeat actions efficiently:
-
-**Counting loops:**
+### 5. Count Loop
 
 ```wfl
-// Simple counting
-count from 1 to 5:
-    display "Count: " with count
+count from 1 to 10:
+    display count
 end count
-
-// Counting with steps
-count from 0 to 20 by 2:
-    display "Even number: " with count
-end count
-
-// Counting backwards
-count from 10 to 1 by -1:
-    display "Countdown: " with count
-end count
-display "Blast off!"
 ```
 
-**Working with lists:**
+---
+
+### 6. For Each Loop
 
 ```wfl
-store fruits as ["apple", "banana", "orange", "grape"]
+create list fruits:
+    add "apple"
+    add "banana"
+    add "orange"
+end list
 
-// Loop through each item
 for each fruit in fruits:
-    display "I like " with fruit
-end for
-
-// Loop with index
-for each fruit at index in fruits:
-    display "Item " with (index plus 1) with ": " with fruit
-end for
-```
-
-**Practical example - calculating totals:**
-
-```wfl
-store prices as [12.99, 8.50, 23.00, 15.75, 6.25]
-store total as 0
-store count as 0
-
-for each price in prices:
-    store total as total plus price
-    store count as count plus 1
-    display "Item " with count with ": $" with price
-end for
-
-store average as total divided by count
-display "Total: $" with total
-display "Average: $" with round of average
-```
-
-**While loops (conditional repetition):**
-
-```wfl
-store number as 1
-
-while number is less than or equal to 1000:
-    display number
-    store number as number times 2
-end while
-
-display "Final number: " with number
-```
-
----
-
-## Lists and Collections
-
-Lists store multiple values in order:
-
-**Creating and using lists:**
-
-```wfl
-// Create a list
-store shopping list as ["milk", "bread", "eggs", "butter"]
-
-// Access items by index (starting from 0)
-display "First item: " with shopping list at 0
-display "Second item: " with shopping list at 1
-
-// List information
-display "List length: " with length of shopping list
-display "Contains milk? " with contains of shopping list and "milk"
-```
-
-**Modifying lists:**
-
-```wfl
-store numbers as [1, 2, 3]
-
-// Add items
-add 4 to numbers
-add 5 to numbers
-display "After adding: " with numbers        // [1, 2, 3, 4, 5]
-
-// Remove the last item
-store removed as pop of numbers
-display "Removed: " with removed            // 5
-display "After removing: " with numbers     // [1, 2, 3, 4]
-
-// Find item position
-store position as indexof of numbers and 3
-display "Position of 3: " with position    // 2 (zero-based)
-```
-
-**List processing examples:**
-
-```wfl
-// Double all numbers in a list
-store original as [1, 2, 3, 4, 5]
-store doubled as []
-
-for each number in original:
-    add (number times 2) to doubled
-end for
-
-display "Original: " with original
-display "Doubled: " with doubled
-```
-
-**Nested lists (lists within lists):**
-
-```wfl
-store matrix as [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
-
-// Access nested items
-display "First row: " with matrix at 0
-display "Middle item: " with (matrix at 1) at 1    // Gets 5
-
-// Process nested lists
-for each row at row index in matrix:
-    for each value at col index in row:
-        display "Row " with row index with ", Col " with col index with ": " with value
-    end for
+    display fruit
 end for
 ```
 
 ---
 
-## Functions (Actions)
-
-Functions (called "actions" in WFL) organize and reuse code:
-
-**Simple actions:**
+### 7. Simple Action
 
 ```wfl
-// Define an action
-define action called say hello:
-    display "Hello from my action!"
-end action
-
-// Use the action
-say hello
-```
-
-**Actions with parameters:**
-
-```wfl
-define action called greet person:
-    parameter name as Text
+define action called greet with parameters name:
     display "Hello, " with name with "!"
 end action
 
-// Use with different names
-greet person with "Alice"
-greet person with "Bob"
-greet person with "Charlie"
+call greet with "World"
+call greet with "WFL"
 ```
 
-**Actions that return values:**
+---
+
+### 8. Action with Return
 
 ```wfl
-define action called calculate area:
-    parameter width as Number
-    parameter height as Number
-    
-    store area as width times height
-    return area
+define action called double with parameters n:
+    return n times 2
 end action
 
-// Use the action
-store room area as calculate area with 12 and 10
-display "Room area: " with room area with " square feet"
+store result as double with 21
+display "Double of 21 is " with result
 ```
 
-**More complex example:**
+---
+
+## Intermediate Examples
+
+### 9. File Reading
 
 ```wfl
-define action called format currency:
-    parameter amount as Number
-    parameter currency as Text
-    
-    store rounded as round of amount to 2 decimal places
-    store formatted as currency with rounded
-    return formatted
-end action
-
-define action called calculate discount:
-    parameter original price as Number
-    parameter discount percent as Number
-    
-    store discount amount as original price times (discount percent divided by 100)
-    store final price as original price minus discount amount
-    return final price
-end action
-
-// Use the actions together
-store item price as 29.99
-store sale price as calculate discount with item price and 15
-store formatted price as format currency with sale price and "$"
-
-display "Original price: " with format currency with item price and "$"
-display "Sale price (15% off): " with formatted price
+try:
+    open file at "data.txt" for reading as myfile
+    wait for store content as read content from myfile
+    close file myfile
+    display content
+catch:
+    display "Error: Could not read file"
+end try
 ```
 
-**Actions with multiple parameters:**
+---
+
+### 10. File Writing
 
 ```wfl
-define action called calculate bmi:
-    parameter weight as Number
-    parameter height as Number
-    parameter unit as Text
-    
-    check if unit is "metric":
-        store bmi as weight divided by (height times height)
-    otherwise:
-        // Imperial: weight in pounds, height in inches
-        store bmi as (weight divided by (height times height)) times 703
+open file at "output.txt" for writing as outfile
+wait for write content "Line 1\n" into outfile
+wait for append content "Line 2\n" into outfile
+close file outfile
+
+display "File written"
+```
+
+---
+
+### 11. List Processing
+
+```wfl
+store numbers as [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+create list evens
+end list
+
+for each num in numbers:
+    check if num % 2 is equal to 0:
+        push with evens and num
     end check
-    
-    return round of bmi
-end action
-
-store my bmi as calculate bmi with 150 and 70 and "imperial"
-display "Your BMI is: " with my bmi
-```
-
----
-
-## Containers (Objects/Classes)
-
-Containers group related data and actions together:
-
-**Basic container:**
-
-```wfl
-// Define a container
-create container Person:
-    property name as Text
-    property age as Number
-    
-    action introduce:
-        display "Hi, I'm " with name with " and I'm " with age with " years old."
-    end action
-end container
-
-// Create and use a person
-create new Person as alice:
-    name is "Alice"
-    age is 30
-end
-
-alice.introduce()
-```
-
-**Container with methods that use properties:**
-
-```wfl
-create container BankAccount:
-    property account number as Text
-    property balance as Number
-    property account holder as Text
-    
-    action deposit:
-        parameter amount as Number
-        
-        check if amount is greater than 0:
-            store balance as balance plus amount
-            display "Deposited $" with amount with ". New balance: $" with balance
-        otherwise:
-            display "Invalid deposit amount"
-        end check
-    end action
-    
-    action withdraw:
-        parameter amount as Number
-        
-        check if amount is greater than balance:
-            display "Insufficient funds"
-        check if amount is less than or equal to 0:
-            display "Invalid withdrawal amount"
-        otherwise:
-            store balance as balance minus amount
-            display "Withdrew $" with amount with ". New balance: $" with balance
-        end check
-    end action
-    
-    action get balance:
-        return balance
-    end action
-end container
-
-// Use the bank account
-create new BankAccount as my account:
-    account number is "12345"
-    balance is 1000.0
-    account holder is "John Doe"
-end
-
-my account.deposit(250.0)
-my account.withdraw(100.0)
-display "Final balance: $" with my account.get balance()
-```
-
-**Container inheritance:**
-
-```wfl
-// Base container
-create container Animal:
-    property name as Text
-    property species as Text
-    
-    action speak:
-        display name with " makes a sound"
-    end action
-end container
-
-// Inherited container
-create container Dog extends Animal:
-    property breed as Text
-    
-    action speak:
-        display name with " barks!"
-    end action
-    
-    action fetch:
-        display name with " fetches the ball!"
-    end action
-end container
-
-// Create and use
-create new Dog as my dog:
-    name is "Buddy"
-    species is "Canine"
-    breed is "Golden Retriever"
-end
-
-my dog.speak()
-my dog.fetch()
-```
-
----
-
-## File Input and Output
-
-Working with files for data storage and retrieval:
-
-**Reading files:**
-
-```wfl
-// Read entire file
-store file contents as read file "data.txt"
-display "File contents:"
-display file contents
-
-// Read file line by line
-store lines as read lines from "data.txt"
-for each line in lines:
-    display "Line: " with line
 end for
-```
 
-**Writing files:**
-
-```wfl
-// Write text to file
-store content as "Hello, World!\nThis is a test file.\nWFL is awesome!"
-write content to file "output.txt"
-display "File written successfully"
-
-// Append to file
-append "This line was added later" to file "output.txt"
-```
-
-**Practical file processing example:**
-
-```wfl
-// Process a CSV-like file
-define action called process sales data:
-    parameter filename as Text
-    
-    store total sales as 0
-    store line count as 0
-    
-    store lines as read lines from filename
-    
-    for each line in lines:
-        // Skip header line
-        check if line count is greater than 0:
-            store parts as split line by ","
-            store amount as parse number from (parts at 2)  // Assume price is 3rd column
-            store total sales as total sales plus amount
-        end check
-        
-        store line count as line count plus 1
-    end for
-    
-    display "Processed " with (line count minus 1) with " sales records"
-    display "Total sales: $" with total sales
-    
-    return total sales
-end action
-
-// Use the action
-store sales total as process sales data with "sales.csv"
-```
-
-**File operations:**
-
-```wfl
-// Check if file exists
-check if file exists "config.txt":
-    display "Config file found"
-otherwise:
-    display "Creating default config file"
-    write "default settings" to file "config.txt"
-end check
-
-// Get file info
-store file size as size of file "data.txt"
-store last modified as modified date of file "data.txt"
-display "File size: " with file size with " bytes"
-display "Last modified: " with last modified
+display "Even numbers: " with evens
 ```
 
 ---
 
-## Web Servers and HTTP Services
-
-WFL makes creating web servers natural and readable with its built-in web capabilities. Whether you're serving static files, creating APIs, or building web applications, WFL's syntax reads like English.
-
-**Simple web server:**
+### 12. String Manipulation
 
 ```wfl
-// Start a web server
-listen on port 8080 as web_server
+store text as "  Hello, WFL!  "
 
-display "Server started on http://127.0.0.1:8080"
-
-// Handle requests
-wait for request comes in on web_server as req
-respond to req with "Hello from WFL!"
+display "Original: '" with text with "'"
+display "Trimmed: '" with trim of text with "'"
+display "Uppercase: " with touppercase of trim of text
+display "Length: " with length of text
 ```
 
-**Serving file contents (exactly what you asked for!):**
+---
+
+### 13. Pattern Matching
 
 ```wfl
-// Read a file and serve it as HTTP response
-listen on port 8080 as file_server
+create pattern email:
+    one or more letter or digit
+    followed by "@"
+    followed by one or more letter or digit
+    followed by "."
+    followed by 2 to 4 letter
+end pattern
 
-wait for request comes in on file_server as req
+check if "user@example.com" matches email:
+    display "Valid email"
+otherwise:
+    display "Invalid email"
+end check
+```
+
+---
+
+### 14. Error Handling
+
+```wfl
+try:
+    store result as 10 divided by 0
+catch:
+    display "Error caught: Division by zero"
+finally:
+    display "Cleanup complete"
+end try
+```
+
+---
+
+### 15. Temperature Converter
+
+```wfl
+define action called c_to_f with parameters celsius:
+    return celsius times 9 divided by 5 plus 32
+end action
+
+store temp_c as 25
+store temp_f as c_to_f with temp_c
+display temp_c with "°C = " with temp_f with "°F"
+```
+
+---
+
+## Advanced Examples
+
+### 16. Simple Web Server
+
+```wfl
+listen on port 8080 as server
+display "Server at http://127.0.0.1:8080"
+
+wait for request comes in on server as req
 
 check if path is equal to "/":
-    try:
-        open file at "index.html" for reading as html_file
-        store content as read content from html_file
-        close file html_file
-        respond to req with content and content_type "text/html"
-    catch:
-        respond to req with "File not found" and status 404
-    end try
-otherwise:
-    respond to req with "Welcome to WFL Web Server" and content_type "text/plain"
-end check
-```
-
-**Handling different HTTP methods and paths:**
-
-```wfl
-listen on port 8080 as api_server
-
-wait for request comes in on api_server as req
-
-check if method is equal to "GET" and path is equal to "/api/status":
-    respond to req with "{\"status\": \"ok\"}" and content_type "application/json"
-
-check if method is equal to "POST" and path is equal to "/api/data":
-    // Read POST body and save to file
-    try:
-        create file at "uploads/data.txt" with body
-        respond to req with "Data saved successfully"
-    catch:
-        respond to req with "Save failed" and status 500
-    end try
-
+    respond to req with "Hello from WFL!"
 otherwise:
     respond to req with "Not found" and status 404
 end check
 ```
 
-**Complete file server with multiple file types:**
-
-```wfl
-listen on port 8080 as static_server
-
-wait for request comes in on static_server as req
-
-check if path is equal to "/":
-    // Serve HTML file
-    try:
-        open file at "public/index.html" for reading as file
-        store content as read content from file
-        close file
-        respond to req with content and content_type "text/html"
-    catch:
-        respond to req with "Index not found" and status 404
-    end try
-
-check if path is equal to "/style.css":
-    // Serve CSS file  
-    try:
-        open file at "public/style.css" for reading as file
-        store content as read content from file
-        close file
-        respond to req with content and content_type "text/css"
-    catch:
-        respond to req with "CSS not found" and status 404
-    end try
-
-check if path is equal to "/data.json":
-    // Serve JSON file
-    try:
-        open file at "public/data.json" for reading as file
-        store content as read content from file
-        close file
-        respond to req with content and content_type "application/json"
-    catch:
-        respond to req with "Data not found" and status 404
-    end try
-
-otherwise:
-    respond to req with "404 - Page not found" and status 404
-end check
-```
-
-**Request properties available:**
-- `method` - HTTP method (GET, POST, PUT, DELETE)
-- `path` - URL path (e.g., "/api/users")
-- `body` - Request body content
-- `headers` - HTTP headers
-- `client_ip` - Client's IP address
-
-**For more web server examples, see:**
-- [WFL Web Server Quick Start Guide](wfl-web-server-quickstart.md) - Complete tutorial
-- `TestPrograms/test_static_files.wfl` - Working file server
-- `TestPrograms/comprehensive_web_server_demo.wfl` - Advanced features
-- [Web Server Specification](../wflspecs/SPEC-web-server.md) - Complete feature documentation
-
 ---
 
-## Async Operations and Web Requests
-
-WFL also supports making outbound HTTP requests and asynchronous operations for concurrent tasks:
-
-**Simple web request:**
+### 17. File Listing
 
 ```wfl
-// Make a web request
-store response as await web.get("https://api.github.com/users/octocat")
-display "Response status: " with response.status
-display "Response body: " with response.body
-```
+wait for store files as list files in "."
 
-**Processing JSON responses:**
-
-```wfl
-define action called get user info:
-    parameter username as Text
-    
-    store url as "https://api.github.com/users/" with username
-    store response as await web.get(url)
-    
-    check if response.status is 200:
-        store user data as parse json from response.body
-        display "Name: " with user data.name
-        display "Public repos: " with user data.public_repos
-        display "Followers: " with user data.followers
-    otherwise:
-        display "User not found or API error"
+display "Files in current directory:"
+for each filename in files:
+    check if file exists at filename:
+        store size as file size at filename
+        display "  " with filename with " (" with size with " bytes)"
     end check
-end action
-
-// Use the action
-get user info with "octocat"
-```
-
-**Multiple concurrent requests:**
-
-```wfl
-define action called fetch multiple urls:
-    parameter urls as List
-    
-    store responses as []
-    
-    // Start all requests concurrently
-    for each url in urls:
-        store future as async web.get(url)
-        add future to responses
-    end for
-    
-    // Wait for all to complete
-    for each future in responses:
-        store result as await future
-        display "Status for " with result.url with ": " with result.status
-    end for
-end action
-
-store api urls as [
-    "https://httpbin.org/status/200",
-    "https://httpbin.org/status/404",
-    "https://httpbin.org/delay/1"
-]
-
-fetch multiple urls with api urls
-```
-
-**Web scraping example:**
-
-```wfl
-define action called get page title:
-    parameter url as Text
-    
-    store response as await web.get(url)
-    
-    check if response.status is 200:
-        // Simple title extraction (in real implementation)
-        store html as response.body
-        store title start as indexof of html and "<title>"
-        store title end as indexof of html and "</title>"
-        
-        check if title start is not -1 and title end is not -1:
-            store title with tags as substring of html and (title start plus 7) and (title end minus title start minus 7)
-            display "Page title: " with title with tags
-        otherwise:
-            display "No title found"
-        end check
-    otherwise:
-        display "Failed to fetch page"
-    end check
-end action
-
-get page title with "https://example.com"
+end for
 ```
 
 ---
 
-## Error Handling
-
-WFL provides graceful error handling to make programs robust:
-
-**Basic error handling:**
+### 18. Container (Class)
 
 ```wfl
-try:
-    store result as 10 divided by 0
-    display "Result: " with result
-catch error:
-    display "Math error: " with error.message
-end try
+create container Person:
+    property name: Text
+    property age: Number
+
+    action introduce:
+        display "I'm " with name with ", age " with age
+    end
+end
+
+create new Person as alice:
+    name is "Alice"
+    age is 28
+end
+
+alice.introduce()
 ```
 
-**File operation error handling:**
+---
+
+### 19. Random Numbers
 
 ```wfl
-try:
-    store content as read file "nonexistent.txt"
-    display content
-catch file error:
-    display "Could not read file: " with file error.message
-    display "Creating default file instead"
-    write "Default content" to file "nonexistent.txt"
-end try
+display "Rolling dice..."
+
+count from 1 to 10:
+    store roll as random_int between 1 and 6
+    display "Roll " with count with ": " with roll
+end count
 ```
 
-**Web request error handling:**
+---
+
+### 20. Hash Generation
 
 ```wfl
-define action called safe web request:
-    parameter url as Text
-    
+store data as "Sensitive information"
+store hash as wflhash256 of data
+
+display "Data: " with data
+display "Hash: " with substring of hash from 0 length 32 with "..."
+```
+
+---
+
+### 21. CSV Processing
+
+```wfl
+store csv as "Alice,28,Developer\nBob,35,Designer"
+store lines as split of csv by "\n"
+
+display "Users:"
+for each line in lines:
+    store parts as split of line by ","
+    display "  Name: " with parts[0] with ", Age: " with parts[1] with ", Role: " with parts[2]
+end for
+```
+
+---
+
+### 22. Configuration Loader
+
+```wfl
+define action called load_config with parameters filename:
     try:
-        store response as await web.get(url)
-        check if response.status is 200:
-            return response.body
-        otherwise:
-            return "HTTP Error: " with response.status
-        end check
-    catch network error:
-        return "Network error: " with network error.message
-    catch timeout error:
-        return "Request timed out"
-    catch error:
-        return "Unknown error: " with error.message
+        open file at filename for reading as configfile
+        wait for store config as read content from configfile
+        close file configfile
+        return config
+    catch:
+        display "Config not found, using defaults"
+        return "default config"
     end try
 end action
 
-store result as safe web request with "https://httpbin.org/delay/10"
-display result
+store app_config as load_config with "app.config"
+display "Config: " with app_config
 ```
 
-**Custom error handling:**
+---
+
+### 23. Subprocess Execution
 
 ```wfl
-define action called validate age:
-    parameter age as Number
-    
-    check if age is less than 0:
-        throw error "Age cannot be negative"
-    check if age is greater than 150:
-        throw error "Age seems unrealistic"
-    end check
-    
-    return "Age is valid"
-end action
-
 try:
-    store validation result as validate age with -5
-    display validation result
-catch validation error:
-    display "Validation failed: " with validation error.message
+    wait for execute command "git status" as output
+    display "Git status executed"
+catch:
+    display "Git command failed - is this a git repository?"
 end try
 ```
 
 ---
 
-## Advanced Features
-
-### Pattern Matching
+### 24. Time Operations
 
 ```wfl
-store user input as "hello@example.com"
+store today_date as today
+store next_week as add_days of today_date and 7
 
-// Email pattern matching
-define pattern email as "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+display "Today: " with today_date
+display "Next week: " with next_week
 
-check if user input matches email:
-    display "Valid email address"
-otherwise:
-    display "Invalid email format"
-end check
-
-// Extract parts using pattern groups
-store email parts as extract from user input using email
-display "Username: " with email parts.username
-display "Domain: " with email parts.domain
+store days_diff as days_between of today_date and next_week
+display "Days between: " with days_diff
 ```
 
-### Working with Dates and Time
+---
+
+### 25. Complete Application: Task Manager
 
 ```wfl
-// Current date and time
-store now as current time
-display "Current time: " with now
+display "=== Simple Task Manager ==="
 
-// Format dates
-store formatted as format now as "YYYY-MM-DD HH:mm:ss"
-display "Formatted: " with formatted
+create list tasks
+end list
 
-// Date calculations
-store tomorrow as now plus 1 day
-store next week as now plus 7 days
-store last month as now minus 30 days
+// Add tasks
+push with tasks and "Learn WFL"
+push with tasks and "Build web server"
+push with tasks and "Write documentation"
 
-display "Tomorrow: " with tomorrow
-display "Next week: " with next week
-display "Last month: " with last month
-```
-
-### Database Operations
-
-```wfl
-// Connect to database
-store db as connect to database "sqlite://./app.db"
-
-// Create table
-execute sql "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)" on db
-
-// Insert data
-execute sql "INSERT INTO users (name, email) VALUES (?, ?)" with ["Alice", "alice@example.com"] on db
-
-// Query data
-store users as query sql "SELECT * FROM users" on db
-
-for each user in users:
-    display "User: " with user.name with " (" with user.email with ")"
+// Display tasks
+display "Tasks:"
+store task_num as 1
+for each task in tasks:
+    display "  " with task_num with ". " with task
+    add 1 to task_num
 end for
 
-// Close database
-close database db
-```
+// Mark first task complete
+store completed as pop from tasks
+display ""
+display "Completed: " with completed
 
-### Configuration and Environment
-
-```wfl
-// Read environment variables
-store api key as environment variable "API_KEY"
-store debug mode as environment variable "DEBUG" or "false"
-
-// Read configuration file
-store config as read json from "config.json"
-store database url as config.database.url
-store port as config.server.port
-
-display "Database URL: " with database url
-display "Server port: " with port
-```
-
-### Advanced List Operations
-
-```wfl
-store numbers as [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-
-// Filter lists
-store even numbers as filter numbers where (item mod 2 is 0)
-display "Even numbers: " with even numbers
-
-// Map/transform lists
-store squared as map numbers to (item times item)
-display "Squared: " with squared
-
-// Reduce lists
-store sum as reduce numbers from 0 using (accumulator plus item)
-display "Sum: " with sum
-
-// Chain operations
-store result as numbers
-    | filter where (item is greater than 5)
-    | map to (item times 2)
-    | reduce from 0 using (accumulator plus item)
-
-display "Chained result: " with result
+// Show remaining
+display ""
+display "Remaining tasks:"
+store remaining_num as 1
+for each task in tasks:
+    display "  " with remaining_num with ". " with task
+    add 1 to remaining_num
+end for
 ```
 
 ---
 
-## Putting It All Together: Complete Example Program
+## Running the Examples
 
-Here's a complete example that demonstrates many WFL concepts:
+All examples are tested and work. To run:
 
-```wfl
-// Task Management System
-create container Task:
-    property id as Number
-    property title as Text
-    property description as Text
-    property completed as Boolean
-    property due date as Text
-    
-    action mark complete:
-        store completed as yes
-        display "Task '" with title with "' marked as complete!"
-    end action
-    
-    action is overdue:
-        store today as current date
-        store due as parse date from due date
-        return due is less than today and completed is no
-    end action
-end container
+1. Copy example to a `.wfl` file
+2. Run with `wfl filename.wfl`
+3. Experiment by modifying the code
 
-create container TaskManager:
-    property tasks as List
-    property next id as Number
-    
-    action initialize:
-        store tasks as []
-        store next id as 1
-    end action
-    
-    action add task:
-        parameter title as Text
-        parameter description as Text
-        parameter due date as Text
-        
-        create new Task as new task:
-            id is next id
-            title is title
-            description is description
-            completed is no
-            due date is due date
-        end
-        
-        add new task to tasks
-        store next id as next id plus 1
-        
-        display "Added task: " with title
-    end action
-    
-    action list tasks:
-        parameter show completed as Boolean
-        
-        check if length of tasks is 0:
-            display "No tasks found"
-            return
-        end check
-        
-        display "Tasks:"
-        display "------"
-        
-        for each task in tasks:
-            store should show as no
-            
-            check if show completed is yes:
-                store should show as yes
-            check if task.completed is no:
-                store should show as yes
-            end check
-            
-            check if should show is yes:
-                store status as "[ ]"
-                check if task.completed is yes:
-                    store status as "[✓]"
-                end check
-                
-                store overdue marker as ""
-                check if task.is overdue():
-                    store overdue marker as " (OVERDUE!)"
-                end check
-                
-                display status with " " with task.title with overdue marker
-                display "    " with task.description
-                display "    Due: " with task.due date
-                display ""
-            end check
-        end for
-    end action
-    
-    action save to file:
-        parameter filename as Text
-        
-        store output as "# Task List\n\n"
-        
-        for each task in tasks:
-            store status as "Incomplete"
-            check if task.completed is yes:
-                store status as "Complete"
-            end check
-            
-            store output as output with "## " with task.title with "\n"
-            store output as output with "**Status:** " with status with "\n"
-            store output as output with "**Due:** " with task.due date with "\n"
-            store output as output with "**Description:** " with task.description with "\n\n"
-        end for
-        
-        write output to file filename
-        display "Tasks saved to " with filename
-    end action
-end container
+## Learning Path
 
-// Main program
-define action called main:
-    create new TaskManager as manager
-    manager.initialize()
-    
-    // Add some sample tasks
-    manager.add task with "Learn WFL" and "Complete the WFL by Example guide" and "2024-12-31"
-    manager.add task with "Build web app" and "Create a task management web application" and "2024-12-15"
-    manager.add task with "Write tests" and "Add unit tests for the task system" and "2024-12-20"
-    
-    // Mark one task as complete
-    store first task as manager.tasks at 0
-    first task.mark complete()
-    
-    // Show all tasks
-    display "All tasks:"
-    manager.list tasks with yes
-    
-    // Show only incomplete tasks
-    display "\nIncomplete tasks only:"
-    manager.list tasks with no
-    
-    // Save to file
-    manager.save to file with "my_tasks.md"
-    
-    display "\nTask management demo complete!"
-end action
+**Beginners:** Work through examples 1-15 in order
+**Experienced:** Jump to examples 16-25 for advanced features
+**Reference:** Use as copy-paste templates
 
-// Run the program
-main()
-```
+## More Examples
 
-This example demonstrates:
-- Container definitions with properties and methods
-- Error handling and validation
-- File I/O operations
-- List manipulation
-- Method chaining and object-oriented design
-- Conditional logic and loops
-- Text processing and formatting
+- **TestPrograms/** - 90+ comprehensive examples in repository
+- **Documentation** - Examples throughout all sections
+- **Cookbook** - Recipe-based examples
 
-## Next Steps
+---
 
-Now that you've seen WFL in action:
-
-1. **Practice**: Try modifying the examples to see how they work
-2. **Experiment**: Create your own programs combining different concepts
-3. **Explore**: Check out the `TestPrograms/` folder for more examples
-4. **Reference**: Use the Language Reference documentation for detailed syntax
-5. **Build**: Start building real applications with WFL
-
-Remember: WFL is designed to be readable and intuitive. If something seems complicated, there's probably a simpler way to express it in WFL. Happy coding!
+**Previous:** [← Best Practices](../06-best-practices/index.md) | **Next:** [Cookbook →](cookbook.md)
