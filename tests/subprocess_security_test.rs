@@ -201,7 +201,7 @@ fn test_spawn_with_safe_arguments() {
         "Spawn with safe arguments should work: {:?}",
         result
     );
-    
+
     let output = result.unwrap();
     assert!(
         output.contains("test"),
@@ -261,11 +261,16 @@ fn test_multiple_safe_processes() {
         "Multiple safe processes should work: {:?}",
         result
     );
-    
+
     let output = result.unwrap();
     assert!(
-        output.contains("test1") || output.contains("test2"),
-        "Output should contain at least one of 'test1' or 'test2'. Actual output: '{}'",
+        output.contains("test1"),
+        "Output should contain 'test1'. Actual output: '{}'",
+        output
+    );
+    assert!(
+        output.contains("test2"),
+        "Output should contain 'test2'. Actual output: '{}'",
         output
     );
 }
