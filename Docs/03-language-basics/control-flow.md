@@ -62,21 +62,27 @@ otherwise:
 end check
 ```
 
-### Otherwise Check If (Else If)
+### Chained Conditionals (Else If)
 
-Chain multiple conditions with `otherwise check if`:
+You can chain multiple conditions by nesting `check if` blocks inside `otherwise` clauses:
 
 ```wfl
 check if score is greater than or equal to 90:
     display "Grade: A"
-otherwise check if score is greater than or equal to 80:
-    display "Grade: B"
-otherwise check if score is greater than or equal to 70:
-    display "Grade: C"
-otherwise check if score is greater than or equal to 60:
-    display "Grade: D"
 otherwise:
-    display "Grade: F"
+    check if score is greater than or equal to 80:
+        display "Grade: B"
+    otherwise:
+        check if score is greater than or equal to 70:
+            display "Grade: C"
+        otherwise:
+            check if score is greater than or equal to 60:
+                display "Grade: D"
+            otherwise:
+                display "Grade: F"
+            end check
+        end check
+    end check
 end check
 ```
 
@@ -84,12 +90,16 @@ end check
 ```wfl
 check if <condition1>:
     <statements>
-otherwise check if <condition2>:
-    <statements>
-otherwise check if <condition3>:
-    <statements>
 otherwise:
-    <statements>
+    check if <condition2>:
+        <statements>
+    otherwise:
+        check if <condition3>:
+            <statements>
+        otherwise:
+            <statements>
+        end check
+    end check
 end check
 ```
 
@@ -222,10 +232,12 @@ store age as 15
 
 check if age is greater than or equal to 13 and age is less than 20:
     display "Teenager"
-otherwise check if age is less than 13:
-    display "Child"
 otherwise:
-    display "Adult"
+    check if age is less than 13:
+        display "Child"
+    otherwise:
+        display "Adult"
+    end check
 end check
 ```
 
@@ -279,12 +291,16 @@ store temperature as 25
 
 check if temperature is above 30:
     display "Hot"
-otherwise check if temperature is above 20:
-    display "Warm"
-otherwise check if temperature is above 10:
-    display "Cool"
 otherwise:
-    display "Cold"
+    check if temperature is above 20:
+        display "Warm"
+    otherwise:
+        check if temperature is above 10:
+            display "Cool"
+        otherwise:
+            display "Cold"
+        end check
+    end check
 end check
 ```
 
@@ -297,12 +313,16 @@ store age as 35
 
 check if age is greater than or equal to 65:
     display "Senior citizen - discount available"
-otherwise check if age is greater than or equal to 18:
-    display "Adult - regular price"
-otherwise check if age is greater than or equal to 13:
-    display "Teenager - youth price"
 otherwise:
-    display "Child - free entry"
+    check if age is greater than or equal to 18:
+        display "Adult - regular price"
+    otherwise:
+        check if age is greater than or equal to 13:
+            display "Teenager - youth price"
+        otherwise:
+            display "Child - free entry"
+        end check
+    end check
 end check
 ```
 
@@ -332,14 +352,20 @@ store score as 85
 
 check if score is greater than or equal to 90:
     display "Excellent! Grade: A"
-otherwise check if score is greater than or equal to 80:
-    display "Great! Grade: B"
-otherwise check if score is greater than or equal to 70:
-    display "Good! Grade: C"
-otherwise check if score is greater than or equal to 60:
-    display "Pass. Grade: D"
 otherwise:
-    display "Failed. Grade: F"
+    check if score is greater than or equal to 80:
+        display "Great! Grade: B"
+    otherwise:
+        check if score is greater than or equal to 70:
+            display "Good! Grade: C"
+        otherwise:
+            check if score is greater than or equal to 60:
+                display "Pass. Grade: D"
+            otherwise:
+                display "Failed. Grade: F"
+            end check
+        end check
+    end check
 end check
 ```
 
@@ -353,12 +379,14 @@ store shipping as 0
 check if total is greater than or equal to 100:
     store shipping as 0
     display "Free shipping!"
-otherwise check if is member is yes:
-    store shipping as 5.00
-    display "Member shipping: $" with shipping
 otherwise:
-    store shipping as 10.00
-    display "Standard shipping: $" with shipping
+    check if is member is yes:
+        store shipping as 5.00
+        display "Member shipping: $" with shipping
+    otherwise:
+        store shipping as 10.00
+        display "Standard shipping: $" with shipping
+    end check
 end check
 
 store final total as total plus shipping
@@ -374,12 +402,16 @@ store bmi as weight divided by height divided by height
 
 check if bmi is less than 18.5:
     display "Underweight (BMI: " with bmi with ")"
-otherwise check if bmi is less than 25:
-    display "Normal weight (BMI: " with bmi with ")"
-otherwise check if bmi is less than 30:
-    display "Overweight (BMI: " with bmi with ")"
 otherwise:
-    display "Obese (BMI: " with bmi with ")"
+    check if bmi is less than 25:
+        display "Normal weight (BMI: " with bmi with ")"
+    otherwise:
+        check if bmi is less than 30:
+            display "Overweight (BMI: " with bmi with ")"
+        otherwise:
+            display "Obese (BMI: " with bmi with ")"
+        end check
+    end check
 end check
 ```
 
@@ -390,12 +422,16 @@ store month as 7  // July
 
 check if month is greater than or equal to 3 and month is less than or equal to 5:
     display "Spring"
-otherwise check if month is greater than or equal to 6 and month is less than or equal to 8:
-    display "Summer"
-otherwise check if month is greater than or equal to 9 and month is less than or equal to 11:
-    display "Fall"
 otherwise:
-    display "Winter"
+    check if month is greater than or equal to 6 and month is less than or equal to 8:
+        display "Summer"
+    otherwise:
+        check if month is greater than or equal to 9 and month is less than or equal to 11:
+            display "Fall"
+        otherwise:
+            display "Winter"
+        end check
+    end check
 end check
 ```
 
@@ -408,16 +444,24 @@ store is verified as yes
 
 check if is active is no:
     display "Account is disabled"
-otherwise check if is verified is no:
-    display "Please verify your account"
-otherwise check if role is "admin":
-    display "Full access granted"
-otherwise check if role is "moderator":
-    display "Moderator access granted"
-otherwise check if role is "user":
-    display "User access granted"
 otherwise:
-    display "Unknown role"
+    check if is verified is no:
+        display "Please verify your account"
+    otherwise:
+        check if role is "admin":
+            display "Full access granted"
+        otherwise:
+            check if role is "moderator":
+                display "Moderator access granted"
+            otherwise:
+                check if role is "user":
+                    display "User access granted"
+                otherwise:
+                    display "Unknown role"
+                end check
+            end check
+        end check
+    end check
 end check
 ```
 
@@ -498,10 +542,14 @@ end check
 ```wfl
 check if score is greater than 70:
     display "Pass"
-otherwise check if score is greater than 60:  // This is good
-    display "Barely pass"
-otherwise check if score is greater than 80:  // UNREACHABLE! 80 > 70
-    display "Great"
+otherwise:
+    check if score is greater than 60:  // This is good
+        display "Barely pass"
+    otherwise:
+        check if score is greater than 80:  // UNREACHABLE! 80 > 70
+            display "Great"
+        end check
+    end check
 end check
 ```
 
@@ -509,10 +557,14 @@ end check
 ```wfl
 check if score is greater than or equal to 80:
     display "Great"
-otherwise check if score is greater than or equal to 70:
-    display "Pass"
-otherwise check if score is greater than or equal to 60:
-    display "Barely pass"
+otherwise:
+    check if score is greater than or equal to 70:
+        display "Pass"
+    otherwise:
+        check if score is greater than or equal to 60:
+            display "Barely pass"
+        end check
+    end check
 end check
 ```
 
@@ -601,7 +653,7 @@ Extend the grade calculator to include comments:
 
 ✅ **Test edge cases:** Test with boundary values (e.g., exactly 18, not just 17 or 19)
 
-❌ **Don't repeat conditions:** Use `otherwise check if` for multiple conditions
+❌ **Don't repeat conditions:** Use nested `otherwise: check if` blocks for multiple conditions
 
 ❌ **Don't make unreachable conditions:** Order matters!
 
@@ -612,7 +664,7 @@ Extend the grade calculator to include comments:
 In this section, you learned:
 
 ✅ **Basic conditionals** - `check if`, `otherwise`, `end check`
-✅ **Multiple conditions** - `otherwise check if` chains
+✅ **Multiple conditions** - Nested `otherwise: check if` blocks
 ✅ **Logical operators** - `and`, `or`, `not`
 ✅ **Nested conditionals** - Conditionals inside conditionals
 ✅ **Common patterns** - Range checking, validation, status determination

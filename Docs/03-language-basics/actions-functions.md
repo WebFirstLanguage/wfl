@@ -356,28 +356,40 @@ display temp f2 with "°F = " with temp c2 with "°C"
 define action called calculate letter grade with parameters score:
     check if score is greater than or equal to 90:
         return "A"
-    otherwise check if score is greater than or equal to 80:
-        return "B"
-    otherwise check if score is greater than or equal to 70:
-        return "C"
-    otherwise check if score is greater than or equal to 60:
-        return "D"
     otherwise:
-        return "F"
+        check if score is greater than or equal to 80:
+            return "B"
+        otherwise:
+            check if score is greater than or equal to 70:
+                return "C"
+            otherwise:
+                check if score is greater than or equal to 60:
+                    return "D"
+                otherwise:
+                    return "F"
+                end check
+            end check
+        end check
     end check
 end action
 
 define action called calculate gpa with parameters letter:
     check if letter is "A":
         return 4.0
-    otherwise check if letter is "B":
-        return 3.0
-    otherwise check if letter is "C":
-        return 2.0
-    otherwise check if letter is "D":
-        return 1.0
     otherwise:
-        return 0.0
+        check if letter is "B":
+            return 3.0
+        otherwise:
+            check if letter is "C":
+                return 2.0
+            otherwise:
+                check if letter is "D":
+                    return 1.0
+                otherwise:
+                    return 0.0
+                end check
+            end check
+        end check
     end check
 end action
 

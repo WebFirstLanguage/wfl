@@ -108,14 +108,14 @@ create list tasks:
     add "Test code"
 end list
 
-push to tasks with "Deploy code"
+push with tasks and "Deploy code"
 
 // tasks now contains: ["Write code", "Test code", "Deploy code"]
 ```
 
 **Syntax:**
 ```wfl
-push to <list> with <value>
+push with <list> and <value>
 ```
 
 ### Pop (Remove from End)
@@ -241,7 +241,7 @@ end list
 
 count from 1 to 10:
     store squared as count times count
-    push to squares with squared
+    push with squares and squared
 end count
 
 display "Squares: " with squares
@@ -258,7 +258,7 @@ end list
 
 for each number in all numbers:
     check if number modulo 2 is equal to 0:
-        push to even numbers with number
+        push with even numbers and number
     end check
 end for
 
@@ -276,7 +276,7 @@ end list
 
 for each celsius in celsius temps:
     store fahrenheit as celsius times 9 divided by 5 plus 32
-    push to fahrenheit temps with fahrenheit
+    push with fahrenheit temps and fahrenheit
 end for
 
 display "Celsius: " with celsius temps
@@ -485,7 +485,7 @@ end list
 
 for each item in all items:
     check if not contains of unique items and item:
-        push to unique items with item
+        push with unique items and item
     end check
 end for
 

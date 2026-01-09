@@ -265,7 +265,7 @@ length of "hello"                         // 5
 
 // Lists
 length of list                            // count
-push to list with item
+push with list and item
 pop from list
 contains of list and item
 ```

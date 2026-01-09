@@ -187,7 +187,7 @@ hello
 > length of numbers
 5
 
-> push to numbers with 6
+> push with numbers and 6
 
 > numbers
 [1, 2, 3, 4, 5, 6]
@@ -549,9 +549,9 @@ What types did you see?
 ```wfl
 > create list items
 > end list
-> push to items with "first"
-> push to items with "second"
-> push to items with "third"
+> push with items and "first"
+> push with items and "second"
+> push with items and "third"
 > items
 ```
 

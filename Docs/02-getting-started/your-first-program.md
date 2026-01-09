@@ -125,18 +125,22 @@ Let's add more logic:
 // Step 3b: Multiple conditions
 check if age is greater than or equal to 65:
     display "You are a senior citizen."
-otherwise check if age is greater than or equal to 18:
-    display "You are an adult."
-otherwise check if age is greater than or equal to 13:
-    display "You are a teenager."
 otherwise:
-    display "You are a child."
+    check if age is greater than or equal to 18:
+        display "You are an adult."
+    otherwise:
+        check if age is greater than or equal to 13:
+            display "You are a teenager."
+        otherwise:
+            display "You are a child."
+        end check
+    end check
 end check
 ```
 
 ### What You Learned
 
-- **`otherwise check if`** - Chain multiple conditions
+- **Nested `otherwise: check if`** - Chain multiple conditions with nested blocks
 - **Order matters** - Conditions are checked top to bottom
 
 ## Step 4: Loops
@@ -268,12 +272,16 @@ display ""
 // Conditional logic
 check if age is greater than or equal to 65:
     display "Life status: Senior citizen"
-otherwise check if age is greater than or equal to 18:
-    display "Life status: Adult"
-otherwise check if age is greater than or equal to 13:
-    display "Life status: Teenager"
 otherwise:
-    display "Life status: Child"
+    check if age is greater than or equal to 18:
+        display "Life status: Adult"
+    otherwise:
+        check if age is greater than or equal to 13:
+            display "Life status: Teenager"
+        otherwise:
+            display "Life status: Child"
+        end check
+    end check
 end check
 display ""
 
@@ -364,8 +372,11 @@ Add a condition for ages 100+:
 ```wfl
 check if age is greater than or equal to 100:
     display "Congratulations on your long life!"
-otherwise check if age is greater than or equal to 65:
-    // ... rest of the conditions
+otherwise:
+    check if age is greater than or equal to 65:
+        // ... rest of the conditions
+    end check
+end check
 ```
 
 ### Exercise 6: Create Your Own List

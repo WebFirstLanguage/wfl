@@ -27,7 +27,7 @@ end list
 
 for each student in data:
     check if student grade is greater than or equal to 90:
-        push to honor students with student name
+        push with honor students and student name
     end check
 end for
 ```

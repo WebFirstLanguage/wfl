@@ -111,5 +111,45 @@
     "expected_exit_code": 0,
     "tags": ["beginner", "getting-started", "hello-world"],
     "doc_purpose": "Demonstrates the simplest WFL program"
+  },
+  "docs_examples/basic_syntax/variables_01.wfl": {
+    "doc_section": "Docs/03-language-basics/variables-and-types.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "variables", "types", "typeof"],
+    "doc_purpose": "Demonstrates variable declaration and type inference"
+  },
+  "docs_examples/basic_syntax/operators_01.wfl": {
+    "doc_section": "Docs/03-language-basics/operators-and-expressions.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "operators", "arithmetic"],
+    "doc_purpose": "Demonstrates arithmetic operators"
+  },
+  "docs_examples/basic_syntax/control_flow_01.wfl": {
+    "doc_section": "Docs/03-language-basics/control-flow.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "conditionals", "control-flow"],
+    "doc_purpose": "Demonstrates conditional statements"
+  },
+  "docs_examples/basic_syntax/loops_01.wfl": {
+    "doc_section": "Docs/03-language-basics/loops-and-iteration.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "loops", "count"],
+    "doc_purpose": "Demonstrates count loops"
+  },
+  "docs_examples/basic_syntax/for_each_01.wfl": {
+    "doc_section": "Docs/03-language-basics/loops-and-iteration.md",
+    "type": "executable",
+    "validate_layers": [1, 2, 3, 4, 5],
+    "expected_exit_code": 0,
+    "tags": ["beginner", "loops", "for-each", "lists"],
+    "doc_purpose": "Demonstrates for each loops"
   }
 }

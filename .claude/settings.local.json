@@ -54,7 +54,20 @@
       "Bash(git fetch:*)",
       "mcp__wfl-lsp__parse_wfl",
       "mcp__wfl-lsp__analyze_wfl",
-      "mcp__wfl-lsp__typecheck_wfl"
+      "mcp__wfl-lsp__typecheck_wfl",
+      "mcp__wfl-lsp__lint_wfl",
+      "Bash(targetreleasewfl.exe \"TestPrograms\\\\docs_examples\\\\basic_syntax\\\\variables_01.wfl\")",
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\variables_01.wfl\")",
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\control_flow_01.wfl\")",
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\operators_01.wfl\")",
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\loops_01.wfl\")",
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\for_each_01.wfl\")",
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\actions_01.wfl\")",
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\lists_01.wfl\")",
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\error_handling_01.wfl\")",
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\stdlib_comprehensive.wfl\")",
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\test_contains_simple.wfl\")",
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\hello_world.wfl\")"
     ],
     "deny": [],
     "ask": []

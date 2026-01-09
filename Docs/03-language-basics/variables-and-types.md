@@ -302,6 +302,62 @@ Variable names cannot:
 - ❌ Contain special characters: `user@email` (invalid)
 - ❌ Be a keyword: `store`, `check`, `if` (reserved)
 
+### Reserved Keywords
+
+WFL reserves certain words for the language syntax. You **cannot** use these as variable names:
+
+**Control Flow Keywords:**
+- `check`, `if`, `otherwise`, `end`
+- `for`, `each`, `in`, `count`, `from`, `to`, `by`
+- `repeat`, `while`, `until`, `forever`
+- `break`, `skip`, `continue`, `exit`, `loop`
+
+**Declaration Keywords:**
+- `store`, `create`, `change`, `define`
+- `action`, `called`, `with`, `parameters`, `needs`
+- `container`, `property`, `extends`, `implements`
+- `list`, `map`, `pattern`
+
+**Operation Keywords:**
+- `display`, `return`, `call`
+- `add`, `push`, `pop`, `remove`
+- `open`, `close`, `read`, `write`, `file`
+- `wait`, `execute`, `spawn`, `kill`
+
+**Comparison & Logic Keywords:**
+- `is`, `not`, `and`, `or`
+- `equal`, `greater`, `less`, `than`
+- `as`, `of`, `at`, `on`
+
+**Other Reserved Words:**
+- `yes`, `no`, `true`, `false`
+- `nothing`, `missing`, `undefined`
+- `try`, `catch`, `when`, `error`, `finally`
+- `current`, `time`, `date`, `event`
+
+**Examples of Conflicts:**
+
+**Wrong:**
+```wfl
+store is as 10             // ❌ 'is' is a keyword
+store file as "data.txt"   // ❌ 'file' is a keyword
+store add as 5             // ❌ 'add' is a keyword
+store current as 100       // ❌ 'current' is a keyword
+```
+
+**Right:**
+```wfl
+store is_value as 10       // ✅ Use underscore
+store filename as "data.txt"  // ✅ Different name
+store addition as 5        // ✅ Different name
+store current_value as 100 // ✅ Add suffix
+```
+
+**Best Practice:** When in doubt, use underscores or descriptive suffixes:
+- `is_active` instead of trying to use just `is`
+- `file_handle` instead of `file`
+- `add_result` instead of `add`
+
 ## Type Conversion
 
 ### Number to Text

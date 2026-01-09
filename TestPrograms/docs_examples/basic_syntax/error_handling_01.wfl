@@ -1,0 +1,23 @@
+// Example from: Docs/03-language-basics/error-handling.md
+// Demonstrates try-catch error handling
+
+display "=== Error Handling Demo ==="
+
+// Basic try-catch
+try:
+    display "Attempting division by zero..."
+    store result as 10 divided by 0
+    display "This won't execute"
+catch:
+    display "Caught error: Division by zero"
+end try
+
+// File error handling
+try:
+    open file at "missing_file.txt" for reading as myfile
+    display "This won't execute"
+catch:
+    display "Caught error: File not found"
+end try
+
+display "Program continues after errors"

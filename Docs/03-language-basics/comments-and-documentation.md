@@ -260,10 +260,12 @@ display "Starting application..."
 define action called calculate discount with parameters amount and tier:
     check if tier is "gold":
         return amount times 0.8  // 20% discount
-    otherwise check if tier is "silver":
-        return amount times 0.9  // 10% discount
     otherwise:
-        return amount  // No discount
+        check if tier is "silver":
+            return amount times 0.9  // 10% discount
+        otherwise:
+            return amount  // No discount
+        end check
     end check
 end action
 ```

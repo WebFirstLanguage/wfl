@@ -426,7 +426,7 @@ end list
 
 count from 1 to 10:
     check if count modulo 2 is equal to 0:
-        push to even numbers with count
+        push with even numbers and count
     end check
 end count
 
@@ -449,7 +449,7 @@ end list
 for each item in all items:
     store first letter as substring of item from 0 length 1
     check if first letter is "a":
-        push to a items with item
+        push with a items and item
     end check
 end for
 

@@ -13,10 +13,12 @@ store is admin as no
 
 check if user age is greater than 18 and is admin is yes:
     display "Full access granted"
-otherwise check if user age is greater than 18:
-    display "Standard access granted"
 otherwise:
-    display "Access denied - must be 18 or older"
+    check if user age is greater than 18:
+        display "Standard access granted"
+    otherwise:
+        display "Access denied - must be 18 or older"
+    end check
 end check
 ```
 
@@ -172,7 +174,7 @@ store substring as substring of "Hello" from 0 length 2  // "He"
 ### List Module
 ```wfl
 create list numbers: 1, 2, 3, 4, 5 end list
-push to numbers with 6
+push with numbers and 6
 store size as length of numbers                 // 6
 check if contains of numbers and 3              // yes
 ```

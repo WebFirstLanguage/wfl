@@ -67,10 +67,12 @@ store temperature as 25
 
 check if temperature is greater than 30:
     display "It's hot outside!"
-otherwise check if temperature is greater than 20:
-    display "Nice weather!"
 otherwise:
-    display "It's a bit cool."
+    check if temperature is greater than 20:
+        display "Nice weather!"
+    otherwise:
+        display "It's a bit cool."
+    end check
 end check
 ```
 
@@ -206,7 +208,7 @@ end list
 store numbers as [1, 2, 3, 4, 5]
 
 // List operations
-push to numbers with 6
+push with numbers and 6
 store last as pop from numbers
 store size as length of numbers
 check if contains of numbers and 3
@@ -501,9 +503,9 @@ create new Task as task1 with property description as "Learn WFL" and property c
 create new Task as task2 with property description as "Build web server" and property completed as no
 create new Task as task3 with property description as "Write documentation" and property completed as no
 
-push to tasks with task1
-push to tasks with task2
-push to tasks with task3
+push with tasks and task1
+push with tasks and task2
+push with tasks and task3
 
 // Display all tasks
 display "All Tasks:"
