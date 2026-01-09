@@ -2589,91 +2589,93 @@ impl Interpreter {
                 // 3. Check circular dependencies
                 self.check_circular_dependency(&resolved_path, *line, *column)?;
 
-                // 4. Read file content
-                let content = tokio::fs::read_to_string(&resolved_path)
-                    .await
-                    .map_err(|e| {
+                // Push to loading stack immediately so it's included in error chains
+                // for any errors that occur during loading (reading, parsing, etc.)
+                self.loading_stack.borrow_mut().push(resolved_path.clone());
+                let previous_source = self.current_source_file.borrow().clone();
+                *self.current_source_file.borrow_mut() = Some(resolved_path.clone());
+
+                // Use an async block to capture the result of loading and execution
+                // so we can properly handle the stack and context restoration
+                let execution_result = async {
+                    // 4. Read file content
+                    let content = tokio::fs::read_to_string(&resolved_path)
+                        .await
+                        .map_err(|e| {
+                            RuntimeError::new(
+                                format!("Cannot load module '{}': {}", path_str, e),
+                                *line,
+                                *column,
+                            )
+                        })?;
+
+                    // 5. Parse module
+                    use crate::lexer::lex_wfl_with_positions;
+                    use crate::parser::Parser;
+
+                    let tokens = lex_wfl_with_positions(&content);
+                    let mut parser = Parser::new(&tokens);
+                    let program = parser.parse().map_err(|errors| {
                         RuntimeError::new(
-                            format!("Cannot load module '{}': {}", path_str, e),
+                            format!(
+                                "Parse error in module '{}': {}",
+                                path_str,
+                                errors
+                                    .first()
+                                    .map(|e| e.message.as_str())
+                                    .unwrap_or("unknown")
+                            ),
                             *line,
                             *column,
                         )
                     })?;
 
-                // 5. Parse module
-                use crate::lexer::lex_wfl_with_positions;
-                use crate::parser::Parser;
+                    // 6. Analyze semantics
+                    use crate::analyzer::Analyzer;
 
-                let tokens = lex_wfl_with_positions(&content);
-                let mut parser = Parser::new(&tokens);
-                let program = parser.parse().map_err(|errors| {
-                    RuntimeError::new(
-                        format!(
-                            "Parse error in module '{}': {}",
-                            path_str,
-                            errors
-                                .first()
-                                .map(|e| e.message.as_str())
-                                .unwrap_or("unknown")
-                        ),
-                        *line,
-                        *column,
-                    )
-                })?;
+                    let mut analyzer = Analyzer::new();
+                    if let Err(errors) = analyzer.analyze(&program) {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Semantic error in module '{}': {}",
+                                path_str,
+                                errors.first().map(|e| e.to_string()).unwrap_or_default()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
 
-                // 6. Analyze semantics
-                use crate::analyzer::Analyzer;
+                    // 7. Type check
+                    use crate::typechecker::TypeChecker;
 
-                let mut analyzer = Analyzer::new();
-                if let Err(errors) = analyzer.analyze(&program) {
-                    return Err(RuntimeError::new(
-                        format!(
-                            "Semantic error in module '{}': {}",
-                            path_str,
-                            errors.first().map(|e| e.to_string()).unwrap_or_default()
-                        ),
-                        *line,
-                        *column,
-                    ));
+                    let mut tc = TypeChecker::new();
+                    if let Err(type_errors) = tc.check_types(&program) {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Type error in module '{}': {}",
+                                path_str,
+                                type_errors
+                                    .first()
+                                    .map(|e| e.to_string())
+                                    .unwrap_or_default()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+
+                    // 8. Create child environment
+                    use crate::interpreter::environment::Environment;
+                    let module_env = Environment::new_child_env(&env);
+
+                    // 9. Execute module in child scope
+                    self.execute_block(&program.statements, module_env).await
                 }
+                .await;
 
-                // 7. Type check
-                use crate::typechecker::TypeChecker;
-
-                let mut tc = TypeChecker::new();
-                if let Err(type_errors) = tc.check_types(&program) {
-                    return Err(RuntimeError::new(
-                        format!(
-                            "Type error in module '{}': {}",
-                            path_str,
-                            type_errors
-                                .first()
-                                .map(|e| e.to_string())
-                                .unwrap_or_default()
-                        ),
-                        *line,
-                        *column,
-                    ));
-                }
-
-                // 8. Create child environment
-                use crate::interpreter::environment::Environment;
-                let module_env = Environment::new_child_env(&env);
-
-                // 9. Update execution context
-                self.loading_stack.borrow_mut().push(resolved_path.clone());
-                let previous_source = self.current_source_file.borrow().clone();
-                *self.current_source_file.borrow_mut() = Some(resolved_path.clone());
-
-                // 10. Execute module in child scope
-                let result = self.execute_block(&program.statements, module_env).await;
-
-                // 11. Restore context
-                *self.current_source_file.borrow_mut() = previous_source;
-                self.loading_stack.borrow_mut().pop();
-
-                // 12. Handle result
-                match result {
+                // Handle result and build error chain if needed BEFORE popping
+                let final_result = match execution_result {
                     Ok((_, ControlFlow::None)) => Ok((Value::Null, ControlFlow::None)),
                     Ok((_, ControlFlow::Return(_))) => Err(RuntimeError::new(
                         "Cannot use 'return' in module scope".to_string(),
@@ -2722,7 +2724,13 @@ impl Interpreter {
                             Err(e)
                         }
                     }
-                }
+                };
+
+                // Restore context
+                *self.current_source_file.borrow_mut() = previous_source;
+                self.loading_stack.borrow_mut().pop();
+
+                final_result
             }
 
             Statement::WaitForStatement {
