@@ -96,7 +96,14 @@ mod file_io_error_handling_tests {
                 invalid_path,
                 result.err()
             );
+
+            // Clean up after each iteration in case the invalid path created unexpected files
+            // For example, empty path "" might create "file1", "con" might create a file named "con"
+            cleanup_test_files(&["file1", "con", invalid_path]);
         }
+
+        // Final cleanup for any remaining test artifacts
+        cleanup_test_files(&["file1", "con"]);
     }
 
     #[tokio::test]

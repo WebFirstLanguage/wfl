@@ -170,3 +170,121 @@ fn test_mixed_line_endings() {
     assert_eq!(tokens[6].line, 4);
     assert_eq!(tokens[6].column, 1);
 }
+
+#[test]
+fn test_string_literal_with_crlf() {
+    // String containing literal \r\n bytes (not escape sequences)
+    let input = "store x as \"hello\r\nworld\"";
+    let tokens = lex_wfl_with_positions(input);
+
+    // Find the string literal
+    let str_token = tokens
+        .iter()
+        .find(|t| matches!(t.token, Token::StringLiteral(_)))
+        .expect("Should find string literal");
+
+    // String starts on line 1
+    assert_eq!(str_token.line, 1);
+
+    // The string contains a newline, so it spans 2 lines
+    // But the token position is where it STARTS
+    assert_eq!(str_token.column, 12); // After "store x as "
+}
+
+#[test]
+fn test_string_literal_with_crlf_column_tracking() {
+    // Test that tokens AFTER a string with \r\n have correct positions
+    let input = "\"line1\r\nline2\" store";
+    let tokens = lex_wfl_with_positions(input);
+
+    // String literal on line 1
+    assert_eq!(tokens[0].line, 1);
+
+    // The 'store' keyword should be on line 2, after "line2" and closing quote
+    let store_token = tokens
+        .iter()
+        .find(|t| matches!(&t.token, Token::KeywordStore))
+        .expect("Should find store keyword");
+    assert_eq!(store_token.line, 2);
+    // After "line2" (5 chars) + closing quote (1) + space (1) = column 8
+    assert_eq!(store_token.column, 8);
+}
+
+#[test]
+fn test_string_literal_multiple_crlf() {
+    // Multiple \r\n sequences in one string
+    let input = "\"a\r\nb\r\nc\" x";
+    let tokens = lex_wfl_with_positions(input);
+
+    // String starts line 1
+    assert_eq!(tokens[0].line, 1);
+
+    // x should be on line 3 (after 2 newlines)
+    let x_token = tokens
+        .iter()
+        .find(|t| matches!(&t.token, Token::Identifier(s) if s == "x"))
+        .expect("Should find x");
+    assert_eq!(x_token.line, 3);
+    // After "c" (1) + closing quote (1) + space (1) = column 4
+    assert_eq!(x_token.column, 4);
+}
+
+#[test]
+fn test_string_literal_ending_with_cr_no_lf() {
+    // String ending with \r but no \n (edge case)
+    let input = "\"hello\r\" x";
+    let tokens = lex_wfl_with_positions(input);
+
+    let x_token = tokens
+        .iter()
+        .find(|t| matches!(&t.token, Token::Identifier(s) if s == "x"))
+        .expect("Should find x");
+    assert_eq!(x_token.line, 2); // \r counts as newline
+    // Line 2: closing quote at col 1, space at col 2, x at col 3
+    assert_eq!(x_token.column, 3);
+}
+
+#[test]
+fn test_string_literal_mixed_line_endings_in_string() {
+    // String with \n, \r\n, and \r mixed
+    let input = "\"a\nb\r\nc\rd\" x";
+    let tokens = lex_wfl_with_positions(input);
+
+    let x_token = tokens
+        .iter()
+        .find(|t| matches!(&t.token, Token::Identifier(s) if s == "x"))
+        .expect("Should find x");
+    assert_eq!(x_token.line, 4); // 3 newlines = line 4
+    // After "d" (1) + closing quote (1) + space (1) = column 4
+    assert_eq!(x_token.column, 4);
+}
+
+#[test]
+fn test_empty_string_with_crlf() {
+    // String containing only CRLF
+    let input = "\"\r\n\" x";
+    let tokens = lex_wfl_with_positions(input);
+
+    let x_token = tokens
+        .iter()
+        .find(|t| matches!(&t.token, Token::Identifier(s) if s == "x"))
+        .expect("Should find x");
+    assert_eq!(x_token.line, 2);
+    // Line 2: closing quote at col 1, space at col 2, x at col 3
+    assert_eq!(x_token.column, 3);
+}
+
+#[test]
+fn test_consecutive_crlf_in_string() {
+    // Multiple consecutive \r\n sequences
+    let input = "\"a\r\n\r\nb\" x";
+    let tokens = lex_wfl_with_positions(input);
+
+    let x_token = tokens
+        .iter()
+        .find(|t| matches!(&t.token, Token::Identifier(s) if s == "x"))
+        .expect("Should find x");
+    assert_eq!(x_token.line, 3); // 2 newlines = line 3
+    // After "b" (1) + closing quote (1) + space (1) = column 4
+    assert_eq!(x_token.column, 4);
+}

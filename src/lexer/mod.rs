@@ -131,9 +131,12 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                              last_nl_end_dist = len - (i + 1);
                          } else if bytes[i] == b'\r' {
                              if i + 1 < len && bytes[i+1] == b'\n' {
-                                 // \r\n. Count it when we hit \n (next iteration) or skip \r?
-                                 // If we don't count here, next iter sees \n and counts.
-                                 // Dist will be updated then.
+                                 // \r\n is a single newline sequence
+                                 newline_count += 1;
+                                 // Distance is measured from after the \n (i+2)
+                                 last_nl_end_dist = len - (i + 2);
+                                 // Skip the \n on next iteration
+                                 i += 1;
                              } else {
                                  // Standalone \r
                                  newline_count += 1;

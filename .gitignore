@@ -124,6 +124,10 @@ wfl_exec.log
 temp_test_*.wfl
 temp_test_*_debug.txt
 
+# Test artifacts from file I/O error handling tests
+file1
+con
+
 # Python cache (for Tools/ directory)
 __pycache__/
 *.py[cod]
