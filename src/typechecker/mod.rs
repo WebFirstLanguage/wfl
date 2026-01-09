@@ -3117,13 +3117,17 @@ mod tests {
             "Expected type error for invalid signal name"
         );
         let errors = result.err().unwrap();
-        assert!(errors.iter().any(|e| e.message.contains("Invalid signal type")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("Invalid signal type"))
+        );
 
         // Test case 3: Undefined handler
         let undefined_handler = Program {
             statements: vec![Statement::RegisterSignalHandlerStatement {
                 signal_type: "SIGINT".to_string(),
-                handler_name: "undefined".to_string(),
+                handler_name: "unknown_handler".to_string(),
                 line: 1,
                 column: 1,
             }],
@@ -3133,9 +3137,11 @@ mod tests {
         let result = type_checker.check_types(&undefined_handler);
         assert!(result.is_err(), "Expected type error for undefined handler");
         let errors = result.err().unwrap();
-        assert!(errors
-            .iter()
-            .any(|e| e.message.contains("Undefined signal handler")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("Undefined signal handler"))
+        );
 
         // Test case 4: Handler is not a function
         let not_a_function = Program {
@@ -3207,6 +3213,10 @@ mod tests {
             "Expected type error when handler has too many parameters"
         );
         let errors = result.err().unwrap();
-        assert!(errors.iter().any(|e| e.message.contains("must accept 0 or 1 arguments")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("must accept 0 or 1 arguments"))
+        );
     }
 }
