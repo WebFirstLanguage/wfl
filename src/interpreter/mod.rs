@@ -288,7 +288,7 @@ pub struct Interpreter {
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
     current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
-    loading_stack: RefCell<Vec<PathBuf>>,          // Stack of currently loading files (for circular dependency detection)
+    loading_stack: RefCell<Vec<PathBuf>>, // Stack of currently loading files (for circular dependency detection)
 }
 
 // Process handle for managing subprocess state
@@ -1097,8 +1097,8 @@ impl Interpreter {
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
             config,
-            current_source_file: RefCell::new(None),   // No source file initially
-            loading_stack: RefCell::new(Vec::new()),   // Empty loading stack
+            current_source_file: RefCell::new(None), // No source file initially
+            loading_stack: RefCell::new(Vec::new()), // Empty loading stack
         }
     }
 
@@ -1153,11 +1153,7 @@ impl Interpreter {
         // Canonicalize to handle . and .. and detect duplicates
         let canonical = resolved.canonicalize().map_err(|e| {
             RuntimeError::new(
-                format!(
-                    "Cannot resolve module path '{}': {}",
-                    relative_path,
-                    e
-                ),
+                format!("Cannot resolve module path '{}': {}", relative_path, e),
                 line,
                 column,
             )
@@ -1175,8 +1171,7 @@ impl Interpreter {
         let stack = self.loading_stack.borrow();
 
         if stack.contains(path) {
-            let mut chain: Vec<String> =
-                stack.iter().map(|p| p.display().to_string()).collect();
+            let mut chain: Vec<String> = stack.iter().map(|p| p.display().to_string()).collect();
             chain.push(path.display().to_string());
 
             return Err(RuntimeError::new(
@@ -2572,7 +2567,9 @@ impl Interpreter {
                 }
             }
 
-            Statement::LoadModuleStatement { path, line, column, .. } => {
+            Statement::LoadModuleStatement {
+                path, line, column, ..
+            } => {
                 // 1. Evaluate path expression to string
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
                 let path_str = match &path_value {
@@ -2582,7 +2579,7 @@ impl Interpreter {
                             format!("Module path must be a string, got {path_value:?}"),
                             *line,
                             *column,
-                        ))
+                        ));
                     }
                 };
 
@@ -2630,8 +2627,11 @@ impl Interpreter {
                 let mut analyzer = Analyzer::new();
                 if let Err(errors) = analyzer.analyze(&program) {
                     return Err(RuntimeError::new(
-                        format!("Semantic error in module '{}': {}", path_str,
-                            errors.first().map(|e| e.to_string()).unwrap_or_default()),
+                        format!(
+                            "Semantic error in module '{}': {}",
+                            path_str,
+                            errors.first().map(|e| e.to_string()).unwrap_or_default()
+                        ),
                         *line,
                         *column,
                     ));
@@ -2661,9 +2661,7 @@ impl Interpreter {
                 let module_env = Environment::new_child_env(&env);
 
                 // 9. Update execution context
-                self.loading_stack
-                    .borrow_mut()
-                    .push(resolved_path.clone());
+                self.loading_stack.borrow_mut().push(resolved_path.clone());
                 let previous_source = self.current_source_file.borrow().clone();
                 *self.current_source_file.borrow_mut() = Some(resolved_path.clone());
 
@@ -2712,7 +2710,11 @@ impl Interpreter {
                             .collect();
                         if !chain.is_empty() {
                             Err(RuntimeError::new(
-                                format!("Error in module chain {}: {}", chain.join(" → "), e.message),
+                                format!(
+                                    "Error in module chain {}: {}",
+                                    chain.join(" → "),
+                                    e.message
+                                ),
                                 e.line,
                                 e.column,
                             ))

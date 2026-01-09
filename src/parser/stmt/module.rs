@@ -18,14 +18,13 @@ impl<'a> ModuleParser<'a> for Parser<'a> {
         let path = self.parse_primary_expression()?;
 
         // V1: Reject unsupported alias syntax with helpful error
-        if let Some(next_token) = self.cursor.peek() {
-            if matches!(next_token.token, Token::KeywordAs) {
-                return Err(ParseError::from_token(
-                    "Module aliases are not yet supported. Use: load module from \"path\""
-                        .to_string(),
-                    next_token,
-                ));
-            }
+        if let Some(next_token) = self.cursor.peek()
+            && matches!(next_token.token, Token::KeywordAs)
+        {
+            return Err(ParseError::from_token(
+                "Module aliases are not yet supported. Use: load module from \"path\"".to_string(),
+                next_token,
+            ));
         }
 
         Ok(Statement::LoadModuleStatement {
