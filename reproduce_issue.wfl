@@ -1,0 +1,2 @@
+write "content" to "file1.txt"
+display "Done"

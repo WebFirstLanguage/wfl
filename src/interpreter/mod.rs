@@ -2464,6 +2464,15 @@ impl Interpreter {
                 let content_str = format!("{content_value}");
 
                 // Check if target is a file handle (starts with "file") or a file path
+                // Debug print to investigate behavior
+                if std::env::var("WFL_DEBUG_HANDLES").is_ok() {
+                    println!(
+                        "DEBUG: target_str='{}', starts_with('file')={}",
+                        target_str,
+                        target_str.starts_with("file")
+                    );
+                }
+
                 if target_str.starts_with("file") {
                     // This is a file handle, use append_file to respect the file's open mode
                     match self.io_client.append_file(&target_str, &content_str).await {
