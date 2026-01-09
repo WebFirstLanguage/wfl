@@ -66,6 +66,7 @@ Everything you need to write effective WFL programs.
 
 Web servers, async operations, pattern matching, and object-oriented programming.
 
+- [Modules](04-advanced-features/modules.md) - Code organization and reuse **✨ NEW**
 - [Async Programming](04-advanced-features/async-programming.md) - Non-blocking operations *(coming soon)*
 - [Web Servers](04-advanced-features/web-servers.md) - Built-in HTTP servers *(coming soon)*
 - [File I/O](04-advanced-features/file-io.md) - Reading and writing files *(coming soon)*
@@ -375,7 +376,7 @@ pop from list
 
 ### 🚧 In Progress
 
-- **Advanced Features** (8 files planned) - Coming soon
+- **Advanced Features** (1 of 8 complete) - Modules documentation added
 - **Standard Library** (11 files planned) - Coming soon
 - **Best Practices** (9 files planned) - Coming soon
 

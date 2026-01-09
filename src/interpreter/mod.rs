@@ -127,6 +127,9 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
         Statement::DeleteFileStatement { .. } => "DeleteFileStatement".to_string(),
         Statement::DeleteDirectoryStatement { .. } => "DeleteDirectoryStatement".to_string(),
+        Statement::LoadModuleStatement { path, .. } => {
+            format!("LoadModuleStatement from '{:?}'", path)
+        }
         Statement::ExecuteCommandStatement { variable_name, .. } => {
             if let Some(var) = variable_name {
                 format!("ExecuteCommandStatement '{var}'")
@@ -284,6 +287,8 @@ pub struct Interpreter {
     pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
+    current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
+    loading_stack: RefCell<Vec<PathBuf>>,          // Stack of currently loading files (for circular dependency detection)
 }
 
 // Process handle for managing subprocess state
@@ -1092,6 +1097,8 @@ impl Interpreter {
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
             config,
+            current_source_file: RefCell::new(None),   // No source file initially
+            loading_stack: RefCell::new(Vec::new()),   // Empty loading stack
         }
     }
 
@@ -1109,6 +1116,77 @@ impl Interpreter {
 
     pub fn set_script_args(&mut self, args: Vec<String>) {
         self.script_args = args;
+    }
+
+    pub fn set_source_file(&mut self, path: PathBuf) {
+        *self.current_source_file.borrow_mut() = Some(path);
+    }
+
+    fn resolve_module_path(
+        &self,
+        relative_path: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<PathBuf, RuntimeError> {
+        let current_file = self.current_source_file.borrow();
+
+        let resolved = if let Some(source_path) = current_file.as_ref() {
+            let base_dir = source_path.parent().ok_or_else(|| {
+                RuntimeError::new(
+                    "Cannot determine parent directory of current file".to_string(),
+                    line,
+                    column,
+                )
+            })?;
+            base_dir.join(relative_path)
+        } else {
+            let cwd = std::env::current_dir().map_err(|e| {
+                RuntimeError::new(
+                    format!("Cannot determine current directory: {}", e),
+                    line,
+                    column,
+                )
+            })?;
+            cwd.join(relative_path)
+        };
+
+        // Canonicalize to handle . and .. and detect duplicates
+        let canonical = resolved.canonicalize().map_err(|e| {
+            RuntimeError::new(
+                format!(
+                    "Cannot resolve module path '{}': {}",
+                    relative_path,
+                    e
+                ),
+                line,
+                column,
+            )
+        })?;
+
+        Ok(canonical)
+    }
+
+    fn check_circular_dependency(
+        &self,
+        path: &PathBuf,
+        line: usize,
+        column: usize,
+    ) -> Result<(), RuntimeError> {
+        let stack = self.loading_stack.borrow();
+
+        if stack.contains(path) {
+            let mut chain: Vec<String> =
+                stack.iter().map(|p| p.display().to_string()).collect();
+            chain.push(path.display().to_string());
+
+            return Err(RuntimeError::new(
+                format!("Circular dependency detected: {}", chain.join(" → ")),
+                line,
+                column,
+            ));
+        }
+
+        Ok(())
     }
 
     fn dump_state(
@@ -1498,6 +1576,7 @@ impl Interpreter {
             Statement::CreateFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteDirectoryStatement { line, column, .. } => (*line, *column),
+            Statement::LoadModuleStatement { line, column, .. } => (*line, *column),
             Statement::WaitForStatement { line, column, .. } => (*line, *column),
             Statement::WaitForDurationStatement { line, column, .. } => (*line, *column),
             Statement::TryStatement { line, column, .. } => (*line, *column),
@@ -2492,6 +2571,158 @@ impl Interpreter {
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
+
+            Statement::LoadModuleStatement { path, line, column, .. } => {
+                // 1. Evaluate path expression to string
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_str = match &path_value {
+                    Value::Text(s) => s.as_ref(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Module path must be a string, got {path_value:?}"),
+                            *line,
+                            *column,
+                        ))
+                    }
+                };
+
+                // 2. Resolve absolute path
+                let resolved_path = self.resolve_module_path(path_str, *line, *column)?;
+
+                // 3. Check circular dependencies
+                self.check_circular_dependency(&resolved_path, *line, *column)?;
+
+                // 4. Read file content
+                let content = tokio::fs::read_to_string(&resolved_path)
+                    .await
+                    .map_err(|e| {
+                        RuntimeError::new(
+                            format!("Cannot load module '{}': {}", path_str, e),
+                            *line,
+                            *column,
+                        )
+                    })?;
+
+                // 5. Parse module
+                use crate::lexer::lex_wfl_with_positions;
+                use crate::parser::Parser;
+
+                let tokens = lex_wfl_with_positions(&content);
+                let mut parser = Parser::new(&tokens);
+                let program = parser.parse().map_err(|errors| {
+                    RuntimeError::new(
+                        format!(
+                            "Parse error in module '{}': {}",
+                            path_str,
+                            errors
+                                .first()
+                                .map(|e| e.message.as_str())
+                                .unwrap_or("unknown")
+                        ),
+                        *line,
+                        *column,
+                    )
+                })?;
+
+                // 6. Analyze semantics
+                use crate::analyzer::Analyzer;
+
+                let mut analyzer = Analyzer::new();
+                if let Err(errors) = analyzer.analyze(&program) {
+                    return Err(RuntimeError::new(
+                        format!("Semantic error in module '{}': {}", path_str,
+                            errors.first().map(|e| e.to_string()).unwrap_or_default()),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                // 7. Type check
+                use crate::typechecker::TypeChecker;
+
+                let mut tc = TypeChecker::new();
+                if let Err(type_errors) = tc.check_types(&program) {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Type error in module '{}': {}",
+                            path_str,
+                            type_errors
+                                .first()
+                                .map(|e| e.to_string())
+                                .unwrap_or_default()
+                        ),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                // 8. Create child environment
+                use crate::interpreter::environment::Environment;
+                let module_env = Environment::new_child_env(&env);
+
+                // 9. Update execution context
+                self.loading_stack
+                    .borrow_mut()
+                    .push(resolved_path.clone());
+                let previous_source = self.current_source_file.borrow().clone();
+                *self.current_source_file.borrow_mut() = Some(resolved_path.clone());
+
+                // 10. Execute module in child scope
+                let result = self.execute_block(&program.statements, module_env).await;
+
+                // 11. Restore context
+                *self.current_source_file.borrow_mut() = previous_source;
+                self.loading_stack.borrow_mut().pop();
+
+                // 12. Handle result
+                match result {
+                    Ok((_, ControlFlow::None)) => Ok((Value::Null, ControlFlow::None)),
+                    Ok((_, ControlFlow::Return(_))) => Err(RuntimeError::new(
+                        "Cannot use 'return' in module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Break)) => Err(RuntimeError::new(
+                        "Cannot use 'break' in module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Continue)) => Err(RuntimeError::new(
+                        "Cannot use 'continue' in module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Exit)) => Err(RuntimeError::new(
+                        "Cannot use 'exit' in module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Err(e) => {
+                        // Add include chain to error
+                        let chain: Vec<String> = self
+                            .loading_stack
+                            .borrow()
+                            .iter()
+                            .map(|p| {
+                                p.file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string()
+                            })
+                            .collect();
+                        if !chain.is_empty() {
+                            Err(RuntimeError::new(
+                                format!("Error in module chain {}: {}", chain.join(" → "), e.message),
+                                e.line,
+                                e.column,
+                            ))
+                        } else {
+                            Err(e)
+                        }
+                    }
+                }
+            }
+
             Statement::WaitForStatement {
                 inner,
                 line: _line,

@@ -159,6 +159,10 @@ pub enum Token {
     KeywordSpawn,
     #[token("using")]
     KeywordUsing,
+    #[token("load")]
+    KeywordLoad,
+    #[token("module")]
+    KeywordModule,
     #[token("shell")]
     KeywordShell,
     #[token("kill")]
@@ -533,6 +537,8 @@ impl Token {
                 | Token::KeywordOr
                 | Token::KeywordNot
                 | Token::KeywordWait
+                | Token::KeywordLoad
+                | Token::KeywordModule
                 | Token::KeywordTry
                 | Token::KeywordWhen
                 | Token::KeywordCatch

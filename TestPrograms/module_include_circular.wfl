@@ -1,0 +1,3 @@
+display "Main loading circular_a"
+load module from "circular_a.wfl"
+display "Should not reach here"

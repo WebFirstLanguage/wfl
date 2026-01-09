@@ -1,0 +1,3 @@
+display "In A"
+load module from "b.wfl"
+display "Back in A"

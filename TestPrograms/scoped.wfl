@@ -1,0 +1,3 @@
+store local_var as "I'm local"
+display parent_var
+display local_var

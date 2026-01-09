@@ -915,6 +915,24 @@ impl TypeChecker {
                     );
                 }
             }
+            Statement::LoadModuleStatement {
+                path,
+                line: _line,
+                column: _column,
+                ..
+            } => {
+                let path_type = self.infer_expression_type(path);
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected string for module path".to_string(),
+                        Some(Type::Text),
+                        Some(path_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
             Statement::ExecuteCommandStatement {
                 command,
                 arguments,
