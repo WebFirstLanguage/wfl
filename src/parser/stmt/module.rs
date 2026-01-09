@@ -10,7 +10,17 @@ pub(crate) trait ModuleParser<'a>: ExprParser<'a> {
 
 impl<'a> ModuleParser<'a> for Parser<'a> {
     fn parse_load_module_statement(&mut self) -> Result<Statement, ParseError> {
-        let load_token = self.bump_sync().unwrap(); // Consume "load"
+        let load_token = match self.bump_sync() {
+            Some(token) => token,
+            None => {
+                return Err(ParseError::from_span(
+                    "Unexpected end of input while parsing load statement".to_string(),
+                    self.cursor.current_span(),
+                    self.cursor.current_line(),
+                    self.cursor.peek().map_or(0, |t| t.column),
+                ));
+            }
+        };
 
         self.expect_token(Token::KeywordModule, "Expected 'module' after 'load'")?;
         self.expect_token(Token::KeywordFrom, "Expected 'from' after 'module'")?;

@@ -8,6 +8,7 @@ pub struct Environment {
     pub values: HashMap<String, Value>,
     pub constants: HashSet<String>,
     pub parent: Option<Weak<RefCell<Environment>>>,
+    pub isolated: bool, // If true, cannot modify parent scope variables
 }
 
 impl Environment {
@@ -19,6 +20,7 @@ impl Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
             parent: None,
+            isolated: false,
         }))
     }
 
@@ -30,6 +32,7 @@ impl Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
+            isolated: false,
         }))
     }
 
@@ -42,6 +45,21 @@ impl Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
+            isolated: false,
+        }))
+    }
+
+    /// Creates an isolated child environment for modules that cannot modify parent scope
+    #[inline]
+    pub fn new_isolated_child_env(parent: &Rc<RefCell<Environment>>) -> Rc<RefCell<Self>> {
+        #[cfg(feature = "dhat-ad-hoc")]
+        dhat::ad_hoc_event(1);
+
+        Rc::new(RefCell::new(Self {
+            values: HashMap::new(),
+            constants: HashSet::new(),
+            parent: Some(Rc::downgrade(parent)),
+            isolated: true,
         }))
     }
 
@@ -115,7 +133,12 @@ impl Environment {
             Ok(())
         } else if let Some(parent_weak) = &self.parent {
             if let Some(parent) = parent_weak.upgrade() {
-                parent.borrow_mut().assign(name, value)
+                // If isolated, cannot modify parent scope variables
+                if self.isolated {
+                    Err(format!("Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."))
+                } else {
+                    parent.borrow_mut().assign(name, value)
+                }
             } else {
                 Err("Parent environment no longer exists".to_string())
             }
