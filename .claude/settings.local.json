@@ -49,7 +49,8 @@
       "Bash(cargo doc:*)",
       "Bash(gh run watch:*)",
       "Bash(mkdir:*)",
-      "Bash(cargo fix:*)"
+      "Bash(cargo fix:*)",
+      "Bash(file:*)"
     ],
     "deny": [],
     "ask": []
