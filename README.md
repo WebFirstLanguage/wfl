@@ -56,6 +56,7 @@ end count
 ## ✨ Key Features
 
 - **📖 Natural Language Syntax**: Write code that reads like English sentences
+- **📦 Module System**: Organize code across files with `load module from "file.wfl"` - includes circular dependency detection
 - **🚀 Modern Async Support**: Built-in async/await for concurrent operations
 - **🛡️ Type Safety**: Static type checking with intelligent inference
 - **🌐 Web-First Design**: Native HTTP and database support

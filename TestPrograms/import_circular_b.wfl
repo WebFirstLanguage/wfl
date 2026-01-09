@@ -1,0 +1,4 @@
+// This file imports A, creating a circular dependency
+
+load module from "TestPrograms/import_circular_a.wfl"
+display "This should not print either"
