@@ -51,7 +51,10 @@
       "Bash(mkdir:*)",
       "Bash(cargo fix:*)",
       "Bash(../target/release/wfl.exe:*)",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "mcp__wfl-lsp__parse_wfl",
+      "mcp__wfl-lsp__analyze_wfl",
+      "mcp__wfl-lsp__typecheck_wfl"
     ],
     "deny": [],
     "ask": []
