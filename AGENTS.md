@@ -6,7 +6,7 @@
 - `TestPrograms/`: End‑to‑end WFL programs that must all pass.
 - `wfl-lsp/`: Language Server workspace member; `vscode-extension/` for VS Code.
 - `Docs/`: Guides and technical notes (see `Docs/guides/building.md`).
-- `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`).
+- `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `run_web_tests.ps1|.sh`, `sync-branch.ps1|.sh`, `configure_lsp.ps1`).
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
 ## Core Architecture
@@ -22,6 +22,8 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Parser** (`src/parser/`): Recursive descent parser with natural language constructs and error recovery.
 - **Analyzer** (`src/analyzer/`): Semantic validation and static analysis.
 - **Type Checker** (`src/typechecker/`): Static type analysis with intelligent inference.
+- **Linter/Fixer** (`src/linter/`, `src/fixer/`): Code quality checks and auto-formatting.
+- **Diagnostics** (`src/diagnostics/`): Centralized error reporting.
 - **Interpreter** (`src/interpreter/`): Async-capable direct AST execution using Tokio runtime. Includes subprocess handling and web server support.
 - **Pattern Module** (`src/pattern/`): Pattern matching engine with bytecode VM (Unicode support).
 - **Standard Library** (`src/stdlib/`): Built-in modules (Math, Text, List, FS, Crypto, Time).
@@ -40,9 +42,10 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `wfl <file>`: Run a WFL program.
 - `wfl`: Start interactive REPL.
 - `wfl --lint <file>`: Lint WFL code.
-- `wfl --fix <file> --in-place`: Auto-fix WFL code.
+- `wfl --lint --fix <file> --in-place`: Auto-fix WFL code.
 - `wfl --debug <file>`: Debug WFL execution.
 - `wfl --step <file>`: Run in single-step debug mode.
+- `wfl --edit <file>`: Open file in default editor.
 - `wfl --time <file>`: Run with execution timing.
 - `wfl --lex <file>` / `wfl --parse <file>`: Dump tokens or AST.
 - `wfl --configCheck` / `wfl --configFix`: Check/fix configuration.
