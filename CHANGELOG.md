@@ -4,47 +4,6 @@ All notable changes to the WFL project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project uses a calendar-based versioning scheme: **YY.MM.BUILD**.
 
-## [26.1.13] - 2026-01-08
-
-### Added
-- **Module System**: Complete implementation of import/module functionality
-  - New syntax: `load module from "file.wfl"` and simplified `load "file.wfl"`
-  - Automatic path resolution (relative to importing file, then working directory)
-  - Circular dependency detection with clear error messages showing the dependency chain
-  - Import caching - each file imported only once to prevent duplicate execution
-  - Support for nested imports (transitive dependencies)
-  - Diamond dependency handling
-  - Comprehensive error handling for missing files and syntax errors
-- Added `KeywordLoad` and `KeywordModule` tokens to lexer
-- Added `ImportStatement` AST node
-- New parser method `parse_without_imports()` for recursive import processing
-- Import processor module (`src/parser/import_processor.rs`) with full dependency tracking
-- Module parser (`src/parser/stmt/modules.rs`) for parsing import statements
-- 29 comprehensive tests covering all import scenarios
-- TestPrograms integration tests demonstrating real-world usage
-- Documentation: New comprehensive guide at `Docs/guides/modules.md`
-
-### Technical Details
-- Parse-time import processing (not runtime) for better error reporting and type safety
-- Import stack tracking to detect circular dependencies
-- Imported files HashSet to prevent duplicate loading
-- Base path support in Parser for correct relative path resolution
-- Full backward compatibility - all 275 existing tests continue to pass
-
-### Examples
-```wfl
-// Basic import
-load module from "helper.wfl"
-
-// Relative paths
-load module from "../config.wfl"
-load module from "lib/utils.wfl"
-
-// All variables, actions, and containers from imported files are accessible
-call helper_function
-display imported_variable
-```
-
 ## [25.9.1] - 2025-09-20
 
 ### Added

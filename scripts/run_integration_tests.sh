@@ -81,30 +81,8 @@ run_integration_tests() {
 # These are tested separately with dedicated scripts
 SKIP_TESTS=(
     "simple_web_test.wfl"      # Web server - needs HTTP client
-    "comprehensive_web_server_demo.wfl"
-    "header_access_test.wfl"
-    "multi_server_resolution_test.wfl"
-    "simple_graceful_shutdown_test.wfl"
-    "simple_respond_test.wfl"
-    "simple_timeout_test.wfl"
-    "simple_web_server.wfl"
-    "test_basic_server.wfl"
-    "test_request_properties.wfl"
-    "test_simple_static.wfl"
-    "test_static_files.wfl"
-    "test_web_server_response.wfl"
-    "timeout_parsing_test.wfl"
-    "wait_request_test.wfl"
-    "web_server_basic_test.wfl"
-    "web_server_body_limit_test.wfl"
-    "web_server_comprehensive_test.wfl"
-    "web_server_content_length_test.wfl"
-    "web_server_example.wfl"
-    "web_server_graceful_shutdown_test.wfl"
-    "web_server_middleware_test.wfl"
-    "web_server_request_response_test.wfl"
-    "web_server_session_test.wfl"
-    "web_server_websocket_test.wfl"
+    "web_server_test.wfl"      # Web server - needs HTTP client
+    "websocket_test.wfl"       # WebSocket - needs WS client
 )
 
 # Timeout for each test (seconds)

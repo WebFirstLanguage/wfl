@@ -3,36 +3,18 @@ mod column_tests;
 #[cfg(test)]
 mod position_tests;
 #[cfg(test)]
+mod string_line_ending_tests;
+#[cfg(test)]
 mod tests;
 
 pub mod token;
 use logos::Logos;
-use std::borrow::Cow;
 use token::{Token, TokenWithPosition};
 
-#[deprecated(
-    since = "0.1.0",
-    note = "Use normalize_line_endings_cow for better performance"
-)]
-pub fn normalize_line_endings(input: &str) -> String {
-    normalize_line_endings_cow(input).into_owned()
-}
-
-pub fn normalize_line_endings_cow(input: &str) -> Cow<'_, str> {
-    if !input.contains('\r') {
-        return Cow::Borrowed(input);
-    }
-    // Handle CRLF first as it's the most common case requiring normalization
-    if input.contains("\r\n") {
-        return Cow::Owned(input.replace("\r\n", "\n"));
-    }
-    // Handle standalone CR (Mac Classic)
-    Cow::Owned(input.replace('\r', "\n"))
-}
-
 pub fn lex_wfl(input: &str) -> Vec<Token> {
-    let input = normalize_line_endings_cow(input);
-    let mut lexer = Token::lexer(&input);
+    // Bolt: We no longer normalize line endings globally to avoid allocation.
+    // Token::Newline now matches \r\n, \n, and \r.
+    let mut lexer = Token::lexer(input);
     let mut tokens = Vec::new();
     let mut current_id: Option<String> = None;
 
@@ -89,8 +71,9 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
 }
 
 pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
-    let input = normalize_line_endings_cow(input);
-    let mut lexer = Token::lexer(&input);
+    // Bolt: We no longer normalize line endings globally to avoid allocation.
+    // Token::Newline now matches \r\n, \n, and \r.
+    let mut lexer = Token::lexer(input);
     let mut tokens = Vec::new();
     let mut current_id: Option<String> = None;
     let mut current_id_start_line = 0;
@@ -109,9 +92,6 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
         let span = lexer.span();
 
         // Calculate skipped whitespace/comments length
-        // Logos is configured to skip [ \t\f\r] and comments.
-        // Since we normalize \r\n to \n and \r to \n, and \n is a Token,
-        // the skipped content does not contain newlines.
         let skipped_len = span.start - last_span_end;
         current_column += skipped_len;
 
@@ -121,12 +101,59 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
 
         // Update position for the next token based on current token content
         let slice = lexer.slice();
-        let newline_count = slice.as_bytes().iter().filter(|&&b| b == b'\n').count();
+
+        let mut newline_count = 0;
+        let mut last_nl_end_dist = 0;
+
+        // Optimization: Only scan tokens that CAN contain newlines.
+        // Most tokens (Identifiers, Keywords, IntLiterals, etc.) do not.
+        let needs_scan = match &token_result {
+            Ok(Token::Newline) => true,
+            Ok(Token::StringLiteral(_)) => true,
+            Ok(Token::Error) => true, // Errors might include newlines depending on logos config
+            _ => false,
+        };
+
+        if needs_scan {
+            match &token_result {
+                Ok(Token::Newline) => {
+                    // We know Newline token is exactly one newline sequence
+                    newline_count = 1;
+                    // Column resets to 1 (distance 0 from end of newline)
+                    last_nl_end_dist = 0;
+                }
+                _ => {
+                    // Scan bytes for StringLiteral or Error
+                    let bytes = slice.as_bytes();
+                    let mut i = 0;
+                    let len = bytes.len();
+                    while i < len {
+                        if bytes[i] == b'\n' {
+                            newline_count += 1;
+                            last_nl_end_dist = len - (i + 1);
+                        } else if bytes[i] == b'\r' {
+                            if i + 1 < len && bytes[i + 1] == b'\n' {
+                                // Handle \r\n as a single newline (2-byte sequence)
+                                newline_count += 1;
+                                // Distance from end is calculated after BOTH bytes
+                                last_nl_end_dist = len - (i + 2);
+                                // Skip the \n byte on next iteration since we processed it here
+                                i += 1;
+                            } else {
+                                // Standalone \r (Mac-style line ending)
+                                newline_count += 1;
+                                last_nl_end_dist = len - (i + 1);
+                            }
+                        }
+                        i += 1;
+                    }
+                }
+            }
+        }
+
         if newline_count > 0 {
             current_line += newline_count;
-            // Guaranteed to exist if newline_count > 0
-            let last_nl_pos = slice.rfind('\n').unwrap();
-            current_column = slice.len() - last_nl_pos;
+            current_column = 1 + last_nl_end_dist;
         } else {
             current_column += slice.len();
         }
@@ -175,7 +202,7 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                     Token::Eol,
                     token_line,
                     token_column,
-                    token_length, // Length of '\n' = 1
+                    token_length,
                     span.start,
                     span.end,
                 ));
