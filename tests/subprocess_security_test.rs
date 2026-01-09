@@ -189,7 +189,7 @@ fn test_simple_command_without_args_works() {
 fn test_spawn_with_safe_arguments() {
     let code = r#"
         spawn command "echo" with arguments ["test"] as proc_id
-        wait for 200 milliseconds
+        wait for 300 milliseconds
         wait for read output from process proc_id as proc_output
         wait for process proc_id to complete
         display proc_output
@@ -201,9 +201,12 @@ fn test_spawn_with_safe_arguments() {
         "Spawn with safe arguments should work: {:?}",
         result
     );
+    
+    let output = result.unwrap();
     assert!(
-        result.unwrap().contains("test"),
-        "Output should contain expected text"
+        output.contains("test"),
+        "Output should contain expected text 'test'. Actual output: '{}'",
+        output
     );
 }
 
@@ -243,7 +246,7 @@ fn test_multiple_safe_processes() {
     let code = r#"
         spawn command "echo" with arguments ["test1"] as proc1
         spawn command "echo" with arguments ["test2"] as proc2
-        wait for 200 milliseconds
+        wait for 300 milliseconds
         wait for read output from process proc1 as out1
         wait for read output from process proc2 as out2
         wait for process proc1 to complete
@@ -257,5 +260,12 @@ fn test_multiple_safe_processes() {
         result.is_ok(),
         "Multiple safe processes should work: {:?}",
         result
+    );
+    
+    let output = result.unwrap();
+    assert!(
+        output.contains("test1") || output.contains("test2"),
+        "Output should contain at least one of 'test1' or 'test2'. Actual output: '{}'",
+        output
     );
 }
