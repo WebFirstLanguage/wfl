@@ -1,0 +1,5 @@
+// Constants for import testing
+
+store PI_VALUE as 3.14159
+store E_VALUE as 2.71828
+store MAX_SIZE as 1000
