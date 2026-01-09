@@ -170,3 +170,20 @@ fn test_mixed_line_endings() {
     assert_eq!(tokens[6].line, 4);
     assert_eq!(tokens[6].column, 1);
 }
+
+#[test]
+fn test_position_tracking_with_cr_comments() {
+    let input = "store x as 5 // comment\rstore y as 10";
+    let tokens = lex_wfl_with_positions(input);
+
+    // Find the second store keyword (after the comment)
+    let second_store = tokens
+        .iter()
+        .filter(|t| matches!(&t.token, Token::KeywordStore))
+        .nth(1)
+        .expect("Should find second store keyword");
+
+    // Should be on line 2, column 1
+    assert_eq!(second_store.line, 2, "Second store should be on line 2");
+    assert_eq!(second_store.column, 1, "Second store should be at column 1");
+}
