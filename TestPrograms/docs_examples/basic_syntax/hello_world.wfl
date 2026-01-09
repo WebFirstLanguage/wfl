@@ -1,0 +1,4 @@
+// Basic "Hello, World!" example
+// This demonstrates the simplest WFL program
+
+display "Hello, World!"
