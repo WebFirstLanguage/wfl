@@ -64,7 +64,8 @@ create container UserModel:
         store errors_list as create list
 
         // Validate name
-        check if length of user_name is less than 3:
+        store name_len as length of user_name
+        check if name_len is less than 3:
             push with errors_list and "Name must be at least 3 characters"
             store is_valid as no
         end check

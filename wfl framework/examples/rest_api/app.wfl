@@ -1,0 +1,130 @@
+// REST API Application - Complete Example
+display "========================================="
+display "   WFL MVC Framework - REST API"
+display "========================================="
+display ""
+
+// Load components
+load module from "models.wfl"
+load module from "controllers.wfl"
+
+// Initialize controller
+display "Initializing API controller..."
+create new ApiController as api:
+    controller_name is "API"
+    users_list is create list
+end
+
+api.init_controller()
+display ""
+
+// Start server
+store api_port as 3002
+display "Starting REST API on port " with api_port
+listen on port api_port as web_server
+display "✓ API server started"
+display ""
+
+display "API Endpoints:"
+display "  GET  /                  → API info"
+display "  GET  /api/status        → Health check"
+display "  GET  /api/users         → List all users"
+display "  GET  /api/users/1       → Get user by ID"
+display "  POST /api/users         → Create user"
+display ""
+
+display "Test with curl:"
+display "  curl http://localhost:" with api_port with "/api/users"
+display "  curl http://localhost:" with api_port with "/api/users/1"
+display ""
+
+store req_num as 0
+
+main loop:
+    wait for request comes in on web_server as incoming_req
+
+    store req_num as req_num plus 1
+    display "Request #" with req_num with ": " with method with " " with path
+
+    // Create temp containers
+    create container TempReq:
+        property method_val: Text
+        property path_val: Text
+    end
+
+    create container TempRes:
+        property content_val: Text
+        property status_code: Number
+
+        action set_cont needs text: Text:
+            store content_val as text
+        end
+
+        action set_stat needs code: Number:
+            store status_code as code
+        end
+    end
+
+    create new TempReq as req:
+        method_val is method
+        path_val is path
+    end
+
+    create new TempRes as res:
+        content_val is ""
+        status_code is 200
+    end
+
+    // Routing
+    store routed as no
+
+    check if path is equal to "/":
+        store info as "{\"name\":\"WFL MVC REST API\",\"version\":\"1.0.0\",\"endpoints\":[\"/api/users\",\"/api/status\"]}"
+        respond to incoming_req with info and content_type "application/json"
+        store routed as yes
+    end check
+
+    check if path is equal to "/api/status" and routed is no:
+        api.status_action(req, res)
+        respond to incoming_req with res.content_val and status res.status_code and content_type "application/json"
+        store routed as yes
+    end check
+
+    check if path is equal to "/api/users" and routed is no:
+        check if method is equal to "GET":
+            api.list_users(req, res)
+            respond to incoming_req with res.content_val and status res.status_code and content_type "application/json"
+            store routed as yes
+        otherwise check if method is equal to "POST":
+            api.create_action(req, res)
+            respond to incoming_req with res.content_val and status res.status_code and content_type "application/json"
+            store routed as yes
+        end check
+    end check
+
+    check if path is equal to "/api/users/1" and routed is no:
+        api.get_user(req, res, "1")
+        respond to incoming_req with res.content_val and status res.status_code and content_type "application/json"
+        store routed as yes
+    end check
+
+    check if path is equal to "/api/users/2" and routed is no:
+        api.get_user(req, res, "2")
+        respond to incoming_req with res.content_val and status res.status_code and content_type "application/json"
+        store routed as yes
+    end check
+
+    check if routed is no:
+        respond to incoming_req with "{\"error\":\"Endpoint not found\"}" and status 404 and content_type "application/json"
+    end check
+
+    display "✓ Sent"
+
+    check if req_num is greater than or equal to 15:
+        display "Stopping after " with req_num with " requests"
+        break
+    end check
+end loop
+
+display ""
+display "✓ REST API stopped"
