@@ -5844,12 +5844,38 @@ impl Interpreter {
             Expression::HeaderAccess {
                 header_name,
                 request: _,
-                line: _,
-                column: _,
+                line,
+                column,
             } => {
-                // TODO: Implement header access from HTTP request
-                // For now, return a placeholder value
-                Ok(Value::Text(Rc::from(format!("header_{}", header_name))))
+                // Access the headers object from the environment
+                // Headers are stored as a global variable when wait for request is executed
+                let headers_val = match env.borrow().get("headers") {
+                    Some(val) => val.clone(),
+                    None => {
+                        return Err(RuntimeError::new(
+                            "Cannot access headers: no request in scope. Use 'wait for request comes in' first.".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Get the specific header from the headers object
+                match &headers_val {
+                    Value::Object(headers_map) => {
+                        match headers_map.borrow().get(header_name) {
+                            Some(header_value) => Ok(header_value.clone()),
+                            None => Ok(Value::Nothing),
+                        }
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected headers to be an object, got {}", headers_val.type_name()),
+                            *line,
+                            *column,
+                        ));
+                    }
+                }
             }
             Expression::CurrentTimeMilliseconds { line: _, column: _ } => {
                 use std::time::{SystemTime, UNIX_EPOCH};

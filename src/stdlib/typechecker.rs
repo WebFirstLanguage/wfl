@@ -30,6 +30,10 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_pattern_replace(analyzer);
     register_pattern_split(analyzer);
 
+    register_parse_json(analyzer);
+    register_stringify_json(analyzer);
+    register_stringify_json_pretty(analyzer);
+
     register_wflhash256(analyzer);
     register_wflhash512(analyzer);
     register_wflhash256_with_salt(analyzer);
@@ -302,6 +306,27 @@ fn register_remove_dir(analyzer: &mut Analyzer) {
     // Register 2-arg version (with recursive flag)
     let param_types_with_recursive = vec![Type::Text, Type::Boolean];
     analyzer.register_builtin_function("remove_dir", param_types_with_recursive, return_type);
+}
+
+fn register_parse_json(analyzer: &mut Analyzer) {
+    let param_types = vec![Type::Text]; // JSON string
+    let return_type = Type::Unknown; // Can return object, list, text, number, boolean, or nothing
+
+    analyzer.register_builtin_function("parse_json", param_types, return_type);
+}
+
+fn register_stringify_json(analyzer: &mut Analyzer) {
+    let param_types = vec![Type::Unknown]; // Accepts any value
+    let return_type = Type::Text; // Returns JSON string
+
+    analyzer.register_builtin_function("stringify_json", param_types, return_type);
+}
+
+fn register_stringify_json_pretty(analyzer: &mut Analyzer) {
+    let param_types = vec![Type::Unknown]; // Accepts any value
+    let return_type = Type::Text; // Returns pretty-printed JSON string
+
+    analyzer.register_builtin_function("stringify_json_pretty", param_types, return_type);
 }
 
 #[cfg(test)]
