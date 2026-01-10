@@ -10,17 +10,6 @@ pub(crate) trait ModuleParser<'a>: ExprParser<'a> {
 
 impl<'a> ModuleParser<'a> for Parser<'a> {
     fn parse_load_module_statement(&mut self) -> Result<Statement, ParseError> {
-<<<<<<< HEAD
-        // Safely consume "load" token and capture its position
-        let load_token = if let Some(token) = self.cursor.peek() {
-            let token = token.clone();
-            self.bump_sync();
-            token
-        } else {
-            return Err(self
-                .cursor
-                .error("Expected 'load' keyword but found end of input".to_string()));
-=======
         let load_token = match self.bump_sync() {
             Some(token) => token,
             None => {
@@ -31,7 +20,6 @@ impl<'a> ModuleParser<'a> for Parser<'a> {
                     self.cursor.peek().map_or(0, |t| t.column),
                 ));
             }
->>>>>>> origin/includes
         };
 
         self.expect_token(Token::KeywordModule, "Expected 'module' after 'load'")?;
