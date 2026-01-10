@@ -66,10 +66,18 @@ fn run_wfl_with_validation(
                     return Ok(output);
                 } else {
                     // Output succeeded but doesn't have expected content - might be timing issue
-                    last_result = Ok(output);
+                    let missing: Vec<&str> = expected_strings
+                        .iter()
+                        .filter(|s| !output.contains(*s))
+                        .copied()
+                        .collect();
+                    last_result = Err(format!(
+                        "Output missing expected strings after {} of {} attempts. Missing: {:?}. Actual output: '{}'",
+                        attempt, max_attempts, missing, output
+                    ));
                     if attempt < max_attempts {
                         // Wait before retrying with exponential backoff
-                        thread::sleep(Duration::from_millis(150 * attempt as u64));
+                        thread::sleep(Duration::from_millis(150 * 2u64.saturating_pow((attempt - 1) as u32)));
                     }
                 }
             }
@@ -77,7 +85,7 @@ fn run_wfl_with_validation(
                 last_result = Err(e);
                 if attempt < max_attempts {
                     // Wait before retrying with exponential backoff
-                    thread::sleep(Duration::from_millis(150 * attempt as u64));
+                    thread::sleep(Duration::from_millis(150 * 2u64.saturating_pow((attempt - 1) as u32)));
                 }
             }
         }
