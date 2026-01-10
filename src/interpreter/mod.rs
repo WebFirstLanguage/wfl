@@ -259,6 +259,12 @@ fn stmt_type(stmt: &Statement) -> String {
             "StopAcceptingConnectionsStatement".to_string()
         }
         Statement::CloseServerStatement { .. } => "CloseServerStatement".to_string(),
+        Statement::IncludeStatement { path, .. } => {
+            format!("IncludeStatement from '{:?}'", path)
+        }
+        Statement::ExportStatement { export_type, name, .. } => {
+            format!("ExportStatement {} '{}'", export_type, name)
+        }
     }
 }
 
@@ -1705,6 +1711,8 @@ impl Interpreter {
             Statement::ReadProcessOutputStatement { line, column, .. } => (*line, *column),
             Statement::KillProcessStatement { line, column, .. } => (*line, *column),
             Statement::WaitForProcessStatement { line, column, .. } => (*line, *column),
+            Statement::IncludeStatement { line, column, .. } => (*line, *column),
+            Statement::ExportStatement { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {
@@ -2823,6 +2831,185 @@ impl Interpreter {
                         }
                     }
                 }
+            }
+
+            Statement::IncludeStatement {
+                path, line, column, ..
+            } => {
+                // Include statement executes modules in parent scope (non-isolated)
+                
+                // 1. Evaluate path expression to string
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_str: String = match &path_value {
+                    Value::Text(s) => s.to_string(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Include path must be a string, got {path_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // 2. Resolve absolute path
+                let resolved_path = self.resolve_module_path(&path_str, *line, *column).await?;
+
+                // 3. Check circular dependencies
+                self.check_circular_dependency(&resolved_path, *line, *column)?;
+
+                // 4. Read file content
+                let content = tokio::fs::read_to_string(&resolved_path)
+                    .await
+                    .map_err(|e| {
+                        RuntimeError::new(
+                            format!("Cannot include module '{}': {}", path_str, e),
+                            *line,
+                            *column,
+                        )
+                    })?;
+
+                // 5. Parse module
+                use crate::lexer::lex_wfl_with_positions;
+                use crate::parser::Parser;
+
+                let tokens = lex_wfl_with_positions(&content);
+                let mut parser = Parser::new(&tokens);
+                let program = parser.parse().map_err(|errors| {
+                    let first_error = errors.first();
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
+                    RuntimeError::new(
+                        format!(
+                            "Parse error in included module '{}': {}",
+                            resolved_path.display(),
+                            first_error.map(|e| e.message.as_str()).unwrap_or("unknown")
+                        ),
+                        error_line,
+                        error_column,
+                    )
+                })?;
+
+                // 6. Analyze semantics
+                use crate::analyzer::Analyzer;
+
+                let parent_vars = Self::extract_parent_variables(&env);
+                let mut analyzer = Analyzer::with_parent_variables(parent_vars);
+                if let Err(errors) = analyzer.analyze(&program) {
+                    let first_error = errors.first();
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Semantic error in included module '{}': {}",
+                            resolved_path.display(),
+                            first_error.map(|e| e.to_string()).unwrap_or_default()
+                        ),
+                        error_line,
+                        error_column,
+                    ));
+                }
+
+                // 7. Type check
+                use crate::typechecker::TypeChecker;
+
+                let mut tc = TypeChecker::with_analyzer(analyzer);
+                if let Err(type_errors) = tc.check_types(&program) {
+                    let first_error = type_errors.first();
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Type error in included module '{}': {}",
+                            resolved_path.display(),
+                            first_error.map(|e| e.to_string()).unwrap_or_default()
+                        ),
+                        error_line,
+                        error_column,
+                    ));
+                }
+
+                // 8. Create guard to ensure context restoration
+                let previous_source = self.current_source_file.borrow().clone();
+                let _guard = ModuleLoadGuard::new(self, resolved_path.clone(), previous_source);
+
+                // 9. Execute module in PARENT scope (key difference from load module)
+                let result = self.execute_block(&program.statements, env.clone()).await;
+
+                // 10. Handle result
+                match result {
+                    Ok((_, ControlFlow::None)) => Ok((Value::Null, ControlFlow::None)),
+                    Ok((_, ControlFlow::Return(_))) => Err(RuntimeError::new(
+                        "Cannot use 'return' in included module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Break)) => Err(RuntimeError::new(
+                        "Cannot use 'break' in included module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Continue)) => Err(RuntimeError::new(
+                        "Cannot use 'continue' in included module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Exit)) => Err(RuntimeError::new(
+                        "Cannot use 'exit' in included module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Err(e) => {
+                        let chain = _guard.get_chain();
+                        if chain.len() > 1 {
+                            Err(RuntimeError::with_kind(
+                                format!(
+                                    "Error in include chain {}: {}",
+                                    chain.join(" → "),
+                                    e.message
+                                ),
+                                e.line,
+                                e.column,
+                                e.kind,
+                            ))
+                        } else {
+                            Err(e)
+                        }
+                    }
+                }
+            }
+
+            Statement::ExportStatement {
+                export_type, name, line, column, ..
+            } => {
+                // Export statements are only meaningful within module context
+                // For now, we'll just validate the export and store it for future use
+                // TODO: Implement proper export registry when module namespace system is added
+                
+                // Validate that the exported item exists in current scope
+                let env_borrowed = env.borrow();
+                let exists = match export_type.as_str() {
+                    "container" => {
+                        if let Some(value) = env_borrowed.values.get(name) {
+                            matches!(value, Value::ContainerDefinition(_))
+                        } else {
+                            false
+                        }
+                    },
+                    "variable" | "constant" | "action" => env_borrowed.values.contains_key(name),
+                    _ => false,
+                };
+
+                if !exists {
+                    return Err(RuntimeError::new(
+                        format!("Cannot export {export_type} '{name}': not found in current scope"),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                // For now, export statements are no-ops but validate the syntax
+                // In future versions, this will register the export for module namespace system
+                Ok((Value::Null, ControlFlow::None))
             }
 
             Statement::WaitForStatement {

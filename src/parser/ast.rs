@@ -250,6 +250,17 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    IncludeStatement {
+        path: Expression,
+        line: usize,
+        column: usize,
+    },
+    ExportStatement {
+        export_type: String, // "container", "variable", "constant", "action"
+        name: String,
+        line: usize,
+        column: usize,
+    },
     ExecuteCommandStatement {
         command: Expression,
         arguments: Option<Expression>,

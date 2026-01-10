@@ -14,65 +14,162 @@ WFL's module system allows you to organize code across multiple files, enabling 
 
 ## Basic Module Loading
 
-Load code from another WFL file using the `load module from` statement:
+WFL provides two ways to load code from other files:
 
+### `load module` - Isolated Execution
 ```wfl
 load module from "utilities.wfl"
 ```
 
-This reads, parses, and executes the specified file. The module runs in its own scope but can access variables from the parent file.
+This reads, parses, and executes the specified file in an **isolated child scope**. The module can read parent variables but cannot expose definitions back to the parent.
 
-### Simple Example
-
-**helper.wfl:**
+### `include` - Parent Scope Execution  
 ```wfl
-store message as "Hello from helper module"
-display message
+include from "utilities.wfl"
 ```
 
-**main.wfl:**
+This reads, parses, and executes the specified file in the **parent scope**. All definitions (containers, actions, variables) become available to the parent.
+
+### When to Use Which?
+
+**Use `load module`** for:
+- ✅ Initialization and setup scripts
+- ✅ Side effects (file creation, logging)
+- ✅ Configuration loading
+- ✅ Independent functionality that doesn't need to expose definitions
+
+**Use `include`** for:
+- ✅ Shared container definitions
+- ✅ Reusable action libraries
+- ✅ Constants and configuration values that need to be accessible
+- ✅ Code that acts as part of the main program
+
+### Simple Examples
+
+#### Example 1: Include vs Load Module
+
+**person.wfl:**
 ```wfl
-display "Loading helper..."
-load module from "helper.wfl"
-display "Helper loaded"
+create container Person:
+    property name: Text
+    property age: Number
+    action greet:
+        display "Hello, I am " + name
+    end
+end
+
+store helper_message as "Person container defined"
+```
+
+**Using `include` (container becomes available):**
+```wfl
+# main_include.wfl
+include from "person.wfl"
+
+create new Person as alice:
+    name is "Alice"
+    age is 30
+end
+
+call alice greet
+display helper_message  # Also available
 ```
 
 **Output:**
 ```
-Loading helper...
-Hello from helper module
-Helper loaded
+Hello, I am Alice
+Person container defined
+```
+
+**Using `load module` (container stays isolated):**
+```wfl
+# main_load.wfl  
+load module from "person.wfl"
+
+create new Person as alice:  # ❌ ERROR: Person not found
+    name is "Alice"
+    age is 30
+end
+```
+
+**Error:**
+```
+Container 'Person' not found
+```
+
+#### Example 2: Side Effects
+
+**logger.wfl:**
+```wfl
+create file at "app.log" with "Application started\n"
+display "Logging initialized"
+```
+
+**Both work the same for side effects:**
+```wfl
+# Both create the file and show the message
+load module from "logger.wfl"  # ✅ Works
+include from "logger.wfl"      # ✅ Also works  
 ```
 
 ## How Modules Work
 
-When you load a module, WFL performs these steps:
+Both `load module` and `include` follow the same pipeline, with one key difference in execution scope:
 
+### Common Steps (1-4)
 1. **Resolves the path** - Finds the file relative to the current file's directory
 2. **Reads the file** - Loads the module's source code
 3. **Parses and validates** - Checks syntax, semantics, and types
-4. **Executes in child scope** - Runs the module's statements
-5. **Returns control** - Continues with the parent file
+4. **Chooses execution scope** - This is where they differ
 
-### Execution Pipeline
+### Execution Scope Difference
+
+**`load module from "path.wfl"`:**
+```
+Parse → Analyze → Type Check → Execute in CHILD scope → Return
+```
+- Creates isolated child environment
+- Module cannot modify parent variables
+- Definitions stay in child scope
+
+**`include from "path.wfl"`:**
+```
+Parse → Analyze → Type Check → Execute in PARENT scope → Return  
+```
+- Uses parent environment directly
+- Module can define containers, actions, variables
+- All definitions become available to parent
+
+### Execution Pipeline Comparison
 
 ```
-load module from "path.wfl"
-         ↓
+Both statements:
    Find file (relative to current file)
-         ↓
+            ↓
    Read file content
-         ↓
+            ↓
    Parse → Analyze → Type Check
-         ↓
-   Execute in child scope
-         ↓
-   Return to parent (continue execution)
+            ↓
+         ┌─────────────┐
+         │   SCOPE     │
+         │   CHOICE    │
+         └─────────────┘
+        ↙             ↘
+load module          include
+(child scope)     (parent scope)
+      ↓               ↓
+Return to parent  Return to parent
 ```
 
 ## Scope and Variable Access
 
-Modules use a **child scope with parent access** model:
+The scope behavior depends on which loading mechanism you use:
+
+### `load module` - Child Scope Model
+Uses a **child scope with parent access** model:
+
+### `include` - Parent Scope Model  
+Uses the **parent scope directly** with full access:
 
 ### What Modules Can Do
 
@@ -98,7 +195,7 @@ create file at log_file with "Application started"
 # File is created (side effect persists)
 ```
 
-### What Modules Cannot Do
+### What `load module` Cannot Do
 
 ❌ **Define variables visible to parent:**
 ```wfl
@@ -106,21 +203,48 @@ create file at log_file with "Application started"
 load module from "setup.wfl"
 display utility_function  # Error: not defined
 
-# setup.wfl
+# setup.wfl  
 store utility_function as "some value"
-# This variable is local to the module
+# This variable stays local to the module
 ```
 
-❌ **Modify parent variables:**
+❌ **Expose containers to parent:**
+```wfl  
+# main.wfl
+load module from "containers.wfl"
+create new MyContainer as instance  # Error: not defined
+
+# containers.wfl
+create container MyContainer:
+    property value: Text
+end
+# Container stays local to the module
+```
+
+### What `include` Can Do
+
+✅ **Define variables visible to parent:**
 ```wfl
 # main.wfl
-store counter as 0
-load module from "incrementer.wfl"
-display counter  # Still 0
+include from "setup.wfl"
+display utility_function  # ✅ Works: "some value"
 
-# incrementer.wfl
-change counter to 1
-# Creates local copy, doesn't modify parent
+# setup.wfl
+store utility_function as "some value"
+# This variable becomes available to parent
+```
+
+✅ **Expose containers to parent:**
+```wfl
+# main.wfl
+include from "containers.wfl"
+create new MyContainer as instance  # ✅ Works
+
+# containers.wfl  
+create container MyContainer:
+    property value: Text
+end
+# Container becomes available to parent
 ```
 
 ### Scope Isolation Example
@@ -459,12 +583,12 @@ end try
 
 ## Limitations
 
-### Current Limitations (V1)
+### Current Limitations
 
-1. **No Export Mechanism**
-   - Modules cannot expose variables/actions to parent
-   - All definitions stay in module scope
-   - Future: `export` keyword planned
+1. **Limited Export Control**
+   - `load module`: No export mechanism - all definitions stay in module scope
+   - `include`: All definitions become available (no selective control)
+   - Future: `export` keyword planned for selective exposure in `load module`
 
 2. **No Namespace Control**
    - Cannot load module with custom name
@@ -684,11 +808,13 @@ load module from "utilities.wfl" as utils
 
 ### Export Control (V2)
 ```wfl
-# In module:
-export variable helper_function
+# In module loaded with "load module":
+export container MyContainer
+export action helper_function
 export constant VERSION
 
-# Other definitions remain private
+# Other definitions remain private to module
+# Note: Include already provides full access
 ```
 
 ### Selective Imports (V3)
@@ -712,11 +838,25 @@ load module from "package:json-parser"
 
 ## Summary
 
-- Use `load module from "path.wfl"` to include other WFL files
-- Modules execute in child scope with parent read access
-- Paths resolve relative to the including file
-- Circular dependencies are automatically detected
-- Modules are best for initialization and side effects
-- Variables defined in modules stay local to that module
+WFL provides two ways to include code from other files:
 
-Modules enable better code organization and reusability in WFL projects. Start with simple includes and build up to more complex module hierarchies as your project grows.
+**`load module from "path.wfl"`** - Isolated execution:
+- ✅ Modules execute in child scope with parent read access  
+- ✅ Best for initialization, setup, and side effects
+- ❌ Cannot expose containers or definitions to parent
+
+**`include from "path.wfl"`** - Parent scope execution:
+- ✅ Executes directly in parent scope
+- ✅ All definitions (containers, actions, variables) become available  
+- ✅ Best for shared libraries and reusable components
+
+**Both approaches:**
+- Paths resolve relative to the including file
+- Circular dependencies are automatically detected  
+- Same parsing, analysis, and error handling
+
+**Choose based on your needs:**
+- Need to share containers/actions? → Use `include`
+- Need isolated initialization? → Use `load module`
+
+Start with simple includes and build up to more complex module hierarchies as your project grows.

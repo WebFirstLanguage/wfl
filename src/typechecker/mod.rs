@@ -1516,6 +1516,14 @@ impl TypeChecker {
                 // TODO: Add type checking for server expression
                 // For now, just accept any type
             }
+            Statement::IncludeStatement { .. } => {
+                // Include statements are module-level constructs
+                // Type checking happens on the included module content
+            }
+            Statement::ExportStatement { .. } => {
+                // Export statements are module-level constructs 
+                // Validation happens at runtime to check if exported item exists
+            }
         }
     }
 
