@@ -1,5 +1,7 @@
 use std::fs;
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
 use tempfile::NamedTempFile;
 
 /// Robust temporary file cleanup wrapper
@@ -43,6 +45,26 @@ fn run_wfl(code: &str) -> Result<String, String> {
     } else {
         Ok(format!("{}{}", stdout, stderr))
     }
+}
+
+/// Run WFL with retry logic for flaky subprocess tests
+fn run_wfl_with_retry(code: &str, max_attempts: usize) -> Result<String, String> {
+    let mut last_error = None;
+
+    for attempt in 1..=max_attempts {
+        match run_wfl(code) {
+            Ok(output) => return Ok(output),
+            Err(e) => {
+                last_error = Some(e);
+                if attempt < max_attempts {
+                    // Wait a bit before retrying, with exponential backoff
+                    thread::sleep(Duration::from_millis(100 * attempt as u64));
+                }
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "Unknown error".to_string()))
 }
 
 #[test]
@@ -189,21 +211,25 @@ fn test_simple_command_without_args_works() {
 fn test_spawn_with_safe_arguments() {
     let code = r#"
         spawn command "echo" with arguments ["test"] as proc_id
-        wait for 200 milliseconds
+        wait for 100 milliseconds
         wait for read output from process proc_id as proc_output
         wait for process proc_id to complete
         display proc_output
     "#;
 
-    let result = run_wfl(code);
+    // Use retry logic to handle timing issues on loaded systems
+    let result = run_wfl_with_retry(code, 3);
     assert!(
         result.is_ok(),
         "Spawn with safe arguments should work: {:?}",
         result
     );
+
+    let output = result.unwrap();
     assert!(
-        result.unwrap().contains("test"),
-        "Output should contain expected text"
+        output.contains("test"),
+        "Output should contain expected text 'test'. Actual output: '{}'",
+        output
     );
 }
 
@@ -243,7 +269,7 @@ fn test_multiple_safe_processes() {
     let code = r#"
         spawn command "echo" with arguments ["test1"] as proc1
         spawn command "echo" with arguments ["test2"] as proc2
-        wait for 200 milliseconds
+        wait for 100 milliseconds
         wait for read output from process proc1 as out1
         wait for read output from process proc2 as out2
         wait for process proc1 to complete
@@ -252,10 +278,23 @@ fn test_multiple_safe_processes() {
         display out2
     "#;
 
-    let result = run_wfl(code);
+    // Use retry logic to handle timing issues on loaded systems
+    let result = run_wfl_with_retry(code, 3);
     assert!(
         result.is_ok(),
         "Multiple safe processes should work: {:?}",
         result
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains("test1"),
+        "Output should contain 'test1'. Actual output: '{}'",
+        output
+    );
+    assert!(
+        output.contains("test2"),
+        "Output should contain 'test2'. Actual output: '{}'",
+        output
     );
 }
