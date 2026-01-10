@@ -119,6 +119,8 @@ pub(crate) fn is_reserved_pattern_name(name: &str) -> bool {
             | "break"
             | "exit"
             | "loop"
+            | "load"
+            | "module"
             | "define"
             | "action"
             | "called"
@@ -221,6 +223,7 @@ impl<'a> Parser<'a> {
                 | Token::KeywordOpen
                 | Token::KeywordClose
                 | Token::KeywordWait
+                | Token::KeywordLoad
                 | Token::KeywordGive
                 | Token::KeywordReturn
         )

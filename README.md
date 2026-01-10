@@ -64,6 +64,14 @@ end count
 - **🎨 Developer Experience**: Comprehensive tooling and real-time error checking
 - **♻️ Backward Compatibility**: Your code will always work with future versions
 
+### Recent Additions ✨
+
+- **📦 Module System** (v26.1.17): Organize code across multiple files with `load module from "path.wfl"`
+  - Natural language syntax for code inclusion
+  - Automatic circular dependency detection
+  - Scope isolation for better code organization
+  - [See full documentation →](Docs/04-advanced-features/modules.md)
+
 ## 🚀 Quick Start
 
 ### Prerequisites

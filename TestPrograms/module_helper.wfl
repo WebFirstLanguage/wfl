@@ -1,0 +1,2 @@
+store greeting as "Hello from helper"
+display greeting

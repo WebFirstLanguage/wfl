@@ -91,6 +91,53 @@ pub struct ServerError(String);
 
 impl warp::reject::Reject for ServerError {}
 
+/// RAII guard that ensures module loading context is restored on scope exit.
+/// Automatically pops loading_stack and restores current_source_file when dropped.
+struct ModuleLoadGuard<'a> {
+    interpreter: &'a Interpreter,
+    previous_source: Option<PathBuf>,
+    should_restore: bool,
+}
+
+impl<'a> ModuleLoadGuard<'a> {
+    fn new(
+        interpreter: &'a Interpreter,
+        module_path: PathBuf,
+        previous_source: Option<PathBuf>,
+    ) -> Self {
+        interpreter
+            .loading_stack
+            .borrow_mut()
+            .push(module_path.clone());
+        *interpreter.current_source_file.borrow_mut() = Some(module_path);
+
+        Self {
+            interpreter,
+            previous_source,
+            should_restore: true,
+        }
+    }
+
+    /// Get the current loading chain before cleanup (for error reporting)
+    fn get_chain(&self) -> Vec<String> {
+        self.interpreter
+            .loading_stack
+            .borrow()
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect()
+    }
+}
+
+impl<'a> Drop for ModuleLoadGuard<'a> {
+    fn drop(&mut self) {
+        if self.should_restore {
+            *self.interpreter.current_source_file.borrow_mut() = self.previous_source.clone();
+            self.interpreter.loading_stack.borrow_mut().pop();
+        }
+    }
+}
+
 // Helper functions for execution logging
 #[cfg(debug_assertions)]
 fn stmt_type(stmt: &Statement) -> String {
@@ -127,6 +174,9 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
         Statement::DeleteFileStatement { .. } => "DeleteFileStatement".to_string(),
         Statement::DeleteDirectoryStatement { .. } => "DeleteDirectoryStatement".to_string(),
+        Statement::LoadModuleStatement { path, .. } => {
+            format!("LoadModuleStatement from '{:?}'", path)
+        }
         Statement::ExecuteCommandStatement { variable_name, .. } => {
             if let Some(var) = variable_name {
                 format!("ExecuteCommandStatement '{var}'")
@@ -284,6 +334,8 @@ pub struct Interpreter {
     pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
+    current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
+    loading_stack: RefCell<Vec<PathBuf>>, // Stack of currently loading files (for circular dependency detection)
 }
 
 // Process handle for managing subprocess state
@@ -1092,6 +1144,8 @@ impl Interpreter {
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
             config,
+            current_source_file: RefCell::new(None), // No source file initially
+            loading_stack: RefCell::new(Vec::new()), // Empty loading stack
         }
     }
 
@@ -1109,6 +1163,125 @@ impl Interpreter {
 
     pub fn set_script_args(&mut self, args: Vec<String>) {
         self.script_args = args;
+    }
+
+    pub fn set_source_file(&mut self, path: PathBuf) {
+        *self.current_source_file.borrow_mut() = Some(path);
+    }
+
+    /// Extract variables from the environment for module analyzer
+    /// Returns a HashMap of variable names to inferred types
+    fn extract_parent_variables(
+        env: &Rc<RefCell<Environment>>,
+    ) -> HashMap<String, crate::parser::ast::Type> {
+        let mut vars = HashMap::new();
+        let env_borrowed = env.borrow();
+
+        for (name, value) in &env_borrowed.values {
+            let inferred_type = Self::infer_type_from_value(value);
+            vars.insert(name.clone(), inferred_type);
+        }
+
+        // Also extract from parent scopes
+        if let Some(parent_weak) = &env_borrowed.parent
+            && let Some(parent_rc) = parent_weak.upgrade()
+        {
+            drop(env_borrowed); // Release borrow before recursive call
+            let parent_vars = Self::extract_parent_variables(&parent_rc);
+            // Parent variables are added first, can be shadowed by current scope
+            for (name, ty) in parent_vars {
+                vars.entry(name).or_insert(ty);
+            }
+        }
+
+        vars
+    }
+
+    /// Infer AST Type from runtime Value
+    fn infer_type_from_value(value: &Value) -> crate::parser::ast::Type {
+        use crate::parser::ast::Type;
+
+        match value {
+            Value::Number(_) => Type::Number,
+            Value::Text(_) => Type::Text,
+            Value::Bool(_) => Type::Boolean,
+            Value::List(_) => Type::List(Box::new(Type::Unknown)),
+            Value::Object(_) => Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)),
+            Value::Function(_) => Type::Function {
+                parameters: vec![],
+                return_type: Box::new(Type::Unknown),
+            },
+            Value::Pattern(_) => Type::Pattern,
+            Value::ContainerDefinition(def) => Type::Container(def.name.clone()),
+            Value::ContainerInstance(inst) => {
+                Type::ContainerInstance(inst.borrow().container_type.clone())
+            }
+            Value::Null | Value::Nothing => Type::Nothing,
+            _ => Type::Unknown,
+        }
+    }
+
+    async fn resolve_module_path(
+        &self,
+        relative_path: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<PathBuf, RuntimeError> {
+        // Extract and clone the Option<PathBuf> to avoid holding the borrow across await
+        let opt_path = self.current_source_file.borrow().as_ref().cloned();
+
+        let resolved = if let Some(source_path) = opt_path {
+            let base_dir = source_path.parent().ok_or_else(|| {
+                RuntimeError::new(
+                    "Cannot determine parent directory of current file".to_string(),
+                    line,
+                    column,
+                )
+            })?;
+            base_dir.join(relative_path)
+        } else {
+            let cwd = std::env::current_dir().map_err(|e| {
+                RuntimeError::new(
+                    format!("Cannot determine current directory: {}", e),
+                    line,
+                    column,
+                )
+            })?;
+            cwd.join(relative_path)
+        };
+
+        // Canonicalize to handle . and .. and detect duplicates
+        let canonical = tokio::fs::canonicalize(&resolved).await.map_err(|e| {
+            RuntimeError::new(
+                format!("Cannot resolve module path '{}': {}", relative_path, e),
+                line,
+                column,
+            )
+        })?;
+
+        Ok(canonical)
+    }
+
+    fn check_circular_dependency(
+        &self,
+        path: &PathBuf,
+        line: usize,
+        column: usize,
+    ) -> Result<(), RuntimeError> {
+        let stack = self.loading_stack.borrow();
+
+        if stack.contains(path) {
+            let mut chain: Vec<String> = stack.iter().map(|p| p.display().to_string()).collect();
+            chain.push(path.display().to_string());
+
+            return Err(RuntimeError::new(
+                format!("Circular dependency detected: {}", chain.join(" → ")),
+                line,
+                column,
+            ));
+        }
+
+        Ok(())
     }
 
     fn dump_state(
@@ -1498,6 +1671,7 @@ impl Interpreter {
             Statement::CreateFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteDirectoryStatement { line, column, .. } => (*line, *column),
+            Statement::LoadModuleStatement { line, column, .. } => (*line, *column),
             Statement::WaitForStatement { line, column, .. } => (*line, *column),
             Statement::WaitForDurationStatement { line, column, .. } => (*line, *column),
             Statement::TryStatement { line, column, .. } => (*line, *column),
@@ -2492,6 +2666,165 @@ impl Interpreter {
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
+
+            Statement::LoadModuleStatement {
+                path, line, column, ..
+            } => {
+                // 1. Evaluate path expression to string
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_str: String = match &path_value {
+                    Value::Text(s) => s.to_string(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Module path must be a string, got {path_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // 2. Resolve absolute path
+                let resolved_path = self.resolve_module_path(&path_str, *line, *column).await?;
+
+                // 3. Check circular dependencies
+                self.check_circular_dependency(&resolved_path, *line, *column)?;
+
+                // 4. Read file content
+                let content = tokio::fs::read_to_string(&resolved_path)
+                    .await
+                    .map_err(|e| {
+                        RuntimeError::new(
+                            format!("Cannot load module '{}': {}", path_str, e),
+                            *line,
+                            *column,
+                        )
+                    })?;
+
+                // 6. Parse module
+                use crate::lexer::lex_wfl_with_positions;
+                use crate::parser::Parser;
+
+                let tokens = lex_wfl_with_positions(&content);
+                let mut parser = Parser::new(&tokens);
+                let program = parser.parse().map_err(|errors| {
+                    // Use the parse error's position from the module file, not the load site
+                    let first_error = errors.first();
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
+                    RuntimeError::new(
+                        format!(
+                            "Parse error in module '{}': {}",
+                            resolved_path.display(),
+                            first_error.map(|e| e.message.as_str()).unwrap_or("unknown")
+                        ),
+                        error_line,
+                        error_column,
+                    )
+                })?;
+
+                // 7. Analyze semantics
+                use crate::analyzer::Analyzer;
+
+                // Extract parent variables from current environment for module analyzer
+                let parent_vars = Self::extract_parent_variables(&env);
+                let mut analyzer = Analyzer::with_parent_variables(parent_vars);
+                if let Err(errors) = analyzer.analyze(&program) {
+                    // Use the semantic error's position from the module file, not the load site
+                    let first_error = errors.first();
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Semantic error in module '{}': {}",
+                            resolved_path.display(),
+                            first_error.map(|e| e.to_string()).unwrap_or_default()
+                        ),
+                        error_line,
+                        error_column,
+                    ));
+                }
+
+                // 8. Type check
+                use crate::typechecker::TypeChecker;
+
+                // Use the analyzer with parent scope for type checking
+                let mut tc = TypeChecker::with_analyzer(analyzer);
+                if let Err(type_errors) = tc.check_types(&program) {
+                    // Use the type error's position from the module file, not the load site
+                    let first_error = type_errors.first();
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Type error in module '{}': {}",
+                            resolved_path.display(),
+                            first_error.map(|e| e.to_string()).unwrap_or_default()
+                        ),
+                        error_line,
+                        error_column,
+                    ));
+                }
+
+                // 8. Create isolated child environment
+                // This prevents mutations of containers (lists/objects) from affecting parent scope
+                use crate::interpreter::environment::Environment;
+                let module_env = Environment::new_isolated_child_env(&env);
+
+                // 9. Create guard to ensure context restoration on scope exit
+                let previous_source = self.current_source_file.borrow().clone();
+                let _guard = ModuleLoadGuard::new(self, resolved_path.clone(), previous_source);
+
+                // 10. Execute module in child scope
+                let result = self.execute_block(&program.statements, module_env).await;
+
+                // Note: Context automatically restored when _guard drops at end of scope
+
+                // 11. Handle result
+                match result {
+                    Ok((_, ControlFlow::None)) => Ok((Value::Null, ControlFlow::None)),
+                    Ok((_, ControlFlow::Return(_))) => Err(RuntimeError::new(
+                        "Cannot use 'return' in module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Break)) => Err(RuntimeError::new(
+                        "Cannot use 'break' in module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Continue)) => Err(RuntimeError::new(
+                        "Cannot use 'continue' in module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Exit)) => Err(RuntimeError::new(
+                        "Cannot use 'exit' in module scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Err(e) => {
+                        // Capture chain BEFORE guard drops (while current module is still on stack)
+                        let chain = _guard.get_chain();
+                        if chain.len() > 1 {
+                            // Only show chain if there are multiple modules
+                            // Preserve the original error kind and use the original error's coordinates
+                            Err(RuntimeError::with_kind(
+                                format!(
+                                    "Error in module chain {}: {}",
+                                    chain.join(" → "),
+                                    e.message
+                                ),
+                                e.line,
+                                e.column,
+                                e.kind,
+                            ))
+                        } else {
+                            Err(e)
+                        }
+                    }
+                }
+            }
+
             Statement::WaitForStatement {
                 inner,
                 line: _line,

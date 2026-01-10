@@ -1,0 +1,3 @@
+store parent_var as "I'm from parent"
+load module from "scoped.wfl"
+display "Back in parent"

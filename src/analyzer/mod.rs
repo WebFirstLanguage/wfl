@@ -317,6 +317,26 @@ impl Analyzer {
         }
     }
 
+    /// Create an analyzer with parent scope variables
+    /// Parent variables are added as read-only (immutable) to prevent modification warnings
+    pub fn with_parent_variables(parent_vars: HashMap<String, Type>) -> Self {
+        let mut analyzer = Self::new();
+
+        // Add parent variables as read-only symbols
+        for (name, var_type) in parent_vars {
+            let symbol = Symbol {
+                name: name.clone(),
+                kind: SymbolKind::Variable { mutable: false }, // Read-only!
+                symbol_type: Some(var_type),
+                line: 0,
+                column: 0,
+            };
+            let _ = analyzer.current_scope.define(symbol);
+        }
+
+        analyzer
+    }
+
     pub fn is_builtin_function(name: &str) -> bool {
         crate::builtins::is_builtin_function(name)
     }
@@ -886,6 +906,10 @@ impl Analyzer {
             }
 
             Statement::DeleteDirectoryStatement { path, .. } => {
+                self.analyze_expression(path);
+            }
+
+            Statement::LoadModuleStatement { path, .. } => {
                 self.analyze_expression(path);
             }
 
@@ -2467,6 +2491,113 @@ call x with "test"
                 .any(|e| e.message.contains("'x' is not an action")),
             "Should report 'x' is not an action, got: {:?}",
             analyzer.errors
+        );
+    }
+
+    #[test]
+    fn test_module_load_undefined_path_variable() {
+        let program = Program {
+            statements: vec![Statement::LoadModuleStatement {
+                path: Expression::Variable("undefined_var".to_string(), 1, 18),
+                alias: None,
+                line: 1,
+                column: 1,
+            }],
+        };
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(&program);
+
+        assert!(
+            result.is_err(),
+            "Expected semantic error for undefined variable in module path"
+        );
+
+        let errors = analyzer.get_errors();
+        assert!(
+            errors.iter().any(|e| e.message.contains("undefined_var")),
+            "Expected error about undefined_var, got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_module_load_valid_path() {
+        let program = Program {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: "module_path".to_string(),
+                    value: Expression::Literal(Literal::String("helper.wfl".to_string()), 1, 18),
+                    is_constant: false,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::LoadModuleStatement {
+                    path: Expression::Variable("module_path".to_string(), 2, 18),
+                    alias: None,
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(&program);
+
+        assert!(result.is_ok(), "Expected no semantic errors");
+    }
+
+    #[test]
+    fn test_module_load_path_expression() {
+        use crate::parser::ast::Operator;
+
+        let program = Program {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: "base_path".to_string(),
+                    value: Expression::Literal(Literal::String("modules/".to_string()), 1, 18),
+                    is_constant: false,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::VariableDeclaration {
+                    name: "module_name".to_string(),
+                    value: Expression::Literal(Literal::String("helper".to_string()), 2, 18),
+                    is_constant: false,
+                    line: 2,
+                    column: 1,
+                },
+                Statement::LoadModuleStatement {
+                    path: Expression::BinaryOperation {
+                        left: Box::new(Expression::BinaryOperation {
+                            left: Box::new(Expression::Variable("base_path".to_string(), 3, 18)),
+                            operator: Operator::Plus,
+                            right: Box::new(Expression::Variable("module_name".to_string(), 3, 28)),
+                            line: 3,
+                            column: 18,
+                        }),
+                        operator: Operator::Plus,
+                        right: Box::new(Expression::Literal(
+                            Literal::String(".wfl".to_string()),
+                            3,
+                            40,
+                        )),
+                        line: 3,
+                        column: 18,
+                    },
+                    alias: None,
+                    line: 3,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut analyzer = Analyzer::new();
+        let result = analyzer.analyze(&program);
+
+        assert!(
+            result.is_ok(),
+            "Expected no semantic errors for path expression"
         );
     }
 }

@@ -244,6 +244,12 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    LoadModuleStatement {
+        path: Expression,
+        alias: Option<String>,
+        line: usize,
+        column: usize,
+    },
     ExecuteCommandStatement {
         command: Expression,
         arguments: Option<Expression>,

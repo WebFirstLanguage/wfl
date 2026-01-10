@@ -13,7 +13,7 @@ pub use cursor::Cursor; // Re-export Cursor publicly for doctests
 use expr::ExprParser;
 use stmt::{
     ActionParser, CollectionParser, ContainerParser, ControlFlowParser, ErrorHandlingParser,
-    IoParser, PatternParser, ProcessParser, StmtParser, VariableParser, WebParser,
+    IoParser, ModuleParser, PatternParser, ProcessParser, StmtParser, VariableParser, WebParser,
 };
 
 pub struct Parser<'a> {
@@ -406,6 +406,7 @@ impl<'a> StmtParser<'a> for Parser<'a> {
         if let Some(token) = self.cursor.peek().cloned() {
             match &token.token {
                 Token::KeywordStore => self.parse_variable_declaration(),
+                Token::KeywordLoad => self.parse_load_module_statement(),
                 Token::KeywordCreate => {
                     // Check what follows "create" keyword
                     if let Some(next_token) = self.cursor.peek_next() {

@@ -67,7 +67,11 @@
       "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\error_handling_01.wfl\")",
       "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\stdlib_comprehensive.wfl\")",
       "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\test_contains_simple.wfl\")",
-      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\hello_world.wfl\")"
+      "Bash(\"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" \"G:\\\\Logbie\\\\wfl\\\\TestPrograms\\\\docs_examples\\\\basic_syntax\\\\hello_world.wfl\")",
+      "Bash(cargo clean:*)",
+      "Bash(./target/release/wfl:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File ./scripts/run_integration_tests.ps1)",
+      "Bash(../target/release/wfl:*)"
     ],
     "deny": [],
     "ask": []

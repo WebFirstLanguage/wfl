@@ -8,6 +8,9 @@ pub struct Environment {
     pub values: HashMap<String, Value>,
     pub constants: HashSet<String>,
     pub parent: Option<Weak<RefCell<Environment>>>,
+    /// When true, provides module isolation: values from parent scopes are deep cloned
+    /// to prevent mutations, and assignment to parent variables is prevented.
+    pub isolated: bool,
 }
 
 impl Environment {
@@ -19,6 +22,7 @@ impl Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
             parent: None,
+            isolated: false,
         }))
     }
 
@@ -30,6 +34,7 @@ impl Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
+            isolated: false,
         }))
     }
 
@@ -42,6 +47,23 @@ impl Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
+            isolated: false,
+        }))
+    }
+
+    /// Creates an isolated child environment for module execution.
+    /// Values from parent scopes are deep cloned to prevent mutations,
+    /// and assignment to parent variables is prevented (read-only access).
+    #[inline]
+    pub fn new_isolated_child_env(parent: &Rc<RefCell<Environment>>) -> Rc<RefCell<Self>> {
+        #[cfg(feature = "dhat-ad-hoc")]
+        dhat::ad_hoc_event(1);
+
+        Rc::new(RefCell::new(Self {
+            values: HashMap::new(),
+            constants: HashSet::new(),
+            parent: Some(Rc::downgrade(parent)),
+            isolated: true,
         }))
     }
 
@@ -115,7 +137,14 @@ impl Environment {
             Ok(())
         } else if let Some(parent_weak) = &self.parent {
             if let Some(parent) = parent_weak.upgrade() {
-                parent.borrow_mut().assign(name, value)
+                // If isolated, cannot modify parent scope variables
+                if self.isolated {
+                    Err(format!(
+                        "Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."
+                    ))
+                } else {
+                    parent.borrow_mut().assign(name, value)
+                }
             } else {
                 Err("Parent environment no longer exists".to_string())
             }
@@ -126,10 +155,21 @@ impl Environment {
 
     pub fn get(&self, name: &str) -> Option<Value> {
         if let Some(value) = self.values.get(name) {
-            Some(value.clone())
+            // If isolated, deep clone the value to prevent mutations from affecting parent
+            if self.isolated {
+                Some(value.deep_clone())
+            } else {
+                Some(value.clone())
+            }
         } else if let Some(parent_weak) = &self.parent {
             if let Some(parent) = parent_weak.upgrade() {
-                parent.borrow().get(name)
+                let parent_value = parent.borrow().get(name);
+                // If isolated and we got a value from parent, deep clone it
+                if self.isolated {
+                    parent_value.map(|v| v.deep_clone())
+                } else {
+                    parent_value
+                }
             } else {
                 None
             }

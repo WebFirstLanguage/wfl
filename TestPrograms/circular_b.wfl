@@ -1,0 +1,2 @@
+display "B loading A"
+load module from "circular_a.wfl"

@@ -1,0 +1,3 @@
+display "Loading module..."
+load module from "module_helper.wfl"
+display "Module loaded"

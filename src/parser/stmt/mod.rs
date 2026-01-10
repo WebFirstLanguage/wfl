@@ -11,6 +11,7 @@ mod containers;
 mod control_flow;
 mod errors;
 mod io;
+mod module;
 mod patterns;
 mod processes;
 mod variables;
@@ -22,6 +23,7 @@ pub(crate) use containers::ContainerParser;
 pub(crate) use control_flow::ControlFlowParser;
 pub(crate) use errors::ErrorHandlingParser;
 pub(crate) use io::IoParser;
+pub(crate) use module::ModuleParser;
 pub(crate) use patterns::PatternParser;
 pub(crate) use processes::ProcessParser;
 pub(crate) use variables::VariableParser;
@@ -48,6 +50,7 @@ pub(crate) trait StmtParser<'a>:
     + ControlFlowParser<'a>
     + PatternParser<'a>
     + ContainerParser<'a>
+    + ModuleParser<'a>
 {
     /// Parses a statement by dispatching to the appropriate parser based on the current token.
     ///
