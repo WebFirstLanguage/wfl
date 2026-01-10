@@ -124,12 +124,7 @@ impl<'a> ModuleLoadGuard<'a> {
             .loading_stack
             .borrow()
             .iter()
-            .map(|p| {
-                p.file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string()
-            })
+            .map(|p| p.display().to_string())
             .collect()
     }
 }
@@ -1180,9 +1175,10 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<PathBuf, RuntimeError> {
-        let current_file = self.current_source_file.borrow();
+        // Extract and clone the Option<PathBuf> to avoid holding the borrow across await
+        let opt_path = self.current_source_file.borrow().as_ref().cloned();
 
-        let resolved = if let Some(source_path) = current_file.as_ref() {
+        let resolved = if let Some(source_path) = opt_path {
             let base_dir = source_path.parent().ok_or_else(|| {
                 RuntimeError::new(
                     "Cannot determine parent directory of current file".to_string(),
@@ -2659,17 +2655,21 @@ impl Interpreter {
                 let tokens = lex_wfl_with_positions(&content);
                 let mut parser = Parser::new(&tokens);
                 let program = parser.parse().map_err(|errors| {
+                    // Use the parse error's position from the module file, not the load site
+                    let first_error = errors.first();
+                    let (error_line, error_column) = first_error
+                        .map(|e| (e.line, e.column))
+                        .unwrap_or((1, 1));
                     RuntimeError::new(
                         format!(
                             "Parse error in module '{}': {}",
-                            path_str,
-                            errors
-                                .first()
+                            resolved_path.display(),
+                            first_error
                                 .map(|e| e.message.as_str())
                                 .unwrap_or("unknown")
                         ),
-                        *line,
-                        *column,
+                        error_line,
+                        error_column,
                     )
                 })?;
 
@@ -2678,14 +2678,19 @@ impl Interpreter {
 
                 let mut analyzer = Analyzer::new();
                 if let Err(errors) = analyzer.analyze(&program) {
+                    // Use the semantic error's position from the module file, not the load site
+                    let first_error = errors.first();
+                    let (error_line, error_column) = first_error
+                        .map(|e| (e.line, e.column))
+                        .unwrap_or((1, 1));
                     return Err(RuntimeError::new(
                         format!(
                             "Semantic error in module '{}': {}",
-                            path_str,
-                            errors.first().map(|e| e.to_string()).unwrap_or_default()
+                            resolved_path.display(),
+                            first_error.map(|e| e.to_string()).unwrap_or_default()
                         ),
-                        *line,
-                        *column,
+                        error_line,
+                        error_column,
                     ));
                 }
 
@@ -2694,17 +2699,21 @@ impl Interpreter {
 
                 let mut tc = TypeChecker::new();
                 if let Err(type_errors) = tc.check_types(&program) {
+                    // Use the type error's position from the module file, not the load site
+                    let first_error = type_errors.first();
+                    let (error_line, error_column) = first_error
+                        .map(|e| (e.line, e.column))
+                        .unwrap_or((1, 1));
                     return Err(RuntimeError::new(
                         format!(
                             "Type error in module '{}': {}",
-                            path_str,
-                            type_errors
-                                .first()
+                            resolved_path.display(),
+                            first_error
                                 .map(|e| e.to_string())
                                 .unwrap_or_default()
                         ),
-                        *line,
-                        *column,
+                        error_line,
+                        error_column,
                     ));
                 }
 
@@ -2750,7 +2759,8 @@ impl Interpreter {
                         let chain = _guard.get_chain();
                         if chain.len() > 1 {
                             // Only show chain if there are multiple modules
-                            Err(RuntimeError::new(
+                            // Preserve the original error kind and use the original error's coordinates
+                            Err(RuntimeError::with_kind(
                                 format!(
                                     "Error in module chain {}: {}",
                                     chain.join(" → "),
@@ -2758,6 +2768,7 @@ impl Interpreter {
                                 ),
                                 e.line,
                                 e.column,
+                                e.kind,
                             ))
                         } else {
                             Err(e)

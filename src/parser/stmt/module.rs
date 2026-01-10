@@ -10,17 +10,19 @@ pub(crate) trait ModuleParser<'a>: ExprParser<'a> {
 
 impl<'a> ModuleParser<'a> for Parser<'a> {
     fn parse_load_module_statement(&mut self) -> Result<Statement, ParseError> {
-        let load_token = match self.bump_sync() {
-            Some(token) => token,
-            None => {
-                return Err(ParseError::from_span(
-                    "Unexpected end of input while parsing load statement".to_string(),
-                    self.cursor.current_span(),
-                    self.cursor.current_line(),
-                    self.cursor.peek().map_or(0, |t| t.column),
-                ));
-            }
-        };
+        // Capture the position of the 'load' token before consuming it
+        let load_token = self.cursor.peek().ok_or_else(|| {
+            ParseError::from_span(
+                "Unexpected end of input while parsing load module statement".to_string(),
+                self.cursor.current_span(),
+                self.cursor.current_line(),
+                1, // Column fallback when at EOF
+            )
+        })?;
+        let (line, column) = (load_token.line, load_token.column);
+
+        // Validate and consume the 'load' token
+        self.expect_token(Token::KeywordLoad, "Expected 'load' keyword")?;
 
         self.expect_token(Token::KeywordModule, "Expected 'module' after 'load'")?;
         self.expect_token(Token::KeywordFrom, "Expected 'from' after 'module'")?;
@@ -40,8 +42,8 @@ impl<'a> ModuleParser<'a> for Parser<'a> {
         Ok(Statement::LoadModuleStatement {
             path,
             alias: None,
-            line: load_token.line,
-            column: load_token.column,
+            line,
+            column,
         })
     }
 }
