@@ -1,0 +1,10 @@
+# WFL Blog Server
+display "Starting WFL Blog Server on port 3001..."
+
+listen on port 3001 as blog_server
+display "Server started on http://localhost:3001"
+display ""
+
+# This server stays running in the background
+display "Server is listening for requests..."
+display "Test with: curl http://localhost:3001/api/posts"

@@ -71,7 +71,12 @@
       "Bash(cargo clean:*)",
       "Bash(./target/release/wfl:*)",
       "Bash(powershell -ExecutionPolicy Bypass -File ./scripts/run_integration_tests.ps1)",
-      "Bash(../target/release/wfl:*)"
+      "Bash(../target/release/wfl:*)",
+      "Bash(curl:*)",
+      "Bash(netstat:*)",
+      "Bash(tasklist:*)",
+      "Bash(taskkill:*)",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []
