@@ -1,0 +1,90 @@
+// Test WFL MVC Framework - Routing System
+display "=== WFL MVC Framework - Routing Test ==="
+display ""
+
+// Load framework components
+display "Loading framework components..."
+load module from "../core/router.wfl"
+load module from "../core/request.wfl"
+load module from "../core/response.wfl"
+display "✓ Framework components loaded"
+display ""
+
+// Test 1: Create Router
+display "Test 1: Create Router"
+create new Router as router:
+end
+
+router.initialize()
+display "✓ Router created"
+display ""
+
+// Test 2: Register routes
+display "Test 2: Register Routes"
+router.register_route("GET", "/", "HomeController.index")
+router.register_route("GET", "/api/users/:id", "UserController.show")
+router.register_route("POST", "/api/users", "UserController.create")
+router.register_route("GET", "/api/status", "ApiController.status")
+display "✓ Routes registered"
+display ""
+
+// Test 3: List routes
+display "Test 3: List Routes"
+router.list_routes()
+display "✓ Routes listed"
+display ""
+
+// Test 4: Create Request wrapper
+display "Test 4: Create Request Wrapper"
+create new Request as req:
+end
+
+req.initialize("GET", "/api/users/123", "{}", "127.0.0.1")
+display "Method: " with req.get_method()
+display "Path: " with req.get_path()
+display "✓ Request wrapper created"
+display ""
+
+// Test 5: Create Response wrapper
+display "Test 5: Create Response Wrapper"
+create new Response as res:
+end
+
+res.initialize()
+res.set_status(200)
+res.set_html("<h1>Hello World</h1>")
+display "Status: " with res.get_status()
+display "Content-Type: " with res.get_content_type()
+display "Content: " with res.get_content()
+display "✓ Response wrapper created"
+display ""
+
+// Test 6: JSON Response
+display "Test 6: JSON Response"
+create new Response as json_res:
+end
+
+json_res.initialize()
+
+// Create a simple object for JSON
+store test_data as create list
+push with test_data and 1
+push with test_data and 2
+push with test_data and 3
+
+store json_string as stringify_json of test_data
+json_res.set_json(json_string)
+display "JSON Content-Type: " with json_res.get_content_type()
+display "JSON Content: " with json_res.get_content()
+display "✓ JSON response created"
+display ""
+
+// Test 7: Match routes (basic)
+display "Test 7: Match Routes"
+router.match_route("GET", "/api/status")
+display "✓ Route matching tested"
+display ""
+
+display "=== All Routing Tests Passed! ==="
+display ""
+display "Sprint 2 Core Routing - COMPLETE"

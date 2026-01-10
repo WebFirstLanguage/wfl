@@ -1,0 +1,53 @@
+// Response - Fluent response builder for WFL MVC Framework
+display "=== Response Container Loaded ==="
+
+// Response container for building HTTP responses
+create container Response:
+    property content_val: Text
+    property status_code: Number
+    property content_type_val: Text
+
+    action initialize:
+        store content_val as ""
+        store status_code as 200
+        store content_type_val as "text/html"
+        display "Response initialized"
+    end
+
+    action set_content needs new_content: Text:
+        store content_val as new_content
+    end
+
+    action set_status needs code: Number:
+        store status_code as code
+    end
+
+    action set_content_type needs ct: Text:
+        store content_type_val as ct
+    end
+
+    action set_json needs json_text: Text:
+        // Set JSON content (caller should stringify first)
+        store content_val as json_text
+        store content_type_val as "application/json"
+    end
+
+    action set_html needs html_content: Text:
+        store content_val as html_content
+        store content_type_val as "text/html"
+    end
+
+    action get_content:
+        return content_val
+    end
+
+    action get_status:
+        return status_code
+    end
+
+    action get_content_type:
+        return content_type_val
+    end
+end
+
+display "Response container defined successfully"

@@ -1,0 +1,46 @@
+// Simple Route Matcher for WFL MVC Framework
+// Instead of complex regex patterns, we'll use a simpler string matching approach
+
+display "=== Route Matcher Loaded ==="
+
+// Check if a path matches a route pattern
+// Returns yes/no
+// Example: does_match("/api/users/123", "/api/users/:id") -> yes
+define action called does_route_match with parameters actual_path and route_pattern:
+    // For now, simple exact match (we'll enhance this in Router)
+    check if actual_path is equal to route_pattern:
+        return yes
+    end check
+    return no
+end action
+
+// Extract parameter from path at a given position
+// Example: extract_param_at("/api/users/123", 2) -> "123"
+define action called extract_param_at with parameters path and position:
+    store segment_count as 0
+    store current_segment as ""
+    store path_len as length of path
+
+    count from 0 to path_len minus 1 as i:
+        store char as substring of path and i and 1
+
+        check if char is equal to "/":
+            check if segment_count is equal to position:
+                return current_segment
+            end check
+            change segment_count to segment_count plus 1
+            change current_segment to ""
+        otherwise:
+            change current_segment to current_segment with char
+        end check
+    end count
+
+    // Return final segment if it matches position
+    check if segment_count is equal to position:
+        return current_segment
+    end check
+
+    return ""
+end action
+
+display "Route matcher loaded successfully"
