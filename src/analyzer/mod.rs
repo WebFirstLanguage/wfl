@@ -1379,6 +1379,22 @@ impl Analyzer {
                 }
             }
 
+            Statement::RegisterSignalHandlerStatement {
+                handler_name,
+                line,
+                column,
+                ..
+            } => {
+                // Check if the handler is defined in the current scope
+                if self.current_scope.resolve(handler_name).is_none() {
+                    self.errors.push(SemanticError::new(
+                        format!("Undefined signal handler '{handler_name}'"),
+                        *line,
+                        *column,
+                    ));
+                }
+            }
+
             Statement::ExecuteCommandStatement {
                 command,
                 arguments,
