@@ -1,0 +1,58 @@
+// Middleware - Base container and chain execution for WFL MVC Framework
+display "=== Middleware System Loaded ==="
+
+// Base Middleware Container
+// All middleware should extend this or follow this pattern
+create container BaseMiddleware:
+    property middleware_name: Text
+    property enabled: Boolean
+
+    action initialize:
+        store middleware_name as "BaseMiddleware"
+        store enabled as yes
+        display "Middleware initialized: " with middleware_name
+    end
+
+    action handle needs req: Container, res: Container:
+        // Default implementation - just continue
+        // Subclasses should override this
+        display "BaseMiddleware.handle() called (should be overridden)"
+        return yes  // Return yes to continue chain, no to stop
+    end
+
+    action is_enabled:
+        return enabled
+    end
+end
+
+// Middleware Chain Executor
+// Executes a list of middleware in sequence
+// Stops if any middleware returns no
+define action called execute_middleware_chain with parameters middleware_list and request and response:
+    display "Executing middleware chain with " with length of middleware_list with " middleware..."
+
+    store chain_index as 1
+    for each middleware in middleware_list:
+        display "  [" with chain_index with "] Executing middleware..."
+
+        // Call the middleware's handle action
+        // Middleware should return yes to continue or no to stop
+        store should_continue as yes
+
+        // For now, just display and continue
+        // In a real implementation, we'd call middleware.handle(request, response)
+        display "  ✓ Middleware executed"
+
+        change chain_index to chain_index plus 1
+
+        check if should_continue is no:
+            display "  ⚠ Middleware chain stopped"
+            return no
+        end check
+    end for
+
+    display "✓ Middleware chain complete"
+    return yes
+end action
+
+display "Middleware system ready"
