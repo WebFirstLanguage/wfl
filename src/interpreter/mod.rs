@@ -1169,6 +1169,58 @@ impl Interpreter {
         *self.current_source_file.borrow_mut() = Some(path);
     }
 
+    /// Extract variables from the environment for module analyzer
+    /// Returns a HashMap of variable names to inferred types
+    fn extract_parent_variables(
+        env: &Rc<RefCell<Environment>>,
+    ) -> HashMap<String, crate::parser::ast::Type> {
+        let mut vars = HashMap::new();
+        let env_borrowed = env.borrow();
+
+        for (name, value) in &env_borrowed.values {
+            let inferred_type = Self::infer_type_from_value(value);
+            vars.insert(name.clone(), inferred_type);
+        }
+
+        // Also extract from parent scopes
+        if let Some(parent_weak) = &env_borrowed.parent
+            && let Some(parent_rc) = parent_weak.upgrade()
+        {
+            drop(env_borrowed); // Release borrow before recursive call
+            let parent_vars = Self::extract_parent_variables(&parent_rc);
+            // Parent variables are added first, can be shadowed by current scope
+            for (name, ty) in parent_vars {
+                vars.entry(name).or_insert(ty);
+            }
+        }
+
+        vars
+    }
+
+    /// Infer AST Type from runtime Value
+    fn infer_type_from_value(value: &Value) -> crate::parser::ast::Type {
+        use crate::parser::ast::Type;
+
+        match value {
+            Value::Number(_) => Type::Number,
+            Value::Text(_) => Type::Text,
+            Value::Bool(_) => Type::Boolean,
+            Value::List(_) => Type::List(Box::new(Type::Unknown)),
+            Value::Object(_) => Type::Map(Box::new(Type::Text), Box::new(Type::Unknown)),
+            Value::Function(_) => Type::Function {
+                parameters: vec![],
+                return_type: Box::new(Type::Unknown),
+            },
+            Value::Pattern(_) => Type::Pattern,
+            Value::ContainerDefinition(def) => Type::Container(def.name.clone()),
+            Value::ContainerInstance(inst) => {
+                Type::ContainerInstance(inst.borrow().container_type.clone())
+            }
+            Value::Null | Value::Nothing => Type::Nothing,
+            _ => Type::Unknown,
+        }
+    }
+
     async fn resolve_module_path(
         &self,
         relative_path: &str,
@@ -2657,16 +2709,13 @@ impl Interpreter {
                 let program = parser.parse().map_err(|errors| {
                     // Use the parse error's position from the module file, not the load site
                     let first_error = errors.first();
-                    let (error_line, error_column) = first_error
-                        .map(|e| (e.line, e.column))
-                        .unwrap_or((1, 1));
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
                     RuntimeError::new(
                         format!(
                             "Parse error in module '{}': {}",
                             resolved_path.display(),
-                            first_error
-                                .map(|e| e.message.as_str())
-                                .unwrap_or("unknown")
+                            first_error.map(|e| e.message.as_str()).unwrap_or("unknown")
                         ),
                         error_line,
                         error_column,
@@ -2676,13 +2725,14 @@ impl Interpreter {
                 // 7. Analyze semantics
                 use crate::analyzer::Analyzer;
 
-                let mut analyzer = Analyzer::new();
+                // Extract parent variables from current environment for module analyzer
+                let parent_vars = Self::extract_parent_variables(&env);
+                let mut analyzer = Analyzer::with_parent_variables(parent_vars);
                 if let Err(errors) = analyzer.analyze(&program) {
                     // Use the semantic error's position from the module file, not the load site
                     let first_error = errors.first();
-                    let (error_line, error_column) = first_error
-                        .map(|e| (e.line, e.column))
-                        .unwrap_or((1, 1));
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
                     return Err(RuntimeError::new(
                         format!(
                             "Semantic error in module '{}': {}",
@@ -2697,20 +2747,18 @@ impl Interpreter {
                 // 8. Type check
                 use crate::typechecker::TypeChecker;
 
-                let mut tc = TypeChecker::new();
+                // Use the analyzer with parent scope for type checking
+                let mut tc = TypeChecker::with_analyzer(analyzer);
                 if let Err(type_errors) = tc.check_types(&program) {
                     // Use the type error's position from the module file, not the load site
                     let first_error = type_errors.first();
-                    let (error_line, error_column) = first_error
-                        .map(|e| (e.line, e.column))
-                        .unwrap_or((1, 1));
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
                     return Err(RuntimeError::new(
                         format!(
                             "Type error in module '{}': {}",
                             resolved_path.display(),
-                            first_error
-                                .map(|e| e.to_string())
-                                .unwrap_or_default()
+                            first_error.map(|e| e.to_string()).unwrap_or_default()
                         ),
                         error_line,
                         error_column,
