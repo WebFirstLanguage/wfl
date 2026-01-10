@@ -2,7 +2,7 @@
 
 use super::super::{ParseError, Parser, Statement};
 use crate::lexer::token::Token;
-use crate::parser::expr::{ExprParser, PrimaryExprParser};
+use crate::parser::expr::ExprParser;
 
 pub(crate) trait ModuleParser<'a>: ExprParser<'a> {
     fn parse_load_module_statement(&mut self) -> Result<Statement, ParseError>;
@@ -24,7 +24,7 @@ impl<'a> ModuleParser<'a> for Parser<'a> {
         self.expect_token(Token::KeywordModule, "Expected 'module' after 'load'")?;
         self.expect_token(Token::KeywordFrom, "Expected 'from' after 'module'")?;
 
-        let path = self.parse_primary_expression()?;
+        let path = self.parse_expression()?;
 
         // V1: Reject unsupported alias syntax with helpful error
         if let Some(next_token) = self.cursor.peek()
