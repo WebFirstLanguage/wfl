@@ -77,7 +77,9 @@ fn run_wfl_with_validation(
                     ));
                     if attempt < max_attempts {
                         // Wait before retrying with exponential backoff
-                        thread::sleep(Duration::from_millis(150 * 2u64.saturating_pow((attempt - 1) as u32)));
+                        thread::sleep(Duration::from_millis(
+                            150 * 2u64.saturating_pow((attempt - 1) as u32),
+                        ));
                     }
                 }
             }
@@ -85,7 +87,9 @@ fn run_wfl_with_validation(
                 last_result = Err(e);
                 if attempt < max_attempts {
                     // Wait before retrying with exponential backoff
-                    thread::sleep(Duration::from_millis(150 * 2u64.saturating_pow((attempt - 1) as u32)));
+                    thread::sleep(Duration::from_millis(
+                        150 * 2u64.saturating_pow((attempt - 1) as u32),
+                    ));
                 }
             }
         }
