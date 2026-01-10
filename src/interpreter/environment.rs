@@ -8,9 +8,13 @@ pub struct Environment {
     pub values: HashMap<String, Value>,
     pub constants: HashSet<String>,
     pub parent: Option<Weak<RefCell<Environment>>>,
+<<<<<<< HEAD
     /// When true, values retrieved from parent scopes are deep cloned to prevent mutations
     /// from affecting the parent environment. Used for module isolation.
     pub isolated: bool,
+=======
+    pub isolated: bool, // If true, cannot modify parent scope variables
+>>>>>>> origin/includes
 }
 
 impl Environment {
@@ -51,9 +55,13 @@ impl Environment {
         }))
     }
 
+<<<<<<< HEAD
     /// Create a new isolated child environment for module execution.
     /// Values retrieved from parent scopes are deep cloned to prevent mutations
     /// from affecting the parent environment.
+=======
+    /// Creates an isolated child environment for modules that cannot modify parent scope
+>>>>>>> origin/includes
     #[inline]
     pub fn new_isolated_child_env(parent: &Rc<RefCell<Environment>>) -> Rc<RefCell<Self>> {
         #[cfg(feature = "dhat-ad-hoc")]
@@ -137,7 +145,12 @@ impl Environment {
             Ok(())
         } else if let Some(parent_weak) = &self.parent {
             if let Some(parent) = parent_weak.upgrade() {
-                parent.borrow_mut().assign(name, value)
+                // If isolated, cannot modify parent scope variables
+                if self.isolated {
+                    Err(format!("Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."))
+                } else {
+                    parent.borrow_mut().assign(name, value)
+                }
             } else {
                 Err("Parent environment no longer exists".to_string())
             }

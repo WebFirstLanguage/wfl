@@ -1174,7 +1174,7 @@ impl Interpreter {
         *self.current_source_file.borrow_mut() = Some(path);
     }
 
-    fn resolve_module_path(
+    async fn resolve_module_path(
         &self,
         relative_path: &str,
         line: usize,
@@ -1203,7 +1203,7 @@ impl Interpreter {
         };
 
         // Canonicalize to handle . and .. and detect duplicates
-        let canonical = resolved.canonicalize().map_err(|e| {
+        let canonical = tokio::fs::canonicalize(&resolved).await.map_err(|e| {
             RuntimeError::new(
                 format!("Cannot resolve module path '{}': {}", relative_path, e),
                 line,
@@ -2636,12 +2636,21 @@ impl Interpreter {
                 };
 
                 // 2. Resolve absolute path
+<<<<<<< HEAD
                 let resolved_path = self.resolve_module_path(&path_str, *line, *column)?;
+=======
+                let resolved_path = self.resolve_module_path(path_str, *line, *column).await?;
+>>>>>>> origin/includes
 
                 // 3. Check circular dependencies
                 self.check_circular_dependency(&resolved_path, *line, *column)?;
 
-                // 4. Read file content
+                // 4. Update execution context early (before parse/analyze/type check for better error reporting)
+                self.loading_stack.borrow_mut().push(resolved_path.clone());
+                let previous_source = self.current_source_file.borrow().clone();
+                *self.current_source_file.borrow_mut() = Some(resolved_path.clone());
+
+                // 5. Read file content
                 let content = tokio::fs::read_to_string(&resolved_path)
                     .await
                     .map_err(|e| {
@@ -2652,7 +2661,7 @@ impl Interpreter {
                         )
                     })?;
 
-                // 5. Parse module
+                // 6. Parse module
                 use crate::lexer::lex_wfl_with_positions;
                 use crate::parser::Parser;
 
@@ -2673,7 +2682,7 @@ impl Interpreter {
                     )
                 })?;
 
-                // 6. Analyze semantics
+                // 7. Analyze semantics
                 use crate::analyzer::Analyzer;
 
                 let mut analyzer = Analyzer::new();
@@ -2689,7 +2698,7 @@ impl Interpreter {
                     ));
                 }
 
-                // 7. Type check
+                // 8. Type check
                 use crate::typechecker::TypeChecker;
 
                 let mut tc = TypeChecker::new();
@@ -2708,6 +2717,7 @@ impl Interpreter {
                     ));
                 }
 
+<<<<<<< HEAD
                 // 8. Create isolated child environment
                 // This prevents mutations of containers (lists/objects) from affecting parent scope
                 use crate::interpreter::environment::Environment;
@@ -2718,6 +2728,13 @@ impl Interpreter {
                 let _guard = ModuleLoadGuard::new(self, resolved_path.clone(), previous_source);
 
                 // 10. Execute module in child scope
+=======
+                // 9. Create isolated child environment for module
+                use crate::interpreter::environment::Environment;
+                let module_env = Environment::new_isolated_child_env(&env);
+
+                // 10. Execute module in isolated child scope
+>>>>>>> origin/includes
                 let result = self.execute_block(&program.statements, module_env).await;
 
                 // Note: Context automatically restored when _guard drops at end of scope
