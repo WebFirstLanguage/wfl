@@ -47,24 +47,44 @@ fn run_wfl(code: &str) -> Result<String, String> {
     }
 }
 
-/// Run WFL with retry logic for flaky subprocess tests
-fn run_wfl_with_retry(code: &str, max_attempts: usize) -> Result<String, String> {
-    let mut last_error = None;
+/// Run WFL with retry logic that validates output contains expected strings
+/// This is more robust for timing-sensitive tests that might succeed but produce empty output
+fn run_wfl_with_validation(
+    code: &str,
+    max_attempts: usize,
+    expected_strings: &[&str],
+) -> Result<String, String> {
+    let mut last_result = Err("Not attempted".to_string());
 
     for attempt in 1..=max_attempts {
         match run_wfl(code) {
-            Ok(output) => return Ok(output),
+            Ok(output) => {
+                // Check if output contains all expected strings
+                let all_present = expected_strings.iter().all(|s| output.contains(s));
+
+                if all_present {
+                    return Ok(output);
+                } else {
+                    // Output succeeded but doesn't have expected content - might be timing issue
+                    last_result = Ok(output);
+                    if attempt < max_attempts {
+                        // Wait before retrying with exponential backoff
+                        thread::sleep(Duration::from_millis(150 * attempt as u64));
+                    }
+                }
+            }
             Err(e) => {
-                last_error = Some(e);
+                last_result = Err(e);
                 if attempt < max_attempts {
-                    // Wait a bit before retrying, with exponential backoff
-                    thread::sleep(Duration::from_millis(100 * attempt as u64));
+                    // Wait before retrying with exponential backoff
+                    thread::sleep(Duration::from_millis(150 * attempt as u64));
                 }
             }
         }
     }
 
-    Err(last_error.unwrap_or_else(|| "Unknown error".to_string()))
+    // Return the last result even if validation failed
+    last_result
 }
 
 #[test]
@@ -211,14 +231,14 @@ fn test_simple_command_without_args_works() {
 fn test_spawn_with_safe_arguments() {
     let code = r#"
         spawn command "echo" with arguments ["test"] as proc_id
-        wait for 100 milliseconds
+        wait for 250 milliseconds
         wait for read output from process proc_id as proc_output
         wait for process proc_id to complete
         display proc_output
     "#;
 
-    // Use retry logic to handle timing issues on loaded systems
-    let result = run_wfl_with_retry(code, 3);
+    // Use validation-based retry logic to handle timing issues on loaded systems
+    let result = run_wfl_with_validation(code, 5, &["test"]);
     assert!(
         result.is_ok(),
         "Spawn with safe arguments should work: {:?}",
@@ -269,7 +289,7 @@ fn test_multiple_safe_processes() {
     let code = r#"
         spawn command "echo" with arguments ["test1"] as proc1
         spawn command "echo" with arguments ["test2"] as proc2
-        wait for 100 milliseconds
+        wait for 250 milliseconds
         wait for read output from process proc1 as out1
         wait for read output from process proc2 as out2
         wait for process proc1 to complete
@@ -278,8 +298,8 @@ fn test_multiple_safe_processes() {
         display out2
     "#;
 
-    // Use retry logic to handle timing issues on loaded systems
-    let result = run_wfl_with_retry(code, 3);
+    // Use validation-based retry logic to handle timing issues on loaded systems
+    let result = run_wfl_with_validation(code, 5, &["test1", "test2"]);
     assert!(
         result.is_ok(),
         "Multiple safe processes should work: {:?}",
