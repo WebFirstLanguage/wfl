@@ -1,279 +1,222 @@
 AST output for: blog_server.wfl
 ==============================================
 
-Program with 15 statements:
+Program with 9 statements:
 
 Statement #1: DisplayStatement {
     value: Literal(
         String(
-            "=== Web Server Request/Response Test ===",
+            "=== WFL MVC Blog Server ===",
         ),
-        5,
+        2,
         9,
     ),
-    line: 5,
-    column: 51,
+    line: 2,
+    column: 38,
 }
 
-Statement #2: DisplayStatement {
-    value: Literal(
-        String(
-            "This test validates basic HTTP request/response functionality",
+Statement #2: ListenStatement {
+    port: Literal(
+        Integer(
+            3001,
         ),
-        6,
-        9,
+        4,
+        16,
     ),
-    line: 6,
-    column: 72,
+    server_name: "blog_server",
+    line: 4,
+    column: 1,
 }
 
 Statement #3: DisplayStatement {
     value: Literal(
         String(
+            "✓ Server running on http://localhost:3001",
+        ),
+        5,
+        9,
+    ),
+    line: 5,
+    column: 54,
+}
+
+Statement #4: DisplayStatement {
+    value: Literal(
+        String(
             "",
+        ),
+        6,
+        9,
+    ),
+    line: 6,
+    column: 11,
+}
+
+Statement #5: DisplayStatement {
+    value: Literal(
+        String(
+            "Endpoints: /, /api/posts, /api/posts/1",
         ),
         7,
         9,
     ),
     line: 7,
+    column: 49,
+}
+
+Statement #6: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        8,
+        9,
+    ),
+    line: 8,
     column: 11,
 }
 
-Statement #4: VariableDeclaration {
-    name: "test_port",
+Statement #7: VariableDeclaration {
+    name: "req_num",
     value: Literal(
         Integer(
-            8090,
+            0,
         ),
         10,
-        20,
+        18,
     ),
     is_constant: false,
     line: 10,
     column: 1,
 }
 
-Statement #5: VariableDeclaration {
-    name: "test_timeout",
-    value: Literal(
-        Integer(
-            5000,
-        ),
-        11,
-        23,
-    ),
-    is_constant: false,
-    line: 11,
-    column: 1,
-}
-
-Statement #6: DisplayStatement {
-    value: Concatenation {
-        left: Literal(
-            String(
-                "Starting web server on port ",
-            ),
-            13,
-            9,
-        ),
-        right: Concatenation {
-            left: Variable(
-                "test_port",
-                13,
-                45,
-            ),
-            right: Literal(
-                String(
-                    "...",
-                ),
-                13,
-                60,
-            ),
-            line: 13,
-            column: 55,
-        },
-        line: 13,
-        column: 40,
-    },
-    line: 13,
-    column: 65,
-}
-
-Statement #7: TryStatement {
+Statement #8: TryStatement {
     body: [
-        ListenStatement {
-            port: Variable(
-                "test_port",
-                17,
-                20,
-            ),
-            server_name: "test_server",
-            line: 17,
-            column: 5,
-        },
-        DisplayStatement {
-            value: Literal(
-                String(
-                    "✓ Server started successfully",
-                ),
-                18,
-                13,
-            ),
-            line: 18,
-            column: 46,
-        },
-        DisplayStatement {
-            value: Literal(
-                String(
-                    "",
-                ),
-                21,
-                13,
-            ),
-            line: 21,
-            column: 15,
-        },
-        DisplayStatement {
-            value: Literal(
-                String(
-                    "Test 1: Basic request handling",
-                ),
-                22,
-                13,
-            ),
-            line: 22,
-            column: 45,
-        },
-        DisplayStatement {
-            value: Literal(
-                String(
-                    "Waiting for incoming request...",
-                ),
-                23,
-                13,
-            ),
-            line: 23,
-            column: 46,
-        },
-        TryStatement {
+        MainLoop {
             body: [
                 WaitForRequestStatement {
                     server: Variable(
-                        "test_server",
-                        27,
+                        "blog_server",
+                        14,
                         38,
                     ),
                     request_name: "incoming_request",
                     timeout: None,
-                    line: 27,
+                    line: 14,
+                    column: 9,
+                },
+                Assignment {
+                    name: "req_num",
+                    value: BinaryOperation {
+                        left: Variable(
+                            "req_num",
+                            15,
+                            9,
+                        ),
+                        operator: Plus,
+                        right: Literal(
+                            Integer(
+                                1,
+                            ),
+                            15,
+                            13,
+                        ),
+                        line: 15,
+                        column: 9,
+                    },
+                    line: 15,
                     column: 9,
                 },
                 DisplayStatement {
-                    value: Literal(
-                        String(
-                            "✓ Request received successfully",
-                        ),
-                        28,
-                        17,
-                    ),
-                    line: 28,
-                    column: 52,
-                },
-                DisplayStatement {
                     value: Concatenation {
                         left: Literal(
                             String(
-                                "Request method: ",
+                                "Request #",
                             ),
-                            31,
+                            17,
                             17,
                         ),
-                        right: Variable(
-                            "method",
-                            31,
-                            41,
-                        ),
-                        line: 31,
-                        column: 36,
+                        right: Concatenation {
+                            left: Variable(
+                                "req_num",
+                                17,
+                                34,
+                            ),
+                            right: Concatenation {
+                                left: Literal(
+                                    String(
+                                        ": ",
+                                    ),
+                                    17,
+                                    47,
+                                ),
+                                right: Concatenation {
+                                    left: Variable(
+                                        "method",
+                                        17,
+                                        57,
+                                    ),
+                                    right: Concatenation {
+                                        left: Literal(
+                                            String(
+                                                " ",
+                                            ),
+                                            17,
+                                            69,
+                                        ),
+                                        right: Variable(
+                                            "path",
+                                            17,
+                                            78,
+                                        ),
+                                        line: 17,
+                                        column: 73,
+                                    },
+                                    line: 17,
+                                    column: 64,
+                                },
+                                line: 17,
+                                column: 52,
+                            },
+                            line: 17,
+                            column: 42,
+                        },
+                        line: 17,
+                        column: 29,
                     },
-                    line: 31,
-                    column: 47,
+                    line: 17,
+                    column: 82,
                 },
-                DisplayStatement {
-                    value: Concatenation {
-                        left: Literal(
-                            String(
-                                "Request path: ",
-                            ),
-                            32,
-                            17,
-                        ),
-                        right: Variable(
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: Variable(
                             "path",
-                            32,
-                            39,
+                            19,
+                            18,
                         ),
-                        line: 32,
-                        column: 34,
-                    },
-                    line: 32,
-                    column: 43,
-                },
-                DisplayStatement {
-                    value: Concatenation {
-                        left: Literal(
+                        operator: Equals,
+                        right: Literal(
                             String(
-                                "Request client IP: ",
+                                "/",
                             ),
-                            33,
-                            17,
+                            19,
+                            35,
                         ),
-                        right: Variable(
-                            "client_ip",
-                            33,
-                            44,
-                        ),
-                        line: 33,
-                        column: 39,
+                        line: 19,
+                        column: 23,
                     },
-                    line: 33,
-                    column: 53,
-                },
-                DisplayStatement {
-                    value: Literal(
-                        String(
-                            "",
-                        ),
-                        36,
-                        17,
-                    ),
-                    line: 36,
-                    column: 19,
-                },
-                DisplayStatement {
-                    value: Literal(
-                        String(
-                            "Test 2: Basic response handling",
-                        ),
-                        37,
-                        17,
-                    ),
-                    line: 37,
-                    column: 50,
-                },
-                TryStatement {
-                    body: [
+                    then_block: [
                         RespondStatement {
                             request: Variable(
                                 "incoming_request",
-                                41,
+                                20,
                                 24,
                             ),
                             content: Literal(
                                 String(
-                                    "Hello from WFL Test Server!",
+                                    "WFL MVC Blog\nTry /api/posts",
                                 ),
-                                41,
+                                20,
                                 46,
                             ),
                             status: None,
@@ -282,343 +225,215 @@ Statement #7: TryStatement {
                                     String(
                                         "text/plain",
                                     ),
-                                    41,
-                                    93,
+                                    20,
+                                    94,
                                 ),
                             ),
-                            line: 41,
+                            line: 20,
                             column: 13,
-                        },
-                        DisplayStatement {
-                            value: Literal(
-                                String(
-                                    "✓ Response sent successfully",
-                                ),
-                                42,
-                                21,
-                            ),
-                            line: 42,
-                            column: 53,
-                        },
-                    ],
-                    when_clauses: [
-                        WhenClause {
-                            error_type: General,
-                            error_name: "error",
-                            body: [
-                                DisplayStatement {
-                                    value: Literal(
-                                        String(
-                                            "✗ EXPECTED FAILURE: Response handling not implemented",
-                                        ),
-                                        45,
-                                        21,
-                                    ),
-                                    line: 45,
-                                    column: 78,
-                                },
-                                DisplayStatement {
-                                    value: Concatenation {
-                                        left: Literal(
-                                            String(
-                                                "Error: ",
-                                            ),
-                                            46,
-                                            21,
-                                        ),
-                                        right: Variable(
-                                            "error",
-                                            46,
-                                            36,
-                                        ),
-                                        line: 46,
-                                        column: 31,
-                                    },
-                                    line: 46,
-                                    column: 41,
-                                },
-                            ],
-                        },
-                    ],
-                    otherwise_block: None,
-                    line: 39,
-                    column: 9,
-                },
-            ],
-            when_clauses: [
-                WhenClause {
-                    error_type: General,
-                    error_name: "error",
-                    body: [
-                        DisplayStatement {
-                            value: Literal(
-                                String(
-                                    "✗ EXPECTED FAILURE: Request handling not implemented",
-                                ),
-                                50,
-                                17,
-                            ),
-                            line: 50,
-                            column: 73,
-                        },
-                        DisplayStatement {
-                            value: Concatenation {
-                                left: Literal(
-                                    String(
-                                        "Error: ",
-                                    ),
-                                    51,
-                                    17,
-                                ),
-                                right: Variable(
-                                    "error",
-                                    51,
-                                    32,
-                                ),
-                                line: 51,
-                                column: 27,
-                            },
-                            line: 51,
-                            column: 37,
-                        },
-                    ],
-                },
-            ],
-            otherwise_block: None,
-            line: 25,
-            column: 5,
-        },
-        DisplayStatement {
-            value: Literal(
-                String(
-                    "",
-                ),
-                55,
-                13,
-            ),
-            line: 55,
-            column: 15,
-        },
-        DisplayStatement {
-            value: Literal(
-                String(
-                    "Test 3: Additional request handling test",
-                ),
-                56,
-                13,
-            ),
-            line: 56,
-            column: 55,
-        },
-        TryStatement {
-            body: [
-                WaitForRequestStatement {
-                    server: Variable(
-                        "test_server",
-                        59,
-                        38,
-                    ),
-                    request_name: "test_request2",
-                    timeout: None,
-                    line: 59,
-                    column: 9,
-                },
-                DisplayStatement {
-                    value: Literal(
-                        String(
-                            "Processing additional request",
-                        ),
-                        60,
-                        17,
-                    ),
-                    line: 60,
-                    column: 48,
-                },
-                DisplayStatement {
-                    value: Concatenation {
-                        left: Literal(
-                            String(
-                                "Path: ",
-                            ),
-                            61,
-                            17,
-                        ),
-                        right: Variable(
-                            "path",
-                            61,
-                            31,
-                        ),
-                        line: 61,
-                        column: 26,
-                    },
-                    line: 61,
-                    column: 35,
-                },
-                IfStatement {
-                    condition: BinaryOperation {
-                        left: Variable(
-                            "path",
-                            64,
-                            18,
-                        ),
-                        operator: Equals,
-                        right: Literal(
-                            String(
-                                "/json",
-                            ),
-                            64,
-                            35,
-                        ),
-                        line: 64,
-                        column: 23,
-                    },
-                    then_block: [
-                        VariableDeclaration {
-                            name: "json_response",
-                            value: Literal(
-                                String(
-                                    "{\"message\": \"Hello JSON\"}",
-                                ),
-                                65,
-                                36,
-                            ),
-                            is_constant: false,
-                            line: 65,
-                            column: 13,
-                        },
-                        RespondStatement {
-                            request: Variable(
-                                "test_request2",
-                                66,
-                                24,
-                            ),
-                            content: Variable(
-                                "json_response",
-                                66,
-                                43,
-                            ),
-                            status: None,
-                            content_type: Some(
-                                Literal(
-                                    String(
-                                        "application/json",
-                                    ),
-                                    66,
-                                    74,
-                                ),
-                            ),
-                            line: 66,
-                            column: 13,
-                        },
-                        DisplayStatement {
-                            value: Literal(
-                                String(
-                                    "✓ JSON response sent",
-                                ),
-                                67,
-                                21,
-                            ),
-                            line: 67,
-                            column: 45,
                         },
                     ],
                     else_block: Some(
                         [
-                            VariableDeclaration {
-                                name: "text_response",
-                                value: Literal(
-                                    String(
-                                        "Hello from WFL additional test!",
+                            IfStatement {
+                                condition: BinaryOperation {
+                                    left: Variable(
+                                        "path",
+                                        22,
+                                        22,
                                     ),
-                                    70,
-                                    36,
-                                ),
-                                is_constant: false,
-                                line: 70,
-                                column: 13,
-                            },
-                            RespondStatement {
-                                request: Variable(
-                                    "test_request2",
-                                    71,
-                                    24,
-                                ),
-                                content: Variable(
-                                    "text_response",
-                                    71,
-                                    43,
-                                ),
-                                status: None,
-                                content_type: Some(
-                                    Literal(
+                                    operator: Equals,
+                                    right: Literal(
                                         String(
-                                            "text/plain",
+                                            "/api/posts",
                                         ),
-                                        71,
-                                        74,
+                                        22,
+                                        39,
                                     ),
+                                    line: 22,
+                                    column: 27,
+                                },
+                                then_block: [
+                                    VariableDeclaration {
+                                        name: "posts",
+                                        value: Literal(
+                                            String(
+                                                "[{\"id\":1,\"title\":\"First Post\"},{\"id\":2,\"title\":\"Second Post\"}]",
+                                            ),
+                                            23,
+                                            32,
+                                        ),
+                                        is_constant: false,
+                                        line: 23,
+                                        column: 17,
+                                    },
+                                    RespondStatement {
+                                        request: Variable(
+                                            "incoming_request",
+                                            24,
+                                            28,
+                                        ),
+                                        content: Variable(
+                                            "posts",
+                                            24,
+                                            50,
+                                        ),
+                                        status: None,
+                                        content_type: Some(
+                                            Literal(
+                                                String(
+                                                    "application/json",
+                                                ),
+                                                24,
+                                                73,
+                                            ),
+                                        ),
+                                        line: 24,
+                                        column: 17,
+                                    },
+                                ],
+                                else_block: Some(
+                                    [
+                                        IfStatement {
+                                            condition: BinaryOperation {
+                                                left: Variable(
+                                                    "path",
+                                                    26,
+                                                    26,
+                                                ),
+                                                operator: Equals,
+                                                right: Literal(
+                                                    String(
+                                                        "/api/posts/1",
+                                                    ),
+                                                    26,
+                                                    43,
+                                                ),
+                                                line: 26,
+                                                column: 31,
+                                            },
+                                            then_block: [
+                                                RespondStatement {
+                                                    request: Variable(
+                                                        "incoming_request",
+                                                        27,
+                                                        32,
+                                                    ),
+                                                    content: Literal(
+                                                        String(
+                                                            "{\"id\":1,\"title\":\"First Post\"}",
+                                                        ),
+                                                        27,
+                                                        54,
+                                                    ),
+                                                    status: None,
+                                                    content_type: Some(
+                                                        Literal(
+                                                            String(
+                                                                "application/json",
+                                                            ),
+                                                            27,
+                                                            109,
+                                                        ),
+                                                    ),
+                                                    line: 27,
+                                                    column: 21,
+                                                },
+                                            ],
+                                            else_block: Some(
+                                                [
+                                                    RespondStatement {
+                                                        request: Variable(
+                                                            "incoming_request",
+                                                            29,
+                                                            32,
+                                                        ),
+                                                        content: Literal(
+                                                            String(
+                                                                "{\"error\":\"Not found\"}",
+                                                            ),
+                                                            29,
+                                                            54,
+                                                        ),
+                                                        status: Some(
+                                                            BinaryOperation {
+                                                                left: Literal(
+                                                                    Integer(
+                                                                        404,
+                                                                    ),
+                                                                    29,
+                                                                    93,
+                                                                ),
+                                                                operator: And,
+                                                                right: Variable(
+                                                                    "content_type",
+                                                                    29,
+                                                                    101,
+                                                                ),
+                                                                line: 29,
+                                                                column: 97,
+                                                            },
+                                                        ),
+                                                        content_type: None,
+                                                        line: 29,
+                                                        column: 21,
+                                                    },
+                                                    ExpressionStatement {
+                                                        expression: Literal(
+                                                            String(
+                                                                "application/json",
+                                                            ),
+                                                            29,
+                                                            114,
+                                                        ),
+                                                        line: 29,
+                                                        column: 132,
+                                                    },
+                                                ],
+                                            ),
+                                            line: 26,
+                                            column: 17,
+                                        },
+                                    ],
                                 ),
-                                line: 71,
+                                line: 22,
                                 column: 13,
-                            },
-                            DisplayStatement {
-                                value: Literal(
-                                    String(
-                                        "✓ Text response sent",
-                                    ),
-                                    72,
-                                    21,
-                                ),
-                                line: 72,
-                                column: 45,
                             },
                         ],
                     ),
-                    line: 64,
+                    line: 19,
+                    column: 9,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: Variable(
+                            "req_num",
+                            34,
+                            18,
+                        ),
+                        operator: GreaterThanOrEqual,
+                        right: Literal(
+                            Integer(
+                                20,
+                            ),
+                            34,
+                            54,
+                        ),
+                        line: 34,
+                        column: 26,
+                    },
+                    then_block: [
+                        BreakStatement {
+                            line: 35,
+                            column: 13,
+                        },
+                    ],
+                    else_block: None,
+                    line: 34,
                     column: 9,
                 },
             ],
-            when_clauses: [
-                WhenClause {
-                    error_type: General,
-                    error_name: "error",
-                    body: [
-                        DisplayStatement {
-                            value: Literal(
-                                String(
-                                    "✗ EXPECTED FAILURE: Additional request handling not working",
-                                ),
-                                76,
-                                17,
-                            ),
-                            line: 76,
-                            column: 80,
-                        },
-                        DisplayStatement {
-                            value: Concatenation {
-                                left: Literal(
-                                    String(
-                                        "Error: ",
-                                    ),
-                                    77,
-                                    17,
-                                ),
-                                right: Variable(
-                                    "error",
-                                    77,
-                                    32,
-                                ),
-                                line: 77,
-                                column: 27,
-                            },
-                            line: 77,
-                            column: 37,
-                        },
-                    ],
-                },
-            ],
-            otherwise_block: None,
-            line: 58,
+            line: 13,
             column: 5,
         },
     ],
@@ -628,137 +443,42 @@ Statement #7: TryStatement {
             error_name: "error",
             body: [
                 DisplayStatement {
-                    value: Literal(
-                        String(
-                            "✗ EXPECTED FAILURE: Server startup or basic functionality failed",
-                        ),
-                        81,
-                        13,
-                    ),
-                    line: 81,
-                    column: 81,
-                },
-                DisplayStatement {
                     value: Concatenation {
                         left: Literal(
                             String(
-                                "Error: ",
+                                "Server error: ",
                             ),
-                            82,
+                            39,
                             13,
                         ),
                         right: Variable(
-                            "error",
-                            82,
-                            28,
+                            "error_message",
+                            39,
+                            35,
                         ),
-                        line: 82,
-                        column: 23,
+                        line: 39,
+                        column: 30,
                     },
-                    line: 82,
-                    column: 33,
+                    line: 39,
+                    column: 48,
                 },
             ],
         },
     ],
     otherwise_block: None,
-    line: 15,
+    line: 12,
     column: 1,
-}
-
-Statement #8: DisplayStatement {
-    value: Literal(
-        String(
-            "",
-        ),
-        85,
-        9,
-    ),
-    line: 85,
-    column: 11,
 }
 
 Statement #9: DisplayStatement {
     value: Literal(
         String(
-            "=== Web Server Request/Response Test Complete ===",
+            "Server stopped",
         ),
-        86,
+        42,
         9,
     ),
-    line: 86,
-    column: 60,
-}
-
-Statement #10: DisplayStatement {
-    value: Literal(
-        String(
-            "Expected result: This test should FAIL until request/response handling is implemented",
-        ),
-        87,
-        9,
-    ),
-    line: 87,
-    column: 96,
-}
-
-Statement #11: DisplayStatement {
-    value: Literal(
-        String(
-            "Once implemented, this test should PASS and demonstrate:",
-        ),
-        88,
-        9,
-    ),
-    line: 88,
-    column: 67,
-}
-
-Statement #12: DisplayStatement {
-    value: Literal(
-        String(
-            "- Basic server startup",
-        ),
-        89,
-        9,
-    ),
-    line: 89,
-    column: 33,
-}
-
-Statement #13: DisplayStatement {
-    value: Literal(
-        String(
-            "- Request reception and parsing",
-        ),
-        90,
-        9,
-    ),
-    line: 90,
-    column: 42,
-}
-
-Statement #14: DisplayStatement {
-    value: Literal(
-        String(
-            "- Response sending with different content types",
-        ),
-        91,
-        9,
-    ),
-    line: 91,
-    column: 58,
-}
-
-Statement #15: DisplayStatement {
-    value: Literal(
-        String(
-            "- Multiple request handling in a loop",
-        ),
-        92,
-        9,
-    ),
-    line: 92,
-    column: 48,
+    line: 42,
+    column: 25,
 }
 
