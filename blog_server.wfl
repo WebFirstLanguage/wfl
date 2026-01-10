@@ -1,4 +1,4 @@
-// WFL MVC Blog Server - Production Version
+// WFL MVC Blog Server - Fixed Version
 display "=== WFL MVC Blog Server ==="
 
 listen on port 3001 as blog_server
@@ -9,32 +9,34 @@ display ""
 
 store req_num as 0
 
-main loop:
-    wait for request comes in on blog_server as incoming_request
-    add 1 to req_num
+try:
+    main loop:
+        wait for request comes in on blog_server as incoming_request
+        add 1 to req_num
 
-    display "Request #" with req_num with ": " with method with " " with path
+        display "Request #" with req_num with ": " with method with " " with path
 
-    check if path is equal to "/":
-        respond to incoming_request with "WFL MVC Blog\nTry /api/posts" and content_type "text/plain"
-
-    otherwise:
-        check if path is equal to "/api/posts":
-            store posts as "[{\"id\":1,\"title\":\"First Post\"},{\"id\":2,\"title\":\"Second Post\"}]"
-            respond to incoming_request with posts and content_type "application/json"
-
+        check if path is equal to "/":
+            respond to incoming_request with "WFL MVC Blog\nTry /api/posts" and content_type "text/plain"
         otherwise:
-            check if path is equal to "/api/posts/1":
-                respond to incoming_request with "{\"id\":1,\"title\":\"First Post\"}" and content_type "application/json"
+            check if path is equal to "/api/posts":
+                store posts as "[{\"id\":1,\"title\":\"First Post\"},{\"id\":2,\"title\":\"Second Post\"}]"
+                respond to incoming_request with posts and content_type "application/json"
             otherwise:
-                respond to incoming_request with "{\"error\":\"Not found\"}" and status 404 and content_type "application/json"
+                check if path is equal to "/api/posts/1":
+                    respond to incoming_request with "{\"id\":1,\"title\":\"First Post\"}" and content_type "application/json"
+                otherwise:
+                    respond to incoming_request with "{\"error\":\"Not found\"}" and status 404 and content_type "application/json"
+                end check
             end check
         end check
-    end check
 
-    check if req_num is greater than or equal to 20:
-        break
-    end check
-end loop
+        check if req_num is greater than or equal to 20:
+            break
+        end check
+    end loop
+catch:
+    display "Server error: " with error
+end try
 
 display "Server stopped"
