@@ -85,15 +85,9 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let start = expect_number(&args[1])? as usize;
     let length = expect_number(&args[2])? as usize;
 
-    let text_str = text.to_string();
-    let chars: Vec<char> = text_str.chars().collect();
-
-    if start >= chars.len() {
-        return Ok(Value::Text(Rc::from("")));
-    }
-
-    let end = (start + length).min(chars.len());
-    let substring: String = chars[start..end].iter().collect();
+    // Optimization: Avoid intermediate String and Vec<char> allocations
+    // by iterating directly over characters.
+    let substring: String = text.chars().skip(start).take(length).collect();
 
     Ok(Value::Text(Rc::from(substring)))
 }

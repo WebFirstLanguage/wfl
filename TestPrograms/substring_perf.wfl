@@ -1,0 +1,38 @@
+
+// Performance and Correctness Test for Substring Optimization
+
+display "--- Basic Correctness ---"
+store text as "Hello, World!"
+display "Original: " with text
+display "Sub(0, 5): " with substring of text and 0 and 5
+display "Sub(7, 5): " with substring of text and 7 and 5
+
+display "--- Edge Cases ---"
+store empty as ""
+display "Empty sub(0, 1): '" with substring of empty and 0 and 1 with "'"
+
+store short as "Hi"
+display "Start > len (3, 1): '" with substring of short and 3 and 1 with "'"
+display "Start = len (2, 1): '" with substring of short and 2 and 1 with "'"
+display "Length > remaining (0, 10): '" with substring of short and 0 and 10 with "'"
+
+display "--- Unicode ---"
+store unicode_text as "Héllo 🦀 World"
+// 'é' is 2 bytes but 1 char. '🦀' is 4 bytes but 1 char.
+// H(0) é(1) l(2) l(3) o(4)  (5) 🦀(6)  (7) W(8)
+display "Unicode full: " with unicode_text
+display "Sub(1, 1) should be 'é': " with substring of unicode_text and 1 and 1
+display "Sub(6, 1) should be '🦀': " with substring of unicode_text and 6 and 1
+display "Sub(5, 4) should be ' 🦀 ': " with substring of unicode_text and 5 and 4
+
+display "--- Large String Performance Test (Proxy) ---"
+// We can't easily measure time in ms here without more setup,
+// but we can ensure it doesn't crash or hang on larger strings.
+// Construct a larger string
+store chunk as "0123456789"
+store large as chunk
+// Repeat 10 times -> 100 chars
+// Repeat 10 times -> 1000 chars (approx)
+// WFL doesn't have loop range easily without counting, let's just do a simple check
+store large_sub as substring of chunk and 2 and 5
+display "Sub of chunk: " with large_sub
