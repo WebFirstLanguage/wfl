@@ -1,0 +1,35 @@
+// WFL MVC Framework - Demo Server
+// Minimal working example with JSON support
+
+display "WFL MVC Framework - Demo Server"
+display "Starting on port 3000..."
+
+listen on port 3000 as web_server
+display "Server started!"
+display "Test: curl http://localhost:3000/api/status"
+display ""
+
+store req_num as 0
+
+main loop:
+    wait for request comes in on web_server as incoming_req
+
+    store req_num as req_num plus 1
+    display "Request #" with req_num with ": " with method with " " with path
+
+    check if path is equal to "/api/status":
+        store resp_json as "{\"status\":\"ok\",\"count\":" with req_num with "}"
+        respond to incoming_req with resp_json and content_type "application/json"
+        display "Sent JSON"
+    otherwise:
+        respond to incoming_req with "Hello from WFL MVC!" and content_type "text/plain"
+        display "Sent text"
+    end check
+
+    check if req_num is greater than or equal to 5:
+        display "Stopping..."
+        break
+    end check
+end loop
+
+display "Server stopped after " with req_num with " requests"
