@@ -25,14 +25,18 @@ display "Sub(1, 1) should be 'é': " with substring of unicode_text and 1 and 1
 display "Sub(6, 1) should be '🦀': " with substring of unicode_text and 6 and 1
 display "Sub(5, 4) should be ' 🦀 ': " with substring of unicode_text and 5 and 4
 
-display "--- Large String Performance Test (Proxy) ---"
-// We can't easily measure time in ms here without more setup,
-// but we can ensure it doesn't crash or hang on larger strings.
-// Construct a larger string
+display "--- Large String Performance Test ---"
+// Construct a larger string by repeating
 store chunk as "0123456789"
-store large as chunk
-// Repeat 10 times -> 100 chars
-// Repeat 10 times -> 1000 chars (approx)
-// WFL doesn't have loop range easily without counting, let's just do a simple check
-store large_sub as substring of chunk and 2 and 5
-display "Sub of chunk: " with large_sub
+store large as ""
+// Append chunk 100 times to make a 1000 char string
+count from 1 to 100:
+    change large to large with chunk
+end count
+
+display "Large string length: " with length of large
+store large_sub as substring of large and 500 and 10
+display "Sub of large (500, 10): " with large_sub
+
+store very_large_start as substring of large and 2000 and 5
+display "Very large start (2000, 5): '" with very_large_start with "'"
