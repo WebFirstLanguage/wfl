@@ -91,6 +91,58 @@ pub struct ServerError(String);
 
 impl warp::reject::Reject for ServerError {}
 
+/// RAII guard that ensures module loading context is restored on scope exit.
+/// Automatically pops loading_stack and restores current_source_file when dropped.
+struct ModuleLoadGuard<'a> {
+    interpreter: &'a Interpreter,
+    previous_source: Option<PathBuf>,
+    should_restore: bool,
+}
+
+impl<'a> ModuleLoadGuard<'a> {
+    fn new(
+        interpreter: &'a Interpreter,
+        module_path: PathBuf,
+        previous_source: Option<PathBuf>,
+    ) -> Self {
+        interpreter
+            .loading_stack
+            .borrow_mut()
+            .push(module_path.clone());
+        *interpreter.current_source_file.borrow_mut() = Some(module_path);
+
+        Self {
+            interpreter,
+            previous_source,
+            should_restore: true,
+        }
+    }
+
+    /// Get the current loading chain before cleanup (for error reporting)
+    fn get_chain(&self) -> Vec<String> {
+        self.interpreter
+            .loading_stack
+            .borrow()
+            .iter()
+            .map(|p| {
+                p.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect()
+    }
+}
+
+impl<'a> Drop for ModuleLoadGuard<'a> {
+    fn drop(&mut self) {
+        if self.should_restore {
+            *self.interpreter.current_source_file.borrow_mut() = self.previous_source.clone();
+            self.interpreter.loading_stack.borrow_mut().pop();
+        }
+    }
+}
+
 // Helper functions for execution logging
 #[cfg(debug_assertions)]
 fn stmt_type(stmt: &Statement) -> String {
@@ -2572,8 +2624,8 @@ impl Interpreter {
             } => {
                 // 1. Evaluate path expression to string
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.as_ref(),
+                let path_str: String = match &path_value {
+                    Value::Text(s) => s.to_string(),
                     _ => {
                         return Err(RuntimeError::new(
                             format!("Module path must be a string, got {path_value:?}"),
@@ -2584,7 +2636,7 @@ impl Interpreter {
                 };
 
                 // 2. Resolve absolute path
-                let resolved_path = self.resolve_module_path(path_str, *line, *column)?;
+                let resolved_path = self.resolve_module_path(&path_str, *line, *column)?;
 
                 // 3. Check circular dependencies
                 self.check_circular_dependency(&resolved_path, *line, *column)?;
@@ -2661,17 +2713,14 @@ impl Interpreter {
                 use crate::interpreter::environment::Environment;
                 let module_env = Environment::new_isolated_child_env(&env);
 
-                // 9. Update execution context
-                self.loading_stack.borrow_mut().push(resolved_path.clone());
+                // 9. Create guard to ensure context restoration on scope exit
                 let previous_source = self.current_source_file.borrow().clone();
-                *self.current_source_file.borrow_mut() = Some(resolved_path.clone());
+                let _guard = ModuleLoadGuard::new(self, resolved_path.clone(), previous_source);
 
                 // 10. Execute module in child scope
                 let result = self.execute_block(&program.statements, module_env).await;
 
-                // 11. Restore context
-                *self.current_source_file.borrow_mut() = previous_source;
-                self.loading_stack.borrow_mut().pop();
+                // Note: Context automatically restored when _guard drops at end of scope
 
                 // 12. Handle result
                 match result {
@@ -2697,19 +2746,10 @@ impl Interpreter {
                         *column,
                     )),
                     Err(e) => {
-                        // Add include chain to error
-                        let chain: Vec<String> = self
-                            .loading_stack
-                            .borrow()
-                            .iter()
-                            .map(|p| {
-                                p.file_name()
-                                    .unwrap_or_default()
-                                    .to_string_lossy()
-                                    .to_string()
-                            })
-                            .collect();
-                        if !chain.is_empty() {
+                        // Capture chain BEFORE guard drops (while current module is still on stack)
+                        let chain = _guard.get_chain();
+                        if chain.len() > 1 {
+                            // Only show chain if there are multiple modules
                             Err(RuntimeError::new(
                                 format!(
                                     "Error in module chain {}: {}",
