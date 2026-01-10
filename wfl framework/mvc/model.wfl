@@ -1,0 +1,116 @@
+// Base Model - Data models with validation for WFL MVC Framework
+display "=== Base Model Loaded ==="
+
+// Base Model Container
+// Provides foundation for data models with validation and persistence
+create container BaseModel:
+    property model_name: Text
+    property is_valid: Boolean
+    property errors_list: List
+
+    action init_model:
+        store model_name as "BaseModel"
+        store is_valid as yes
+        store errors_list as create list
+        display "Model initialized: " with model_name
+    end
+
+    action validate:
+        // Base validation - always passes
+        // Override in subclasses for real validation
+        store is_valid as yes
+        return yes
+    end
+
+    action add_error needs error_msg: Text:
+        push with errors_list and error_msg
+        store is_valid as no
+    end
+
+    action clear_errors:
+        store errors_list as create list
+        store is_valid as yes
+    end
+
+    action get_errors:
+        return errors_list
+    end
+
+    action is_valid_model:
+        return is_valid
+    end
+end
+
+// Example: User Model
+create container UserModel:
+    property model_name: Text
+    property is_valid: Boolean
+    property errors_list: List
+    property user_name: Text
+    property email: Text
+    property age: Number
+
+    action init_model:
+        store model_name as "User"
+        store is_valid as yes
+        store errors_list as create list
+        store user_name as ""
+        store email as ""
+        store age as 0
+    end
+
+    action validate:
+        store is_valid as yes
+        store errors_list as create list
+
+        // Validate name
+        check if length of user_name is less than 3:
+            push with errors_list and "Name must be at least 3 characters"
+            store is_valid as no
+        end check
+
+        // Validate email
+        check if email contains "@":
+            // Email has @ symbol
+        otherwise:
+            push with errors_list and "Email must contain @ symbol"
+            store is_valid as no
+        end check
+
+        // Validate age
+        check if age is less than 0:
+            push with errors_list and "Age cannot be negative"
+            store is_valid as no
+        end check
+
+        return is_valid
+    end
+
+    action set_name needs new_name: Text:
+        store user_name as new_name
+    end
+
+    action set_email needs new_email: Text:
+        store email as new_email
+    end
+
+    action set_age needs new_age: Number:
+        store age as new_age
+    end
+
+    action to_json:
+        // Convert model to JSON string
+        store json_str as "{"
+        store json_str as json_str with "\"name\":" with stringify_json of user_name
+        store json_str as json_str with ",\"email\":" with stringify_json of email
+        store json_str as json_str with ",\"age\":" with age
+        store json_str as json_str with "}"
+        return json_str
+    end
+
+    action get_errors:
+        return errors_list
+    end
+end
+
+display "Base Model and User Model ready"
