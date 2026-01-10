@@ -4955,8 +4955,15 @@ impl Interpreter {
 
                 // Check if the object is a container instance
                 if let Value::ContainerInstance(instance_rc) = &object_val_clone {
-                    let instance = instance_rc.borrow();
-                    let container_type = instance.container_type.clone();
+                    // Clone instance_rc for later property write-back
+                    let instance_rc_for_writeback = instance_rc.clone();
+
+                    let (container_type, property_names) = {
+                        let instance = instance_rc.borrow();
+                        let container_type = instance.container_type.clone();
+                        let prop_names: Vec<String> = instance.properties.keys().cloned().collect();
+                        (container_type, prop_names)
+                    };
 
                     // Look up the container definition
                     let container_def = match env.borrow().get(&container_type) {
@@ -5014,7 +5021,7 @@ impl Interpreter {
                         let _ = method_env.borrow_mut().define("this", object_val.clone());
 
                         // Add container properties and events as accessible variables
-                        if let Value::ContainerInstance(instance_rc) = &object_val_clone {
+                        {
                             let instance = instance_rc.borrow();
 
                             // Add properties
@@ -5036,7 +5043,7 @@ impl Interpreter {
                                     );
                                 }
                             }
-                        }
+                        } // Drop instance borrow here
 
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
@@ -5061,6 +5068,18 @@ impl Interpreter {
                         let result = self
                             .call_function(&method_function, arg_values, line, column)
                             .await?;
+
+                        // WRITE BACK MODIFIED PROPERTIES TO CONTAINER
+                        // This fixes the property mutation issue where properties modified
+                        // in container actions weren't persisting
+                        for prop_name in property_names {
+                            if let Some(updated_value) = method_env.borrow().get(&prop_name) {
+                                instance_rc_for_writeback
+                                    .borrow_mut()
+                                    .properties
+                                    .insert(prop_name, updated_value);
+                            }
+                        }
 
                         Ok(result)
                     } else {
