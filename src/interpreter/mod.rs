@@ -2656,9 +2656,10 @@ impl Interpreter {
                     ));
                 }
 
-                // 8. Create child environment
+                // 8. Create isolated child environment
+                // This prevents mutations of containers (lists/objects) from affecting parent scope
                 use crate::interpreter::environment::Environment;
-                let module_env = Environment::new_child_env(&env);
+                let module_env = Environment::new_isolated_child_env(&env);
 
                 // 9. Update execution context
                 self.loading_stack.borrow_mut().push(resolved_path.clone());

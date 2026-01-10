@@ -199,6 +199,53 @@ impl Value {
             Value::InterfaceDefinition(_) => true,
         }
     }
+
+    /// Deep clone a value, creating independent copies of reference-counted containers.
+    /// This is used for module isolation to prevent mutations from affecting parent scopes.
+    pub fn deep_clone(&self) -> Self {
+        match self {
+            // For List, create a new Rc<RefCell<>> with recursively cloned elements
+            Value::List(list) => {
+                let cloned_vec = list
+                    .borrow()
+                    .iter()
+                    .map(|v| v.deep_clone())
+                    .collect::<Vec<_>>();
+                Value::List(Rc::new(RefCell::new(cloned_vec)))
+            }
+            // For Object, create a new Rc<RefCell<>> with recursively cloned values
+            Value::Object(obj) => {
+                let cloned_map = obj
+                    .borrow()
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.deep_clone()))
+                    .collect::<HashMap<_, _>>();
+                Value::Object(Rc::new(RefCell::new(cloned_map)))
+            }
+            // For ContainerInstance, create a new Rc<RefCell<>> with deep cloned properties
+            Value::ContainerInstance(instance) => {
+                let inst = instance.borrow();
+                let cloned_properties = inst
+                    .properties
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.deep_clone()))
+                    .collect::<HashMap<_, _>>();
+                let cloned_parent = inst.parent.as_ref().map(|p| {
+                    // Clone the parent reference, not deep clone (to avoid infinite recursion)
+                    Rc::clone(p)
+                });
+                Value::ContainerInstance(Rc::new(RefCell::new(ContainerInstanceValue {
+                    container_type: inst.container_type.clone(),
+                    properties: cloned_properties,
+                    parent: cloned_parent,
+                    line: inst.line,
+                    column: inst.column,
+                })))
+            }
+            // For all other types, use regular clone (they're either primitives or immutable Rc types)
+            _ => self.clone(),
+        }
+    }
 }
 
 impl fmt::Debug for Value {

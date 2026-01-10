@@ -8,6 +8,9 @@ pub struct Environment {
     pub values: HashMap<String, Value>,
     pub constants: HashSet<String>,
     pub parent: Option<Weak<RefCell<Environment>>>,
+    /// When true, values retrieved from parent scopes are deep cloned to prevent mutations
+    /// from affecting the parent environment. Used for module isolation.
+    pub isolated: bool,
 }
 
 impl Environment {
@@ -19,6 +22,7 @@ impl Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
             parent: None,
+            isolated: false,
         }))
     }
 
@@ -30,6 +34,7 @@ impl Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
+            isolated: false,
         }))
     }
 
@@ -42,6 +47,23 @@ impl Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
             parent: Some(Rc::downgrade(parent)),
+            isolated: false,
+        }))
+    }
+
+    /// Create a new isolated child environment for module execution.
+    /// Values retrieved from parent scopes are deep cloned to prevent mutations
+    /// from affecting the parent environment.
+    #[inline]
+    pub fn new_isolated_child_env(parent: &Rc<RefCell<Environment>>) -> Rc<RefCell<Self>> {
+        #[cfg(feature = "dhat-ad-hoc")]
+        dhat::ad_hoc_event(1);
+
+        Rc::new(RefCell::new(Self {
+            values: HashMap::new(),
+            constants: HashSet::new(),
+            parent: Some(Rc::downgrade(parent)),
+            isolated: true,
         }))
     }
 
@@ -126,10 +148,21 @@ impl Environment {
 
     pub fn get(&self, name: &str) -> Option<Value> {
         if let Some(value) = self.values.get(name) {
-            Some(value.clone())
+            // If isolated, deep clone the value to prevent mutations from affecting parent
+            if self.isolated {
+                Some(value.deep_clone())
+            } else {
+                Some(value.clone())
+            }
         } else if let Some(parent_weak) = &self.parent {
             if let Some(parent) = parent_weak.upgrade() {
-                parent.borrow().get(name)
+                let parent_value = parent.borrow().get(name);
+                // If isolated and we got a value from parent, deep clone it
+                if self.isolated {
+                    parent_value.map(|v| v.deep_clone())
+                } else {
+                    parent_value
+                }
             } else {
                 None
             }
