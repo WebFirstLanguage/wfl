@@ -29,15 +29,21 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "random_boolean",
     "random_from",
     "random_seed",
+    "generate_uuid",
     // Crypto functions (implemented in stdlib/crypto.rs)
     "wflhash256",
     "wflhash512",
     "wflhash256_with_salt",
     "wflmac256",
+    "generate_csrf_token",
     // JSON functions (implemented in stdlib/json.rs)
     "parse_json",
     "stringify_json",
     "stringify_json_pretty",
+    // Query and form parsing (implemented in stdlib/text.rs)
+    "parse_query_string",
+    "parse_cookies",
+    "parse_form_urlencoded",
     // Math functions recognized by TypeChecker but not yet implemented
     "min",
     "max",
@@ -232,13 +238,15 @@ pub fn get_function_arity(name: &str) -> usize {
 
         // === RANDOM FUNCTIONS ===
         // Zero argument functions
-        "random" | "random_boolean" => 0,
+        "random" | "random_boolean" | "generate_uuid" => 0,
         // Single argument functions
         "random_from" | "random_seed" => 1,
         // Two argument functions
         "random_between" | "random_int" => 2,
 
         // === CRYPTO FUNCTIONS ===
+        // Zero argument functions
+        "generate_csrf_token" => 0,
         // Single argument functions
         "wflhash256" | "wflhash512" => 1,
         // Two argument functions
@@ -247,6 +255,10 @@ pub fn get_function_arity(name: &str) -> usize {
         // === JSON FUNCTIONS ===
         // Single argument functions
         "parse_json" | "stringify_json" | "stringify_json_pretty" => 1,
+
+        // === QUERY AND FORM PARSING ===
+        // Single argument functions
+        "parse_query_string" | "parse_cookies" | "parse_form_urlencoded" => 1,
 
         // === TEXT FUNCTIONS ===
         // Single argument functions

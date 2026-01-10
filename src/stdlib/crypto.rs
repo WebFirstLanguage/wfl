@@ -555,6 +555,25 @@ pub fn wflmac256_verify(
     Ok(comparison_result.into())
 }
 
+/// Generate a cryptographically secure random token (for CSRF, sessions, etc.)
+/// Usage: generate_csrf_token() -> "a1b2c3d4e5f6..."
+pub fn native_generate_csrf_token(_args: Vec<Value>) -> Result<Value, RuntimeError> {
+    use rand::RngCore;
+
+    // Generate 32 random bytes (256 bits)
+    let mut rng = rand::thread_rng();
+    let mut token_bytes = [0u8; 32];
+    rng.fill_bytes(&mut token_bytes);
+
+    // Convert to hex string
+    let token = token_bytes
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
+
+    Ok(Value::Text(Rc::from(token)))
+}
+
 /// Register all crypto functions in the environment
 pub fn register_crypto(env: &mut Environment) {
     let _ = env.define(
@@ -572,6 +591,10 @@ pub fn register_crypto(env: &mut Environment) {
     let _ = env.define(
         "wflmac256",
         Value::NativeFunction("wflmac256", native_wflmac256),
+    );
+    let _ = env.define(
+        "generate_csrf_token",
+        Value::NativeFunction("generate_csrf_token", native_generate_csrf_token),
     );
 }
 

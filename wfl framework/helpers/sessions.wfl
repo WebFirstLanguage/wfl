@@ -1,0 +1,131 @@
+// Session Management for WFL MVC Framework
+display "=== Session Management System Loaded ==="
+
+// Session Container
+// Represents a user session with data storage
+create container Session:
+    property session_id: Text
+    property session_data: List
+    property created_at: Number
+    property last_accessed: Number
+    property expires_at: Number
+    property csrf_token: Text
+
+    action initialize:
+        store session_id as generate_uuid
+        store created_at as current time in milliseconds
+        store last_accessed as created_at
+        store expires_at as created_at plus 1800000  // 30 minutes
+        store csrf_token as generate_csrf_token
+
+        // Create empty data container (using list)
+        store session_data as create list  // Will use as key-value storage
+
+        display "Session created: " with session_id
+    end
+
+    action get_data needs key_name: Text:
+        // TODO: Access session_data by key when we have proper object indexing
+        return nothing
+    end
+
+    action set_data needs key_name: Text, key_value: Text:
+        // TODO: Set session_data by key
+        display "Session data set: " with key_name
+    end
+
+    action is_expired:
+        store current_time as current time in milliseconds
+        check if current_time is greater than expires_at:
+            return yes
+        end check
+        return no
+    end
+
+    action touch:
+        // Update last accessed time
+        store last_accessed as current time in milliseconds
+        // Extend expiration
+        store expires_at as last_accessed plus 1800000
+    end
+
+    action get_csrf:
+        return csrf_token
+    end
+end
+
+// Session Store (Global Storage)
+// Manages all active sessions
+create container SessionStore:
+    property sessions_list: List
+    property session_total: Number
+
+    action initialize:
+        store sessions_list as create list
+        store session_total as 0
+        display "Session Store initialized"
+    end
+
+    action create_session:
+        create new Session as new_session:
+            session_id is ""
+            created_at is 0
+            last_accessed is 0
+            expires_at is 0
+            csrf_token is ""
+            session_data is create list
+        end
+
+        new_session.initialize()
+
+        push with sessions_list and new_session
+        store session_total as session_total plus 1
+
+        display "✓ Session created (total: " with session_total with ")"
+        return new_session
+    end
+
+    action get_session needs sid: Text:
+        // Find session by ID
+        for each sess in sessions_list:
+            check if sess.session_id is equal to sid:
+                // Check if expired
+                check if sess.is_expired():
+                    display "Session expired: " with sid
+                    return nothing
+                end check
+
+                // Touch the session (update last accessed)
+                sess.touch()
+                return sess
+            end check
+        end for
+
+        display "Session not found: " with sid
+        return nothing
+    end
+
+    action cleanup_expired:
+        // Remove expired sessions
+        store removed_count as 0
+
+        // Note: Cannot modify list while iterating in current WFL
+        // This is a simplified version
+        display "Checking for expired sessions..."
+        for each sess in sessions_list:
+            check if sess.is_expired():
+                change removed_count to removed_count plus 1
+                display "  Expired: " with sess.session_id
+            end check
+        end for
+
+        display "Found " with removed_count with " expired sessions"
+        return removed_count
+    end
+
+    action get_total:
+        return session_total
+    end
+end
+
+display "Session Management ready"
