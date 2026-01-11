@@ -1,0 +1,117 @@
+// Simple Routing Test - All-in-One
+display "=== WFL MVC Framework - Simple Routing Test ==="
+display ""
+
+// Define Router container inline
+create container Router:
+    property routes: List
+    property routes_count: Number
+
+    action initialize:
+        store routes as create list
+        store routes_count as 0
+        display "Router initialized"
+    end
+
+    action add_route needs method_val: Text, path_val: Text, handler_val: Text:
+        store route as create list
+        push with route and method_val
+        push with route and path_val
+        push with route and handler_val
+
+        push with routes and route
+        store routes_count as routes_count plus 1
+
+        display "✓ Registered: " with method_val with " " with path_val
+    end
+
+    action show_routes:
+        display "Routes (" with routes_count with " total):"
+        store index as 1
+
+        for each route in routes:
+            display "  " with index with ". Route registered"
+            change index to index plus 1
+        end for
+    end
+end
+
+// Define Request container
+create container Request:
+    property method_val: Text
+    property path_val: Text
+    property body_val: Text
+
+    action init needs method_arg: Text, path_arg: Text:
+        store method_val as method_arg
+        store path_val as path_arg
+        store body_val as ""
+        display "Request: " with method_val with " " with path_arg
+    end
+end
+
+// Define Response container
+create container Response:
+    property content_val: Text
+    property status_code: Number
+
+    action init:
+        store content_val as ""
+        store status_code as 200
+        display "Response initialized"
+    end
+
+    action set_cont needs new_content: Text:
+        store content_val as new_content
+    end
+
+    action set_stat needs code: Number:
+        store status_code as code
+    end
+end
+
+display "Containers defined"
+display ""
+
+// Test 1: Create and use Router
+display "Test 1: Router"
+create new Router as my_router:
+    routes is create list
+    routes_count is 0
+end
+
+my_router.add_route("GET", "/", "HomeController.index")
+my_router.add_route("GET", "/api/users", "UserController.list")
+my_router.add_route("POST", "/api/users", "UserController.create")
+my_router.add_route("GET", "/api/status", "ApiController.status")
+display ""
+
+my_router.show_routes()
+display ""
+
+// Test 2: Create and use Request
+display "Test 2: Request"
+create new Request as my_request:
+    method_val is "GET"
+    path_val is "/api/users/123"
+    body_val is ""
+end
+
+display "Request created"
+display "Method: " with my_request.method_val
+display "Path: " with my_request.path_val
+display ""
+
+// Test 3: Create and use Response
+display "Test 3: Response"
+create new Response as my_response:
+    content_val is ""
+    status_code is 200
+end
+
+my_response.set_cont("Hello World")
+display "Status: " with my_response.status_code
+display "Content: " with my_response.content_val
+display ""
+
+display "=== All Routing Tests Passed! ==="

@@ -1,0 +1,15 @@
+Lexer output for: test_main_simple.wfl
+==============================================
+
+   0: Identifier("main") at line 1, column 1 (length: 4)
+   1: KeywordLoop at line 1, column 6 (length: 4)
+   2: Colon at line 1, column 10 (length: 1)
+   3: Eol at line 1, column 11 (length: 1)
+   4: KeywordDisplay at line 2, column 5 (length: 7)
+   5: StringLiteral("test") at line 2, column 13 (length: 6)
+   6: Eol at line 2, column 19 (length: 1)
+   7: KeywordBreak at line 3, column 5 (length: 5)
+   8: Eol at line 3, column 10 (length: 1)
+   9: KeywordEnd at line 4, column 1 (length: 3)
+  10: KeywordLoop at line 4, column 5 (length: 4)
+  11: Eol at line 4, column 9 (length: 1)

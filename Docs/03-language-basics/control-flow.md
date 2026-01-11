@@ -592,6 +592,83 @@ check if a is yes and b is yes and c is yes and d is yes and e is yes:
 end check
 ```
 
+## Main Loop
+
+The `main loop` provides an infinite loop for long-running processes like servers. Unlike other loops, it continues indefinitely until explicitly broken.
+
+### Basic Main Loop
+
+```wfl
+store iteration as 0
+
+main loop:
+    add 1 to iteration
+    display "Iteration: " with iteration
+
+    check if iteration is greater than or equal to 10:
+        break
+    end check
+end loop
+```
+
+**Key Features:**
+- Runs indefinitely until `break` is executed
+- Useful for servers, daemons, and continuous processes
+- Can be combined with error handling
+
+### Main Loop with Error Handling
+
+You can wrap main loops in `try/catch` blocks for robust error handling:
+
+```wfl
+try:
+    main loop:
+        display "Processing..."
+
+        // Your code here
+
+        break  // Exit when done
+    end loop
+catch:
+    display "Error occurred: " with error
+end try
+```
+
+### Web Server Example
+
+Main loops are commonly used for web servers:
+
+```wfl
+listen on port 8080 as server
+display "Server running on http://localhost:8080"
+
+try:
+    main loop:
+        wait for request comes in on server as req
+
+        check if path is equal to "/":
+            respond to req with "Hello, World!" and content_type "text/plain"
+        otherwise:
+            respond to req with "Not found" and status 404
+        end check
+
+        // Optional: limit to specific number of requests
+        check if request_count is greater than 100:
+            break
+        end check
+    end loop
+catch:
+    display "Server error: " with error
+end try
+
+display "Server stopped"
+```
+
+**Best Practices:**
+- Always include a `break` condition to prevent truly infinite loops
+- Use `try/catch` for production servers to handle unexpected errors gracefully
+- Consider request counters or time limits for testing
+
 ## Practice Exercises
 
 ### Exercise 1: Temperature Advisor

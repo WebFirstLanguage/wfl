@@ -1,0 +1,709 @@
+AST output for: TestPrograms/test_web_request.wfl
+==============================================
+
+Program with 16 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== WFL Web Request Test ===",
+        ),
+        5,
+        9,
+    ),
+    line: 5,
+    column: 39,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        6,
+        9,
+    ),
+    line: 6,
+    column: 11,
+}
+
+Statement #3: DisplayStatement {
+    value: Literal(
+        String(
+            "1. Testing HTTP GET request to https://google.com",
+        ),
+        9,
+        9,
+    ),
+    line: 9,
+    column: 60,
+}
+
+Statement #4: VariableDeclaration {
+    name: "google_response",
+    value: Literal(
+        String(
+            "",
+        ),
+        12,
+        26,
+    ),
+    is_constant: false,
+    line: 12,
+    column: 1,
+}
+
+Statement #5: TryStatement {
+    body: [
+        HttpGetStatement {
+            url: Literal(
+                String(
+                    "https://google.com",
+                ),
+                16,
+                17,
+            ),
+            variable_name: "response_temp",
+            line: 16,
+            column: 5,
+        },
+        Assignment {
+            name: "google_response",
+            value: Variable(
+                "response_temp",
+                17,
+                31,
+            ),
+            line: 17,
+            column: 44,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✓ HTTP GET request successful",
+                ),
+                19,
+                13,
+            ),
+            line: 19,
+            column: 46,
+        },
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "Response length: ",
+                    ),
+                    20,
+                    13,
+                ),
+                right: Concatenation {
+                    left: FunctionCall {
+                        function: Variable(
+                            "length",
+                            20,
+                            38,
+                        ),
+                        arguments: [
+                            Argument {
+                                name: None,
+                                value: Variable(
+                                    "google_response",
+                                    20,
+                                    48,
+                                ),
+                            },
+                        ],
+                        line: 20,
+                        column: 45,
+                    },
+                    right: Literal(
+                        String(
+                            " characters",
+                        ),
+                        20,
+                        69,
+                    ),
+                    line: 20,
+                    column: 64,
+                },
+                line: 20,
+                column: 33,
+            },
+            line: 20,
+            column: 82,
+        },
+        IfStatement {
+            condition: BinaryOperation {
+                left: FunctionCall {
+                    function: Variable(
+                        "length",
+                        23,
+                        14,
+                    ),
+                    arguments: [
+                        Argument {
+                            name: None,
+                            value: Variable(
+                                "google_response",
+                                23,
+                                24,
+                            ),
+                        },
+                    ],
+                    line: 23,
+                    column: 21,
+                },
+                operator: GreaterThan,
+                right: Literal(
+                    Integer(
+                        100,
+                    ),
+                    23,
+                    56,
+                ),
+                line: 23,
+                column: 40,
+            },
+            then_block: [
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "✓ Response appears to contain HTML content",
+                        ),
+                        24,
+                        17,
+                    ),
+                    line: 24,
+                    column: 63,
+                },
+            ],
+            else_block: Some(
+                [
+                    DisplayStatement {
+                        value: Literal(
+                            String(
+                                "✗ Response seems too short, might be an error",
+                            ),
+                            26,
+                            17,
+                        ),
+                        line: 26,
+                        column: 66,
+                    },
+                ],
+            ),
+            line: 23,
+            column: 5,
+        },
+    ],
+    when_clauses: [
+        WhenClause {
+            error_type: General,
+            error_name: "error",
+            body: [
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "✗ HTTP GET request failed",
+                        ),
+                        30,
+                        13,
+                    ),
+                    line: 30,
+                    column: 42,
+                },
+            ],
+        },
+    ],
+    otherwise_block: None,
+    line: 14,
+    column: 1,
+}
+
+Statement #6: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        33,
+        9,
+    ),
+    line: 33,
+    column: 11,
+}
+
+Statement #7: DisplayStatement {
+    value: Literal(
+        String(
+            "2. Testing file write operation",
+        ),
+        36,
+        9,
+    ),
+    line: 36,
+    column: 42,
+}
+
+Statement #8: TryStatement {
+    body: [
+        OpenFileStatement {
+            path: Literal(
+                String(
+                    "google_index.html",
+                ),
+                39,
+                18,
+            ),
+            variable_name: "output_file",
+            mode: Write,
+            line: 39,
+            column: 5,
+        },
+        WaitForStatement {
+            inner: WriteFileStatement {
+                file: Variable(
+                    "output_file",
+                    42,
+                    49,
+                ),
+                content: Variable(
+                    "google_response",
+                    42,
+                    28,
+                ),
+                mode: Overwrite,
+                line: 42,
+                column: 5,
+            },
+            line: 42,
+            column: 5,
+        },
+        CloseFileStatement {
+            file: Variable(
+                "output_file",
+                45,
+                16,
+            ),
+            line: 45,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✓ Successfully saved response to google_index.html",
+                ),
+                47,
+                13,
+            ),
+            line: 47,
+            column: 67,
+        },
+        OpenFileStatement {
+            path: Literal(
+                String(
+                    "google_index.html",
+                ),
+                50,
+                18,
+            ),
+            variable_name: "read_file",
+            mode: Read,
+            line: 50,
+            column: 5,
+        },
+        WaitForStatement {
+            inner: VariableDeclaration {
+                name: "file_content",
+                value: ReadContent {
+                    file_handle: Variable(
+                        "read_file",
+                        51,
+                        54,
+                    ),
+                    line: 51,
+                    column: 36,
+                },
+                is_constant: false,
+                line: 51,
+                column: 14,
+            },
+            line: 51,
+            column: 5,
+        },
+        CloseFileStatement {
+            file: Variable(
+                "read_file",
+                52,
+                16,
+            ),
+            line: 52,
+            column: 5,
+        },
+        IfStatement {
+            condition: BinaryOperation {
+                left: FunctionCall {
+                    function: Variable(
+                        "length",
+                        54,
+                        14,
+                    ),
+                    arguments: [
+                        Argument {
+                            name: None,
+                            value: Variable(
+                                "file_content",
+                                54,
+                                24,
+                            ),
+                        },
+                    ],
+                    line: 54,
+                    column: 21,
+                },
+                operator: Equals,
+                right: FunctionCall {
+                    function: Variable(
+                        "length",
+                        54,
+                        49,
+                    ),
+                    arguments: [
+                        Argument {
+                            name: None,
+                            value: Variable(
+                                "google_response",
+                                54,
+                                59,
+                            ),
+                        },
+                    ],
+                    line: 54,
+                    column: 56,
+                },
+                line: 54,
+                column: 37,
+            },
+            then_block: [
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "✓ File content matches original response",
+                        ),
+                        55,
+                        17,
+                    ),
+                    line: 55,
+                    column: 61,
+                },
+            ],
+            else_block: Some(
+                [
+                    DisplayStatement {
+                        value: Literal(
+                            String(
+                                "✗ File content length mismatch",
+                            ),
+                            57,
+                            17,
+                        ),
+                        line: 57,
+                        column: 51,
+                    },
+                    DisplayStatement {
+                        value: Concatenation {
+                            left: Literal(
+                                String(
+                                    "Original: ",
+                                ),
+                                58,
+                                17,
+                            ),
+                            right: Concatenation {
+                                left: FunctionCall {
+                                    function: Variable(
+                                        "length",
+                                        58,
+                                        35,
+                                    ),
+                                    arguments: [
+                                        Argument {
+                                            name: None,
+                                            value: Variable(
+                                                "google_response",
+                                                58,
+                                                45,
+                                            ),
+                                        },
+                                    ],
+                                    line: 58,
+                                    column: 42,
+                                },
+                                right: Literal(
+                                    String(
+                                        " characters",
+                                    ),
+                                    58,
+                                    66,
+                                ),
+                                line: 58,
+                                column: 61,
+                            },
+                            line: 58,
+                            column: 30,
+                        },
+                        line: 58,
+                        column: 79,
+                    },
+                    DisplayStatement {
+                        value: Concatenation {
+                            left: Literal(
+                                String(
+                                    "File: ",
+                                ),
+                                59,
+                                17,
+                            ),
+                            right: Concatenation {
+                                left: FunctionCall {
+                                    function: Variable(
+                                        "length",
+                                        59,
+                                        31,
+                                    ),
+                                    arguments: [
+                                        Argument {
+                                            name: None,
+                                            value: Variable(
+                                                "file_content",
+                                                59,
+                                                41,
+                                            ),
+                                        },
+                                    ],
+                                    line: 59,
+                                    column: 38,
+                                },
+                                right: Literal(
+                                    String(
+                                        " characters",
+                                    ),
+                                    59,
+                                    59,
+                                ),
+                                line: 59,
+                                column: 54,
+                            },
+                            line: 59,
+                            column: 26,
+                        },
+                        line: 59,
+                        column: 72,
+                    },
+                ],
+            ),
+            line: 54,
+            column: 5,
+        },
+    ],
+    when_clauses: [
+        WhenClause {
+            error_type: General,
+            error_name: "error",
+            body: [
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "✗ File operation failed",
+                        ),
+                        63,
+                        13,
+                    ),
+                    line: 63,
+                    column: 40,
+                },
+            ],
+        },
+    ],
+    otherwise_block: None,
+    line: 37,
+    column: 1,
+}
+
+Statement #9: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        66,
+        9,
+    ),
+    line: 66,
+    column: 11,
+}
+
+Statement #10: DisplayStatement {
+    value: Literal(
+        String(
+            "3. Testing error handling with invalid URL",
+        ),
+        69,
+        9,
+    ),
+    line: 69,
+    column: 53,
+}
+
+Statement #11: TryStatement {
+    body: [
+        HttpGetStatement {
+            url: Literal(
+                String(
+                    "https://this-domain-should-not-exist-12345.com",
+                ),
+                71,
+                17,
+            ),
+            variable_name: "error_response",
+            line: 71,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✗ Expected error but request succeeded",
+                ),
+                72,
+                13,
+            ),
+            line: 72,
+            column: 55,
+        },
+    ],
+    when_clauses: [
+        WhenClause {
+            error_type: General,
+            error_name: "error",
+            body: [
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "✓ Error handling works correctly",
+                        ),
+                        74,
+                        13,
+                    ),
+                    line: 74,
+                    column: 49,
+                },
+            ],
+        },
+    ],
+    otherwise_block: None,
+    line: 70,
+    column: 1,
+}
+
+Statement #12: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        77,
+        9,
+    ),
+    line: 77,
+    column: 11,
+}
+
+Statement #13: DisplayStatement {
+    value: Literal(
+        String(
+            "4. Testing file existence verification",
+        ),
+        80,
+        9,
+    ),
+    line: 80,
+    column: 49,
+}
+
+Statement #14: IfStatement {
+    condition: FileExists {
+        path: Literal(
+            String(
+                "google_index.html",
+            ),
+            81,
+            25,
+        ),
+        line: 81,
+        column: 10,
+    },
+    then_block: [
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✓ Output file exists",
+                ),
+                82,
+                13,
+            ),
+            line: 82,
+            column: 37,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✓ File was successfully created",
+                ),
+                83,
+                13,
+            ),
+            line: 83,
+            column: 48,
+        },
+    ],
+    else_block: Some(
+        [
+            DisplayStatement {
+                value: Literal(
+                    String(
+                        "✗ Output file was not created",
+                    ),
+                    85,
+                    13,
+                ),
+                line: 85,
+                column: 46,
+            },
+        ],
+    ),
+    line: 81,
+    column: 1,
+}
+
+Statement #15: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        88,
+        9,
+    ),
+    line: 88,
+    column: 11,
+}
+
+Statement #16: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Web Request Test Complete ===",
+        ),
+        89,
+        9,
+    ),
+    line: 89,
+    column: 44,
+}
+

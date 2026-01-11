@@ -1,0 +1,8 @@
+try:
+    main loop:
+        display "test"
+        break
+    end loop
+catch:
+    display "error"
+end try

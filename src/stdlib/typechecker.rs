@@ -30,6 +30,17 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_pattern_replace(analyzer);
     register_pattern_split(analyzer);
 
+    register_parse_json(analyzer);
+    register_stringify_json(analyzer);
+    register_stringify_json_pretty(analyzer);
+
+    register_parse_query_string(analyzer);
+    register_parse_cookies(analyzer);
+    register_parse_form_urlencoded(analyzer);
+
+    register_generate_uuid(analyzer);
+    register_generate_csrf_token(analyzer);
+
     register_wflhash256(analyzer);
     register_wflhash512(analyzer);
     register_wflhash256_with_salt(analyzer);
@@ -302,6 +313,62 @@ fn register_remove_dir(analyzer: &mut Analyzer) {
     // Register 2-arg version (with recursive flag)
     let param_types_with_recursive = vec![Type::Text, Type::Boolean];
     analyzer.register_builtin_function("remove_dir", param_types_with_recursive, return_type);
+}
+
+fn register_parse_json(analyzer: &mut Analyzer) {
+    let param_types = vec![Type::Text]; // JSON string
+    let return_type = Type::Unknown; // Can return object, list, text, number, boolean, or nothing
+
+    analyzer.register_builtin_function("parse_json", param_types, return_type);
+}
+
+fn register_stringify_json(analyzer: &mut Analyzer) {
+    let param_types = vec![Type::Unknown]; // Accepts any value
+    let return_type = Type::Text; // Returns JSON string
+
+    analyzer.register_builtin_function("stringify_json", param_types, return_type);
+}
+
+fn register_stringify_json_pretty(analyzer: &mut Analyzer) {
+    let param_types = vec![Type::Unknown]; // Accepts any value
+    let return_type = Type::Text; // Returns pretty-printed JSON string
+
+    analyzer.register_builtin_function("stringify_json_pretty", param_types, return_type);
+}
+
+fn register_parse_query_string(analyzer: &mut Analyzer) {
+    let param_types = vec![Type::Text]; // Query string
+    let return_type = Type::Unknown; // Returns object with string values
+
+    analyzer.register_builtin_function("parse_query_string", param_types, return_type);
+}
+
+fn register_parse_cookies(analyzer: &mut Analyzer) {
+    let param_types = vec![Type::Text]; // Cookie header
+    let return_type = Type::Unknown; // Returns object with cookie values
+
+    analyzer.register_builtin_function("parse_cookies", param_types, return_type);
+}
+
+fn register_parse_form_urlencoded(analyzer: &mut Analyzer) {
+    let param_types = vec![Type::Text]; // Form data
+    let return_type = Type::Unknown; // Returns object with form values
+
+    analyzer.register_builtin_function("parse_form_urlencoded", param_types, return_type);
+}
+
+fn register_generate_uuid(analyzer: &mut Analyzer) {
+    let param_types = vec![]; // No arguments
+    let return_type = Type::Text; // Returns UUID string
+
+    analyzer.register_builtin_function("generate_uuid", param_types, return_type);
+}
+
+fn register_generate_csrf_token(analyzer: &mut Analyzer) {
+    let param_types = vec![]; // No arguments
+    let return_type = Type::Text; // Returns random token string
+
+    analyzer.register_builtin_function("generate_csrf_token", param_types, return_type);
 }
 
 #[cfg(test)]

@@ -1,0 +1,138 @@
+AST output for: TestPrograms/test_basic_server.wfl
+==============================================
+
+Program with 11 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Basic WFL Web Server Test ===",
+        ),
+        2,
+        9,
+    ),
+    line: 2,
+    column: 44,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "Starting basic web server on port 8080...",
+        ),
+        4,
+        9,
+    ),
+    line: 4,
+    column: 52,
+}
+
+Statement #3: ListenStatement {
+    port: Literal(
+        Integer(
+            8080,
+        ),
+        5,
+        16,
+    ),
+    server_name: "test_server",
+    line: 5,
+    column: 1,
+}
+
+Statement #4: DisplayStatement {
+    value: Literal(
+        String(
+            "✅ Server started successfully!",
+        ),
+        7,
+        9,
+    ),
+    line: 7,
+    column: 43,
+}
+
+Statement #5: DisplayStatement {
+    value: Literal(
+        String(
+            "🌐 Server is listening on port 8080",
+        ),
+        8,
+        9,
+    ),
+    line: 8,
+    column: 48,
+}
+
+Statement #6: DisplayStatement {
+    value: Literal(
+        String(
+            "🔗 You can test it at: http://127.0.0.1:8080",
+        ),
+        9,
+        9,
+    ),
+    line: 9,
+    column: 57,
+}
+
+Statement #7: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        10,
+        9,
+    ),
+    line: 10,
+    column: 11,
+}
+
+Statement #8: DisplayStatement {
+    value: Literal(
+        String(
+            "The server will respond with: 'Hello from WFL Web Server!'",
+        ),
+        11,
+        9,
+    ),
+    line: 11,
+    column: 69,
+}
+
+Statement #9: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        12,
+        9,
+    ),
+    line: 12,
+    column: 11,
+}
+
+Statement #10: DisplayStatement {
+    value: Literal(
+        String(
+            "Press Ctrl+C to stop the server",
+        ),
+        13,
+        9,
+    ),
+    line: 13,
+    column: 42,
+}
+
+Statement #11: DisplayStatement {
+    value: Literal(
+        String(
+            "Server is running... (this will keep running until you stop it)",
+        ),
+        16,
+        9,
+    ),
+    line: 16,
+    column: 74,
+}
+

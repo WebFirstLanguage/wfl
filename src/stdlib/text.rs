@@ -26,6 +26,70 @@ fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
     }
 }
 
+/// Decode percent-encoded URL string
+/// Converts '+' to space and decodes %HH hex sequences
+/// Invalid sequences are left as-is
+fn percent_decode(s: &str) -> String {
+    let mut result = Vec::new();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                result.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => {
+                // Try to parse the next two characters as hex
+                let hex_str = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("");
+                if let Ok(byte) = u8::from_str_radix(hex_str, 16) {
+                    result.push(byte);
+                    i += 3;
+                } else {
+                    // Invalid hex sequence, keep the '%' as-is
+                    result.push(bytes[i]);
+                    i += 1;
+                }
+            }
+            _ => {
+                result.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+
+    // Convert bytes to String, replacing invalid UTF-8 with replacement character
+    String::from_utf8(result)
+        .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned())
+}
+
+/// Parse key-value pairs with URL decoding
+/// Used by both query string and form data parsing
+fn parse_key_value_pairs(input: &str, delimiter: char) -> std::collections::HashMap<String, Value> {
+    use std::collections::HashMap;
+
+    let mut params = HashMap::new();
+
+    if input.is_empty() {
+        return params;
+    }
+
+    for pair in input.split(delimiter) {
+        if let Some((key, value)) = pair.split_once('=') {
+            let decoded_key = percent_decode(key);
+            let decoded_value = percent_decode(value);
+            params.insert(decoded_key, Value::Text(Rc::from(decoded_value)));
+        } else {
+            // Key without value
+            let decoded_key = percent_decode(pair);
+            params.insert(decoded_key, Value::Text(Rc::from("")));
+        }
+    }
+
+    params
+}
+
 // Note: The length function is now provided by the list module
 // which handles both text and lists
 
@@ -172,6 +236,79 @@ pub fn native_ends_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Bool(result))
 }
 
+/// Parse query string into WFL object
+/// Usage: parse_query_string("?page=1&limit=10") -> {"page": "1", "limit": "10"}
+pub fn native_parse_query_string(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("parse_query_string expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let query_str = expect_text(&args[0])?;
+    let query_str = query_str.trim_start_matches('?');
+
+    let params = parse_key_value_pairs(query_str, '&');
+
+    Ok(Value::Object(Rc::new(RefCell::new(params))))
+}
+
+/// Parse Cookie header into WFL object
+/// Usage: parse_cookies("session_id=abc123; user=alice") -> {"session_id": "abc123", "user": "alice"}
+pub fn native_parse_cookies(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    use std::collections::HashMap;
+
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("parse_cookies expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
+
+    let cookie_header = expect_text(&args[0])?;
+    let mut cookies = HashMap::new();
+
+    if cookie_header.is_empty() {
+        return Ok(Value::Object(Rc::new(RefCell::new(cookies))));
+    }
+
+    // Split by ;
+    for cookie in cookie_header.split(';') {
+        let cookie = cookie.trim();
+        if let Some((key, value)) = cookie.split_once('=') {
+            let decoded_key = percent_decode(key.trim());
+            let decoded_value = percent_decode(value.trim());
+            cookies.insert(decoded_key, Value::Text(Rc::from(decoded_value)));
+        }
+    }
+
+    Ok(Value::Object(Rc::new(RefCell::new(cookies))))
+}
+
+/// Parse URL-encoded form data
+/// Usage: parse_form_urlencoded("name=Alice&age=30") -> {"name": "Alice", "age": "30"}
+pub fn native_parse_form_urlencoded(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!(
+                "parse_form_urlencoded expects 1 argument, got {}",
+                args.len()
+            ),
+            0,
+            0,
+        ));
+    }
+
+    let form_data = expect_text(&args[0])?;
+
+    let params = parse_key_value_pairs(form_data.as_ref(), '&');
+
+    Ok(Value::Object(Rc::new(RefCell::new(params))))
+}
+
 pub fn register_text(env: &mut Environment) {
     // Note: length function is registered by the list module instead
     let _ = env.define(
@@ -213,5 +350,19 @@ pub fn register_text(env: &mut Environment) {
     let _ = env.define(
         "ends_with",
         Value::NativeFunction("ends_with", native_ends_with),
+    );
+
+    // Query string and form parsing
+    let _ = env.define(
+        "parse_query_string",
+        Value::NativeFunction("parse_query_string", native_parse_query_string),
+    );
+    let _ = env.define(
+        "parse_cookies",
+        Value::NativeFunction("parse_cookies", native_parse_cookies),
+    );
+    let _ = env.define(
+        "parse_form_urlencoded",
+        Value::NativeFunction("parse_form_urlencoded", native_parse_form_urlencoded),
     );
 }

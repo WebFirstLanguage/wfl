@@ -1,0 +1,120 @@
+// Base Controller - Controller helpers for WFL MVC Framework
+display "=== Base Controller Loaded ==="
+
+// Base Controller Container
+create container BaseController:
+    property controller_name: Text
+
+    action init_controller:
+        store controller_name as "BaseController"
+        display "Controller initialized: " with controller_name
+    end
+
+    action respond_json needs response_container: Container, json_data: List:
+        // Helper to send JSON response
+        store json_str as stringify_json of json_data
+        response_container.set_cont(json_str)
+        response_container.set_stat(200)
+        display "  [" with controller_name with "] Sending JSON response"
+    end
+
+    action respond_html needs response_container: Container, html_text: Text:
+        // Helper to send HTML response
+        response_container.set_cont(html_text)
+        response_container.set_stat(200)
+        display "  [" with controller_name with "] Sending HTML response"
+    end
+
+    action respond_error needs response_container: Container, error_msg: Text, status_num: Number:
+        // Helper to send error response
+        store error_json as "{\"error\":" with stringify_json of error_msg with "}"
+        response_container.set_cont(error_json)
+        response_container.set_stat(status_num)
+        display "  [" with controller_name with "] Sending error: " with status_num
+    end
+
+    action render_view needs view_container: Container:
+        // Render a view and return HTML
+        store rendered_html as view_container.render()
+        return rendered_html
+    end
+end
+
+// Example: User Controller
+create container UserController:
+    property controller_name: Text
+
+    action init_controller:
+        store controller_name as "UserController"
+    end
+
+    action index_action needs req: Container, res: Container:
+        // List all users
+        display "  [UserController] index action"
+
+        store users as create list
+        push with users and "Alice"
+        push with users and "Bob"
+        push with users and "Charlie"
+
+        store users_json as stringify_json of users
+        store response_json as "{\"users\":" with users_json with ",\"total\":3}"
+
+        res.set_cont(response_json)
+        res.set_stat(200)
+
+        display "  Users list sent"
+    end
+
+    action show_action needs req: Container, res: Container, user_id: Text:
+        // Show single user
+        display "  [UserController] show action for ID: " with user_id
+
+        store user_json as "{\"id\":" with stringify_json of user_id with ",\"name\":\"User " with user_id with "\"}"
+
+        res.set_cont(user_json)
+        res.set_stat(200)
+
+        display "  User details sent"
+    end
+
+    action create_action needs req: Container, res: Container:
+        // Create new user
+        display "  [UserController] create action"
+
+        store created_json as "{\"status\":\"created\",\"id\":123}"
+
+        res.set_cont(created_json)
+        res.set_stat(201)
+
+        display "  User created"
+    end
+end
+
+// Example: Home Controller
+create container HomeController:
+    property controller_name: Text
+
+    action init_controller:
+        store controller_name as "HomeController"
+    end
+
+    action index_action needs req: Container, res: Container:
+        // Home page
+        display "  [HomeController] index action"
+
+        store home_html as "<h1>Welcome to WFL MVC Framework</h1>"
+        store home_html as home_html with "<p>A web framework written in WFL!</p>"
+        store home_html as home_html with "<ul>"
+        store home_html as home_html with "<li><a href=\"/api/users\">Users API</a></li>"
+        store home_html as home_html with "<li><a href=\"/api/status\">Status</a></li>"
+        store home_html as home_html with "</ul>"
+
+        res.set_cont(home_html)
+        res.set_stat(200)
+
+        display "  Home page sent"
+    end
+end
+
+display "Controllers ready (BaseController, UserController, HomeController)"

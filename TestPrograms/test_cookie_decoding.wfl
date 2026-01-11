@@ -1,0 +1,41 @@
+// Test Cookie Percent-Decoding
+display "=== Testing Cookie Percent-Decoding ==="
+display ""
+
+// Test 1: Cookies with percent-encoded values
+display "Test 1: Percent-encoded cookie values"
+store cookie_header as "user=John%20Doe; session=abc%2B123; lang=%C3%A9n"
+store cookies as parse_cookies of cookie_header
+display "Input: " with cookie_header
+store json_cookies as stringify_json of cookies
+check if contains of json_cookies and "John Doe":
+    display "✓ Cookie value decoded correctly"
+otherwise:
+    display "✗ FAILED: Cookie value not decoded"
+end check
+check if contains of json_cookies and "abc+123":
+    display "✓ %2B decoded in cookie"
+otherwise:
+    display "✗ FAILED: %2B not decoded"
+end check
+display ""
+
+// Test 2: Cookies with special characters
+display "Test 2: Special characters in cookies"
+store cookie2 as "email=test%40example.com; path=%2Fhome"
+store cookies2 as parse_cookies of cookie2
+display "Input: " with cookie2
+store json_cookies2 as stringify_json of cookies2
+check if contains of json_cookies2 and "test@example.com":
+    display "✓ Email @ decoded"
+otherwise:
+    display "✗ FAILED: @ not decoded"
+end check
+check if contains of json_cookies2 and "/home":
+    display "✓ Path / decoded"
+otherwise:
+    display "✗ FAILED: / not decoded"
+end check
+display ""
+
+display "=== All Cookie Decoding Tests Passed! ==="

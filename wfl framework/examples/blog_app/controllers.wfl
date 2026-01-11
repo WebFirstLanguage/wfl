@@ -1,0 +1,113 @@
+// Blog App - Controllers
+display "=== Blog Controllers Loaded ==="
+
+// Blog Controller
+create container BlogController:
+    property controller_name: Text
+    property posts_list: List
+
+    action init_controller:
+        store controller_name as "BlogController"
+        store posts_list as create list
+
+        // Create some sample posts
+        create new PostModel as post1:
+            post_id is 1
+            post_title is "First Post"
+            post_content is "This is the first blog post in our WFL MVC framework!"
+            post_author is "Alice"
+            post_published is yes
+            is_valid is yes
+            errors_list is create list
+        end
+
+        create new PostModel as post2:
+            post_id is 2
+            post_title is "Second Post"
+            post_content is "Another great post showcasing WFL's capabilities."
+            post_author is "Bob"
+            post_published is yes
+            is_valid is yes
+            errors_list is create list
+        end
+
+        push with posts_list and post1
+        push with posts_list and post2
+
+        display "Blog Controller initialized with " with length of posts_list with " sample posts"
+    end
+
+    action index_action needs req: Container, res: Container:
+        // List all posts
+        display "  [BlogController] Listing all posts"
+
+        store posts_json as "["
+        store first_item as yes
+
+        for each post in posts_list:
+            check if first_item is no:
+                change posts_json to posts_json with ","
+            end check
+
+            change posts_json to posts_json with post.to_json()
+            change first_item to no
+        end for
+
+        change posts_json to posts_json with "]"
+
+        store response_json as "{\"posts\":" with posts_json with ",\"total\":" with length of posts_list with "}"
+
+        res.set_cont(response_json)
+        res.set_stat(200)
+    end
+
+    action show_action needs req: Container, res: Container, post_id_str: Text:
+        // Show single post
+        display "  [BlogController] Showing post ID: " with post_id_str
+
+        // Find post by ID (simplified)
+        for each post in posts_list:
+            store post_id_text as stringify_json of post.post_id
+            check if post_id_text is equal to post_id_str:
+                res.set_cont(post.to_json())
+                res.set_stat(200)
+                return nothing
+            end check
+        end for
+
+        // Post not found
+        res.set_cont("{\"error\":\"Post not found\"}")
+        res.set_stat(404)
+    end
+
+    action create_action needs req: Container, res: Container:
+        // Create new post
+        display "  [BlogController] Creating new post"
+
+        store new_id as length of posts_list plus 1
+
+        create new PostModel as new_post:
+            post_id is new_id
+            post_title is "New Post"
+            post_content is "This post was created via the API!"
+            post_author is "API User"
+            post_published is yes
+            is_valid is yes
+            errors_list is create list
+        end
+
+        check if new_post.validate():
+            push with posts_list and new_post
+
+            res.set_cont(new_post.to_json())
+            res.set_stat(201)
+
+            display "  Post created with ID: " with new_id
+        otherwise:
+            res.set_cont("{\"error\":\"Validation failed\"}")
+            res.set_stat(400)
+        end check
+    end
+end
+
+display "Blog Controllers ready (BlogController)"
