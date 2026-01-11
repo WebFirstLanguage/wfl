@@ -2258,7 +2258,10 @@ impl Interpreter {
                 let mut _last_value = Value::Null;
                 loop {
                     self.check_time()?;
-                    let result = self.execute_block(body, Rc::clone(&env)).await?;
+
+                    // Create a new scope for each iteration to properly isolate variables
+                    let loop_env = Environment::new_child_env(&env);
+                    let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
                     _last_value = result.0;
 
                     match result.1 {
@@ -2304,7 +2307,10 @@ impl Interpreter {
                 loop {
                     // Note: check_time() will skip timeout check when in_main_loop is true
                     self.check_time()?;
-                    let result = self.execute_block(body, Rc::clone(&env)).await?;
+
+                    // Create a new scope for each iteration to properly isolate variables
+                    let loop_env = Environment::new_child_env(&env);
+                    let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
                     _last_value = result.0;
 
                     match result.1 {
