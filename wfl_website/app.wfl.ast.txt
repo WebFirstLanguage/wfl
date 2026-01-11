@@ -1,0 +1,1708 @@
+AST output for: wfl_website/app.wfl
+==============================================
+
+Program with 31 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== WFL Official Website ===",
+        ),
+        4,
+        9,
+    ),
+    line: 4,
+    column: 39,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        5,
+        9,
+    ),
+    line: 5,
+    column: 11,
+}
+
+Statement #3: ActionDefinition {
+    name: "get_navigation",
+    parameters: [
+        Parameter {
+            name: "current_page",
+            param_type: None,
+            default_value: None,
+            line: 11,
+            column: 42,
+        },
+    ],
+    body: [
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                11,
+                56,
+            ),
+            line: 11,
+            column: 62,
+        },
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                11,
+                62,
+            ),
+            line: 11,
+            column: 66,
+        },
+        VariableDeclaration {
+            name: "nav_html",
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "<nav class='navbar'>\r\n    <div class='nav-container'>\r\n        <a href='/' class='logo'>WFL</a>\r\n        <div class='nav-links'>\r\n            <a href='/' class='",
+                    ),
+                    12,
+                    23,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "current_page",
+                        16,
+                        39,
+                    ),
+                    right: Literal(
+                        String(
+                            "'>Home</a>\r\n            <a href='/features'>Features</a>\r\n            <a href='/examples'>Examples</a>\r\n            <a href='/framework'>Framework</a>\r\n            <a href='/docs'>Docs</a>\r\n            <a href='https://github.com/WebFirstLanguage/wfl' class='btn-download'>Download</a>\r\n        </div>\r\n    </div>\r\n</nav>",
+                        ),
+                        16,
+                        57,
+                    ),
+                    line: 16,
+                    column: 52,
+                },
+                line: 16,
+                column: 34,
+            },
+            is_constant: false,
+            line: 12,
+            column: 5,
+        },
+        ReturnStatement {
+            value: Some(
+                Variable(
+                    "nav_html",
+                    25,
+                    12,
+                ),
+            ),
+            line: 25,
+            column: 5,
+        },
+    ],
+    return_type: None,
+    line: 26,
+    column: 11,
+}
+
+Statement #4: ActionDefinition {
+    name: "get_footer",
+    parameters: [],
+    body: [
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                28,
+                34,
+            ),
+            line: 28,
+            column: 38,
+        },
+        VariableDeclaration {
+            name: "footer_html",
+            value: Literal(
+                String(
+                    "<footer class='footer'>\r\n    <div class='footer-content'>\r\n        <div class='footer-section'>\r\n            <h3>WFL</h3>\r\n            <p>Programming that reads like English</p>\r\n        </div>\r\n        <div class='footer-section'>\r\n            <h4>Resources</h4>\r\n            <a href='/docs'>Documentation</a>\r\n            <a href='/examples'>Examples</a>\r\n            <a href='/framework'>Framework</a>\r\n        </div>\r\n        <div class='footer-section'>\r\n            <h4>Community</h4>\r\n            <a href='https://github.com/WebFirstLanguage/wfl'>GitHub</a>\r\n            <a href='https://github.com/WebFirstLanguage/wfl/issues'>Issues</a>\r\n        </div>\r\n        <div class='footer-section'>\r\n            <p class='version'>Version 26.1.19</p>\r\n            <p class='license'>Apache 2.0 License</p>\r\n        </div>\r\n    </div>\r\n</footer>",
+                ),
+                29,
+                26,
+            ),
+            is_constant: false,
+            line: 29,
+            column: 5,
+        },
+        ReturnStatement {
+            value: Some(
+                Variable(
+                    "footer_html",
+                    52,
+                    12,
+                ),
+            ),
+            line: 52,
+            column: 5,
+        },
+    ],
+    return_type: None,
+    line: 53,
+    column: 11,
+}
+
+Statement #5: ActionDefinition {
+    name: "render_home_page",
+    parameters: [],
+    body: [
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                59,
+                40,
+            ),
+            line: 59,
+            column: 44,
+        },
+        VariableDeclaration {
+            name: "nav",
+            value: Concatenation {
+                left: Variable(
+                    "get_navigation",
+                    60,
+                    18,
+                ),
+                right: Literal(
+                    String(
+                        "active",
+                    ),
+                    60,
+                    38,
+                ),
+                line: 60,
+                column: 33,
+            },
+            is_constant: false,
+            line: 60,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "footer",
+            value: Variable(
+                "get_footer",
+                61,
+                21,
+            ),
+            is_constant: false,
+            line: 61,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "html",
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "<!DOCTYPE html>\r\n<html lang='en'>\r\n<head>\r\n    <meta charset='UTF-8'>\r\n    <meta name='viewport' content='width=device-width, initial-scale=1.0'>\r\n    <title>WFL - Web First Language | Programming that Reads Like English</title>\r\n    <style>\r\n        * { margin: 0; padding: 0; box-sizing: border-box; }\r\n\r\n        body {\r\n            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;\r\n            line-height: 1.6;\r\n            color: #1e293b;\r\n        }\r\n\r\n        /* Navigation */\r\n        .navbar {\r\n            background: white;\r\n            box-shadow: 0 2px 10px rgba(0,0,0,0.1);\r\n            position: sticky;\r\n            top: 0;\r\n            z-index: 1000;\r\n        }\r\n\r\n        .nav-container {\r\n            max-width: 1200px;\r\n            margin: 0 auto;\r\n            padding: 1rem 2rem;\r\n            display: flex;\r\n            justify-content: space-between;\r\n            align-items: center;\r\n        }\r\n\r\n        .logo {\r\n            font-size: 24px;\r\n            font-weight: bold;\r\n            color: #667eea;\r\n            text-decoration: none;\r\n        }\r\n\r\n        .nav-links {\r\n            display: flex;\r\n            gap: 2rem;\r\n            align-items: center;\r\n        }\r\n\r\n        .nav-links a {\r\n            text-decoration: none;\r\n            color: #64748b;\r\n            transition: color 0.3s ease;\r\n        }\r\n\r\n        .nav-links a:hover, .nav-links a.active {\r\n            color: #667eea;\r\n        }\r\n\r\n        .btn-download {\r\n            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\r\n            color: white !important;\r\n            padding: 0.5rem 1.5rem;\r\n            border-radius: 8px;\r\n            transition: transform 0.3s ease;\r\n        }\r\n\r\n        .btn-download:hover {\r\n            transform: translateY(-2px);\r\n        }\r\n\r\n        /* Hero Section */\r\n        .hero {\r\n            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\r\n            color: white;\r\n            padding: 100px 20px;\r\n            text-align: center;\r\n        }\r\n\r\n        .hero h1 {\r\n            font-size: 56px;\r\n            margin-bottom: 20px;\r\n            font-weight: 700;\r\n        }\r\n\r\n        .hero .tagline {\r\n            font-size: 24px;\r\n            margin-bottom: 50px;\r\n            opacity: 0.95;\r\n        }\r\n\r\n        .code-comparison {\r\n            display: grid;\r\n            grid-template-columns: 1fr 1fr;\r\n            gap: 30px;\r\n            max-width: 1000px;\r\n            margin: 40px auto;\r\n        }\r\n\r\n        .code-block {\r\n            background: rgba(255,255,255,0.1);\r\n            border-radius: 12px;\r\n            padding: 25px;\r\n            text-align: left;\r\n            backdrop-filter: blur(10px);\r\n            transition: transform 0.3s ease;\r\n        }\r\n\r\n        .code-block:hover {\r\n            transform: translateY(-4px);\r\n        }\r\n\r\n        .code-block h3 {\r\n            margin-bottom: 15px;\r\n            font-size: 18px;\r\n        }\r\n\r\n        .code-block pre {\r\n            margin: 0;\r\n            font-family: 'Monaco', 'Consolas', monospace;\r\n            font-size: 14px;\r\n            line-height: 1.6;\r\n        }\r\n\r\n        .cta-buttons {\r\n            display: flex;\r\n            gap: 20px;\r\n            justify-content: center;\r\n            margin-top: 50px;\r\n        }\r\n\r\n        .btn {\r\n            padding: 15px 40px;\r\n            border-radius: 8px;\r\n            text-decoration: none;\r\n            font-weight: bold;\r\n            font-size: 16px;\r\n            transition: all 0.3s ease;\r\n            display: inline-block;\r\n        }\r\n\r\n        .btn-primary {\r\n            background: white;\r\n            color: #667eea;\r\n        }\r\n\r\n        .btn-primary:hover {\r\n            transform: translateY(-2px);\r\n            box-shadow: 0 10px 25px rgba(0,0,0,0.2);\r\n        }\r\n\r\n        .btn-secondary {\r\n            background: rgba(255,255,255,0.2);\r\n            color: white;\r\n            border: 2px solid white;\r\n        }\r\n\r\n        .btn-secondary:hover {\r\n            background: rgba(255,255,255,0.3);\r\n        }\r\n\r\n        /* Features Grid */\r\n        .features {\r\n            max-width: 1200px;\r\n            margin: 80px auto;\r\n            padding: 0 20px;\r\n        }\r\n\r\n        .features h2 {\r\n            text-align: center;\r\n            font-size: 42px;\r\n            margin-bottom: 50px;\r\n            color: #1e293b;\r\n        }\r\n\r\n        .features-grid {\r\n            display: grid;\r\n            grid-template-columns: repeat(3, 1fr);\r\n            gap: 30px;\r\n        }\r\n\r\n        .feature-card {\r\n            background: white;\r\n            padding: 30px;\r\n            border-radius: 12px;\r\n            box-shadow: 0 4px 20px rgba(0,0,0,0.08);\r\n            transition: all 0.3s ease;\r\n        }\r\n\r\n        .feature-card:hover {\r\n            transform: translateY(-6px);\r\n            box-shadow: 0 12px 30px rgba(102, 126, 234, 0.2);\r\n        }\r\n\r\n        .feature-icon {\r\n            font-size: 40px;\r\n            margin-bottom: 15px;\r\n        }\r\n\r\n        .feature-card h3 {\r\n            color: #667eea;\r\n            margin-bottom: 15px;\r\n            font-size: 22px;\r\n        }\r\n\r\n        .feature-card p {\r\n            color: #64748b;\r\n            line-height: 1.8;\r\n        }\r\n\r\n        /* Quick Start */\r\n        .quick-start {\r\n            background: #f8fafc;\r\n            padding: 80px 20px;\r\n        }\r\n\r\n        .quick-start-content {\r\n            max-width: 800px;\r\n            margin: 0 auto;\r\n        }\r\n\r\n        .quick-start h2 {\r\n            text-align: center;\r\n            font-size: 42px;\r\n            margin-bottom: 40px;\r\n            color: #1e293b;\r\n        }\r\n\r\n        .steps {\r\n            display: grid;\r\n            grid-template-columns: repeat(3, 1fr);\r\n            gap: 30px;\r\n        }\r\n\r\n        .step {\r\n            background: white;\r\n            padding: 30px;\r\n            border-radius: 12px;\r\n            text-align: center;\r\n            box-shadow: 0 4px 15px rgba(0,0,0,0.08);\r\n        }\r\n\r\n        .step-number {\r\n            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\r\n            color: white;\r\n            width: 50px;\r\n            height: 50px;\r\n            border-radius: 50%;\r\n            display: inline-flex;\r\n            align-items: center;\r\n            justify-content: center;\r\n            font-size: 24px;\r\n            font-weight: bold;\r\n            margin-bottom: 20px;\r\n        }\r\n\r\n        .step h3 {\r\n            margin-bottom: 15px;\r\n            color: #1e293b;\r\n        }\r\n\r\n        .step code {\r\n            background: #f1f5f9;\r\n            padding: 10px 15px;\r\n            border-radius: 6px;\r\n            display: block;\r\n            margin-top: 10px;\r\n            font-size: 14px;\r\n        }\r\n\r\n        /* Statistics */\r\n        .stats {\r\n            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\r\n            color: white;\r\n            padding: 60px 20px;\r\n        }\r\n\r\n        .stats-grid {\r\n            max-width: 1200px;\r\n            margin: 0 auto;\r\n            display: grid;\r\n            grid-template-columns: repeat(4, 1fr);\r\n            gap: 40px;\r\n            text-align: center;\r\n        }\r\n\r\n        .stat h3 {\r\n            font-size: 48px;\r\n            margin-bottom: 10px;\r\n        }\r\n\r\n        .stat p {\r\n            font-size: 16px;\r\n            opacity: 0.9;\r\n        }\r\n\r\n        /* Footer */\r\n        .footer {\r\n            background: #1e293b;\r\n            color: #e2e8f0;\r\n            padding: 60px 20px 30px;\r\n        }\r\n\r\n        .footer-content {\r\n            max-width: 1200px;\r\n            margin: 0 auto;\r\n            display: grid;\r\n            grid-template-columns: repeat(4, 1fr);\r\n            gap: 40px;\r\n        }\r\n\r\n        .footer-section h3, .footer-section h4 {\r\n            margin-bottom: 15px;\r\n            color: white;\r\n        }\r\n\r\n        .footer-section a {\r\n            display: block;\r\n            color: #94a3b8;\r\n            text-decoration: none;\r\n            margin-bottom: 10px;\r\n            transition: color 0.3s ease;\r\n        }\r\n\r\n        .footer-section a:hover {\r\n            color: #667eea;\r\n        }\r\n\r\n        .version, .license {\r\n            font-size: 14px;\r\n            color: #64748b;\r\n        }\r\n\r\n        /* Responsive */\r\n        @media (max-width: 768px) {\r\n            .code-comparison, .features-grid, .steps, .stats-grid, .footer-content {\r\n                grid-template-columns: 1fr;\r\n            }\r\n\r\n            .hero h1 { font-size: 36px; }\r\n            .hero .tagline { font-size: 18px; }\r\n        }\r\n    </style>\r\n</head>\r\n<body>\r\n    ",
+                    ),
+                    63,
+                    19,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "nav",
+                        405,
+                        12,
+                    ),
+                    right: Concatenation {
+                        left: Literal(
+                            String(
+                                "\r\n\r\n    <!-- Hero Section -->\r\n    <section class='hero'>\r\n        <h1>Programming that Reads Like English</h1>\r\n        <p class='tagline'>WFL makes code accessible to everyone with natural language syntax</p>\r\n\r\n        <div class='code-comparison'>\r\n            <div class='code-block'>\r\n                <h3>✨ WFL - Natural & Clear</h3>\r\n                <pre><code>check if age is greater than 18:\r\n    grant access\r\notherwise:\r\n    deny access\r\nend check</code></pre>\r\n            </div>\r\n\r\n            <div class='code-block'>\r\n                <h3>JavaScript - Symbols & Syntax</h3>\r\n                <pre><code>if (age > 18) {\r\n    grantAccess();\r\n} else {\r\n    denyAccess();\r\n}</code></pre>\r\n            </div>\r\n        </div>\r\n\r\n        <div class='cta-buttons'>\r\n            <a href='#quick-start' class='btn btn-primary'>Get Started</a>\r\n            <a href='/examples' class='btn btn-secondary'>View Examples</a>\r\n        </div>\r\n    </section>\r\n\r\n    <!-- Features Grid -->\r\n    <section class='features'>\r\n        <h2>Why Choose WFL?</h2>\r\n        <div class='features-grid'>\r\n            <div class='feature-card'>\r\n                <div class='feature-icon'>📝</div>\r\n                <h3>Natural Language</h3>\r\n                <p>Write code that reads like plain English. Use 'check if' instead of symbols, 'is greater than' instead of '>', and 'otherwise' instead of 'else'.</p>\r\n            </div>\r\n\r\n            <div class='feature-card'>\r\n                <div class='feature-icon'>🌐</div>\r\n                <h3>Built-in Web Server</h3>\r\n                <p>Create a web server in just 4 lines of code. No frameworks, no dependencies, no complexity. Just natural language.</p>\r\n            </div>\r\n\r\n            <div class='feature-card'>\r\n                <div class='feature-icon'>🔒</div>\r\n                <h3>Type Safety</h3>\r\n                <p>Catch errors before your code runs. Intelligent type inference with compile-time checking keeps your code safe.</p>\r\n            </div>\r\n\r\n            <div class='feature-card'>\r\n                <div class='feature-icon'>⚡</div>\r\n                <h3>Async Built-in</h3>\r\n                <p>No callbacks, no promises, no async/await complexity. Just 'wait for' and your code flows naturally.</p>\r\n            </div>\r\n\r\n            <div class='feature-card'>\r\n                <div class='feature-icon'>🎯</div>\r\n                <h3>Pattern Matching</h3>\r\n                <p>Regular expressions in natural language. Create patterns that read like English, not cryptic regex syntax.</p>\r\n            </div>\r\n\r\n            <div class='feature-card'>\r\n                <div class='feature-icon'>🏗\u{fe0f}</div>\r\n                <h3>Object-Oriented</h3>\r\n                <p>Containers with properties and actions. Clean OOP without class syntax complexity.</p>\r\n            </div>\r\n        </div>\r\n    </section>\r\n\r\n    <!-- Quick Start -->\r\n    <section class='quick-start' id='quick-start'>\r\n        <div class='quick-start-content'>\r\n            <h2>Get Started in 3 Steps</h2>\r\n            <div class='steps'>\r\n                <div class='step'>\r\n                    <div class='step-number'>1</div>\r\n                    <h3>Install WFL</h3>\r\n                    <p>Download for Windows, Linux, or macOS</p>\r\n                    <code>cargo install wfl</code>\r\n                </div>\r\n\r\n                <div class='step'>\r\n                    <div class='step-number'>2</div>\r\n                    <h3>Create hello.wfl</h3>\r\n                    <p>Write your first program</p>\r\n                    <code>display \"Hello, World!\"</code>\r\n                </div>\r\n\r\n                <div class='step'>\r\n                    <div class='step-number'>3</div>\r\n                    <h3>Run It!</h3>\r\n                    <p>Execute with the WFL CLI</p>\r\n                    <code>wfl hello.wfl</code>\r\n                </div>\r\n            </div>\r\n        </div>\r\n    </section>\r\n\r\n    <!-- Statistics -->\r\n    <section class='stats'>\r\n        <div class='stats-grid'>\r\n            <div class='stat'>\r\n                <h3>181+</h3>\r\n                <p>Built-in Functions</p>\r\n            </div>\r\n            <div class='stat'>\r\n                <h3>60+</h3>\r\n                <p>Documentation Files</p>\r\n            </div>\r\n            <div class='stat'>\r\n                <h3>103</h3>\r\n                <p>Example Programs</p>\r\n            </div>\r\n            <div class='stat'>\r\n                <h3>100%</h3>\r\n                <p>Backward Compatible</p>\r\n            </div>\r\n        </div>\r\n    </section>\r\n\r\n    ",
+                            ),
+                            405,
+                            21,
+                        ),
+                        right: Concatenation {
+                            left: Variable(
+                                "footer",
+                                531,
+                                12,
+                            ),
+                            right: Literal(
+                                String(
+                                    "\r\n</body>\r\n</html>",
+                                ),
+                                531,
+                                24,
+                            ),
+                            line: 531,
+                            column: 19,
+                        },
+                        line: 531,
+                        column: 7,
+                    },
+                    line: 405,
+                    column: 16,
+                },
+                line: 405,
+                column: 7,
+            },
+            is_constant: false,
+            line: 63,
+            column: 5,
+        },
+        ReturnStatement {
+            value: Some(
+                Variable(
+                    "html",
+                    534,
+                    12,
+                ),
+            ),
+            line: 534,
+            column: 5,
+        },
+    ],
+    return_type: None,
+    line: 535,
+    column: 11,
+}
+
+Statement #6: ActionDefinition {
+    name: "render_features_page",
+    parameters: [],
+    body: [
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                537,
+                44,
+            ),
+            line: 537,
+            column: 48,
+        },
+        VariableDeclaration {
+            name: "nav",
+            value: Concatenation {
+                left: Variable(
+                    "get_navigation",
+                    538,
+                    18,
+                ),
+                right: Literal(
+                    String(
+                        "",
+                    ),
+                    538,
+                    38,
+                ),
+                line: 538,
+                column: 33,
+            },
+            is_constant: false,
+            line: 538,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "footer",
+            value: Variable(
+                "get_footer",
+                539,
+                21,
+            ),
+            is_constant: false,
+            line: 539,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "html",
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "<!DOCTYPE html>\r\n<html lang='en'>\r\n<head>\r\n    <meta charset='UTF-8'>\r\n    <meta name='viewport' content='width=device-width, initial-scale=1.0'>\r\n    <title>Features - WFL</title>\r\n    <style>\r\n        * { margin: 0; padding: 0; box-sizing: border-box; }\r\n        body {\r\n            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;\r\n            line-height: 1.6;\r\n            color: #1e293b;\r\n            background: #f8fafc;\r\n        }\r\n\r\n        /* Reuse navbar styles */\r\n        .navbar { background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 1000; }\r\n        .nav-container { max-width: 1200px; margin: 0 auto; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }\r\n        .logo { font-size: 24px; font-weight: bold; color: #667eea; text-decoration: none; }\r\n        .nav-links { display: flex; gap: 2rem; align-items: center; }\r\n        .nav-links a { text-decoration: none; color: #64748b; transition: color 0.3s ease; }\r\n        .nav-links a:hover { color: #667eea; }\r\n        .btn-download { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; padding: 0.5rem 1.5rem; border-radius: 8px; }\r\n\r\n        .page-header {\r\n            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\r\n            color: white;\r\n            padding: 80px 20px;\r\n            text-align: center;\r\n        }\r\n\r\n        .page-header h1 {\r\n            font-size: 48px;\r\n            margin-bottom: 15px;\r\n        }\r\n\r\n        .page-header p {\r\n            font-size: 20px;\r\n            opacity: 0.95;\r\n        }\r\n\r\n        .feature-section {\r\n            max-width: 1000px;\r\n            margin: 60px auto;\r\n            padding: 0 20px;\r\n            background: white;\r\n            border-radius: 12px;\r\n            padding: 40px;\r\n            box-shadow: 0 4px 20px rgba(0,0,0,0.08);\r\n        }\r\n\r\n        .feature-section h2 {\r\n            color: #667eea;\r\n            font-size: 32px;\r\n            margin-bottom: 20px;\r\n        }\r\n\r\n        .feature-section p {\r\n            font-size: 18px;\r\n            color: #64748b;\r\n            margin-bottom: 30px;\r\n            line-height: 1.8;\r\n        }\r\n\r\n        .code-example {\r\n            background: #1e293b;\r\n            color: #e2e8f0;\r\n            padding: 25px;\r\n            border-radius: 8px;\r\n            margin: 20px 0;\r\n            font-family: 'Monaco', 'Consolas', monospace;\r\n            font-size: 14px;\r\n            line-height: 1.6;\r\n            overflow-x: auto;\r\n        }\r\n\r\n        .code-comparison-section {\r\n            display: grid;\r\n            grid-template-columns: 1fr 1fr;\r\n            gap: 20px;\r\n            margin: 30px 0;\r\n        }\r\n\r\n        .why-matters {\r\n            background: #eff6ff;\r\n            padding: 20px;\r\n            border-left: 4px solid #667eea;\r\n            border-radius: 4px;\r\n            margin-top: 20px;\r\n        }\r\n\r\n        .footer { background: #1e293b; color: #e2e8f0; padding: 60px 20px 30px; }\r\n        .footer-content { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 40px; }\r\n        .footer-section h3, .footer-section h4 { margin-bottom: 15px; color: white; }\r\n        .footer-section a { display: block; color: #94a3b8; text-decoration: none; margin-bottom: 10px; }\r\n        .footer-section a:hover { color: #667eea; }\r\n\r\n        @media (max-width: 768px) {\r\n            .code-comparison-section { grid-template-columns: 1fr; }\r\n            .footer-content { grid-template-columns: 1fr; }\r\n        }\r\n    </style>\r\n</head>\r\n<body>\r\n    ",
+                    ),
+                    541,
+                    19,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "nav",
+                        645,
+                        12,
+                    ),
+                    right: Concatenation {
+                        left: Literal(
+                            String(
+                                "\r\n\r\n    <div class='page-header'>\r\n        <h1>Features</h1>\r\n        <p>Discover what makes WFL special</p>\r\n    </div>\r\n\r\n    <div class='feature-section'>\r\n        <h2>📝 Natural Language Syntax</h2>\r\n        <p>WFL uses plain English instead of cryptic symbols. Code reads like sentences, making it easier to write, read, and maintain.</p>\r\n\r\n        <div class='code-comparison-section'>\r\n            <div>\r\n                <h4 style='margin-bottom: 10px;'>WFL</h4>\r\n                <div class='code-example'>check if age is greater than 18 and is verified:\r\n    grant access\r\notherwise:\r\n    deny access\r\nend check</div>\r\n            </div>\r\n            <div>\r\n                <h4 style='margin-bottom: 10px;'>JavaScript</h4>\r\n                <div class='code-example'>if (age > 18 && isVerified) {\r\n    grantAccess();\r\n} else {\r\n    denyAccess();\r\n}</div>\r\n            </div>\r\n        </div>\r\n\r\n        <div class='why-matters'>\r\n            <strong>Why it matters:</strong> Code reviews are faster, junior developers understand senior code, and bugs are easier to spot.\r\n        </div>\r\n    </div>\r\n\r\n    <div class='feature-section'>\r\n        <h2>🌐 Built-in Web Server</h2>\r\n        <p>Create a web server in just 4 lines. No Express, no Flask, no frameworks. Just WFL.</p>\r\n\r\n        <div class='code-example'>listen on port 8080 as server\r\n\r\nmain loop:\r\n    wait for request comes in on server as req\r\n    respond to req with \"Hello from WFL!\"\r\nend loop</div>\r\n\r\n        <div class='why-matters'>\r\n            <strong>Why it matters:</strong> Build APIs and web apps without learning complex frameworks. Ship faster with less code.\r\n        </div>\r\n    </div>\r\n\r\n    <div class='feature-section'>\r\n        <h2>🔒 Type Safety</h2>\r\n        <p>Catch errors before your code runs. WFL's type checker finds bugs at compile time, not runtime.</p>\r\n\r\n        <div class='code-example'>store age as 25          // Number\r\nstore name as \"Alice\"    // Text\r\n\r\n// This will ERROR at compile time:\r\ndisplay age plus name     // Cannot add Number + Text\r\n\r\n// This works:\r\ndisplay age plus 5        // OK: 30</div>\r\n\r\n        <div class='why-matters'>\r\n            <strong>Why it matters:</strong> Fewer runtime crashes, safer refactoring, and better IDE support with autocomplete.\r\n        </div>\r\n    </div>\r\n\r\n    <div class='feature-section'>\r\n        <h2>⚡ Async Operations</h2>\r\n        <p>Built-in async support with natural language. No callback hell, no promise chains.</p>\r\n\r\n        <div class='code-example'>open file at \"data.txt\" for reading as myfile\r\nwait for read content from myfile as content\r\nclose file myfile\r\ndisplay content</div>\r\n\r\n        <div class='why-matters'>\r\n            <strong>Why it matters:</strong> Write asynchronous code that looks synchronous. Easier to reason about and debug.\r\n        </div>\r\n    </div>\r\n\r\n    <div class='feature-section'>\r\n        <h2>🎯 Pattern Matching</h2>\r\n        <p>Regular expressions written in natural language. Create patterns that are actually readable.</p>\r\n\r\n        <div class='code-example'>create pattern email:\r\n    one or more letter or digit\r\n    followed by \"@\"\r\n    followed by one or more letter or digit\r\n    followed by \".\"\r\n    followed by between 2 and 4 letter\r\nend pattern\r\n\r\ncheck if \"user@example.com\" matches email:\r\n    display \"Valid email!\"\r\nend check</div>\r\n\r\n        <div class='why-matters'>\r\n            <strong>Why it matters:</strong> No more cryptic regex. Patterns you can read and understand months later.\r\n        </div>\r\n    </div>\r\n\r\n    <div class='feature-section'>\r\n        <h2>🏗\u{fe0f} Object-Oriented Programming</h2>\r\n        <p>Containers provide clean OOP with properties and actions. Inheritance and polymorphism included.</p>\r\n\r\n        <div class='code-example'>create container Person:\r\n    property name: Text\r\n    property age: Number\r\n\r\n    action introduce:\r\n        display \"I'm \" with name with \", age \" with age\r\n    end action\r\nend container\r\n\r\ncreate new Person as alice:\r\n    name is \"Alice\"\r\n    age is 30\r\nend\r\n\r\ncall alice.introduce\r\n// Output: I'm Alice, age 30</div>\r\n\r\n        <div class='why-matters'>\r\n            <strong>Why it matters:</strong> Build scalable applications with clean architecture. OOP without the Java-style verbosity.\r\n        </div>\r\n    </div>\r\n\r\n    ",
+                            ),
+                            645,
+                            21,
+                        ),
+                        right: Concatenation {
+                            left: Variable(
+                                "footer",
+                                775,
+                                12,
+                            ),
+                            right: Literal(
+                                String(
+                                    "\r\n</body>\r\n</html>",
+                                ),
+                                775,
+                                24,
+                            ),
+                            line: 775,
+                            column: 19,
+                        },
+                        line: 775,
+                        column: 7,
+                    },
+                    line: 645,
+                    column: 16,
+                },
+                line: 645,
+                column: 7,
+            },
+            is_constant: false,
+            line: 541,
+            column: 5,
+        },
+        ReturnStatement {
+            value: Some(
+                Variable(
+                    "html",
+                    778,
+                    12,
+                ),
+            ),
+            line: 778,
+            column: 5,
+        },
+    ],
+    return_type: None,
+    line: 779,
+    column: 11,
+}
+
+Statement #7: ActionDefinition {
+    name: "render_examples_page",
+    parameters: [],
+    body: [
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                781,
+                44,
+            ),
+            line: 781,
+            column: 48,
+        },
+        VariableDeclaration {
+            name: "nav",
+            value: Concatenation {
+                left: Variable(
+                    "get_navigation",
+                    782,
+                    18,
+                ),
+                right: Literal(
+                    String(
+                        "",
+                    ),
+                    782,
+                    38,
+                ),
+                line: 782,
+                column: 33,
+            },
+            is_constant: false,
+            line: 782,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "footer",
+            value: Variable(
+                "get_footer",
+                783,
+                21,
+            ),
+            is_constant: false,
+            line: 783,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "html",
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "<!DOCTYPE html>\r\n<html lang='en'>\r\n<head>\r\n    <meta charset='UTF-8'>\r\n    <meta name='viewport' content='width=device-width, initial-scale=1.0'>\r\n    <title>Examples - WFL</title>\r\n    <style>\r\n        * { margin: 0; padding: 0; box-sizing: border-box; }\r\n        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1e293b; background: #f8fafc; }\r\n\r\n        .navbar { background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 1000; }\r\n        .nav-container { max-width: 1200px; margin: 0 auto; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }\r\n        .logo { font-size: 24px; font-weight: bold; color: #667eea; text-decoration: none; }\r\n        .nav-links { display: flex; gap: 2rem; align-items: center; }\r\n        .nav-links a { text-decoration: none; color: #64748b; transition: color 0.3s ease; }\r\n        .nav-links a:hover { color: #667eea; }\r\n        .btn-download { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; padding: 0.5rem 1.5rem; border-radius: 8px; }\r\n\r\n        .page-header {\r\n            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\r\n            color: white;\r\n            padding: 80px 20px;\r\n            text-align: center;\r\n        }\r\n        .page-header h1 { font-size: 48px; margin-bottom: 15px; }\r\n        .page-header p { font-size: 20px; opacity: 0.95; }\r\n\r\n        .examples-container {\r\n            max-width: 1200px;\r\n            margin: 60px auto;\r\n            padding: 0 20px;\r\n        }\r\n\r\n        .example {\r\n            background: white;\r\n            border-radius: 12px;\r\n            padding: 40px;\r\n            margin-bottom: 40px;\r\n            box-shadow: 0 4px 20px rgba(0,0,0,0.08);\r\n        }\r\n\r\n        .example h2 {\r\n            color: #667eea;\r\n            margin-bottom: 20px;\r\n            font-size: 32px;\r\n        }\r\n\r\n        .example p {\r\n            color: #64748b;\r\n            margin-bottom: 30px;\r\n            font-size: 18px;\r\n        }\r\n\r\n        .code-grid {\r\n            display: grid;\r\n            grid-template-columns: 1fr 1fr;\r\n            gap: 20px;\r\n        }\r\n\r\n        .lang-block h3 {\r\n            background: #1e293b;\r\n            color: white;\r\n            padding: 10px 15px;\r\n            border-radius: 8px 8px 0 0;\r\n            font-size: 16px;\r\n        }\r\n\r\n        .lang-block pre {\r\n            background: #1e293b;\r\n            color: #e2e8f0;\r\n            padding: 20px;\r\n            border-radius: 0 0 8px 8px;\r\n            margin: 0;\r\n            font-family: 'Monaco', 'Consolas', monospace;\r\n            font-size: 14px;\r\n            line-height: 1.6;\r\n            overflow-x: auto;\r\n        }\r\n\r\n        .line-count {\r\n            background: #10b981;\r\n            color: white;\r\n            padding: 5px 15px;\r\n            border-radius: 20px;\r\n            font-size: 14px;\r\n            display: inline-block;\r\n            margin-top: 10px;\r\n        }\r\n\r\n        .footer { background: #1e293b; color: #e2e8f0; padding: 60px 20px 30px; }\r\n        .footer-content { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 40px; }\r\n        .footer-section h3, .footer-section h4 { margin-bottom: 15px; color: white; }\r\n        .footer-section a { display: block; color: #94a3b8; text-decoration: none; margin-bottom: 10px; }\r\n        .footer-section a:hover { color: #667eea; }\r\n\r\n        @media (max-width: 768px) {\r\n            .code-grid { grid-template-columns: 1fr; }\r\n            .footer-content { grid-template-columns: 1fr; }\r\n        }\r\n    </style>\r\n</head>\r\n<body>\r\n    ",
+                    ),
+                    785,
+                    19,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "nav",
+                        887,
+                        12,
+                    ),
+                    right: Concatenation {
+                        left: Literal(
+                            String(
+                                "\r\n\r\n    <div class='page-header'>\r\n        <h1>Code Examples</h1>\r\n        <p>See how WFL compares to other languages</p>\r\n    </div>\r\n\r\n    <div class='examples-container'>\r\n        <!-- Example 1: Web Server -->\r\n        <div class='example'>\r\n            <h2>Example 1: Web Server</h2>\r\n            <p>Create a fully functional web server. Compare the simplicity!</p>\r\n\r\n            <div class='code-grid'>\r\n                <div class='lang-block'>\r\n                    <h3>WFL - 4 Lines</h3>\r\n                    <pre>listen on port 8080 as server\r\n\r\nmain loop:\r\n    wait for request comes in on server as req\r\n    respond to req with \"Hello!\"\r\nend loop</pre>\r\n                    <span class='line-count'>4 lines</span>\r\n                </div>\r\n\r\n                <div class='lang-block'>\r\n                    <h3>Node.js/Express - 15 Lines</h3>\r\n                    <pre>const express = require('express');\r\nconst app = express();\r\n\r\napp.get('/', (req, res) => {\r\n  res.send('Hello!');\r\n});\r\n\r\napp.listen(8080, () => {\r\n  console.log('Server running...');\r\n});</pre>\r\n                    <span class='line-count' style='background: #ef4444;'>15+ lines (plus package.json)</span>\r\n                </div>\r\n            </div>\r\n        </div>\r\n\r\n        <!-- Example 2: Variables and Conditions -->\r\n        <div class='example'>\r\n            <h2>Example 2: Conditionals</h2>\r\n            <p>Natural language conditions are easier to read and understand.</p>\r\n\r\n            <div class='code-grid'>\r\n                <div class='lang-block'>\r\n                    <h3>WFL</h3>\r\n                    <pre>store temperature as 25\r\n\r\ncheck if temperature is greater than 30:\r\n    display \"Hot outside!\"\r\notherwise:\r\n    check if temperature is greater than 20:\r\n        display \"Nice weather!\"\r\n    otherwise:\r\n        display \"Bit cool.\"\r\n    end check\r\nend check</pre>\r\n                </div>\r\n\r\n                <div class='lang-block'>\r\n                    <h3>JavaScript</h3>\r\n                    <pre>let temperature = 25;\r\n\r\nif (temperature > 30) {\r\n    console.log(\"Hot outside!\");\r\n} else if (temperature > 20) {\r\n    console.log(\"Nice weather!\");\r\n} else {\r\n    console.log(\"Bit cool.\");\r\n}</pre>\r\n                </div>\r\n            </div>\r\n        </div>\r\n\r\n        <!-- Example 3: File I/O -->\r\n        <div class='example'>\r\n            <h2>Example 3: File Operations</h2>\r\n            <p>Reading and writing files with clear, natural syntax.</p>\r\n\r\n            <div class='code-grid'>\r\n                <div class='lang-block'>\r\n                    <h3>WFL</h3>\r\n                    <pre>open file at \"data.txt\" for reading as myfile\r\nwait for read content from myfile as content\r\nclose file myfile\r\ndisplay content</pre>\r\n                </div>\r\n\r\n                <div class='lang-block'>\r\n                    <h3>JavaScript</h3>\r\n                    <pre>const fs = require('fs').promises;\r\n\r\nasync function readFile() {\r\n  const content = await fs.readFile(\r\n    'data.txt',\r\n    'utf-8'\r\n  );\r\n  console.log(content);\r\n}\r\n\r\nreadFile();</pre>\r\n                </div>\r\n            </div>\r\n        </div>\r\n\r\n        <!-- Example 4: Loops -->\r\n        <div class='example'>\r\n            <h2>Example 4: Loops</h2>\r\n            <p>Count loops and iteration with readable syntax.</p>\r\n\r\n            <div class='code-grid'>\r\n                <div class='lang-block'>\r\n                    <h3>WFL</h3>\r\n                    <pre>count from 1 to 10:\r\n    display \"Number: \" with count\r\nend count\r\n\r\nstore items as create list\r\npush with items and \"apple\"\r\npush with items and \"banana\"\r\n\r\nfor each item in items:\r\n    display \"Item: \" with item\r\nend for</pre>\r\n                </div>\r\n\r\n                <div class='lang-block'>\r\n                    <h3>JavaScript</h3>\r\n                    <pre>for (let i = 1; i <= 10; i++) {\r\n    console.log(`Number: ${i}`);\r\n}\r\n\r\nconst items = [];\r\nitems.push('apple');\r\nitems.push('banana');\r\n\r\nfor (const item of items) {\r\n    console.log(`Item: ${item}`);\r\n}</pre>\r\n                </div>\r\n            </div>\r\n        </div>\r\n\r\n        <!-- Example 5: Error Handling -->\r\n        <div class='example'>\r\n            <h2>Example 5: Error Handling</h2>\r\n            <p>Catch errors with specific error types in natural language.</p>\r\n\r\n            <div class='code-grid'>\r\n                <div class='lang-block'>\r\n                    <h3>WFL</h3>\r\n                    <pre>try:\r\n    open file at \"config.json\" for reading as config\r\n    wait for read content from config as data\r\n    close file config\r\nwhen file not found:\r\n    display \"Config file missing\"\r\n    create default config\r\ncatch:\r\n    display \"Error: \" with error\r\nend try</pre>\r\n                </div>\r\n\r\n                <div class='lang-block'>\r\n                    <h3>JavaScript</h3>\r\n                    <pre>try {\r\n    const fs = require('fs');\r\n    const data = fs.readFileSync(\r\n        'config.json',\r\n        'utf-8'\r\n    );\r\n} catch (error) {\r\n    if (error.code === 'ENOENT') {\r\n        console.log('Config file missing');\r\n        createDefaultConfig();\r\n    } else {\r\n        console.log(`Error: ${error}`);\r\n    }\r\n}</pre>\r\n                </div>\r\n            </div>\r\n        </div>\r\n    </div>\r\n\r\n    ",
+                            ),
+                            887,
+                            21,
+                        ),
+                        right: Concatenation {
+                            left: Variable(
+                                "footer",
+                                1075,
+                                12,
+                            ),
+                            right: Literal(
+                                String(
+                                    "\r\n</body>\r\n</html>",
+                                ),
+                                1075,
+                                24,
+                            ),
+                            line: 1075,
+                            column: 19,
+                        },
+                        line: 1075,
+                        column: 7,
+                    },
+                    line: 887,
+                    column: 16,
+                },
+                line: 887,
+                column: 7,
+            },
+            is_constant: false,
+            line: 785,
+            column: 5,
+        },
+        ReturnStatement {
+            value: Some(
+                Variable(
+                    "html",
+                    1078,
+                    12,
+                ),
+            ),
+            line: 1078,
+            column: 5,
+        },
+    ],
+    return_type: None,
+    line: 1079,
+    column: 11,
+}
+
+Statement #8: ActionDefinition {
+    name: "render_framework_page",
+    parameters: [],
+    body: [
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                1081,
+                45,
+            ),
+            line: 1081,
+            column: 49,
+        },
+        VariableDeclaration {
+            name: "nav",
+            value: Concatenation {
+                left: Variable(
+                    "get_navigation",
+                    1082,
+                    18,
+                ),
+                right: Literal(
+                    String(
+                        "",
+                    ),
+                    1082,
+                    38,
+                ),
+                line: 1082,
+                column: 33,
+            },
+            is_constant: false,
+            line: 1082,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "footer",
+            value: Variable(
+                "get_footer",
+                1083,
+                21,
+            ),
+            is_constant: false,
+            line: 1083,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "html",
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "<!DOCTYPE html>\r\n<html lang='en'>\r\n<head>\r\n    <meta charset='UTF-8'>\r\n    <meta name='viewport' content='width=device-width, initial-scale=1.0'>\r\n    <title>MVC Framework - WFL</title>\r\n    <style>\r\n        * { margin: 0; padding: 0; box-sizing: border-box; }\r\n        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1e293b; background: #f8fafc; }\r\n\r\n        .navbar { background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 1000; }\r\n        .nav-container { max-width: 1200px; margin: 0 auto; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }\r\n        .logo { font-size: 24px; font-weight: bold; color: #667eea; text-decoration: none; }\r\n        .nav-links { display: flex; gap: 2rem; align-items: center; }\r\n        .nav-links a { text-decoration: none; color: #64748b; transition: color 0.3s ease; }\r\n        .nav-links a:hover { color: #667eea; }\r\n        .btn-download { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; padding: 0.5rem 1.5rem; border-radius: 8px; }\r\n\r\n        .page-header {\r\n            background: linear-gradient(135deg, #10b981 0%, #059669 100%);\r\n            color: white;\r\n            padding: 80px 20px;\r\n            text-align: center;\r\n        }\r\n        .page-header h1 { font-size: 48px; margin-bottom: 15px; }\r\n        .page-header p { font-size: 20px; opacity: 0.95; }\r\n\r\n        .content {\r\n            max-width: 1000px;\r\n            margin: 60px auto;\r\n            padding: 0 20px;\r\n        }\r\n\r\n        .framework-intro {\r\n            background: white;\r\n            border-radius: 12px;\r\n            padding: 40px;\r\n            margin-bottom: 40px;\r\n            box-shadow: 0 4px 20px rgba(0,0,0,0.08);\r\n        }\r\n\r\n        .framework-intro h2 {\r\n            color: #10b981;\r\n            font-size: 32px;\r\n            margin-bottom: 20px;\r\n        }\r\n\r\n        .framework-intro p {\r\n            font-size: 18px;\r\n            color: #64748b;\r\n            margin-bottom: 20px;\r\n            line-height: 1.8;\r\n        }\r\n\r\n        .stats-grid {\r\n            display: grid;\r\n            grid-template-columns: repeat(3, 1fr);\r\n            gap: 20px;\r\n            margin: 30px 0;\r\n        }\r\n\r\n        .stat-card {\r\n            background: #eff6ff;\r\n            padding: 20px;\r\n            border-radius: 8px;\r\n            text-align: center;\r\n        }\r\n\r\n        .stat-card h3 {\r\n            color: #667eea;\r\n            font-size: 36px;\r\n            margin-bottom: 5px;\r\n        }\r\n\r\n        .stat-card p {\r\n            color: #64748b;\r\n            font-size: 14px;\r\n        }\r\n\r\n        .feature-list {\r\n            background: white;\r\n            border-radius: 12px;\r\n            padding: 40px;\r\n            margin-bottom: 40px;\r\n            box-shadow: 0 4px 20px rgba(0,0,0,0.08);\r\n        }\r\n\r\n        .feature-list h2 {\r\n            color: #10b981;\r\n            margin-bottom: 30px;\r\n            font-size: 28px;\r\n        }\r\n\r\n        .feature-list ul {\r\n            list-style: none;\r\n            display: grid;\r\n            grid-template-columns: repeat(2, 1fr);\r\n            gap: 15px;\r\n        }\r\n\r\n        .feature-list li {\r\n            padding: 15px;\r\n            background: #f8fafc;\r\n            border-radius: 8px;\r\n            border-left: 4px solid #10b981;\r\n        }\r\n\r\n        .code-example {\r\n            background: #1e293b;\r\n            color: #e2e8f0;\r\n            padding: 30px;\r\n            border-radius: 12px;\r\n            font-family: 'Monaco', 'Consolas', monospace;\r\n            font-size: 14px;\r\n            line-height: 1.8;\r\n            overflow-x: auto;\r\n            margin: 30px 0;\r\n        }\r\n\r\n        .footer { background: #1e293b; color: #e2e8f0; padding: 60px 20px 30px; }\r\n        .footer-content { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 40px; }\r\n        .footer-section h3, .footer-section h4 { margin-bottom: 15px; color: white; }\r\n        .footer-section a { display: block; color: #94a3b8; text-decoration: none; margin-bottom: 10px; }\r\n        .footer-section a:hover { color: #667eea; }\r\n\r\n        @media (max-width: 768px) {\r\n            .stats-grid, .feature-list ul { grid-template-columns: 1fr; }\r\n            .footer-content { grid-template-columns: 1fr; }\r\n        }\r\n    </style>\r\n</head>\r\n<body>\r\n    ",
+                    ),
+                    1085,
+                    19,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "nav",
+                        1217,
+                        12,
+                    ),
+                    right: Concatenation {
+                        left: Literal(
+                            String(
+                                "\r\n\r\n    <div class='page-header'>\r\n        <h1>WFL MVC Framework</h1>\r\n        <p>A complete web framework written in WFL</p>\r\n    </div>\r\n\r\n    <div class='content'>\r\n        <div class='framework-intro'>\r\n            <h2>What is the WFL MVC Framework?</h2>\r\n            <p>A full-featured MVC web framework built entirely in WFL, demonstrating the language's capability to handle complex, real-world applications.</p>\r\n            <p>During development, we discovered and <strong>fixed 2 critical WFL interpreter bugs</strong> that benefit all WFL users.</p>\r\n\r\n            <div class='stats-grid'>\r\n                <div class='stat-card'>\r\n                    <h3>58</h3>\r\n                    <p>Framework Files</p>\r\n                </div>\r\n                <div class='stat-card'>\r\n                    <h3>4,670</h3>\r\n                    <p>Lines of WFL Code</p>\r\n                </div>\r\n                <div class='stat-card'>\r\n                    <h3>16</h3>\r\n                    <p>Test Suites Passing</p>\r\n                </div>\r\n            </div>\r\n        </div>\r\n\r\n        <div class='feature-list'>\r\n            <h2>Framework Features</h2>\r\n            <ul>\r\n                <li>✅ Complete MVC architecture (Models, Views, Controllers)</li>\r\n                <li>✅ Router with route registration</li>\r\n                <li>✅ Middleware pipeline (CORS, Logging, Error Handler)</li>\r\n                <li>✅ Plugin system with lifecycle hooks</li>\r\n                <li>✅ Session management (UUID, CSRF)</li>\r\n                <li>✅ Request/Response helpers (query, cookies, forms)</li>\r\n                <li>✅ JSON support (parse/stringify)</li>\r\n                <li>✅ Error handling and validation</li>\r\n            </ul>\r\n        </div>\r\n\r\n        <div class='framework-intro'>\r\n            <h2>Example: Complete Web App</h2>\r\n            <p>This is a complete web application with routing, error handling, and JSON API - all in WFL!</p>\r\n\r\n            <div class='code-example'>listen on port 3000 as server\r\ndisplay \"Server running on http://localhost:3000\"\r\n\r\nstore request_count as 0\r\n\r\ntry:\r\n    main loop:\r\n        wait for request comes in on server as req\r\n        add 1 to request_count\r\n\r\n        check if path is equal to \"/\":\r\n            respond to req with \"Welcome!\" and content_type \"text/plain\"\r\n        otherwise:\r\n            check if path is equal to \"/api/users\":\r\n                store users as \"[{\\\"id\\\":1,\\\"name\\\":\\\"Alice\\\"}]\"\r\n                respond to req with users and content_type \"application/json\"\r\n            otherwise:\r\n                respond to req with \"Not found\" and status 404\r\n            end check\r\n        end check\r\n\r\n        check if request_count is greater than 100:\r\n            break\r\n        end check\r\n    end loop\r\ncatch:\r\n    display \"Error: \" with error\r\nend try\r\n\r\ndisplay \"Server stopped\"</div>\r\n        </div>\r\n\r\n        <div class='framework-intro'>\r\n            <h2>Critical Bugs Fixed</h2>\r\n            <p><strong>1. Property Mutation Bug (CRITICAL):</strong> Container properties didn't persist when modified in actions. This blocked ALL stateful operations. We fixed it by modifying the interpreter to write back properties after action execution.</p>\r\n            <p><strong>2. Main Loop Parser Bug:</strong> Main loops failed to parse due to not skipping EOL tokens. This prevented web server examples from running. We fixed it by adding EOL token handling.</p>\r\n            <p style='margin-top: 20px;'><strong>Impact:</strong> These fixes enable sessions, counters, error tracking, and robust web servers for all WFL developers!</p>\r\n        </div>\r\n    </div>\r\n\r\n    ",
+                            ),
+                            1217,
+                            21,
+                        ),
+                        right: Concatenation {
+                            left: Variable(
+                                "footer",
+                                1304,
+                                12,
+                            ),
+                            right: Literal(
+                                String(
+                                    "\r\n</body>\r\n</html>",
+                                ),
+                                1304,
+                                24,
+                            ),
+                            line: 1304,
+                            column: 19,
+                        },
+                        line: 1304,
+                        column: 7,
+                    },
+                    line: 1217,
+                    column: 16,
+                },
+                line: 1217,
+                column: 7,
+            },
+            is_constant: false,
+            line: 1085,
+            column: 5,
+        },
+        ReturnStatement {
+            value: Some(
+                Variable(
+                    "html",
+                    1307,
+                    12,
+                ),
+            ),
+            line: 1307,
+            column: 5,
+        },
+    ],
+    return_type: None,
+    line: 1308,
+    column: 11,
+}
+
+Statement #9: ActionDefinition {
+    name: "render_docs_page",
+    parameters: [],
+    body: [
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                1310,
+                40,
+            ),
+            line: 1310,
+            column: 44,
+        },
+        VariableDeclaration {
+            name: "nav",
+            value: Concatenation {
+                left: Variable(
+                    "get_navigation",
+                    1311,
+                    18,
+                ),
+                right: Literal(
+                    String(
+                        "",
+                    ),
+                    1311,
+                    38,
+                ),
+                line: 1311,
+                column: 33,
+            },
+            is_constant: false,
+            line: 1311,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "footer",
+            value: Variable(
+                "get_footer",
+                1312,
+                21,
+            ),
+            is_constant: false,
+            line: 1312,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "html",
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "<!DOCTYPE html>\r\n<html lang='en'>\r\n<head>\r\n    <meta charset='UTF-8'>\r\n    <meta name='viewport' content='width=device-width, initial-scale=1.0'>\r\n    <title>Documentation - WFL</title>\r\n    <style>\r\n        * { margin: 0; padding: 0; box-sizing: border-box; }\r\n        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1e293b; background: #f8fafc; }\r\n\r\n        .navbar { background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 1000; }\r\n        .nav-container { max-width: 1200px; margin: 0 auto; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }\r\n        .logo { font-size: 24px; font-weight: bold; color: #667eea; text-decoration: none; }\r\n        .nav-links { display: flex; gap: 2rem; align-items: center; }\r\n        .nav-links a { text-decoration: none; color: #64748b; transition: color 0.3s ease; }\r\n        .nav-links a:hover { color: #667eea; }\r\n        .btn-download { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; padding: 0.5rem 1.5rem; border-radius: 8px; }\r\n\r\n        .page-header {\r\n            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\r\n            color: white;\r\n            padding: 80px 20px;\r\n            text-align: center;\r\n        }\r\n        .page-header h1 { font-size: 48px; margin-bottom: 15px; }\r\n        .page-header p { font-size: 20px; opacity: 0.95; }\r\n\r\n        .docs-container {\r\n            max-width: 1200px;\r\n            margin: 60px auto;\r\n            padding: 0 20px;\r\n        }\r\n\r\n        .docs-grid {\r\n            display: grid;\r\n            grid-template-columns: repeat(3, 1fr);\r\n            gap: 30px;\r\n            margin-bottom: 40px;\r\n        }\r\n\r\n        .doc-card {\r\n            background: white;\r\n            border-radius: 12px;\r\n            padding: 30px;\r\n            box-shadow: 0 4px 20px rgba(0,0,0,0.08);\r\n            transition: all 0.3s ease;\r\n        }\r\n\r\n        .doc-card:hover {\r\n            transform: translateY(-4px);\r\n            box-shadow: 0 8px 30px rgba(102, 126, 234, 0.15);\r\n        }\r\n\r\n        .doc-card h3 {\r\n            color: #667eea;\r\n            font-size: 24px;\r\n            margin-bottom: 15px;\r\n        }\r\n\r\n        .doc-card p {\r\n            color: #64748b;\r\n            margin-bottom: 15px;\r\n            line-height: 1.8;\r\n        }\r\n\r\n        .file-count {\r\n            background: #eff6ff;\r\n            color: #667eea;\r\n            padding: 5px 12px;\r\n            border-radius: 20px;\r\n            font-size: 14px;\r\n            display: inline-block;\r\n        }\r\n\r\n        .footer { background: #1e293b; color: #e2e8f0; padding: 60px 20px 30px; }\r\n        .footer-content { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 40px; }\r\n        .footer-section h3, .footer-section h4 { margin-bottom: 15px; color: white; }\r\n        .footer-section a { display: block; color: #94a3b8; text-decoration: none; margin-bottom: 10px; }\r\n        .footer-section a:hover { color: #667eea; }\r\n\r\n        @media (max-width: 768px) {\r\n            .docs-grid { grid-template-columns: 1fr; }\r\n            .footer-content { grid-template-columns: 1fr; }\r\n        }\r\n    </style>\r\n</head>\r\n<body>\r\n    ",
+                    ),
+                    1314,
+                    19,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "nav",
+                        1401,
+                        12,
+                    ),
+                    right: Concatenation {
+                        left: Literal(
+                            String(
+                                "\r\n\r\n    <div class='page-header'>\r\n        <h1>Documentation</h1>\r\n        <p>Everything you need to learn WFL</p>\r\n    </div>\r\n\r\n    <div class='docs-container'>\r\n        <div class='docs-grid'>\r\n            <div class='doc-card'>\r\n                <h3>Introduction</h3>\r\n                <p>Learn what WFL is, why it exists, and its core philosophy.</p>\r\n                <span class='file-count'>5 files</span>\r\n                <p style='margin-top: 15px; font-size: 14px;'>\r\n                    • What is WFL?<br>\r\n                    • Key Features<br>\r\n                    • Natural Language Philosophy<br>\r\n                    • First Look<br>\r\n                    • Why WFL?\r\n                </p>\r\n            </div>\r\n\r\n            <div class='doc-card'>\r\n                <h3>Getting Started</h3>\r\n                <p>Installation, setup, and your first programs.</p>\r\n                <span class='file-count'>7 files</span>\r\n                <p style='margin-top: 15px; font-size: 14px;'>\r\n                    • Installation Guide<br>\r\n                    • Hello, World!<br>\r\n                    • Your First Program<br>\r\n                    • REPL Guide<br>\r\n                    • Editor Setup\r\n                </p>\r\n            </div>\r\n\r\n            <div class='doc-card'>\r\n                <h3>Language Basics</h3>\r\n                <p>Variables, control flow, loops, actions, and more.</p>\r\n                <span class='file-count'>9 files</span>\r\n                <p style='margin-top: 15px; font-size: 14px;'>\r\n                    • Variables and Types<br>\r\n                    • Control Flow<br>\r\n                    • Loops<br>\r\n                    • Actions (Functions)<br>\r\n                    • Error Handling\r\n                </p>\r\n            </div>\r\n\r\n            <div class='doc-card'>\r\n                <h3>Standard Library</h3>\r\n                <p>181+ built-in functions for common tasks.</p>\r\n                <span class='file-count'>Coming soon</span>\r\n                <p style='margin-top: 15px; font-size: 14px;'>\r\n                    • Math, Text, Lists<br>\r\n                    • File I/O<br>\r\n                    • JSON, Crypto<br>\r\n                    • Time and Random<br>\r\n                    • Pattern Matching\r\n                </p>\r\n            </div>\r\n\r\n            <div class='doc-card'>\r\n                <h3>Advanced Features</h3>\r\n                <p>Modules, async, web servers, containers, and patterns.</p>\r\n                <span class='file-count'>In progress</span>\r\n                <p style='margin-top: 15px; font-size: 14px;'>\r\n                    • Modules<br>\r\n                    • Async Programming<br>\r\n                    • Web Servers<br>\r\n                    • Containers (OOP)<br>\r\n                    • Pattern Matching\r\n                </p>\r\n            </div>\r\n\r\n            <div class='doc-card'>\r\n                <h3>Best Practices</h3>\r\n                <p>Code style, naming, security, and performance tips.</p>\r\n                <span class='file-count'>Planned</span>\r\n                <p style='margin-top: 15px; font-size: 14px;'>\r\n                    • Code Style Guide<br>\r\n                    • Security Guidelines<br>\r\n                    • Performance Tips<br>\r\n                    • Testing Strategies<br>\r\n                    • Project Organization\r\n                </p>\r\n            </div>\r\n        </div>\r\n\r\n        <div class='framework-intro'>\r\n            <h2>Access Full Documentation</h2>\r\n            <p>The complete documentation is available in the <code>Docs/</code> directory of the WFL repository.</p>\r\n            <p style='margin-top: 20px;'>\r\n                <a href='https://github.com/WebFirstLanguage/wfl/tree/main/Docs' style='color: #667eea; font-weight: bold;'>\r\n                    Browse Documentation on GitHub →\r\n                </a>\r\n            </p>\r\n        </div>\r\n    </div>\r\n\r\n    ",
+                            ),
+                            1401,
+                            21,
+                        ),
+                        right: Concatenation {
+                            left: Variable(
+                                "footer",
+                                1500,
+                                12,
+                            ),
+                            right: Literal(
+                                String(
+                                    "\r\n</body>\r\n</html>",
+                                ),
+                                1500,
+                                24,
+                            ),
+                            line: 1500,
+                            column: 19,
+                        },
+                        line: 1500,
+                        column: 7,
+                    },
+                    line: 1401,
+                    column: 16,
+                },
+                line: 1401,
+                column: 7,
+            },
+            is_constant: false,
+            line: 1314,
+            column: 5,
+        },
+        ReturnStatement {
+            value: Some(
+                Variable(
+                    "html",
+                    1503,
+                    12,
+                ),
+            ),
+            line: 1503,
+            column: 5,
+        },
+    ],
+    return_type: None,
+    line: 1504,
+    column: 11,
+}
+
+Statement #10: ActionDefinition {
+    name: "render_404_page",
+    parameters: [
+        Parameter {
+            name: "request_path",
+            param_type: None,
+            default_value: None,
+            line: 1506,
+            column: 43,
+        },
+    ],
+    body: [
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                1506,
+                57,
+            ),
+            line: 1506,
+            column: 63,
+        },
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                1506,
+                63,
+            ),
+            line: 1506,
+            column: 67,
+        },
+        VariableDeclaration {
+            name: "nav",
+            value: Concatenation {
+                left: Variable(
+                    "get_navigation",
+                    1507,
+                    18,
+                ),
+                right: Literal(
+                    String(
+                        "",
+                    ),
+                    1507,
+                    38,
+                ),
+                line: 1507,
+                column: 33,
+            },
+            is_constant: false,
+            line: 1507,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "footer",
+            value: Variable(
+                "get_footer",
+                1508,
+                21,
+            ),
+            is_constant: false,
+            line: 1508,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "html",
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "<!DOCTYPE html>\r\n<html lang='en'>\r\n<head>\r\n    <meta charset='UTF-8'>\r\n    <meta name='viewport' content='width=device-width, initial-scale=1.0'>\r\n    <title>404 - Page Not Found</title>\r\n    <style>\r\n        * { margin: 0; padding: 0; box-sizing: border-box; }\r\n        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1e293b; background: #f8fafc; }\r\n\r\n        .navbar { background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 1000; }\r\n        .nav-container { max-width: 1200px; margin: 0 auto; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }\r\n        .logo { font-size: 24px; font-weight: bold; color: #667eea; text-decoration: none; }\r\n        .nav-links { display: flex; gap: 2rem; align-items: center; }\r\n        .nav-links a { text-decoration: none; color: #64748b; transition: color 0.3s ease; }\r\n        .nav-links a:hover { color: #667eea; }\r\n        .btn-download { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; padding: 0.5rem 1.5rem; border-radius: 8px; }\r\n\r\n        .error-container {\r\n            max-width: 600px;\r\n            margin: 100px auto;\r\n            padding: 60px;\r\n            text-align: center;\r\n            background: white;\r\n            border-radius: 12px;\r\n            box-shadow: 0 4px 20px rgba(0,0,0,0.1);\r\n        }\r\n\r\n        .error-container h1 {\r\n            color: #ef4444;\r\n            font-size: 120px;\r\n            margin-bottom: 20px;\r\n        }\r\n\r\n        .error-container h2 {\r\n            color: #1e293b;\r\n            font-size: 32px;\r\n            margin-bottom: 15px;\r\n        }\r\n\r\n        .error-container p {\r\n            color: #64748b;\r\n            font-size: 18px;\r\n            margin-bottom: 30px;\r\n        }\r\n\r\n        .error-container code {\r\n            background: #f1f5f9;\r\n            padding: 5px 10px;\r\n            border-radius: 4px;\r\n            font-family: monospace;\r\n            color: #ef4444;\r\n        }\r\n\r\n        .error-container a {\r\n            display: inline-block;\r\n            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\r\n            color: white;\r\n            padding: 15px 40px;\r\n            border-radius: 8px;\r\n            text-decoration: none;\r\n            font-weight: bold;\r\n            transition: transform 0.3s ease;\r\n        }\r\n\r\n        .error-container a:hover {\r\n            transform: translateY(-2px);\r\n        }\r\n\r\n        .footer { background: #1e293b; color: #e2e8f0; padding: 60px 20px 30px; }\r\n        .footer-content { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 40px; }\r\n        .footer-section h3, .footer-section h4 { margin-bottom: 15px; color: white; }\r\n        .footer-section a { display: block; color: #94a3b8; text-decoration: none; margin-bottom: 10px; }\r\n        .footer-section a:hover { color: #667eea; }\r\n\r\n        @media (max-width: 768px) {\r\n            .footer-content { grid-template-columns: 1fr; }\r\n        }\r\n    </style>\r\n</head>\r\n<body>\r\n    ",
+                    ),
+                    1510,
+                    19,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "nav",
+                        1591,
+                        12,
+                    ),
+                    right: Concatenation {
+                        left: Literal(
+                            String(
+                                "\r\n\r\n    <div class='error-container'>\r\n        <h1>404</h1>\r\n        <h2>Page Not Found</h2>\r\n        <p>The page <code>",
+                            ),
+                            1591,
+                            21,
+                        ),
+                        right: Concatenation {
+                            left: Variable(
+                                "request_path",
+                                1596,
+                                34,
+                            ),
+                            right: Concatenation {
+                                left: Literal(
+                                    String(
+                                        "</code> doesn't exist.</p>\r\n        <a href='/'>Return to Homepage</a>\r\n    </div>\r\n\r\n    ",
+                                    ),
+                                    1596,
+                                    52,
+                                ),
+                                right: Concatenation {
+                                    left: Variable(
+                                        "footer",
+                                        1600,
+                                        12,
+                                    ),
+                                    right: Literal(
+                                        String(
+                                            "\r\n</body>\r\n</html>",
+                                        ),
+                                        1600,
+                                        24,
+                                    ),
+                                    line: 1600,
+                                    column: 19,
+                                },
+                                line: 1600,
+                                column: 7,
+                            },
+                            line: 1596,
+                            column: 47,
+                        },
+                        line: 1596,
+                        column: 29,
+                    },
+                    line: 1591,
+                    column: 16,
+                },
+                line: 1591,
+                column: 7,
+            },
+            is_constant: false,
+            line: 1510,
+            column: 5,
+        },
+        ReturnStatement {
+            value: Some(
+                Variable(
+                    "html",
+                    1603,
+                    12,
+                ),
+            ),
+            line: 1603,
+            column: 5,
+        },
+    ],
+    return_type: None,
+    line: 1604,
+    column: 11,
+}
+
+Statement #11: DisplayStatement {
+    value: Literal(
+        String(
+            "Initializing WFL Website...",
+        ),
+        1610,
+        9,
+    ),
+    line: 1610,
+    column: 38,
+}
+
+Statement #12: DisplayStatement {
+    value: Literal(
+        String(
+            "Port: 3000",
+        ),
+        1611,
+        9,
+    ),
+    line: 1611,
+    column: 21,
+}
+
+Statement #13: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        1612,
+        9,
+    ),
+    line: 1612,
+    column: 11,
+}
+
+Statement #14: ListenStatement {
+    port: Literal(
+        Integer(
+            3000,
+        ),
+        1614,
+        16,
+    ),
+    server_name: "web_server",
+    line: 1614,
+    column: 1,
+}
+
+Statement #15: DisplayStatement {
+    value: Literal(
+        String(
+            "✓ Server running on http://localhost:3000",
+        ),
+        1615,
+        9,
+    ),
+    line: 1615,
+    column: 54,
+}
+
+Statement #16: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        1616,
+        9,
+    ),
+    line: 1616,
+    column: 11,
+}
+
+Statement #17: DisplayStatement {
+    value: Literal(
+        String(
+            "Available pages:",
+        ),
+        1617,
+        9,
+    ),
+    line: 1617,
+    column: 27,
+}
+
+Statement #18: DisplayStatement {
+    value: Literal(
+        String(
+            "  • http://localhost:3000/          (Homepage)",
+        ),
+        1618,
+        9,
+    ),
+    line: 1618,
+    column: 59,
+}
+
+Statement #19: DisplayStatement {
+    value: Literal(
+        String(
+            "  • http://localhost:3000/features  (Features)",
+        ),
+        1619,
+        9,
+    ),
+    line: 1619,
+    column: 59,
+}
+
+Statement #20: DisplayStatement {
+    value: Literal(
+        String(
+            "  • http://localhost:3000/examples  (Examples)",
+        ),
+        1620,
+        9,
+    ),
+    line: 1620,
+    column: 59,
+}
+
+Statement #21: DisplayStatement {
+    value: Literal(
+        String(
+            "  • http://localhost:3000/framework (Framework Demo)",
+        ),
+        1621,
+        9,
+    ),
+    line: 1621,
+    column: 65,
+}
+
+Statement #22: DisplayStatement {
+    value: Literal(
+        String(
+            "  • http://localhost:3000/docs      (Documentation)",
+        ),
+        1622,
+        9,
+    ),
+    line: 1622,
+    column: 64,
+}
+
+Statement #23: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        1623,
+        9,
+    ),
+    line: 1623,
+    column: 11,
+}
+
+Statement #24: DisplayStatement {
+    value: Literal(
+        String(
+            "Press Ctrl+C to stop (or server stops after 100 requests)",
+        ),
+        1624,
+        9,
+    ),
+    line: 1624,
+    column: 68,
+}
+
+Statement #25: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        1625,
+        9,
+    ),
+    line: 1625,
+    column: 11,
+}
+
+Statement #26: VariableDeclaration {
+    name: "request_count",
+    value: Literal(
+        Integer(
+            0,
+        ),
+        1627,
+        24,
+    ),
+    is_constant: false,
+    line: 1627,
+    column: 1,
+}
+
+Statement #27: TryStatement {
+    body: [
+        MainLoop {
+            body: [
+                WaitForRequestStatement {
+                    server: Variable(
+                        "web_server",
+                        1631,
+                        38,
+                    ),
+                    request_name: "incoming_request",
+                    timeout: None,
+                    line: 1631,
+                    column: 9,
+                },
+                Assignment {
+                    name: "request_count",
+                    value: BinaryOperation {
+                        left: Variable(
+                            "request_count",
+                            1632,
+                            9,
+                        ),
+                        operator: Plus,
+                        right: Literal(
+                            Integer(
+                                1,
+                            ),
+                            1632,
+                            13,
+                        ),
+                        line: 1632,
+                        column: 9,
+                    },
+                    line: 1632,
+                    column: 9,
+                },
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "[",
+                            ),
+                            1634,
+                            17,
+                        ),
+                        right: Concatenation {
+                            left: Variable(
+                                "request_count",
+                                1634,
+                                26,
+                            ),
+                            right: Concatenation {
+                                left: Literal(
+                                    String(
+                                        "] ",
+                                    ),
+                                    1634,
+                                    45,
+                                ),
+                                right: Concatenation {
+                                    left: Variable(
+                                        "method",
+                                        1634,
+                                        55,
+                                    ),
+                                    right: Concatenation {
+                                        left: Literal(
+                                            String(
+                                                " ",
+                                            ),
+                                            1634,
+                                            67,
+                                        ),
+                                        right: Variable(
+                                            "path",
+                                            1634,
+                                            76,
+                                        ),
+                                        line: 1634,
+                                        column: 71,
+                                    },
+                                    line: 1634,
+                                    column: 62,
+                                },
+                                line: 1634,
+                                column: 50,
+                            },
+                            line: 1634,
+                            column: 40,
+                        },
+                        line: 1634,
+                        column: 21,
+                    },
+                    line: 1634,
+                    column: 80,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: Variable(
+                            "path",
+                            1637,
+                            18,
+                        ),
+                        operator: Equals,
+                        right: Literal(
+                            String(
+                                "/",
+                            ),
+                            1637,
+                            35,
+                        ),
+                        line: 1637,
+                        column: 23,
+                    },
+                    then_block: [
+                        VariableDeclaration {
+                            name: "page_html",
+                            value: Variable(
+                                "render_home_page",
+                                1638,
+                                32,
+                            ),
+                            is_constant: false,
+                            line: 1638,
+                            column: 13,
+                        },
+                        RespondStatement {
+                            request: Variable(
+                                "incoming_request",
+                                1639,
+                                24,
+                            ),
+                            content: Variable(
+                                "page_html",
+                                1639,
+                                46,
+                            ),
+                            status: None,
+                            content_type: Some(
+                                Literal(
+                                    String(
+                                        "text/html",
+                                    ),
+                                    1639,
+                                    73,
+                                ),
+                            ),
+                            line: 1639,
+                            column: 13,
+                        },
+                    ],
+                    else_block: Some(
+                        [
+                            IfStatement {
+                                condition: BinaryOperation {
+                                    left: Variable(
+                                        "path",
+                                        1643,
+                                        22,
+                                    ),
+                                    operator: Equals,
+                                    right: Literal(
+                                        String(
+                                            "/features",
+                                        ),
+                                        1643,
+                                        39,
+                                    ),
+                                    line: 1643,
+                                    column: 27,
+                                },
+                                then_block: [
+                                    VariableDeclaration {
+                                        name: "page_html",
+                                        value: Variable(
+                                            "render_features_page",
+                                            1644,
+                                            36,
+                                        ),
+                                        is_constant: false,
+                                        line: 1644,
+                                        column: 17,
+                                    },
+                                    RespondStatement {
+                                        request: Variable(
+                                            "incoming_request",
+                                            1645,
+                                            28,
+                                        ),
+                                        content: Variable(
+                                            "page_html",
+                                            1645,
+                                            50,
+                                        ),
+                                        status: None,
+                                        content_type: Some(
+                                            Literal(
+                                                String(
+                                                    "text/html",
+                                                ),
+                                                1645,
+                                                77,
+                                            ),
+                                        ),
+                                        line: 1645,
+                                        column: 17,
+                                    },
+                                ],
+                                else_block: Some(
+                                    [
+                                        IfStatement {
+                                            condition: BinaryOperation {
+                                                left: Variable(
+                                                    "path",
+                                                    1649,
+                                                    26,
+                                                ),
+                                                operator: Equals,
+                                                right: Literal(
+                                                    String(
+                                                        "/examples",
+                                                    ),
+                                                    1649,
+                                                    43,
+                                                ),
+                                                line: 1649,
+                                                column: 31,
+                                            },
+                                            then_block: [
+                                                VariableDeclaration {
+                                                    name: "page_html",
+                                                    value: Variable(
+                                                        "render_examples_page",
+                                                        1650,
+                                                        40,
+                                                    ),
+                                                    is_constant: false,
+                                                    line: 1650,
+                                                    column: 21,
+                                                },
+                                                RespondStatement {
+                                                    request: Variable(
+                                                        "incoming_request",
+                                                        1651,
+                                                        32,
+                                                    ),
+                                                    content: Variable(
+                                                        "page_html",
+                                                        1651,
+                                                        54,
+                                                    ),
+                                                    status: None,
+                                                    content_type: Some(
+                                                        Literal(
+                                                            String(
+                                                                "text/html",
+                                                            ),
+                                                            1651,
+                                                            81,
+                                                        ),
+                                                    ),
+                                                    line: 1651,
+                                                    column: 21,
+                                                },
+                                            ],
+                                            else_block: Some(
+                                                [
+                                                    IfStatement {
+                                                        condition: BinaryOperation {
+                                                            left: Variable(
+                                                                "path",
+                                                                1655,
+                                                                30,
+                                                            ),
+                                                            operator: Equals,
+                                                            right: Literal(
+                                                                String(
+                                                                    "/framework",
+                                                                ),
+                                                                1655,
+                                                                47,
+                                                            ),
+                                                            line: 1655,
+                                                            column: 35,
+                                                        },
+                                                        then_block: [
+                                                            VariableDeclaration {
+                                                                name: "page_html",
+                                                                value: Variable(
+                                                                    "render_framework_page",
+                                                                    1656,
+                                                                    44,
+                                                                ),
+                                                                is_constant: false,
+                                                                line: 1656,
+                                                                column: 25,
+                                                            },
+                                                            RespondStatement {
+                                                                request: Variable(
+                                                                    "incoming_request",
+                                                                    1657,
+                                                                    36,
+                                                                ),
+                                                                content: Variable(
+                                                                    "page_html",
+                                                                    1657,
+                                                                    58,
+                                                                ),
+                                                                status: None,
+                                                                content_type: Some(
+                                                                    Literal(
+                                                                        String(
+                                                                            "text/html",
+                                                                        ),
+                                                                        1657,
+                                                                        85,
+                                                                    ),
+                                                                ),
+                                                                line: 1657,
+                                                                column: 25,
+                                                            },
+                                                        ],
+                                                        else_block: Some(
+                                                            [
+                                                                IfStatement {
+                                                                    condition: BinaryOperation {
+                                                                        left: Variable(
+                                                                            "path",
+                                                                            1661,
+                                                                            34,
+                                                                        ),
+                                                                        operator: Equals,
+                                                                        right: Literal(
+                                                                            String(
+                                                                                "/docs",
+                                                                            ),
+                                                                            1661,
+                                                                            51,
+                                                                        ),
+                                                                        line: 1661,
+                                                                        column: 39,
+                                                                    },
+                                                                    then_block: [
+                                                                        VariableDeclaration {
+                                                                            name: "page_html",
+                                                                            value: Variable(
+                                                                                "render_docs_page",
+                                                                                1662,
+                                                                                48,
+                                                                            ),
+                                                                            is_constant: false,
+                                                                            line: 1662,
+                                                                            column: 29,
+                                                                        },
+                                                                        RespondStatement {
+                                                                            request: Variable(
+                                                                                "incoming_request",
+                                                                                1663,
+                                                                                40,
+                                                                            ),
+                                                                            content: Variable(
+                                                                                "page_html",
+                                                                                1663,
+                                                                                62,
+                                                                            ),
+                                                                            status: None,
+                                                                            content_type: Some(
+                                                                                Literal(
+                                                                                    String(
+                                                                                        "text/html",
+                                                                                    ),
+                                                                                    1663,
+                                                                                    89,
+                                                                                ),
+                                                                            ),
+                                                                            line: 1663,
+                                                                            column: 29,
+                                                                        },
+                                                                    ],
+                                                                    else_block: Some(
+                                                                        [
+                                                                            VariableDeclaration {
+                                                                                name: "page_html",
+                                                                                value: Concatenation {
+                                                                                    left: Variable(
+                                                                                        "render_404_page",
+                                                                                        1667,
+                                                                                        48,
+                                                                                    ),
+                                                                                    right: Variable(
+                                                                                        "path",
+                                                                                        1667,
+                                                                                        69,
+                                                                                    ),
+                                                                                    line: 1667,
+                                                                                    column: 64,
+                                                                                },
+                                                                                is_constant: false,
+                                                                                line: 1667,
+                                                                                column: 29,
+                                                                            },
+                                                                            RespondStatement {
+                                                                                request: Variable(
+                                                                                    "incoming_request",
+                                                                                    1668,
+                                                                                    40,
+                                                                                ),
+                                                                                content: Variable(
+                                                                                    "page_html",
+                                                                                    1668,
+                                                                                    62,
+                                                                                ),
+                                                                                status: Some(
+                                                                                    BinaryOperation {
+                                                                                        left: Literal(
+                                                                                            Integer(
+                                                                                                404,
+                                                                                            ),
+                                                                                            1668,
+                                                                                            83,
+                                                                                        ),
+                                                                                        operator: And,
+                                                                                        right: Variable(
+                                                                                            "content_type",
+                                                                                            1668,
+                                                                                            91,
+                                                                                        ),
+                                                                                        line: 1668,
+                                                                                        column: 87,
+                                                                                    },
+                                                                                ),
+                                                                                content_type: None,
+                                                                                line: 1668,
+                                                                                column: 29,
+                                                                            },
+                                                                            ExpressionStatement {
+                                                                                expression: Literal(
+                                                                                    String(
+                                                                                        "text/html",
+                                                                                    ),
+                                                                                    1668,
+                                                                                    104,
+                                                                                ),
+                                                                                line: 1668,
+                                                                                column: 115,
+                                                                            },
+                                                                        ],
+                                                                    ),
+                                                                    line: 1661,
+                                                                    column: 25,
+                                                                },
+                                                            ],
+                                                        ),
+                                                        line: 1655,
+                                                        column: 21,
+                                                    },
+                                                ],
+                                            ),
+                                            line: 1649,
+                                            column: 17,
+                                        },
+                                    ],
+                                ),
+                                line: 1643,
+                                column: 13,
+                            },
+                        ],
+                    ),
+                    line: 1637,
+                    column: 9,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: Variable(
+                            "request_count",
+                            1676,
+                            18,
+                        ),
+                        operator: GreaterThanOrEqual,
+                        right: Literal(
+                            Integer(
+                                100,
+                            ),
+                            1676,
+                            60,
+                        ),
+                        line: 1676,
+                        column: 32,
+                    },
+                    then_block: [
+                        DisplayStatement {
+                            value: Literal(
+                                String(
+                                    "",
+                                ),
+                                1677,
+                                21,
+                            ),
+                            line: 1677,
+                            column: 23,
+                        },
+                        DisplayStatement {
+                            value: Literal(
+                                String(
+                                    "Reached 100 requests, stopping server...",
+                                ),
+                                1678,
+                                21,
+                            ),
+                            line: 1678,
+                            column: 63,
+                        },
+                        BreakStatement {
+                            line: 1679,
+                            column: 13,
+                        },
+                    ],
+                    else_block: None,
+                    line: 1676,
+                    column: 9,
+                },
+            ],
+            line: 1630,
+            column: 5,
+        },
+    ],
+    when_clauses: [
+        WhenClause {
+            error_type: General,
+            error_name: "error",
+            body: [
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "",
+                        ),
+                        1683,
+                        13,
+                    ),
+                    line: 1683,
+                    column: 15,
+                },
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "Server error: ",
+                            ),
+                            1684,
+                            13,
+                        ),
+                        right: Variable(
+                            "error",
+                            1684,
+                            35,
+                        ),
+                        line: 1684,
+                        column: 30,
+                    },
+                    line: 1684,
+                    column: 40,
+                },
+            ],
+        },
+    ],
+    otherwise_block: None,
+    line: 1629,
+    column: 1,
+}
+
+Statement #28: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        1687,
+        9,
+    ),
+    line: 1687,
+    column: 11,
+}
+
+Statement #29: DisplayStatement {
+    value: Literal(
+        String(
+            "=== WFL Website Stopped ===",
+        ),
+        1688,
+        9,
+    ),
+    line: 1688,
+    column: 38,
+}
+
+Statement #30: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Total requests served: ",
+            ),
+            1689,
+            9,
+        ),
+        right: Variable(
+            "request_count",
+            1689,
+            40,
+        ),
+        line: 1689,
+        column: 35,
+    },
+    line: 1689,
+    column: 53,
+}
+
+Statement #31: DisplayStatement {
+    value: Literal(
+        String(
+            "Thank you for exploring WFL!",
+        ),
+        1690,
+        9,
+    ),
+    line: 1690,
+    column: 39,
+}
+

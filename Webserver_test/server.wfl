@@ -1,0 +1,4 @@
+listen on port 8080 as web_server
+
+wait for request comes in on web_server as req
+respond to req with "Hello from WFL!"

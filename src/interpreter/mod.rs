@@ -3945,12 +3945,13 @@ impl Interpreter {
                 let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
 
                 // Create warp routes that handle all HTTP methods and paths
+                // Note: Body size validation is performed manually in the handler below
+                // to allow GET requests without Content-Length headers
                 let request_sender_clone = request_sender.clone();
                 let routes = warp::any()
                     .and(warp::method())
                     .and(warp::path::full())
                     .and(warp::header::headers_cloned())
-                    .and(warp::body::content_length_limit(1_048_576)) // 1MB limit to prevent DoS
                     .and(warp::body::bytes())
                     .and(warp::addr::remote())
                     .and_then(
@@ -3961,6 +3962,16 @@ impl Interpreter {
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
                             async move {
+                                // DoS PROTECTION: Enforce 1MB body size limit
+                                // This maintains the security requirement from web_server_body_limit_test.wfl
+                                const MAX_BODY_SIZE: usize = 1_048_576; // 1MB
+                                if body.len() > MAX_BODY_SIZE {
+                                    return Err(warp::reject::custom(ServerError(
+                                        format!("Request body too large: {} bytes (limit: {} bytes)",
+                                                body.len(), MAX_BODY_SIZE)
+                                    )));
+                                }
+
                                 // Generate unique request ID
                                 let request_id = uuid::Uuid::new_v4().to_string();
 

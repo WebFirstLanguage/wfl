@@ -78,7 +78,10 @@
       "Bash(taskkill:*)",
       "Bash(echo:*)",
       "Bash(wfl:*)",
-      "Bash(targetreleasewfl.exe --parse test_main_simple.wfl)"
+      "Bash(targetreleasewfl.exe --parse test_main_simple.wfl)",
+      "Bash(target\\\\release\\\\wfl.exe:*)",
+      "Bash(timeout:*)",
+      "Bash(kill:*)"
     ],
     "deny": [],
     "ask": []
