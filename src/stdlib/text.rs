@@ -250,7 +250,10 @@ pub fn native_parse_form_urlencoded(args: Vec<Value>) -> Result<Value, RuntimeEr
 
     if args.len() != 1 {
         return Err(RuntimeError::new(
-            format!("parse_form_urlencoded expects 1 argument, got {}", args.len()),
+            format!(
+                "parse_form_urlencoded expects 1 argument, got {}",
+                args.len()
+            ),
             0,
             0,
         ));

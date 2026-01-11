@@ -134,7 +134,10 @@ pub fn native_stringify_json(args: Vec<Value>) -> Result<Value, RuntimeError> {
 pub fn native_stringify_json_pretty(args: Vec<Value>) -> Result<Value, RuntimeError> {
     if args.len() != 1 {
         return Err(RuntimeError::new(
-            format!("stringify_json_pretty expects 1 argument, got {}", args.len()),
+            format!(
+                "stringify_json_pretty expects 1 argument, got {}",
+                args.len()
+            ),
             0,
             0,
         ));

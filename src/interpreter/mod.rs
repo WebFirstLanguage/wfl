@@ -3972,10 +3972,11 @@ impl Interpreter {
                                 // This maintains the security requirement from web_server_body_limit_test.wfl
                                 const MAX_BODY_SIZE: usize = 1_048_576; // 1MB
                                 if body.len() > MAX_BODY_SIZE {
-                                    return Err(warp::reject::custom(ServerError(
-                                        format!("Request body too large: {} bytes (limit: {} bytes)",
-                                                body.len(), MAX_BODY_SIZE)
-                                    )));
+                                    return Err(warp::reject::custom(ServerError(format!(
+                                        "Request body too large: {} bytes (limit: {} bytes)",
+                                        body.len(),
+                                        MAX_BODY_SIZE
+                                    ))));
                                 }
 
                                 // Generate unique request ID
@@ -5898,15 +5899,16 @@ impl Interpreter {
 
                 // Get the specific header from the headers object
                 match &headers_val {
-                    Value::Object(headers_map) => {
-                        match headers_map.borrow().get(header_name) {
-                            Some(header_value) => Ok(header_value.clone()),
-                            None => Ok(Value::Nothing),
-                        }
-                    }
+                    Value::Object(headers_map) => match headers_map.borrow().get(header_name) {
+                        Some(header_value) => Ok(header_value.clone()),
+                        None => Ok(Value::Nothing),
+                    },
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected headers to be an object, got {}", headers_val.type_name()),
+                            format!(
+                                "Expected headers to be an object, got {}",
+                                headers_val.type_name()
+                            ),
                             *line,
                             *column,
                         ));
