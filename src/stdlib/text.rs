@@ -2,7 +2,6 @@ use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 fn expect_text(value: &Value) -> Result<Rc<str>, RuntimeError> {

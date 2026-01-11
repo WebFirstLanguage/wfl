@@ -561,7 +561,7 @@ pub fn native_generate_csrf_token(_args: Vec<Value>) -> Result<Value, RuntimeErr
     use rand::RngCore;
 
     // Generate 32 random bytes (256 bits)
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut token_bytes = [0u8; 32];
     rng.fill_bytes(&mut token_bytes);
 
