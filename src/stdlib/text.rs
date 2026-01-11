@@ -279,7 +279,9 @@ pub fn native_parse_cookies(args: Vec<Value>) -> Result<Value, RuntimeError> {
     for cookie in cookie_header.split(';') {
         let cookie = cookie.trim();
         if let Some((key, value)) = cookie.split_once('=') {
-            cookies.insert(key.trim().to_string(), Value::Text(Rc::from(value.trim())));
+            let decoded_key = percent_decode(key.trim());
+            let decoded_value = percent_decode(value.trim());
+            cookies.insert(decoded_key, Value::Text(Rc::from(decoded_value)));
         }
     }
 
