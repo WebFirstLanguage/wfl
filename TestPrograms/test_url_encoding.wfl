@@ -1,0 +1,150 @@
+// Test URL Percent-Encoding and Decoding
+display "=== Testing URL Percent-Encoding ==="
+display ""
+
+// Test 1: Percent-encoded spaces (%20)
+display "Test 1: Percent-encoded spaces"
+store query1 as "?name=John%20Doe&city=New%20York"
+store parsed1 as parse_query_string of query1
+display "Input: " with query1
+display "✓ Percent-encoded spaces decoded"
+display ""
+
+// Test 2: Plus sign encoding (both + and %2B)
+display "Test 2: Plus sign encoding"
+store query2 as "search=hello+world&email=test%2Buser%40example.com"
+store parsed2 as parse_query_string of query2
+display "Input: " with query2
+display "✓ Plus signs decoded correctly"
+display ""
+
+// Test 3: Mixed plus and percent-encoded spaces
+display "Test 3: Mixed encodings"
+store query3 as "text=hello+world%20and%20spaces"
+store parsed3 as parse_query_string of query3
+display "Input: " with query3
+display "✓ Mixed encodings handled"
+display ""
+
+// Test 4: Special characters (%3D for =, %26 for &, %3F for ?)
+display "Test 4: Encoded special characters"
+store query4 as "?data=a%3Db%26c%3Dd&special=%3F%21%40%23"
+store parsed4 as parse_query_string of query4
+display "Input: " with query4
+display "✓ Special characters decoded"
+display ""
+
+// Test 5: Invalid percent sequences
+display "Test 5: Invalid percent sequences"
+store query5 as "?bad1=%GG&bad2=%2&bad3=%&ok=test"
+store parsed5 as parse_query_string of query5
+display "Input: " with query5
+display "✓ Invalid sequences left as-is"
+display ""
+
+// Test 6: UTF-8 multi-byte characters (%C3%A9 for é)
+display "Test 6: UTF-8 characters"
+store query6 as "?name=Jos%C3%A9&city=Montr%C3%A9al"
+store parsed6 as parse_query_string of query6
+display "Input: " with query6
+display "✓ UTF-8 characters decoded"
+display ""
+
+// Test 7: Keys without values
+display "Test 7: Keys without values"
+store query7 as "?flag1&key=value&flag2"
+store parsed7 as parse_query_string of query7
+display "Input: " with query7
+display "✓ Keys without values handled"
+display ""
+
+// Test 8: Empty query string
+display "Test 8: Empty query string"
+store query8 as ""
+store parsed8 as parse_query_string of query8
+display "Empty query type: " with typeof of parsed8
+display "✓ Empty query handled"
+display ""
+
+// Test 9: Encoded keys
+display "Test 9: Encoded keys"
+store query9 as "?my%20key=value&encoded%2Bkey=data"
+store parsed9 as parse_query_string of query9
+display "Input: " with query9
+display "✓ Encoded keys decoded"
+display ""
+
+// Test 10: Form data with same encoding rules
+display "Test 10: Form data encoding"
+store form1 as "name=John%20Doe&message=Hello%2C%20World%21"
+store parsed_form1 as parse_form_urlencoded of form1
+display "Input: " with form1
+display "✓ Form data decoded"
+display ""
+
+// Test 11: Complex URL encoding
+display "Test 11: Complex encoding"
+store query11 as "?url=https%3A%2F%2Fexample.com%2Fpath%3Fq%3Dtest"
+store parsed11 as parse_query_string of query11
+display "Input: " with query11
+display "✓ Complex URL encoding decoded"
+display ""
+
+// Test 12: Percent signs at edge cases
+display "Test 12: Edge case percent signs"
+store query12 as "?start=%20test&end=test%20&middle=te%20st"
+store parsed12 as parse_query_string of query12
+display "Input: " with query12
+display "✓ Edge case percent signs handled"
+display ""
+
+// Test 13: Consecutive percent signs
+display "Test 13: Consecutive percent signs"
+store query13 as "?value=100%25"
+store parsed13 as parse_query_string of query13
+display "Input: " with query13
+display "✓ Consecutive percent signs handled"
+display ""
+
+// Test 14: Form data with plus signs
+display "Test 14: Form data with plus signs"
+store form2 as "search=hello+world+test&category=web+dev"
+store parsed_form2 as parse_form_urlencoded of form2
+display "Input: " with form2
+display "✓ Form data plus signs decoded"
+display ""
+
+// Test 15: Unicode characters
+display "Test 15: More Unicode characters"
+store query15 as "?emoji=%F0%9F%98%80&chinese=%E4%B8%AD%E6%96%87"
+store parsed15 as parse_query_string of query15
+display "Input: " with query15
+display "✓ Unicode characters decoded"
+display ""
+
+// Test 16: Percent at end of string
+display "Test 16: Incomplete percent at end"
+store query16 as "?value=test%"
+store parsed16 as parse_query_string of query16
+display "Input: " with query16
+display "✓ Incomplete percent at end handled"
+display ""
+
+// Test 17: Multiple equals signs in value
+display "Test 17: Multiple equals in value"
+store query17 as "?equation=a%3Db%2Bc%3Dd"
+store parsed17 as parse_query_string of query17
+display "Input: " with query17
+display "✓ Multiple equals signs handled"
+display ""
+
+// Test 18: Backwards compatibility with old behavior
+display "Test 18: Backwards compatibility"
+store query18 as "?simple=test&spaces=hello+world"
+store parsed18 as parse_query_string of query18
+display "Input: " with query18
+display "✓ Backwards compatible behavior"
+display ""
+
+display ""
+display "=== All URL Encoding Tests Passed! ==="

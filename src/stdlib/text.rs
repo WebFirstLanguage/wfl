@@ -26,6 +26,70 @@ fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
     }
 }
 
+/// Decode percent-encoded URL string
+/// Converts '+' to space and decodes %HH hex sequences
+/// Invalid sequences are left as-is
+fn percent_decode(s: &str) -> String {
+    let mut result = Vec::new();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                result.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => {
+                // Try to parse the next two characters as hex
+                let hex_str = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("");
+                if let Ok(byte) = u8::from_str_radix(hex_str, 16) {
+                    result.push(byte);
+                    i += 3;
+                } else {
+                    // Invalid hex sequence, keep the '%' as-is
+                    result.push(bytes[i]);
+                    i += 1;
+                }
+            }
+            _ => {
+                result.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+
+    // Convert bytes to String, replacing invalid UTF-8 with replacement character
+    String::from_utf8(result)
+        .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned())
+}
+
+/// Parse key-value pairs with URL decoding
+/// Used by both query string and form data parsing
+fn parse_key_value_pairs(input: &str, delimiter: char) -> std::collections::HashMap<String, Value> {
+    use std::collections::HashMap;
+
+    let mut params = HashMap::new();
+
+    if input.is_empty() {
+        return params;
+    }
+
+    for pair in input.split(delimiter) {
+        if let Some((key, value)) = pair.split_once('=') {
+            let decoded_key = percent_decode(key);
+            let decoded_value = percent_decode(value);
+            params.insert(decoded_key, Value::Text(Rc::from(decoded_value)));
+        } else {
+            // Key without value
+            let decoded_key = percent_decode(pair);
+            params.insert(decoded_key, Value::Text(Rc::from("")));
+        }
+    }
+
+    params
+}
+
 // Note: The length function is now provided by the list module
 // which handles both text and lists
 
@@ -175,8 +239,6 @@ pub fn native_ends_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
 /// Parse query string into WFL object
 /// Usage: parse_query_string("?page=1&limit=10") -> {"page": "1", "limit": "10"}
 pub fn native_parse_query_string(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    use std::collections::HashMap;
-
     if args.len() != 1 {
         return Err(RuntimeError::new(
             format!("parse_query_string expects 1 argument, got {}", args.len()),
@@ -188,25 +250,7 @@ pub fn native_parse_query_string(args: Vec<Value>) -> Result<Value, RuntimeError
     let query_str = expect_text(&args[0])?;
     let query_str = query_str.trim_start_matches('?');
 
-    let mut params = HashMap::new();
-
-    if query_str.is_empty() {
-        return Ok(Value::Object(Rc::new(RefCell::new(params))));
-    }
-
-    // Split by &
-    for pair in query_str.split('&') {
-        if let Some((key, value)) = pair.split_once('=') {
-            // URL decode (basic - replace + with space)
-            let decoded_key = key.replace("+", " ");
-            let decoded_value = value.replace("+", " ");
-
-            params.insert(decoded_key, Value::Text(Rc::from(decoded_value)));
-        } else {
-            // Key without value
-            params.insert(pair.to_string(), Value::Text(Rc::from("")));
-        }
-    }
+    let params = parse_key_value_pairs(query_str, '&');
 
     Ok(Value::Object(Rc::new(RefCell::new(params))))
 }
@@ -245,8 +289,6 @@ pub fn native_parse_cookies(args: Vec<Value>) -> Result<Value, RuntimeError> {
 /// Parse URL-encoded form data
 /// Usage: parse_form_urlencoded("name=Alice&age=30") -> {"name": "Alice", "age": "30"}
 pub fn native_parse_form_urlencoded(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    use std::collections::HashMap;
-
     if args.len() != 1 {
         return Err(RuntimeError::new(
             format!(
@@ -259,23 +301,8 @@ pub fn native_parse_form_urlencoded(args: Vec<Value>) -> Result<Value, RuntimeEr
     }
 
     let form_data = expect_text(&args[0])?;
-    let mut params = HashMap::new();
 
-    if form_data.is_empty() {
-        return Ok(Value::Object(Rc::new(RefCell::new(params))));
-    }
-
-    // Same parsing as query string
-    for pair in form_data.split('&') {
-        if let Some((key, value)) = pair.split_once('=') {
-            let decoded_key = key.replace("+", " ");
-            let decoded_value = value.replace("+", " ");
-
-            params.insert(decoded_key, Value::Text(Rc::from(decoded_value)));
-        } else {
-            params.insert(pair.to_string(), Value::Text(Rc::from("")));
-        }
-    }
+    let params = parse_key_value_pairs(form_data.as_ref(), '&');
 
     Ok(Value::Object(Rc::new(RefCell::new(params))))
 }
