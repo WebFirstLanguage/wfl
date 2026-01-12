@@ -62,8 +62,8 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `wfl`: Start interactive REPL.
 - `wfl --lint <file>`: Lint WFL code.
 - `wfl --fix <file> --in-place`: Auto-fix WFL code.
-- `wfl --debug <file>`: Debug WFL execution.
 - `wfl --step <file>`: Run in single-step debug mode.
+- `wfl --edit <file>`: Open file in default editor.
 - `wfl --time <file>`: Run with execution timing.
 - `wfl --lex <file>` / `wfl --parse <file>`: Dump tokens or AST.
 - `wfl --configCheck` / `wfl --configFix`: Check/fix configuration.
@@ -126,7 +126,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 
 ## Technical Requirements
 - **Rust Edition**: 2024 (Min: 1.75+, Dev: 1.91.1+)
-- **Versioning**: YY.MM.BUILD (e.g., 26.1.13). Major version always < 256 (Windows MSI compatibility).
+- **Versioning**: YY.MM.BUILD (e.g., 26.1.21). Major version always < 256 (Windows MSI compatibility).
 - **Key Dependencies**:
   - `logos`: Lexer
   - `tokio`: Async runtime
