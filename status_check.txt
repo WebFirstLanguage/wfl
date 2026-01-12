@@ -1,0 +1,118 @@
+Check
+On branch jules-3668196979535957606-386723b7
+All conflicts fixed but you are still merging.
+  (use "git commit" to conclude merge)
+
+Changes to be committed:
+	modified:   .build_meta.json
+	modified:   .claude/settings.local.json
+	modified:   AGENTS.md
+	modified:   CLAUDE.md
+	modified:   Cargo.lock
+	modified:   Cargo.toml
+	modified:   Docs/03-language-basics/control-flow.md
+	new file:   FRAMEWORK_FINAL_REPORT.md
+	new file:   FRAMEWORK_PROPERTY_MUTATION_ISSUE.md
+	new file:   TestPrograms/basic_syntax_comprehensive.wfl.ast.txt
+	new file:   TestPrograms/simple_web_server.wfl.ast.txt
+	new file:   TestPrograms/simple_web_test.wfl.ast.txt
+	new file:   TestPrograms/test_basic_server.wfl.ast.txt
+	new file:   TestPrograms/test_container_property_mutation.wfl
+	new file:   TestPrograms/test_cookie_decoding.wfl
+	new file:   TestPrograms/test_json_and_headers.wfl
+	new file:   TestPrograms/test_json_simple.wfl
+	new file:   TestPrograms/test_request_helpers.wfl
+	new file:   TestPrograms/test_request_properties.wfl.ast.txt
+	new file:   TestPrograms/test_url_encoding.wfl
+	new file:   TestPrograms/test_web_request.wfl.ast.txt
+	new file:   TestPrograms/test_web_server_response.wfl.ast.txt
+	new file:   TestPrograms/wait_request_test.wfl.ast.txt
+	new file:   TestPrograms/web_server_basic_test.wfl.ast.txt
+	new file:   TestPrograms/web_server_body_limit_test.wfl.ast.txt
+	new file:   TestPrograms/web_server_content_length_test.wfl.ast.txt
+	new file:   TestPrograms/web_server_request_response_test.wfl.ast.txt
+	new file:   Webserver_test/server.wfl
+	new file:   blog_server.wfl
+	new file:   blog_server.wfl.ast.txt
+	new file:   blog_server.wfl.lex.txt
+	new file:   blog_server_minimal.wfl
+	new file:   hello_world_app.wfl
+	new file:   hello_world_simple.wfl
+	modified:   src/builtins.rs
+	modified:   src/interpreter/mod.rs
+	modified:   src/parser/stmt/control_flow.rs
+	modified:   src/stdlib/crypto.rs
+	new file:   src/stdlib/json.rs
+	modified:   src/stdlib/mod.rs
+	modified:   src/stdlib/random.rs
+	modified:   src/stdlib/text.rs
+	modified:   src/stdlib/typechecker.rs
+	modified:   src/version.rs
+	new file:   test_main_in_try.wfl
+	new file:   test_main_in_try.wfl.ast.txt
+	new file:   test_main_simple.wfl
+	new file:   test_main_simple.wfl.ast.txt
+	new file:   test_main_simple.wfl.lex.txt
+	new file:   test_main_with_context.wfl
+	new file:   tests/main_loop_parser_test.rs
+	modified:   vscode-extension/package.json
+	new file:   wfl framework/ARCHITECTURE.md
+	new file:   wfl framework/COMPLETION_SUMMARY.md
+	new file:   wfl framework/GETTING_STARTED.md
+	new file:   wfl framework/README.md
+	new file:   wfl framework/RESERVED_KEYWORDS.md
+	new file:   wfl framework/STATUS.md
+	new file:   wfl framework/config/plugins.wfl
+	new file:   wfl framework/core/application.wfl
+	new file:   wfl framework/core/middleware.wfl
+	new file:   wfl framework/core/plugin_interface.wfl
+	new file:   wfl framework/core/plugin_manager.wfl
+	new file:   wfl framework/core/request.wfl
+	new file:   wfl framework/core/response.wfl
+	new file:   wfl framework/core/router.wfl
+	new file:   wfl framework/examples/blog_app/app.wfl
+	new file:   wfl framework/examples/blog_app/controllers.wfl
+	new file:   wfl framework/examples/blog_app/controllers.wfl.ast.txt
+	new file:   wfl framework/examples/blog_app/models.wfl
+	new file:   wfl framework/examples/blog_app/models.wfl.ast.txt
+	new file:   wfl framework/examples/blog_server_test.wfl
+	new file:   wfl framework/examples/blog_server_working.wfl
+	new file:   wfl framework/examples/demo_server.wfl
+	new file:   wfl framework/examples/rest_api/app.wfl
+	new file:   wfl framework/examples/rest_api/controllers.wfl
+	new file:   wfl framework/examples/rest_api/models.wfl
+	new file:   wfl framework/examples/rest_api/models.wfl.ast.txt
+	new file:   wfl framework/examples/simple_app.wfl
+	new file:   wfl framework/helpers/sessions.wfl
+	new file:   wfl framework/middleware/cors.wfl
+	new file:   wfl framework/middleware/error_handler.wfl
+	new file:   wfl framework/middleware/logging.wfl
+	new file:   wfl framework/mvc/controller.wfl
+	new file:   wfl framework/mvc/model.wfl
+	new file:   wfl framework/mvc/view.wfl
+	new file:   wfl framework/plugins/auth_plugin.wfl
+	new file:   wfl framework/plugins/cors_plugin.wfl
+	new file:   wfl framework/plugins/logger_plugin.wfl
+	new file:   wfl framework/routing/route_compiler.wfl
+	new file:   wfl framework/routing/route_matcher.wfl
+	new file:   wfl framework/tests/test_application.wfl
+	new file:   wfl framework/tests/test_application_inline.wfl
+	new file:   wfl framework/tests/test_example_apps.wfl
+	new file:   wfl framework/tests/test_example_apps_simple.wfl
+	new file:   wfl framework/tests/test_middleware.wfl
+	new file:   wfl framework/tests/test_middleware_simple.wfl
+	new file:   wfl framework/tests/test_mvc.wfl
+	new file:   wfl framework/tests/test_mvc_simple.wfl
+	new file:   wfl framework/tests/test_plugins.wfl
+	new file:   wfl framework/tests/test_plugins_simple.wfl
+	new file:   wfl framework/tests/test_routing.wfl
+	new file:   wfl framework/tests/test_routing_simple.wfl
+	new file:   wfl framework/tests/test_sessions.wfl
+	new file:   wfl framework/tests/test_sessions_simple.wfl
+	new file:   wfl_website/app.wfl
+	new file:   wfl_website/app.wfl.ast.txt
+	modified:   wix.toml
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	status_check.txt

@@ -1,0 +1,483 @@
+AST output for: blog_server.wfl
+==============================================
+
+Program with 9 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== WFL MVC Blog Server ===",
+        ),
+        2,
+        9,
+    ),
+    line: 2,
+    column: 38,
+}
+
+Statement #2: ListenStatement {
+    port: Literal(
+        Integer(
+            3001,
+        ),
+        4,
+        16,
+    ),
+    server_name: "blog_server",
+    line: 4,
+    column: 1,
+}
+
+Statement #3: DisplayStatement {
+    value: Literal(
+        String(
+            "✓ Server running on http://localhost:3001",
+        ),
+        5,
+        9,
+    ),
+    line: 5,
+    column: 54,
+}
+
+Statement #4: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        6,
+        9,
+    ),
+    line: 6,
+    column: 11,
+}
+
+Statement #5: DisplayStatement {
+    value: Literal(
+        String(
+            "Endpoints: /, /api/posts, /api/posts/1",
+        ),
+        7,
+        9,
+    ),
+    line: 7,
+    column: 49,
+}
+
+Statement #6: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        8,
+        9,
+    ),
+    line: 8,
+    column: 11,
+}
+
+Statement #7: VariableDeclaration {
+    name: "req_num",
+    value: Literal(
+        Integer(
+            0,
+        ),
+        10,
+        18,
+    ),
+    is_constant: false,
+    line: 10,
+    column: 1,
+}
+
+Statement #8: TryStatement {
+    body: [
+        MainLoop {
+            body: [
+                WaitForRequestStatement {
+                    server: Variable(
+                        "blog_server",
+                        14,
+                        38,
+                    ),
+                    request_name: "incoming_request",
+                    timeout: None,
+                    line: 14,
+                    column: 9,
+                },
+                Assignment {
+                    name: "req_num",
+                    value: BinaryOperation {
+                        left: Variable(
+                            "req_num",
+                            15,
+                            9,
+                        ),
+                        operator: Plus,
+                        right: Literal(
+                            Integer(
+                                1,
+                            ),
+                            15,
+                            13,
+                        ),
+                        line: 15,
+                        column: 9,
+                    },
+                    line: 15,
+                    column: 9,
+                },
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "Request #",
+                            ),
+                            17,
+                            17,
+                        ),
+                        right: Concatenation {
+                            left: Variable(
+                                "req_num",
+                                17,
+                                34,
+                            ),
+                            right: Concatenation {
+                                left: Literal(
+                                    String(
+                                        ": ",
+                                    ),
+                                    17,
+                                    47,
+                                ),
+                                right: Concatenation {
+                                    left: Variable(
+                                        "method",
+                                        17,
+                                        57,
+                                    ),
+                                    right: Concatenation {
+                                        left: Literal(
+                                            String(
+                                                " ",
+                                            ),
+                                            17,
+                                            69,
+                                        ),
+                                        right: Variable(
+                                            "path",
+                                            17,
+                                            78,
+                                        ),
+                                        line: 17,
+                                        column: 73,
+                                    },
+                                    line: 17,
+                                    column: 64,
+                                },
+                                line: 17,
+                                column: 52,
+                            },
+                            line: 17,
+                            column: 42,
+                        },
+                        line: 17,
+                        column: 29,
+                    },
+                    line: 17,
+                    column: 82,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: Variable(
+                            "path",
+                            19,
+                            18,
+                        ),
+                        operator: Equals,
+                        right: Literal(
+                            String(
+                                "/",
+                            ),
+                            19,
+                            35,
+                        ),
+                        line: 19,
+                        column: 23,
+                    },
+                    then_block: [
+                        RespondStatement {
+                            request: Variable(
+                                "incoming_request",
+                                20,
+                                24,
+                            ),
+                            content: Literal(
+                                String(
+                                    "WFL MVC Blog\nTry /api/posts",
+                                ),
+                                20,
+                                46,
+                            ),
+                            status: None,
+                            content_type: Some(
+                                Literal(
+                                    String(
+                                        "text/plain",
+                                    ),
+                                    20,
+                                    94,
+                                ),
+                            ),
+                            line: 20,
+                            column: 13,
+                        },
+                    ],
+                    else_block: Some(
+                        [
+                            IfStatement {
+                                condition: BinaryOperation {
+                                    left: Variable(
+                                        "path",
+                                        22,
+                                        22,
+                                    ),
+                                    operator: Equals,
+                                    right: Literal(
+                                        String(
+                                            "/api/posts",
+                                        ),
+                                        22,
+                                        39,
+                                    ),
+                                    line: 22,
+                                    column: 27,
+                                },
+                                then_block: [
+                                    VariableDeclaration {
+                                        name: "posts",
+                                        value: Literal(
+                                            String(
+                                                "[{\"id\":1,\"title\":\"First Post\"},{\"id\":2,\"title\":\"Second Post\"}]",
+                                            ),
+                                            23,
+                                            32,
+                                        ),
+                                        is_constant: false,
+                                        line: 23,
+                                        column: 17,
+                                    },
+                                    RespondStatement {
+                                        request: Variable(
+                                            "incoming_request",
+                                            24,
+                                            28,
+                                        ),
+                                        content: Variable(
+                                            "posts",
+                                            24,
+                                            50,
+                                        ),
+                                        status: None,
+                                        content_type: Some(
+                                            Literal(
+                                                String(
+                                                    "application/json",
+                                                ),
+                                                24,
+                                                73,
+                                            ),
+                                        ),
+                                        line: 24,
+                                        column: 17,
+                                    },
+                                ],
+                                else_block: Some(
+                                    [
+                                        IfStatement {
+                                            condition: BinaryOperation {
+                                                left: Variable(
+                                                    "path",
+                                                    26,
+                                                    26,
+                                                ),
+                                                operator: Equals,
+                                                right: Literal(
+                                                    String(
+                                                        "/api/posts/1",
+                                                    ),
+                                                    26,
+                                                    43,
+                                                ),
+                                                line: 26,
+                                                column: 31,
+                                            },
+                                            then_block: [
+                                                RespondStatement {
+                                                    request: Variable(
+                                                        "incoming_request",
+                                                        27,
+                                                        32,
+                                                    ),
+                                                    content: Literal(
+                                                        String(
+                                                            "{\"id\":1,\"title\":\"First Post\"}",
+                                                        ),
+                                                        27,
+                                                        54,
+                                                    ),
+                                                    status: None,
+                                                    content_type: Some(
+                                                        Literal(
+                                                            String(
+                                                                "application/json",
+                                                            ),
+                                                            27,
+                                                            109,
+                                                        ),
+                                                    ),
+                                                    line: 27,
+                                                    column: 21,
+                                                },
+                                            ],
+                                            else_block: Some(
+                                                [
+                                                    RespondStatement {
+                                                        request: Variable(
+                                                            "incoming_request",
+                                                            29,
+                                                            32,
+                                                        ),
+                                                        content: Literal(
+                                                            String(
+                                                                "{\"error\":\"Not found\"}",
+                                                            ),
+                                                            29,
+                                                            54,
+                                                        ),
+                                                        status: Some(
+                                                            BinaryOperation {
+                                                                left: Literal(
+                                                                    Integer(
+                                                                        404,
+                                                                    ),
+                                                                    29,
+                                                                    93,
+                                                                ),
+                                                                operator: And,
+                                                                right: Variable(
+                                                                    "content_type",
+                                                                    29,
+                                                                    101,
+                                                                ),
+                                                                line: 29,
+                                                                column: 97,
+                                                            },
+                                                        ),
+                                                        content_type: None,
+                                                        line: 29,
+                                                        column: 21,
+                                                    },
+                                                    ExpressionStatement {
+                                                        expression: Literal(
+                                                            String(
+                                                                "application/json",
+                                                            ),
+                                                            29,
+                                                            114,
+                                                        ),
+                                                        line: 29,
+                                                        column: 132,
+                                                    },
+                                                ],
+                                            ),
+                                            line: 26,
+                                            column: 17,
+                                        },
+                                    ],
+                                ),
+                                line: 22,
+                                column: 13,
+                            },
+                        ],
+                    ),
+                    line: 19,
+                    column: 9,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: Variable(
+                            "req_num",
+                            34,
+                            18,
+                        ),
+                        operator: GreaterThanOrEqual,
+                        right: Literal(
+                            Integer(
+                                20,
+                            ),
+                            34,
+                            54,
+                        ),
+                        line: 34,
+                        column: 26,
+                    },
+                    then_block: [
+                        BreakStatement {
+                            line: 35,
+                            column: 13,
+                        },
+                    ],
+                    else_block: None,
+                    line: 34,
+                    column: 9,
+                },
+            ],
+            line: 13,
+            column: 5,
+        },
+    ],
+    when_clauses: [
+        WhenClause {
+            error_type: General,
+            error_name: "error",
+            body: [
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "Server error: ",
+                            ),
+                            39,
+                            13,
+                        ),
+                        right: Variable(
+                            "error_message",
+                            39,
+                            35,
+                        ),
+                        line: 39,
+                        column: 30,
+                    },
+                    line: 39,
+                    column: 48,
+                },
+            ],
+        },
+    ],
+    otherwise_block: None,
+    line: 12,
+    column: 1,
+}
+
+Statement #9: DisplayStatement {
+    value: Literal(
+        String(
+            "Server stopped",
+        ),
+        42,
+        9,
+    ),
+    line: 42,
+    column: 25,
+}

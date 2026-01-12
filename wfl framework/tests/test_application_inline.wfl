@@ -1,0 +1,40 @@
+// Application Test - Inline (no modules)
+display "=== WFL MVC Application - Inline Test ==="
+display ""
+
+// Define minimal Application container
+create container Application:
+    property port_num: Number
+    property app_name: Text
+
+    action init_app:
+        store port_num as 3000
+        store app_name as "WFL MVC App"
+        display "Application initialized: " with app_name
+        display "Port: " with port_num
+    end
+
+    action show_info:
+        display "Application Info:"
+        display "  Name: " with app_name
+        display "  Port: " with port_num
+    end
+end
+
+// Test: Create and use application
+display "Creating application..."
+create new Application as my_app:
+    port_num is 8080
+    app_name is "Test App"
+end
+
+display "✓ Application created"
+display ""
+
+my_app.show_info()
+display ""
+
+display "=== Test Complete ==="
+display ""
+display "This validates that Application container structure works."
+display "Full server integration requires addressing property mutation issue."

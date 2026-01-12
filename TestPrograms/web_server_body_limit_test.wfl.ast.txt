@@ -1,0 +1,1259 @@
+AST output for: TestPrograms/web_server_body_limit_test.wfl
+==============================================
+
+Program with 18 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Web Server Body Size Limit DoS Test ===",
+        ),
+        9,
+        9,
+    ),
+    line: 9,
+    column: 54,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "This test validates that the web server properly limits request body sizes",
+        ),
+        10,
+        9,
+    ),
+    line: 10,
+    column: 85,
+}
+
+Statement #3: DisplayStatement {
+    value: Literal(
+        String(
+            "to prevent memory exhaustion attacks",
+        ),
+        11,
+        9,
+    ),
+    line: 11,
+    column: 47,
+}
+
+Statement #4: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        12,
+        9,
+    ),
+    line: 12,
+    column: 11,
+}
+
+Statement #5: VariableDeclaration {
+    name: "test_port",
+    value: Literal(
+        Integer(
+            8091,
+        ),
+        15,
+        20,
+    ),
+    is_constant: false,
+    line: 15,
+    column: 1,
+}
+
+Statement #6: VariableDeclaration {
+    name: "max_body_size",
+    value: Literal(
+        Integer(
+            1048576,
+        ),
+        16,
+        24,
+    ),
+    is_constant: false,
+    line: 16,
+    column: 1,
+}
+
+Statement #7: VariableDeclaration {
+    name: "large_body_size",
+    value: Literal(
+        Integer(
+            2097152,
+        ),
+        17,
+        26,
+    ),
+    is_constant: false,
+    line: 17,
+    column: 1,
+}
+
+Statement #8: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Starting web server on port ",
+            ),
+            19,
+            9,
+        ),
+        right: Concatenation {
+            left: Variable(
+                "test_port",
+                19,
+                45,
+            ),
+            right: Literal(
+                String(
+                    "...",
+                ),
+                19,
+                60,
+            ),
+            line: 19,
+            column: 55,
+        },
+        line: 19,
+        column: 40,
+    },
+    line: 19,
+    column: 65,
+}
+
+Statement #9: TryStatement {
+    body: [
+        ListenStatement {
+            port: Variable(
+                "test_port",
+                23,
+                20,
+            ),
+            server_name: "body_limit_server",
+            line: 23,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✓ Server started successfully",
+                ),
+                24,
+                13,
+            ),
+            line: 24,
+            column: 46,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "",
+                ),
+                27,
+                13,
+            ),
+            line: 27,
+            column: 15,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Test 1: Normal sized request (should succeed)",
+                ),
+                28,
+                13,
+            ),
+            line: 28,
+            column: 60,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Creating normal sized request body...",
+                ),
+                29,
+                13,
+            ),
+            line: 29,
+            column: 52,
+        },
+        VariableDeclaration {
+            name: "normal_body",
+            value: Literal(
+                String(
+                    "This is a normal sized request body that should be accepted",
+                ),
+                31,
+                26,
+            ),
+            is_constant: false,
+            line: 31,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "Normal body size: ",
+                    ),
+                    32,
+                    13,
+                ),
+                right: Concatenation {
+                    left: FunctionCall {
+                        function: Variable(
+                            "length",
+                            32,
+                            39,
+                        ),
+                        arguments: [
+                            Argument {
+                                name: None,
+                                value: Variable(
+                                    "normal_body",
+                                    32,
+                                    49,
+                                ),
+                            },
+                        ],
+                        line: 32,
+                        column: 46,
+                    },
+                    right: Literal(
+                        String(
+                            " bytes",
+                        ),
+                        32,
+                        66,
+                    ),
+                    line: 32,
+                    column: 61,
+                },
+                line: 32,
+                column: 34,
+            },
+            line: 32,
+            column: 74,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "",
+                ),
+                35,
+                13,
+            ),
+            line: 35,
+            column: 15,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Test 2: Large request body (should be rejected)",
+                ),
+                36,
+                13,
+            ),
+            line: 36,
+            column: 62,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Creating large request body...",
+                ),
+                37,
+                13,
+            ),
+            line: 37,
+            column: 45,
+        },
+        VariableDeclaration {
+            name: "large_body",
+            value: Literal(
+                String(
+                    "",
+                ),
+                40,
+                25,
+            ),
+            is_constant: false,
+            line: 40,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "chunk",
+            value: Literal(
+                String(
+                    "This is a chunk of data that will be repeated many times to create a large body. ",
+                ),
+                41,
+                20,
+            ),
+            is_constant: false,
+            line: 41,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "chunk_size",
+            value: FunctionCall {
+                function: Variable(
+                    "length",
+                    42,
+                    25,
+                ),
+                arguments: [
+                    Argument {
+                        name: None,
+                        value: Variable(
+                            "chunk",
+                            42,
+                            35,
+                        ),
+                    },
+                ],
+                line: 42,
+                column: 32,
+            },
+            is_constant: false,
+            line: 42,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "chunks_needed",
+            value: BinaryOperation {
+                left: Variable(
+                    "large_body_size",
+                    43,
+                    28,
+                ),
+                operator: Divide,
+                right: Variable(
+                    "chunk_size",
+                    43,
+                    55,
+                ),
+                line: 43,
+                column: 44,
+            },
+            is_constant: false,
+            line: 43,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "Chunk size: ",
+                    ),
+                    45,
+                    13,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "chunk_size",
+                        45,
+                        33,
+                    ),
+                    right: Literal(
+                        String(
+                            " bytes",
+                        ),
+                        45,
+                        49,
+                    ),
+                    line: 45,
+                    column: 44,
+                },
+                line: 45,
+                column: 28,
+            },
+            line: 45,
+            column: 57,
+        },
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "Chunks needed: ",
+                    ),
+                    46,
+                    13,
+                ),
+                right: Variable(
+                    "chunks_needed",
+                    46,
+                    36,
+                ),
+                line: 46,
+                column: 31,
+            },
+            line: 46,
+            column: 49,
+        },
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "Target size: ",
+                    ),
+                    47,
+                    13,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "large_body_size",
+                        47,
+                        34,
+                    ),
+                    right: Literal(
+                        String(
+                            " bytes",
+                        ),
+                        47,
+                        55,
+                    ),
+                    line: 47,
+                    column: 50,
+                },
+                line: 47,
+                column: 29,
+            },
+            line: 47,
+            column: 63,
+        },
+        VariableDeclaration {
+            name: "counter",
+            value: Literal(
+                Integer(
+                    0,
+                ),
+                50,
+                22,
+            ),
+            is_constant: false,
+            line: 50,
+            column: 5,
+        },
+        CountLoop {
+            start: Literal(
+                Integer(
+                    1,
+                ),
+                51,
+                16,
+            ),
+            end: Variable(
+                "chunks_needed",
+                51,
+                21,
+            ),
+            step: None,
+            downward: false,
+            variable_name: None,
+            body: [
+                Assignment {
+                    name: "large_body",
+                    value: Concatenation {
+                        left: Variable(
+                            "large_body",
+                            52,
+                            30,
+                        ),
+                        right: Variable(
+                            "chunk",
+                            52,
+                            46,
+                        ),
+                        line: 52,
+                        column: 41,
+                    },
+                    line: 52,
+                    column: 51,
+                },
+                Assignment {
+                    name: "counter",
+                    value: BinaryOperation {
+                        left: Variable(
+                            "counter",
+                            53,
+                            9,
+                        ),
+                        operator: Plus,
+                        right: Literal(
+                            Integer(
+                                1,
+                            ),
+                            53,
+                            13,
+                        ),
+                        line: 53,
+                        column: 9,
+                    },
+                    line: 53,
+                    column: 9,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: Variable(
+                            "counter",
+                            56,
+                            18,
+                        ),
+                        operator: GreaterThan,
+                        right: Literal(
+                            Integer(
+                                0,
+                            ),
+                            56,
+                            42,
+                        ),
+                        line: 56,
+                        column: 26,
+                    },
+                    then_block: [
+                        VariableDeclaration {
+                            name: "modulo_result",
+                            value: BinaryOperation {
+                                left: Variable(
+                                    "counter",
+                                    57,
+                                    36,
+                                ),
+                                operator: Modulo,
+                                right: Literal(
+                                    Integer(
+                                        1000,
+                                    ),
+                                    57,
+                                    46,
+                                ),
+                                line: 57,
+                                column: 44,
+                            },
+                            is_constant: false,
+                            line: 57,
+                            column: 13,
+                        },
+                        IfStatement {
+                            condition: BinaryOperation {
+                                left: Variable(
+                                    "modulo_result",
+                                    58,
+                                    22,
+                                ),
+                                operator: Equals,
+                                right: Literal(
+                                    Integer(
+                                        0,
+                                    ),
+                                    58,
+                                    48,
+                                ),
+                                line: 58,
+                                column: 36,
+                            },
+                            then_block: [
+                                DisplayStatement {
+                                    value: Concatenation {
+                                        left: Literal(
+                                            String(
+                                                "Created ",
+                                            ),
+                                            59,
+                                            25,
+                                        ),
+                                        right: Concatenation {
+                                            left: Variable(
+                                                "counter",
+                                                59,
+                                                41,
+                                            ),
+                                            right: Literal(
+                                                String(
+                                                    " chunks...",
+                                                ),
+                                                59,
+                                                54,
+                                            ),
+                                            line: 59,
+                                            column: 49,
+                                        },
+                                        line: 59,
+                                        column: 36,
+                                    },
+                                    line: 59,
+                                    column: 66,
+                                },
+                            ],
+                            else_block: None,
+                            line: 58,
+                            column: 13,
+                        },
+                    ],
+                    else_block: None,
+                    line: 56,
+                    column: 9,
+                },
+            ],
+            line: 62,
+            column: 14,
+        },
+        VariableDeclaration {
+            name: "actual_large_size",
+            value: FunctionCall {
+                function: Variable(
+                    "length",
+                    64,
+                    32,
+                ),
+                arguments: [
+                    Argument {
+                        name: None,
+                        value: Variable(
+                            "large_body",
+                            64,
+                            42,
+                        ),
+                    },
+                ],
+                line: 64,
+                column: 39,
+            },
+            is_constant: false,
+            line: 64,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "Actual large body size: ",
+                    ),
+                    65,
+                    13,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "actual_large_size",
+                        65,
+                        45,
+                    ),
+                    right: Literal(
+                        String(
+                            " bytes",
+                        ),
+                        65,
+                        68,
+                    ),
+                    line: 65,
+                    column: 63,
+                },
+                line: 65,
+                column: 40,
+            },
+            line: 65,
+            column: 76,
+        },
+        IfStatement {
+            condition: BinaryOperation {
+                left: Variable(
+                    "actual_large_size",
+                    68,
+                    14,
+                ),
+                operator: GreaterThan,
+                right: Variable(
+                    "max_body_size",
+                    68,
+                    48,
+                ),
+                line: 68,
+                column: 32,
+            },
+            then_block: [
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "✓ Large body exceeds expected limit of ",
+                            ),
+                            69,
+                            17,
+                        ),
+                        right: Concatenation {
+                            left: Variable(
+                                "max_body_size",
+                                69,
+                                66,
+                            ),
+                            right: Literal(
+                                String(
+                                    " bytes",
+                                ),
+                                69,
+                                85,
+                            ),
+                            line: 69,
+                            column: 80,
+                        },
+                        line: 69,
+                        column: 61,
+                    },
+                    line: 69,
+                    column: 93,
+                },
+            ],
+            else_block: Some(
+                [
+                    DisplayStatement {
+                        value: Literal(
+                            String(
+                                "❌ ERROR: Large body is not large enough for test",
+                            ),
+                            71,
+                            17,
+                        ),
+                        line: 71,
+                        column: 69,
+                    },
+                    DisplayStatement {
+                        value: Concatenation {
+                            left: Literal(
+                                String(
+                                    "Expected: > ",
+                                ),
+                                72,
+                                17,
+                            ),
+                            right: Concatenation {
+                                left: Variable(
+                                    "max_body_size",
+                                    72,
+                                    37,
+                                ),
+                                right: Literal(
+                                    String(
+                                        " bytes",
+                                    ),
+                                    72,
+                                    56,
+                                ),
+                                line: 72,
+                                column: 51,
+                            },
+                            line: 72,
+                            column: 32,
+                        },
+                        line: 72,
+                        column: 64,
+                    },
+                    DisplayStatement {
+                        value: Concatenation {
+                            left: Literal(
+                                String(
+                                    "Actual: ",
+                                ),
+                                73,
+                                17,
+                            ),
+                            right: Concatenation {
+                                left: Variable(
+                                    "actual_large_size",
+                                    73,
+                                    33,
+                                ),
+                                right: Literal(
+                                    String(
+                                        " bytes",
+                                    ),
+                                    73,
+                                    56,
+                                ),
+                                line: 73,
+                                column: 51,
+                            },
+                            line: 73,
+                            column: 28,
+                        },
+                        line: 73,
+                        column: 64,
+                    },
+                ],
+            ),
+            line: 68,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "",
+                ),
+                77,
+                13,
+            ),
+            line: 77,
+            column: 15,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Test 3: Simulating large request handling",
+                ),
+                78,
+                13,
+            ),
+            line: 78,
+            column: 56,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "In a real test, we would send HTTP requests with large bodies",
+                ),
+                79,
+                13,
+            ),
+            line: 79,
+            column: 76,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "and verify that:",
+                ),
+                80,
+                13,
+            ),
+            line: 80,
+            column: 31,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "1. Normal requests are processed successfully",
+                ),
+                81,
+                13,
+            ),
+            line: 81,
+            column: 60,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "2. Large requests are rejected with 413 Payload Too Large",
+                ),
+                82,
+                13,
+            ),
+            line: 82,
+            column: 72,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "3. Server remains stable and doesn't consume excessive memory",
+                ),
+                83,
+                13,
+            ),
+            line: 83,
+            column: 76,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "",
+                ),
+                84,
+                13,
+            ),
+            line: 84,
+            column: 15,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "EXPECTED SECURITY FIX:",
+                ),
+                87,
+                13,
+            ),
+            line: 87,
+            column: 37,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "- Add body size limit in src/interpreter/mod.rs:3033",
+                ),
+                88,
+                13,
+            ),
+            line: 88,
+            column: 67,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "- Change: .and(warp::body::bytes())",
+                ),
+                89,
+                13,
+            ),
+            line: 89,
+            column: 50,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "- To: .and(warp::body::content_length_limit(1_048_576)).and(warp::body::bytes())",
+                ),
+                90,
+                13,
+            ),
+            line: 90,
+            column: 95,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "- This prevents DoS attacks via large request bodies",
+                ),
+                91,
+                13,
+            ),
+            line: 91,
+            column: 67,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "",
+                ),
+                92,
+                13,
+            ),
+            line: 92,
+            column: 15,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Test 4: Memory usage validation",
+                ),
+                95,
+                13,
+            ),
+            line: 95,
+            column: 46,
+        },
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "The server should reject requests larger than ",
+                    ),
+                    96,
+                    13,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "max_body_size",
+                        96,
+                        67,
+                    ),
+                    right: Literal(
+                        String(
+                            " bytes",
+                        ),
+                        96,
+                        86,
+                    ),
+                    line: 96,
+                    column: 81,
+                },
+                line: 96,
+                column: 62,
+            },
+            line: 96,
+            column: 94,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "without allocating memory for the entire body",
+                ),
+                97,
+                13,
+            ),
+            line: 97,
+            column: 60,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "",
+                ),
+                98,
+                13,
+            ),
+            line: 98,
+            column: 15,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Simulating request processing...",
+                ),
+                101,
+                13,
+            ),
+            line: 101,
+            column: 47,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Waiting for test request...",
+                ),
+                104,
+                13,
+            ),
+            line: 104,
+            column: 42,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "NOTE: This test requires external HTTP client to send large POST request",
+                ),
+                105,
+                13,
+            ),
+            line: 105,
+            column: 87,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Example curl command:",
+                ),
+                106,
+                13,
+            ),
+            line: 106,
+            column: 36,
+        },
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "curl -X POST http://127.0.0.1:",
+                    ),
+                    107,
+                    13,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "test_port",
+                        107,
+                        51,
+                    ),
+                    right: Literal(
+                        String(
+                            "/test -d @large_file.txt",
+                        ),
+                        107,
+                        66,
+                    ),
+                    line: 107,
+                    column: 61,
+                },
+                line: 107,
+                column: 46,
+            },
+            line: 107,
+            column: 92,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "",
+                ),
+                108,
+                13,
+            ),
+            line: 108,
+            column: 15,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Test Status: EXPECTED TO FAIL until body limits are implemented",
+                ),
+                116,
+                13,
+            ),
+            line: 116,
+            column: 78,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "This test documents the security vulnerability and expected fix",
+                ),
+                117,
+                13,
+            ),
+            line: 117,
+            column: 78,
+        },
+    ],
+    when_clauses: [
+        WhenClause {
+            error_type: General,
+            error_name: "error",
+            body: [
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "❌ Web server error occurred",
+                        ),
+                        120,
+                        13,
+                    ),
+                    line: 120,
+                    column: 44,
+                },
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "This may indicate the vulnerability is present",
+                        ),
+                        121,
+                        13,
+                    ),
+                    line: 121,
+                    column: 61,
+                },
+            ],
+        },
+    ],
+    otherwise_block: None,
+    line: 21,
+    column: 1,
+}
+
+Statement #10: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        124,
+        9,
+    ),
+    line: 124,
+    column: 11,
+}
+
+Statement #11: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Body Size Limit DoS Test Complete ===",
+        ),
+        125,
+        9,
+    ),
+    line: 125,
+    column: 52,
+}
+
+Statement #12: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        126,
+        9,
+    ),
+    line: 126,
+    column: 11,
+}
+
+Statement #13: DisplayStatement {
+    value: Literal(
+        String(
+            "SECURITY VULNERABILITY SUMMARY:",
+        ),
+        127,
+        9,
+    ),
+    line: 127,
+    column: 42,
+}
+
+Statement #14: DisplayStatement {
+    value: Literal(
+        String(
+            "- Issue: No body size limits in HTTP request handling",
+        ),
+        128,
+        9,
+    ),
+    line: 128,
+    column: 64,
+}
+
+Statement #15: DisplayStatement {
+    value: Literal(
+        String(
+            "- Risk: Memory exhaustion DoS attacks",
+        ),
+        129,
+        9,
+    ),
+    line: 129,
+    column: 48,
+}
+
+Statement #16: DisplayStatement {
+    value: Literal(
+        String(
+            "- Location: src/interpreter/mod.rs:3033",
+        ),
+        130,
+        9,
+    ),
+    line: 130,
+    column: 50,
+}
+
+Statement #17: DisplayStatement {
+    value: Literal(
+        String(
+            "- Fix: Add warp::body::content_length_limit(1_048_576)",
+        ),
+        131,
+        9,
+    ),
+    line: 131,
+    column: 65,
+}
+
+Statement #18: DisplayStatement {
+    value: Literal(
+        String(
+            "- Test Status: FAILING (as expected for TDD)",
+        ),
+        132,
+        9,
+    ),
+    line: 132,
+    column: 55,
+}

@@ -1,0 +1,5 @@
+./CLAUDE.md:<<<<<<< HEAD
+./CLAUDE.md:<<<<<<< HEAD
+grep: ./conflicts.txt: input file is also the output
+./AGENTS.md:<<<<<<< HEAD
+./AGENTS.md:<<<<<<< HEAD

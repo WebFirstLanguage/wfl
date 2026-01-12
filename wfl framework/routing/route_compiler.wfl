@@ -1,0 +1,137 @@
+// Route Pattern Compiler
+// Converts route patterns like "/api/users/:id" into matchable patterns
+// and extracts parameter names for later extraction
+
+display "=== Route Pattern Compiler Loaded ==="
+
+// Helper: Check if a segment is a parameter (starts with ":")
+define action called is_parameter_segment with parameters segment:
+    check if length of segment is greater than 0:
+        store first_char as substring of segment and 0 and 1
+        check if first_char is equal to ":":
+            return yes
+        end check
+    end check
+    return no
+end action
+
+// Helper: Extract parameter name from segment (remove ":")
+define action called extract_parameter_name with parameters segment:
+    store segment_length as length of segment
+    check if segment_length is greater than 1:
+        store param_name as substring of segment and 1 and segment_length minus 1
+        return param_name
+    end check
+    return ""
+end action
+
+// Helper: Split path by "/"
+define action called split_path with parameters path_text:
+    store segments as create list
+    store current_segment as ""
+    store path_length as length of path_text
+
+    count from 0 to path_length minus 1 as i:
+        store char as substring of path_text and i and 1
+
+        check if char is equal to "/":
+            // Found separator
+            check if length of current_segment is greater than 0:
+                push with segments and current_segment
+            end check
+            change current_segment to ""
+        otherwise:
+            // Add to current segment
+            change current_segment to current_segment with char
+        end check
+    end count
+
+    // Add final segment if exists
+    check if length of current_segment is greater than 0:
+        push with segments and current_segment
+    end check
+
+    return segments
+end action
+
+// Main: Compile route pattern
+// Returns: A container with compiled_pattern_text and parameter_names list
+define action called compile_route_pattern with parameters route_path:
+    display "Compiling route pattern: " with route_path
+
+    // Split the path into segments
+    store segments as split_path(route_path)
+
+    // Track parameter names
+    store param_names as create list
+
+    // Build regex-like pattern
+    store pattern_parts as create list
+
+    for each segment in segments:
+        check if is_parameter_segment(segment):
+            // This is a parameter like ":id"
+            store param_name as extract_parameter_name(segment)
+            push with param_names and param_name
+
+            // Pattern to match any non-slash characters
+            // In WFL pattern syntax: one or more of any character except "/"
+            push with pattern_parts and "[^/]+"
+
+            display "  Parameter found: " with param_name
+        otherwise:
+            // Literal segment - escape special regex chars if needed
+            push with pattern_parts and segment
+
+            display "  Literal segment: " with segment
+        end check
+    end for
+
+    // Join pattern parts with "/"
+    store full_pattern as ""
+    store first as yes
+
+    for each part in pattern_parts:
+        check if first is no:
+            change full_pattern to full_pattern with "/"
+        end check
+        change full_pattern to full_pattern with part
+        change first to no
+    end for
+
+    // Ensure pattern starts with "^/" and ends with "$"
+    store final_pattern as "^/" with full_pattern with "$"
+
+    display "  Compiled pattern: " with final_pattern
+    display "  Parameters: " with param_names
+
+    // Return result as a simple object
+    // We'll use a container in the Router, but for now return pattern and params
+    store result as create list
+    push with result and final_pattern
+    push with result and param_names
+
+    return result
+end action
+
+// Test the compiler
+display ""
+display "Testing route pattern compiler..."
+display ""
+
+// Test 1: Simple route with one parameter
+display "Test 1: /api/users/:id"
+call compile_route_pattern with "/api/users/:id"
+display ""
+
+// Test 2: Route with multiple parameters
+display "Test 2: /blog/:year/:month/:slug"
+call compile_route_pattern with "/blog/:year/:month/:slug"
+display ""
+
+// Test 3: Route with no parameters
+display "Test 3: /api/status"
+call compile_route_pattern with "/api/status"
+display ""
+
+display "=== Route Pattern Compiler Tests Complete ==="

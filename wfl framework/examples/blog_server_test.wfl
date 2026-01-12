@@ -1,0 +1,404 @@
+// Comprehensive WFL Web Server Implementation
+// This demonstrates all the web server capabilities that WFL should support
+// Following TDD - this will fail until all features are implemented
+
+display "=== Comprehensive WFL Web Server Demo ==="
+display "This demo showcases WFL's complete web server capabilities"
+display ""
+
+// Configuration
+store server_port as 8080
+store server_host as "localhost"
+store static_dir as "public"
+store upload_dir as "uploads"
+store shutdown_timeout as 5000  // 5 seconds
+store max_requests as 100
+store request_count as 0
+store server_start_time as current time in milliseconds
+
+display "🚀 Starting comprehensive WFL web server..."
+display "Host: " with server_host
+display "Port: " with server_port
+display "Static directory: " with static_dir
+display "Upload directory: " with upload_dir
+display "Shutdown timeout: " with shutdown_timeout with "ms"
+display ""
+
+// Setup directories
+try:
+    check if directory exists at static_dir:
+        display "✓ Static directory exists"
+    otherwise:
+        create directory at static_dir
+        display "✓ Created static directory"
+    end check
+
+    check if directory exists at upload_dir:
+        display "✓ Upload directory exists"
+    otherwise:
+        create directory at upload_dir
+        display "✓ Created upload directory"
+    end check
+
+catch:
+    display "⚠ Could not setup directories"
+end try
+
+// Create sample static files
+try:
+    store sample_html as "<!DOCTYPE html>
+<html>
+<head>
+    <title>WFL Web Server Demo</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .header { color: #333; border-bottom: 2px solid #007acc; }
+        .endpoint { background: #f5f5f5; padding: 10px; margin: 10px 0; }
+        .method { font-weight: bold; color: #007acc; }
+    </style>
+</head>
+<body>
+    <h1 class=\"header\">WFL Web Server Demo</h1>
+    <p>This page is served by a web server written in WebFirst Language (WFL).</p>
+
+    <h2>Available Endpoints:</h2>
+    <div class=\"endpoint\">
+        <span class=\"method\">GET</span> <a href=\"/\">/</a> - This home page
+    </div>
+    <div class=\"endpoint\">
+        <span class=\"method\">GET</span> <a href=\"/hello\">/hello</a> - Simple greeting
+    </div>
+    <div class=\"endpoint\">
+        <span class=\"method\">GET</span> <a href=\"/api/status\">/api/status</a> - Server status (JSON)
+    </div>
+    <div class=\"endpoint\">
+        <span class=\"method\">GET</span> <a href=\"/api/time\">/api/time</a> - Current time (JSON)
+    </div>
+    <div class=\"endpoint\">
+        <span class=\"method\">POST</span> /api/echo - Echo request body
+    </div>
+    <div class=\"endpoint\">
+        <span class=\"method\">POST</span> /upload - File upload
+    </div>
+    <div class=\"endpoint\">
+        <span class=\"method\">GET</span> /static/* - Static file serving
+    </div>
+
+    <h2>Features Demonstrated:</h2>
+    <ul>
+        <li>Multiple HTTP methods (GET, POST, PUT, DELETE)</li>
+        <li>JSON request/response handling</li>
+        <li>Static file serving with proper MIME types</li>
+        <li>File upload processing</li>
+        <li>Request logging and middleware</li>
+        <li>Graceful shutdown with signal handling</li>
+        <li>Error handling and proper HTTP status codes</li>
+        <li>Natural language WFL syntax throughout</li>
+    </ul>
+</body>
+</html>"
+
+    open file at static_dir with "/index.html" for writing as index_file
+    write content sample_html into index_file
+    close file index_file
+    display "✓ Created sample HTML file"
+
+    store sample_css as "/* WFL Web Server Demo Styles */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 20px;
+    background-color: #f8f9fa;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.header {
+    color: #2c3e50;
+    border-bottom: 3px solid #3498db;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+}
+
+.endpoint {
+    background: #ecf0f1;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 5px;
+    border-left: 4px solid #3498db;
+}
+
+.method {
+    font-weight: bold;
+    color: #e74c3c;
+    font-family: monospace;
+    background: #fff;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+a {
+    color: #3498db;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}"
+
+    open file at static_dir with "/style.css" for writing as css_file
+    write content sample_css into css_file
+    close file css_file
+    display "✓ Created sample CSS file"
+
+catch:
+    display "⚠ Could not create sample files"
+end try
+
+display ""
+
+// Start the comprehensive web server
+try:
+    display "🌐 Starting web server on " with server_host with ":" with server_port
+    listen on port server_port as web_server
+
+    display "✅ Web server started successfully!"
+    display "✅ Server is ready to accept connections"
+    display "✅ Visit http://" with server_host with ":" with server_port with " in your browser"
+    display ""
+    display "📊 Server Statistics:"
+    display "   Start time: " with server_start_time
+    display "   Max requests: " with max_requests
+    display "   Shutdown timeout: " with shutdown_timeout with "ms"
+    display ""
+    display "🔄 Entering main server loop..."
+    display "   (Press Ctrl+C for graceful shutdown)"
+    display ""
+
+    // Main server loop with comprehensive request handling
+    main loop:
+        try:
+            // Check for shutdown conditions
+            check if request_count is greater than max_requests:
+                display ""
+                display "🛑 Maximum requests reached (" with max_requests with "), initiating shutdown..."
+                break
+            end check
+
+            // Wait for incoming request
+            wait for request comes in on web_server as incoming_request
+            add 1 to request_count
+
+            // Extract request information
+            store request_method as method of incoming_request
+            store request_path as path of incoming_request
+            store request_ip as client_ip of incoming_request
+            store request_body as body of incoming_request
+            store request_headers as headers of incoming_request
+            store request_timestamp as current time formatted as "yyyy-MM-dd HH:mm:ss"
+
+            // Request logging (middleware functionality)
+            display "📥 [" with request_timestamp with "] " with request_method with " " with request_path with " from " with request_ip
+
+            // Route handling based on method and path
+            check if request_method is equal to "GET":
+                // GET request handling
+                check if request_path is equal to "/":
+                    // Serve home page
+                    open file at static_dir with "/index.html" for reading as home_file
+                    store home_content as read content from home_file
+                    close file home_file
+                    respond to incoming_request with home_content and content_type "text/html"
+                    display "✅ Served home page"
+
+                otherwise check if request_path is equal to "/hello":
+                    // Simple greeting endpoint
+                    store greeting as "Hello from WFL Web Server! 👋\nRequest #" with request_count with "\nTime: " with request_timestamp
+                    respond to incoming_request with greeting and content_type "text/plain"
+                    display "✅ Served greeting"
+
+                otherwise check if request_path is equal to "/api/status":
+                    // Server status API endpoint
+                    store current_time as current time in milliseconds
+                    store uptime as current_time minus server_start_time
+                    store status_json as "{
+    \"status\": \"running\",
+    \"server\": \"WFL Web Server\",
+    \"version\": \"1.0.0\",
+    \"uptime_ms\": " with uptime with ",
+    \"requests_handled\": " with request_count with ",
+    \"max_requests\": " with max_requests with ",
+    \"timestamp\": \"" with request_timestamp with "\"
+}"
+                    respond to incoming_request with status_json and content_type "application/json"
+                    display "✅ Served status API"
+
+                otherwise check if request_path is equal to "/api/time":
+                    // Current time API endpoint
+                    store time_json as "{
+    \"current_time\": \"" with request_timestamp with "\",
+    \"timestamp_ms\": " with current_time with ",
+    \"timezone\": \"UTC\"
+}"
+                    respond to incoming_request with time_json and content_type "application/json"
+                    display "✅ Served time API"
+
+                otherwise check if request_path starts with "/static/":
+                    // Static file serving
+                    store file_path as static_dir with substring of request_path from 8
+
+                    check if file exists at file_path:
+                        open file at file_path for reading as static_file
+                        store file_content as read content from static_file
+                        close file static_file
+
+                        // Determine MIME type based on file extension
+                        store mime_type as "text/plain"
+                        check if file_path ends with ".html":
+                            change mime_type to "text/html"
+                        otherwise check if file_path ends with ".css":
+                            change mime_type to "text/css"
+                        otherwise check if file_path ends with ".js":
+                            change mime_type to "application/javascript"
+                        otherwise check if file_path ends with ".json":
+                            change mime_type to "application/json"
+                        otherwise check if file_path ends with ".png":
+                            change mime_type to "image/png"
+                        otherwise check if file_path ends with ".jpg":
+                            change mime_type to "image/jpeg"
+                        end check
+
+                        respond to incoming_request with file_content and content_type mime_type
+                        display "✅ Served static file: " with file_path with " (" with mime_type with ")"
+                    otherwise:
+                        respond to incoming_request with "File not found" and status 404 and content_type "text/plain"
+                        display "❌ Static file not found: " with file_path
+                    end check
+
+                otherwise:
+                    // 404 Not Found for GET requests
+                    store not_found_html as "<!DOCTYPE html>
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+    <h1>404 - Page Not Found</h1>
+    <p>The requested path <code>" with request_path with "</code> was not found.</p>
+    <p><a href=\"/\">← Return to home page</a></p>
+    <hr>
+    <small>WFL Web Server</small>
+</body>
+</html>"
+                    respond to incoming_request with not_found_html and status 404 and content_type "text/html"
+                    display "❌ 404 Not Found: " with request_path
+                end check
+
+            otherwise check if request_method is equal to "POST":
+                // POST request handling
+                check if request_path is equal to "/api/echo":
+                    // Echo API endpoint
+                    store echo_response as "{
+    \"echo\": \"" with request_body with "\",
+    \"method\": \"POST\",
+    \"path\": \"" with request_path with "\",
+    \"timestamp\": \"" with request_timestamp with "\"
+}"
+                    respond to incoming_request with echo_response and content_type "application/json"
+                    display "✅ Served echo API (body length: " with length of request_body with ")"
+
+                otherwise check if request_path is equal to "/upload":
+                    // File upload endpoint
+                    store upload_filename as "upload_" with request_count with "_" with current_time with ".txt"
+                    store upload_path as upload_dir with "/" with upload_filename
+
+                    open file at upload_path for writing as upload_file
+                    write content request_body into upload_file
+                    close file upload_file
+
+                    store upload_response as "{
+    \"message\": \"File uploaded successfully\",
+    \"filename\": \"" with upload_filename with "\",
+    \"size\": " with length of request_body with ",
+    \"timestamp\": \"" with request_timestamp with "\"
+}"
+                    respond to incoming_request with upload_response and content_type "application/json" and status 201
+                    display "✅ File uploaded: " with upload_filename with " (" with length of request_body with " bytes)"
+
+                otherwise:
+                    // 404 for POST requests
+                    store post_error as "{\"error\": \"Endpoint not found\", \"method\": \"POST\", \"path\": \"" with request_path with "\"}"
+                    respond to incoming_request with post_error and status 404 and content_type "application/json"
+                    display "❌ POST 404: " with request_path
+                end check
+
+            otherwise check if request_method is equal to "PUT":
+                // PUT request handling
+                store put_response as "{\"message\": \"PUT method received\", \"path\": \"" with request_path with "\"}"
+                respond to incoming_request with put_response and content_type "application/json"
+                display "✅ PUT request handled: " with request_path
+
+            otherwise check if request_method is equal to "DELETE":
+                // DELETE request handling
+                respond to incoming_request with "" and status 204
+                display "✅ DELETE request handled: " with request_path with " (204 No Content)"
+
+            otherwise:
+                // Method not allowed
+                store method_error as "{\"error\": \"Method not allowed\", \"method\": \"" with request_method with "\"}"
+                respond to incoming_request with method_error and status 405 and content_type "application/json"
+                display "❌ Method not allowed: " with request_method
+            end check
+
+            // Response timing (middleware functionality)
+            store response_time as current time in milliseconds
+            store request_duration as response_time minus current_time
+            display "⏱️  Request completed in " with request_duration with "ms"
+
+        catch:
+            display "❌ Error handling request: " with error_message
+
+            // Try to send error response
+            try:
+                store error_response as "{\"error\": \"Internal server error\", \"message\": \"" with error_message with "\"}"
+                respond to incoming_request with error_response and status 500 and content_type "application/json"
+                display "✅ Sent error response"
+            catch:
+                display "❌ Could not send error response"
+            end try
+        end try
+
+        // Progress indicator
+        check if request_count modulo 10 is equal to 0:
+            display "📊 Processed " with request_count with " requests so far..."
+        end check
+
+    end loop
+
+    // Graceful shutdown
+    display ""
+    display "🛑 Initiating graceful shutdown..."
+    display "📊 Final Statistics:"
+    display "   Total requests processed: " with request_count
+    store final_time as current time in milliseconds
+    store total_uptime as final_time minus server_start_time
+    display "   Total uptime: " with total_uptime with "ms"
+    display "   Average response time: calculated per request"
+
+catch:
+    display "❌ Web server error: " with error_message
+    display "💡 Common issues:"
+    display "   - Port " with server_port with " might be in use"
+    display "   - Check firewall settings"
+    display "   - Ensure proper permissions"
+end try
+
+display ""
+display "🏁 WFL Web Server Demo Complete"
+display "=== End of Comprehensive Demo ==="

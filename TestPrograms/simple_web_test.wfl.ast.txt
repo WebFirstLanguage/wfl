@@ -1,0 +1,132 @@
+AST output for: TestPrograms/simple_web_test.wfl
+==============================================
+
+Program with 10 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Simple Web Server Test ===",
+        ),
+        2,
+        9,
+    ),
+    line: 2,
+    column: 41,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "Starting server on port 8095...",
+        ),
+        4,
+        9,
+    ),
+    line: 4,
+    column: 42,
+}
+
+Statement #3: ListenStatement {
+    port: Literal(
+        Integer(
+            8095,
+        ),
+        5,
+        16,
+    ),
+    server_name: "test_server",
+    line: 5,
+    column: 1,
+}
+
+Statement #4: DisplayStatement {
+    value: Literal(
+        String(
+            "Server started successfully!",
+        ),
+        7,
+        9,
+    ),
+    line: 7,
+    column: 39,
+}
+
+Statement #5: DisplayStatement {
+    value: Literal(
+        String(
+            "Waiting for a request...",
+        ),
+        8,
+        9,
+    ),
+    line: 8,
+    column: 35,
+}
+
+Statement #6: WaitForRequestStatement {
+    server: Variable(
+        "test_server",
+        10,
+        30,
+    ),
+    request_name: "incoming_request",
+    timeout: None,
+    line: 10,
+    column: 1,
+}
+
+Statement #7: DisplayStatement {
+    value: Literal(
+        String(
+            "Got a request!",
+        ),
+        12,
+        9,
+    ),
+    line: 12,
+    column: 25,
+}
+
+Statement #8: RespondStatement {
+    request: Variable(
+        "incoming_request",
+        13,
+        12,
+    ),
+    content: Literal(
+        String(
+            "Hello from WFL!",
+        ),
+        13,
+        34,
+    ),
+    status: None,
+    content_type: None,
+    line: 13,
+    column: 1,
+}
+
+Statement #9: DisplayStatement {
+    value: Literal(
+        String(
+            "Response sent!",
+        ),
+        15,
+        9,
+    ),
+    line: 15,
+    column: 25,
+}
+
+Statement #10: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Test Complete ===",
+        ),
+        16,
+        9,
+    ),
+    line: 16,
+    column: 32,
+}

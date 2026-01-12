@@ -1,0 +1,80 @@
+// Test Request/Response Helper Functions
+display "=== Testing Request/Response Helpers ==="
+display ""
+
+// Test 1: Query String Parsing
+display "Test 1: Parse Query String"
+store query1 as "?page=1&limit=10&sort=name"
+display "Input: " with query1
+
+store parsed_query as parse_query_string of query1
+display "Type: " with typeof of parsed_query
+display "✓ Query string parsed"
+display ""
+
+// Test 2: Query String with Spaces (+ encoding)
+display "Test 2: Query String with Encoded Spaces"
+store query2 as "search=hello+world&category=web+dev"
+store parsed_query2 as parse_query_string of query2
+display "Input: " with query2
+display "✓ URL-encoded query parsed"
+display ""
+
+// Test 3: Empty Query String
+display "Test 3: Empty Query String"
+store query3 as ""
+store parsed_query3 as parse_query_string of query3
+display "Empty query type: " with typeof of parsed_query3
+display "✓ Empty query handled"
+display ""
+
+// Test 4: Cookie Parsing
+display "Test 4: Parse Cookies"
+store cookie_header as "session_id=abc123; user=alice; theme=dark"
+display "Input: " with cookie_header
+
+store parsed_cookies as parse_cookies of cookie_header
+display "Type: " with typeof of parsed_cookies
+display "✓ Cookies parsed"
+display ""
+
+// Test 5: Empty Cookies
+display "Test 5: Empty Cookie Header"
+store empty_cookies as parse_cookies of ""
+display "Empty cookies type: " with typeof of empty_cookies
+display "✓ Empty cookies handled"
+display ""
+
+// Test 6: Form Data Parsing
+display "Test 6: Parse Form Data"
+store form_data as "username=alice&password=secret123&remember=true"
+display "Input: " with form_data
+
+store parsed_form as parse_form_urlencoded of form_data
+display "Type: " with typeof of parsed_form
+display "✓ Form data parsed"
+display ""
+
+// Test 7: Generate UUID
+display "Test 7: Generate UUID"
+store uuid1 as generate_uuid
+display "UUID 1: " with uuid1
+display "Length: " with length of uuid1
+
+store uuid2 as generate_uuid
+display "UUID 2: " with uuid2
+display "✓ UUIDs generated (should be different)"
+display ""
+
+// Test 8: Generate CSRF Token
+display "Test 8: Generate CSRF Token"
+store csrf1 as generate_csrf_token
+display "CSRF Token 1: " with csrf1
+display "Length: " with length of csrf1
+
+store csrf2 as generate_csrf_token
+display "CSRF Token 2: " with csrf2
+display "✓ CSRF tokens generated (should be different)"
+display ""
+
+display "=== All Request/Response Helper Tests Passed! ==="

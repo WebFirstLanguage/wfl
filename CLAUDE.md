@@ -7,8 +7,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `tests/`: Rust integration/unit tests (e.g., `file_io_*`, `crypto_test.rs`).
 - `TestPrograms/`: End‑to‑end WFL programs that must all pass.
 - `wfl-lsp/`: Language Server workspace member; `vscode-extension/` for VS Code.
+<<<<<<< HEAD
 - `Docs/`: Complete user documentation (43 files across 5 sections). See `Docs/README.md` hub.
 - `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `run_web_tests.ps1|.sh`, `bump_version.py`, `configure_lsp.ps1`).
+=======
+- `Docs/`: Complete user documentation (organized in 6 sections plus guides/reference). See `Docs/README.md` hub.
+- `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`).
+>>>>>>> origin/main
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
 ## Core Architecture
@@ -141,4 +146,8 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Build/Run**: `cargo build -p wfl-lsp`.
 - **Debug**: `RUST_LOG=trace cargo run -p wfl-lsp`.
 - **Setup**: `scripts/configure_lsp.ps1`, `scripts/install_vscode_extension.ps1`.
+<<<<<<< HEAD
 - **Docs**: See `Docs/02-getting-started/editor-setup.md` (user setup) and `Docs/development/lsp-integration.md` (dev guide).
+=======
+- **Docs**: See `Docs/development/lsp-integration.md` for dev guides and `Docs/02-getting-started/editor-setup.md` for user setup.
+>>>>>>> origin/main

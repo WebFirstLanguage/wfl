@@ -71,7 +71,22 @@
       "Bash(cargo clean:*)",
       "Bash(./target/release/wfl:*)",
       "Bash(powershell -ExecutionPolicy Bypass -File ./scripts/run_integration_tests.ps1)",
-      "Bash(../target/release/wfl:*)"
+      "Bash(../target/release/wfl:*)",
+      "Bash(curl:*)",
+      "Bash(netstat:*)",
+      "Bash(tasklist:*)",
+      "Bash(taskkill:*)",
+      "Bash(echo:*)",
+      "Bash(wfl:*)",
+      "Bash(targetreleasewfl.exe --parse test_main_simple.wfl)",
+      "Bash(target\\\\release\\\\wfl.exe:*)",
+      "Bash(timeout:*)",
+      "Bash(kill:*)",
+      "Bash(Out-Null)",
+      "Bash(/g/Logbie/wfl/target/debug/wfl.exe:*)",
+      "Bash(for i in 1 2 3 4 5)",
+      "Bash(do echo -e \"\\\\n--- Request $i ---\")",
+      "Bash(target/release/wfl.exe:*)"
     ],
     "deny": [],
     "ask": []

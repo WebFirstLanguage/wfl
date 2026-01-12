@@ -1,0 +1,12 @@
+store msg as "Hi i am Azusa"
+
+listen on port 8080 as web_server
+
+try:
+    main loop:
+        wait for request comes in on web_server as incoming_request
+        respond to incoming_request with msg
+    end loop
+catch:
+    display "Server error: " with error
+end try

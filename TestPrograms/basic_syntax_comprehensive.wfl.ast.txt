@@ -1,0 +1,1694 @@
+AST output for: TestPrograms/basic_syntax_comprehensive.wfl
+==============================================
+
+Program with 71 statements:
+
+Statement #1: ActionDefinition {
+    name: "main",
+    parameters: [],
+    body: [
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "=== WFL Basic Syntax Comprehensive Test ===",
+                ),
+                5,
+                13,
+            ),
+            line: 5,
+            column: 58,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "",
+                ),
+                6,
+                13,
+            ),
+            line: 6,
+            column: 15,
+        },
+    ],
+    return_type: None,
+    line: 7,
+    column: 11,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "1. Hello World Test",
+        ),
+        10,
+        9,
+    ),
+    line: 10,
+    column: 30,
+}
+
+Statement #3: DisplayStatement {
+    value: Literal(
+        String(
+            "Hello, World!",
+        ),
+        11,
+        9,
+    ),
+    line: 11,
+    column: 24,
+}
+
+Statement #4: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        12,
+        9,
+    ),
+    line: 12,
+    column: 11,
+}
+
+Statement #5: DisplayStatement {
+    value: Literal(
+        String(
+            "2. Variable Tests",
+        ),
+        15,
+        9,
+    ),
+    line: 15,
+    column: 28,
+}
+
+Statement #6: VariableDeclaration {
+    name: "user name",
+    value: Literal(
+        String(
+            "Alice",
+        ),
+        16,
+        20,
+    ),
+    is_constant: false,
+    line: 16,
+    column: 1,
+}
+
+Statement #7: VariableDeclaration {
+    name: "user age",
+    value: Literal(
+        Integer(
+            28,
+        ),
+        17,
+        19,
+    ),
+    is_constant: false,
+    line: 17,
+    column: 1,
+}
+
+Statement #8: VariableDeclaration {
+    name: "is_active",
+    value: Literal(
+        Boolean(
+            true,
+        ),
+        18,
+        20,
+    ),
+    is_constant: false,
+    line: 18,
+    column: 1,
+}
+
+Statement #9: VariableDeclaration {
+    name: "balance",
+    value: Literal(
+        Float(
+            123.45,
+        ),
+        19,
+        18,
+    ),
+    is_constant: false,
+    line: 19,
+    column: 1,
+}
+
+Statement #10: VariableDeclaration {
+    name: "nothing_value",
+    value: Literal(
+        Nothing,
+        20,
+        24,
+    ),
+    is_constant: false,
+    line: 20,
+    column: 1,
+}
+
+Statement #11: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Name: ",
+            ),
+            22,
+            9,
+        ),
+        right: Variable(
+            "user name",
+            22,
+            23,
+        ),
+        line: 22,
+        column: 18,
+    },
+    line: 22,
+    column: 32,
+}
+
+Statement #12: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Age: ",
+            ),
+            23,
+            9,
+        ),
+        right: Variable(
+            "user age",
+            23,
+            22,
+        ),
+        line: 23,
+        column: 17,
+    },
+    line: 23,
+    column: 30,
+}
+
+Statement #13: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Active: ",
+            ),
+            24,
+            9,
+        ),
+        right: Variable(
+            "is_active",
+            24,
+            25,
+        ),
+        line: 24,
+        column: 20,
+    },
+    line: 24,
+    column: 34,
+}
+
+Statement #14: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Balance: ",
+            ),
+            25,
+            9,
+        ),
+        right: Variable(
+            "balance",
+            25,
+            26,
+        ),
+        line: 25,
+        column: 21,
+    },
+    line: 25,
+    column: 33,
+}
+
+Statement #15: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Nothing value: ",
+            ),
+            26,
+            9,
+        ),
+        right: Variable(
+            "nothing_value",
+            26,
+            32,
+        ),
+        line: 26,
+        column: 27,
+    },
+    line: 26,
+    column: 45,
+}
+
+Statement #16: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        27,
+        9,
+    ),
+    line: 27,
+    column: 11,
+}
+
+Statement #17: DisplayStatement {
+    value: Literal(
+        String(
+            "3. Type System Tests",
+        ),
+        30,
+        9,
+    ),
+    line: 30,
+    column: 31,
+}
+
+Statement #18: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Type of name: ",
+            ),
+            31,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "typeof",
+                31,
+                31,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "user name",
+                        31,
+                        41,
+                    ),
+                },
+            ],
+            line: 31,
+            column: 38,
+        },
+        line: 31,
+        column: 26,
+    },
+    line: 31,
+    column: 50,
+}
+
+Statement #19: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Type of age: ",
+            ),
+            32,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "typeof",
+                32,
+                30,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "user age",
+                        32,
+                        40,
+                    ),
+                },
+            ],
+            line: 32,
+            column: 37,
+        },
+        line: 32,
+        column: 25,
+    },
+    line: 32,
+    column: 48,
+}
+
+Statement #20: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Type of is_active: ",
+            ),
+            33,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "typeof",
+                33,
+                36,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "is_active",
+                        33,
+                        46,
+                    ),
+                },
+            ],
+            line: 33,
+            column: 43,
+        },
+        line: 33,
+        column: 31,
+    },
+    line: 33,
+    column: 55,
+}
+
+Statement #21: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Type of balance: ",
+            ),
+            34,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "typeof",
+                34,
+                34,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "balance",
+                        34,
+                        44,
+                    ),
+                },
+            ],
+            line: 34,
+            column: 41,
+        },
+        line: 34,
+        column: 29,
+    },
+    line: 34,
+    column: 51,
+}
+
+Statement #22: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Type of nothing_value: ",
+            ),
+            35,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "typeof",
+                35,
+                40,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "nothing_value",
+                        35,
+                        50,
+                    ),
+                },
+            ],
+            line: 35,
+            column: 47,
+        },
+        line: 35,
+        column: 35,
+    },
+    line: 35,
+    column: 63,
+}
+
+Statement #23: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        36,
+        9,
+    ),
+    line: 36,
+    column: 11,
+}
+
+Statement #24: DisplayStatement {
+    value: Literal(
+        String(
+            "4. Variable Redefinition Test",
+        ),
+        39,
+        9,
+    ),
+    line: 39,
+    column: 40,
+}
+
+Statement #25: VariableDeclaration {
+    name: "test var",
+    value: Literal(
+        String(
+            "original",
+        ),
+        40,
+        19,
+    ),
+    is_constant: false,
+    line: 40,
+    column: 1,
+}
+
+Statement #26: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Before: ",
+            ),
+            41,
+            9,
+        ),
+        right: Variable(
+            "test var",
+            41,
+            25,
+        ),
+        line: 41,
+        column: 20,
+    },
+    line: 41,
+    column: 33,
+}
+
+Statement #27: Assignment {
+    name: "test var",
+    value: Literal(
+        String(
+            "modified",
+        ),
+        42,
+        20,
+    ),
+    line: 42,
+    column: 30,
+}
+
+Statement #28: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "After: ",
+            ),
+            43,
+            9,
+        ),
+        right: Variable(
+            "test var",
+            43,
+            24,
+        ),
+        line: 43,
+        column: 19,
+    },
+    line: 43,
+    column: 32,
+}
+
+Statement #29: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        44,
+        9,
+    ),
+    line: 44,
+    column: 11,
+}
+
+Statement #30: DisplayStatement {
+    value: Literal(
+        String(
+            "5. Conditional Tests",
+        ),
+        47,
+        9,
+    ),
+    line: 47,
+    column: 31,
+}
+
+Statement #31: IfStatement {
+    condition: BinaryOperation {
+        left: Variable(
+            "user name",
+            48,
+            10,
+        ),
+        operator: Equals,
+        right: Literal(
+            String(
+                "Alice",
+            ),
+            48,
+            23,
+        ),
+        line: 48,
+        column: 20,
+    },
+    then_block: [
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✓ Conditional: Alice detected correctly",
+                ),
+                49,
+                13,
+            ),
+            line: 49,
+            column: 56,
+        },
+    ],
+    else_block: Some(
+        [
+            DisplayStatement {
+                value: Literal(
+                    String(
+                        "✗ Conditional: Failed to detect Alice",
+                    ),
+                    51,
+                    13,
+                ),
+                line: 51,
+                column: 54,
+            },
+        ],
+    ),
+    line: 48,
+    column: 1,
+}
+
+Statement #32: IfStatement {
+    condition: BinaryOperation {
+        left: Variable(
+            "user age",
+            54,
+            10,
+        ),
+        operator: GreaterThan,
+        right: Literal(
+            Integer(
+                25,
+            ),
+            54,
+            35,
+        ),
+        line: 54,
+        column: 19,
+    },
+    then_block: [
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✓ Conditional: Age check passed",
+                ),
+                55,
+                13,
+            ),
+            line: 55,
+            column: 48,
+        },
+    ],
+    else_block: Some(
+        [
+            DisplayStatement {
+                value: Literal(
+                    String(
+                        "✗ Conditional: Age check failed",
+                    ),
+                    57,
+                    13,
+                ),
+                line: 57,
+                column: 48,
+            },
+        ],
+    ),
+    line: 54,
+    column: 1,
+}
+
+Statement #33: IfStatement {
+    condition: Variable(
+        "is_active",
+        60,
+        10,
+    ),
+    then_block: [
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✓ Conditional: Boolean check passed",
+                ),
+                61,
+                13,
+            ),
+            line: 61,
+            column: 52,
+        },
+    ],
+    else_block: Some(
+        [
+            DisplayStatement {
+                value: Literal(
+                    String(
+                        "✗ Conditional: Boolean check failed",
+                    ),
+                    63,
+                    13,
+                ),
+                line: 63,
+                column: 52,
+            },
+        ],
+    ),
+    line: 60,
+    column: 1,
+}
+
+Statement #34: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        65,
+        9,
+    ),
+    line: 65,
+    column: 11,
+}
+
+Statement #35: DisplayStatement {
+    value: Literal(
+        String(
+            "6. Loop Tests",
+        ),
+        68,
+        9,
+    ),
+    line: 68,
+    column: 24,
+}
+
+Statement #36: DisplayStatement {
+    value: Literal(
+        String(
+            "Count loop from 1 to 5:",
+        ),
+        70,
+        9,
+    ),
+    line: 70,
+    column: 34,
+}
+
+Statement #37: CountLoop {
+    start: Literal(
+        Integer(
+            1,
+        ),
+        71,
+        12,
+    ),
+    end: Literal(
+        Integer(
+            5,
+        ),
+        71,
+        17,
+    ),
+    step: None,
+    downward: false,
+    variable_name: None,
+    body: [
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "  Count: ",
+                    ),
+                    72,
+                    13,
+                ),
+                right: Variable(
+                    "count",
+                    72,
+                    30,
+                ),
+                line: 72,
+                column: 25,
+            },
+            line: 72,
+            column: 35,
+        },
+    ],
+    line: 73,
+    column: 10,
+}
+
+Statement #38: DisplayStatement {
+    value: Literal(
+        String(
+            "Count loop with step:",
+        ),
+        75,
+        9,
+    ),
+    line: 75,
+    column: 32,
+}
+
+Statement #39: CountLoop {
+    start: Literal(
+        Integer(
+            0,
+        ),
+        76,
+        12,
+    ),
+    end: Literal(
+        Integer(
+            10,
+        ),
+        76,
+        17,
+    ),
+    step: Some(
+        Literal(
+            Integer(
+                2,
+            ),
+            76,
+            23,
+        ),
+    ),
+    downward: false,
+    variable_name: None,
+    body: [
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "  Even: ",
+                    ),
+                    77,
+                    13,
+                ),
+                right: Variable(
+                    "count",
+                    77,
+                    29,
+                ),
+                line: 77,
+                column: 24,
+            },
+            line: 77,
+            column: 34,
+        },
+    ],
+    line: 78,
+    column: 10,
+}
+
+Statement #40: DisplayStatement {
+    value: Literal(
+        String(
+            "Loop variable test:",
+        ),
+        80,
+        9,
+    ),
+    line: 80,
+    column: 30,
+}
+
+Statement #41: VariableDeclaration {
+    name: "loop_message",
+    value: Literal(
+        String(
+            "",
+        ),
+        81,
+        23,
+    ),
+    is_constant: false,
+    line: 81,
+    column: 1,
+}
+
+Statement #42: CountLoop {
+    start: Literal(
+        Integer(
+            1,
+        ),
+        82,
+        12,
+    ),
+    end: Literal(
+        Integer(
+            3,
+        ),
+        82,
+        17,
+    ),
+    step: None,
+    downward: false,
+    variable_name: None,
+    body: [
+        Assignment {
+            name: "loop_message",
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "Iteration ",
+                    ),
+                    83,
+                    28,
+                ),
+                right: Variable(
+                    "count",
+                    83,
+                    46,
+                ),
+                line: 83,
+                column: 41,
+            },
+            line: 83,
+            column: 51,
+        },
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "  ",
+                    ),
+                    84,
+                    13,
+                ),
+                right: Variable(
+                    "loop_message",
+                    84,
+                    23,
+                ),
+                line: 84,
+                column: 18,
+            },
+            line: 84,
+            column: 35,
+        },
+    ],
+    line: 85,
+    column: 10,
+}
+
+Statement #43: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        86,
+        9,
+    ),
+    line: 86,
+    column: 11,
+}
+
+Statement #44: DisplayStatement {
+    value: Literal(
+        String(
+            "7. List Tests",
+        ),
+        89,
+        9,
+    ),
+    line: 89,
+    column: 24,
+}
+
+Statement #45: CreateListStatement {
+    name: "fruits",
+    initial_values: [
+        Literal(
+            String(
+                "apple",
+            ),
+            91,
+            9,
+        ),
+        Literal(
+            String(
+                "banana",
+            ),
+            92,
+            9,
+        ),
+        Literal(
+            String(
+                "orange",
+            ),
+            93,
+            9,
+        ),
+    ],
+    line: 90,
+    column: 1,
+}
+
+Statement #46: DisplayStatement {
+    value: Literal(
+        String(
+            "Created list:",
+        ),
+        96,
+        9,
+    ),
+    line: 96,
+    column: 24,
+}
+
+Statement #47: ForEachLoop {
+    item_name: "fruit",
+    collection: Variable(
+        "fruits",
+        97,
+        19,
+    ),
+    reversed: false,
+    body: [
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "  - ",
+                    ),
+                    98,
+                    13,
+                ),
+                right: Variable(
+                    "fruit",
+                    98,
+                    25,
+                ),
+                line: 98,
+                column: 20,
+            },
+            line: 98,
+            column: 30,
+        },
+    ],
+    line: 99,
+    column: 8,
+}
+
+Statement #48: VariableDeclaration {
+    name: "my numbers",
+    value: Literal(
+        List(
+            [
+                Literal(
+                    Integer(
+                        1,
+                    ),
+                    101,
+                    22,
+                ),
+                Literal(
+                    Integer(
+                        2,
+                    ),
+                    101,
+                    28,
+                ),
+                Literal(
+                    Integer(
+                        3,
+                    ),
+                    101,
+                    34,
+                ),
+                Literal(
+                    Integer(
+                        4,
+                    ),
+                    101,
+                    40,
+                ),
+                Literal(
+                    Integer(
+                        5,
+                    ),
+                    101,
+                    46,
+                ),
+            ],
+        ),
+        101,
+        21,
+    ),
+    is_constant: false,
+    line: 101,
+    column: 1,
+}
+
+Statement #49: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Number list: ",
+            ),
+            102,
+            9,
+        ),
+        right: Variable(
+            "my numbers",
+            102,
+            30,
+        ),
+        line: 102,
+        column: 25,
+    },
+    line: 102,
+    column: 40,
+}
+
+Statement #50: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "List length: ",
+            ),
+            103,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "length",
+                103,
+                30,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "my numbers",
+                        103,
+                        40,
+                    ),
+                },
+            ],
+            line: 103,
+            column: 37,
+        },
+        line: 103,
+        column: 25,
+    },
+    line: 103,
+    column: 50,
+}
+
+Statement #51: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        104,
+        9,
+    ),
+    line: 104,
+    column: 11,
+}
+
+Statement #52: DisplayStatement {
+    value: Literal(
+        String(
+            "8. Text Operations",
+        ),
+        107,
+        9,
+    ),
+    line: 107,
+    column: 29,
+}
+
+Statement #53: VariableDeclaration {
+    name: "welcome",
+    value: Literal(
+        String(
+            "Welcome to WFL",
+        ),
+        108,
+        18,
+    ),
+    is_constant: false,
+    line: 108,
+    column: 1,
+}
+
+Statement #54: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Original: ",
+            ),
+            109,
+            9,
+        ),
+        right: Variable(
+            "welcome",
+            109,
+            27,
+        ),
+        line: 109,
+        column: 22,
+    },
+    line: 109,
+    column: 34,
+}
+
+Statement #55: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Uppercase: ",
+            ),
+            110,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "touppercase",
+                110,
+                28,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "welcome",
+                        110,
+                        43,
+                    ),
+                },
+            ],
+            line: 110,
+            column: 40,
+        },
+        line: 110,
+        column: 23,
+    },
+    line: 110,
+    column: 50,
+}
+
+Statement #56: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Lowercase: ",
+            ),
+            111,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "tolowercase",
+                111,
+                28,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "welcome",
+                        111,
+                        43,
+                    ),
+                },
+            ],
+            line: 111,
+            column: 40,
+        },
+        line: 111,
+        column: 23,
+    },
+    line: 111,
+    column: 50,
+}
+
+Statement #57: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Length: ",
+            ),
+            112,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "length",
+                112,
+                25,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "welcome",
+                        112,
+                        35,
+                    ),
+                },
+            ],
+            line: 112,
+            column: 32,
+        },
+        line: 112,
+        column: 20,
+    },
+    line: 112,
+    column: 42,
+}
+
+Statement #58: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Length of welcome: ",
+            ),
+            113,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "length",
+                113,
+                36,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "welcome",
+                        113,
+                        46,
+                    ),
+                },
+            ],
+            line: 113,
+            column: 43,
+        },
+        line: 113,
+        column: 31,
+    },
+    line: 113,
+    column: 53,
+}
+
+Statement #59: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Substring (0,7): ",
+            ),
+            114,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "substring",
+                114,
+                34,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "welcome",
+                        114,
+                        47,
+                    ),
+                },
+                Argument {
+                    name: None,
+                    value: Literal(
+                        Integer(
+                            0,
+                        ),
+                        114,
+                        59,
+                    ),
+                },
+                Argument {
+                    name: None,
+                    value: Literal(
+                        Integer(
+                            7,
+                        ),
+                        114,
+                        65,
+                    ),
+                },
+            ],
+            line: 114,
+            column: 44,
+        },
+        line: 114,
+        column: 29,
+    },
+    line: 114,
+    column: 66,
+}
+
+Statement #60: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        115,
+        9,
+    ),
+    line: 115,
+    column: 11,
+}
+
+Statement #61: DisplayStatement {
+    value: Literal(
+        String(
+            "9. Mathematical Operations",
+        ),
+        118,
+        9,
+    ),
+    line: 118,
+    column: 37,
+}
+
+Statement #62: VariableDeclaration {
+    name: "x",
+    value: Literal(
+        Integer(
+            10,
+        ),
+        119,
+        12,
+    ),
+    is_constant: false,
+    line: 119,
+    column: 1,
+}
+
+Statement #63: VariableDeclaration {
+    name: "y",
+    value: Literal(
+        Integer(
+            3,
+        ),
+        120,
+        12,
+    ),
+    is_constant: false,
+    line: 120,
+    column: 1,
+}
+
+Statement #64: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "x = ",
+            ),
+            121,
+            9,
+        ),
+        right: Concatenation {
+            left: Variable(
+                "x",
+                121,
+                21,
+            ),
+            right: Concatenation {
+                left: Literal(
+                    String(
+                        ", y = ",
+                    ),
+                    121,
+                    28,
+                ),
+                right: Variable(
+                    "y",
+                    121,
+                    42,
+                ),
+                line: 121,
+                column: 37,
+            },
+            line: 121,
+            column: 23,
+        },
+        line: 121,
+        column: 16,
+    },
+    line: 121,
+    column: 43,
+}
+
+Statement #65: VariableDeclaration {
+    name: "negative_number",
+    value: BinaryOperation {
+        left: Literal(
+            Integer(
+                0,
+            ),
+            122,
+            26,
+        ),
+        operator: Minus,
+        right: Literal(
+            Integer(
+                5,
+            ),
+            122,
+            30,
+        ),
+        line: 122,
+        column: 28,
+    },
+    is_constant: false,
+    line: 122,
+    column: 1,
+}
+
+Statement #66: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "abs of negative = ",
+            ),
+            123,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "abs",
+                123,
+                35,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "negative_number",
+                        123,
+                        42,
+                    ),
+                },
+            ],
+            line: 123,
+            column: 39,
+        },
+        line: 123,
+        column: 30,
+    },
+    line: 123,
+    column: 57,
+}
+
+Statement #67: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "round(3.7) = ",
+            ),
+            124,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "round",
+                124,
+                30,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Literal(
+                        Float(
+                            3.7,
+                        ),
+                        124,
+                        39,
+                    ),
+                },
+            ],
+            line: 124,
+            column: 36,
+        },
+        line: 124,
+        column: 25,
+    },
+    line: 124,
+    column: 42,
+}
+
+Statement #68: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "floor(3.7) = ",
+            ),
+            125,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "floor",
+                125,
+                30,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Literal(
+                        Float(
+                            3.7,
+                        ),
+                        125,
+                        39,
+                    ),
+                },
+            ],
+            line: 125,
+            column: 36,
+        },
+        line: 125,
+        column: 25,
+    },
+    line: 125,
+    column: 42,
+}
+
+Statement #69: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "ceil(3.2) = ",
+            ),
+            126,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "ceil",
+                126,
+                29,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Literal(
+                        Float(
+                            3.2,
+                        ),
+                        126,
+                        37,
+                    ),
+                },
+            ],
+            line: 126,
+            column: 34,
+        },
+        line: 126,
+        column: 24,
+    },
+    line: 126,
+    column: 40,
+}
+
+Statement #70: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        127,
+        9,
+    ),
+    line: 127,
+    column: 11,
+}
+
+Statement #71: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Basic Syntax Tests Completed ===",
+        ),
+        129,
+        9,
+    ),
+    line: 129,
+    column: 9,
+}

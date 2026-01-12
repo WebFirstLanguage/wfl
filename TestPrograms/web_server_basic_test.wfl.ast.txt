@@ -1,0 +1,101 @@
+AST output for: TestPrograms/web_server_basic_test.wfl
+==============================================
+
+Program with 4 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Basic Web Server Test ===",
+        ),
+        5,
+        9,
+    ),
+    line: 5,
+    column: 40,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "Testing basic server startup...",
+        ),
+        8,
+        9,
+    ),
+    line: 8,
+    column: 42,
+}
+
+Statement #3: TryStatement {
+    body: [
+        ListenStatement {
+            port: Literal(
+                Integer(
+                    8081,
+                ),
+                11,
+                20,
+            ),
+            server_name: "test_server",
+            line: 11,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✓ Server started successfully",
+                ),
+                12,
+                13,
+            ),
+            line: 12,
+            column: 46,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Server is listening on port 8081",
+                ),
+                15,
+                13,
+            ),
+            line: 15,
+            column: 47,
+        },
+    ],
+    when_clauses: [
+        WhenClause {
+            error_type: General,
+            error_name: "error",
+            body: [
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "✗ Server startup failed (expected for now)",
+                        ),
+                        18,
+                        13,
+                    ),
+                    line: 18,
+                    column: 59,
+                },
+            ],
+        },
+    ],
+    otherwise_block: None,
+    line: 10,
+    column: 1,
+}
+
+Statement #4: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Basic Web Server Test Complete ===",
+        ),
+        21,
+        9,
+    ),
+    line: 21,
+    column: 49,
+}

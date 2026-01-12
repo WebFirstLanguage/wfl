@@ -1,0 +1,124 @@
+AST output for: TestPrograms/test_web_server_response.wfl
+==============================================
+
+Program with 6 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Web Server Response Test ===",
+        ),
+        4,
+        9,
+    ),
+    line: 4,
+    column: 43,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "Starting web server on port 8082...",
+        ),
+        7,
+        9,
+    ),
+    line: 7,
+    column: 46,
+}
+
+Statement #3: ListenStatement {
+    port: Literal(
+        Integer(
+            8082,
+        ),
+        8,
+        16,
+    ),
+    server_name: "test_server",
+    line: 8,
+    column: 1,
+}
+
+Statement #4: DisplayStatement {
+    value: Literal(
+        String(
+            "Making request to the server...",
+        ),
+        11,
+        9,
+    ),
+    line: 11,
+    column: 42,
+}
+
+Statement #5: TryStatement {
+    body: [
+        HttpGetStatement {
+            url: Literal(
+                String(
+                    "http://127.0.0.1:8082/",
+                ),
+                13,
+                17,
+            ),
+            variable_name: "server_response",
+            line: 13,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Response received:",
+                ),
+                14,
+                13,
+            ),
+            line: 14,
+            column: 33,
+        },
+        DisplayStatement {
+            value: Variable(
+                "server_response",
+                15,
+                13,
+            ),
+            line: 15,
+            column: 28,
+        },
+    ],
+    when_clauses: [
+        WhenClause {
+            error_type: General,
+            error_name: "error",
+            body: [
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "Could not connect to server (this is expected as the server runs in background)",
+                        ),
+                        17,
+                        13,
+                    ),
+                    line: 17,
+                    column: 94,
+                },
+            ],
+        },
+    ],
+    otherwise_block: None,
+    line: 12,
+    column: 1,
+}
+
+Statement #6: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Web Server Response Test Complete ===",
+        ),
+        20,
+        9,
+    ),
+    line: 20,
+    column: 52,
+}

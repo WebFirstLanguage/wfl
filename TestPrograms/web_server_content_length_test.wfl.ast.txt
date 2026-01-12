@@ -1,0 +1,156 @@
+AST output for: TestPrograms/web_server_content_length_test.wfl
+==============================================
+
+Program with 9 statements:
+
+Statement #1: ListenStatement {
+    port: Literal(
+        Integer(
+            8097,
+        ),
+        5,
+        16,
+    ),
+    server_name: "test_server",
+    line: 5,
+    column: 1,
+}
+
+Statement #2: WaitForRequestStatement {
+    server: Variable(
+        "test_server",
+        8,
+        30,
+    ),
+    request_name: "req1",
+    timeout: Some(
+        Literal(
+            Integer(
+                5000,
+            ),
+            8,
+            63,
+        ),
+    ),
+    line: 8,
+    column: 1,
+}
+
+Statement #3: RespondStatement {
+    request: Variable(
+        "req1",
+        9,
+        12,
+    ),
+    content: Literal(
+        String(
+            "Hello",
+        ),
+        9,
+        22,
+    ),
+    status: None,
+    content_type: None,
+    line: 9,
+    column: 1,
+}
+
+Statement #4: WaitForRequestStatement {
+    server: Variable(
+        "test_server",
+        13,
+        30,
+    ),
+    request_name: "req2",
+    timeout: Some(
+        Literal(
+            Integer(
+                5000,
+            ),
+            13,
+            63,
+        ),
+    ),
+    line: 13,
+    column: 1,
+}
+
+Statement #5: RespondStatement {
+    request: Variable(
+        "req2",
+        14,
+        12,
+    ),
+    content: Literal(
+        String(
+            "Hello, 世界!",
+        ),
+        14,
+        22,
+    ),
+    status: None,
+    content_type: None,
+    line: 14,
+    column: 1,
+}
+
+Statement #6: WaitForRequestStatement {
+    server: Variable(
+        "test_server",
+        17,
+        30,
+    ),
+    request_name: "req3",
+    timeout: Some(
+        Literal(
+            Integer(
+                5000,
+            ),
+            17,
+            63,
+        ),
+    ),
+    line: 17,
+    column: 1,
+}
+
+Statement #7: RespondStatement {
+    request: Variable(
+        "req3",
+        18,
+        12,
+    ),
+    content: Literal(
+        String(
+            "",
+        ),
+        18,
+        22,
+    ),
+    status: None,
+    content_type: None,
+    line: 18,
+    column: 1,
+}
+
+Statement #8: CloseServerStatement {
+    server: Variable(
+        "test_server",
+        20,
+        14,
+    ),
+    line: 20,
+    column: 1,
+}
+
+Statement #9: DisplayStatement {
+    value: Literal(
+        String(
+            "Content-Length tests completed",
+        ),
+        21,
+        9,
+    ),
+    line: 21,
+    column: 41,
+}

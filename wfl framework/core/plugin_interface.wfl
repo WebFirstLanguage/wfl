@@ -1,0 +1,71 @@
+// Plugin Interface - Base plugin for WFL MVC Framework
+display "=== Plugin Interface Loaded ==="
+
+// BasePlugin Container
+// All plugins should extend this or follow this interface
+create container BasePlugin:
+    property plugin_name: Text
+    property plugin_version: Text
+    property plugin_enabled: Boolean
+    property initialized: Boolean
+
+    action init_plugin:
+        store plugin_name as "BasePlugin"
+        store plugin_version as "1.0.0"
+        store plugin_enabled as yes
+        store initialized as no
+        display "BasePlugin initialized"
+    end
+
+    action initialize:
+        // Called when plugin is loaded
+        store initialized as yes
+        display "Plugin " with plugin_name with " v" with plugin_version with " initialized"
+    end
+
+    action shutdown:
+        // Called when application shuts down
+        store initialized as no
+        display "Plugin " with plugin_name with " shutting down"
+    end
+
+    action before_request needs req: Container:
+        // Called before each request is processed
+        // Return nothing to continue, or response container to short-circuit
+        display "  [" with plugin_name with "] before_request"
+        return nothing
+    end
+
+    action after_request needs req: Container, res: Container:
+        // Called after route handler but before response sent
+        // Can modify response
+        display "  [" with plugin_name with "] after_request"
+        return res
+    end
+
+    action on_request_complete needs req: Container, res: Container:
+        // Called after response is sent (logging, cleanup)
+        display "  [" with plugin_name with "] request_complete"
+        return nothing
+    end
+
+    action on_error needs error_msg: Text:
+        // Called when error occurs during request
+        display "  [" with plugin_name with "] error: " with error_msg
+        return nothing
+    end
+
+    action is_healthy:
+        check if initialized:
+            return yes
+        otherwise:
+            return no
+        end check
+    end
+
+    action get_info:
+        return plugin_name with " v" with plugin_version
+    end
+end
+
+display "Plugin interface ready"

@@ -1,0 +1,71 @@
+// CORS Plugin - Cross-Origin Resource Sharing
+display "=== CORS Plugin Loaded ==="
+
+// CORS Plugin extending BasePlugin
+create container CorsPlugin:
+    property plugin_name: Text
+    property plugin_version: Text
+    property plugin_enabled: Boolean
+    property initialized: Boolean
+    property allowed_origins: Text
+    property allowed_methods: Text
+    property allowed_headers: Text
+
+    action init_plugin:
+        store plugin_name as "CORS Plugin"
+        store plugin_version as "1.0.0"
+        store plugin_enabled as yes
+        store initialized as no
+        store allowed_origins as "*"
+        store allowed_methods as "GET,POST,PUT,DELETE,OPTIONS"
+        store allowed_headers as "Content-Type,Authorization"
+    end
+
+    action initialize:
+        store initialized as yes
+        display "CORS Plugin initialized"
+        display "  Allowed Origins: " with allowed_origins
+        display "  Allowed Methods: " with allowed_methods
+        display "  Allowed Headers: " with allowed_headers
+    end
+
+    action configure needs origins: Text, methods: Text, headers: Text:
+        store allowed_origins as origins
+        store allowed_methods as methods
+        store allowed_headers as headers
+        display "CORS Plugin configured"
+    end
+
+    action before_request needs req: Container:
+        // CORS doesn't need to run before request
+        return nothing
+    end
+
+    action after_request needs req: Container, res: Container:
+        // Add CORS headers to response
+        display "  [CORS] Adding CORS headers"
+        display "    Access-Control-Allow-Origin: " with allowed_origins
+        display "    Access-Control-Allow-Methods: " with allowed_methods
+        display "    Access-Control-Allow-Headers: " with allowed_headers
+
+        // In real implementation, would add to res.headers
+        // For now, just log that we're adding headers
+
+        return res
+    end
+
+    action on_request_complete needs req: Container, res: Container:
+        return nothing
+    end
+
+    action shutdown:
+        store initialized as no
+        display "CORS Plugin shut down"
+    end
+
+    action is_healthy:
+        return initialized
+    end
+end
+
+display "CORS Plugin ready"

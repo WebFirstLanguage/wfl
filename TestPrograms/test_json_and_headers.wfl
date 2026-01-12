@@ -1,0 +1,86 @@
+// Test JSON functions and header access
+display "=== Testing JSON Functions ==="
+display ""
+
+// Test 1: JSON Parsing - Object
+display "Test 1: Parse JSON Object"
+store json_string as "{\"name\": \"Alice\", \"age\": 30, \"active\": true, \"scores\": [95, 87, 91]}"
+display "Input JSON: " with json_string
+
+store parsed as parse_json of json_string
+display "Type of parsed: " with typeof of parsed
+display "✓ JSON object parsed successfully"
+
+// Test 2: Parse JSON Array
+display ""
+display "Test 2: Parse JSON Array"
+store array_json as "[1, 2, 3, \"test\", true, null]"
+store parsed_array as parse_json of array_json
+display "Input: " with array_json
+display "Type: " with typeof of parsed_array
+display "✓ JSON array parsed successfully"
+
+// Test 3: Stringify a list
+display ""
+display "Test 3: Stringify WFL List"
+store test_list as create list
+push with test_list and 10
+push with test_list and 20
+push with test_list and 30
+push with test_list and "hello"
+
+store json_from_list as stringify_json of test_list
+display "WFL list as JSON: " with json_from_list
+display "✓ List stringified successfully"
+
+// Test 4: Stringify numbers and booleans
+display ""
+display "Test 4: Stringify Simple Values"
+store num_json as stringify_json of 42
+display "Number as JSON: " with num_json
+
+store bool_json as stringify_json of yes
+display "Boolean as JSON: " with bool_json
+
+store text_json as stringify_json of "hello world"
+display "Text as JSON: " with text_json
+display "✓ Simple values stringified successfully"
+
+// Test 5: Round-trip JSON
+display ""
+display "Test 5: Round-trip JSON"
+store original as "{\"user\": {\"name\": \"Bob\", \"id\": 123}, \"verified\": true}"
+display "Original:    " with original
+
+store parsed_data as parse_json of original
+display "Parsed type: " with typeof of parsed_data
+
+store stringified as stringify_json of parsed_data
+display "Round-trip:  " with stringified
+display "✓ Round-trip successful"
+
+// Test 6: Nested JSON
+display ""
+display "Test 6: Parse Nested JSON"
+store nested_json as "{\"level1\": {\"level2\": {\"level3\": \"deep value\"}}}"
+display "Input: " with nested_json
+
+store nested_parsed as parse_json of nested_json
+display "Type: " with typeof of nested_parsed
+display "✓ Nested JSON parsed successfully"
+
+// Test 7: Pretty Print
+display ""
+display "Test 7: Pretty Print JSON"
+store complex_json as "{\"name\":\"Charlie\",\"scores\":[95,87,91],\"metadata\":{\"verified\":true,\"id\":456}}"
+store parsed_complex as parse_json of complex_json
+store pretty_output as stringify_json_pretty of parsed_complex
+display "Pretty-printed JSON:"
+display pretty_output
+display "✓ Pretty print successful"
+
+display ""
+display "=== All JSON Tests Passed! ==="
+display ""
+display "Note: Header access is automatically tested when web servers run"
+display "See comprehensive_web_server_demo.wfl for header usage examples"

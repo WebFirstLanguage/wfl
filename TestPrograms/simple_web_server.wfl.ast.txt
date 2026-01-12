@@ -1,0 +1,219 @@
+AST output for: TestPrograms/simple_web_server.wfl
+==============================================
+
+Program with 13 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Simple WFL Web Server ===",
+        ),
+        4,
+        9,
+    ),
+    line: 4,
+    column: 40,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "Starting web server on port 8080...",
+        ),
+        5,
+        9,
+    ),
+    line: 5,
+    column: 46,
+}
+
+Statement #3: ListenStatement {
+    port: Literal(
+        Integer(
+            8080,
+        ),
+        8,
+        16,
+    ),
+    server_name: "web_server",
+    line: 8,
+    column: 1,
+}
+
+Statement #4: DisplayStatement {
+    value: Literal(
+        String(
+            "✓ Web server started successfully!",
+        ),
+        10,
+        9,
+    ),
+    line: 10,
+    column: 47,
+}
+
+Statement #5: DisplayStatement {
+    value: Literal(
+        String(
+            "Server is listening on port 8080",
+        ),
+        11,
+        9,
+    ),
+    line: 11,
+    column: 43,
+}
+
+Statement #6: DisplayStatement {
+    value: Literal(
+        String(
+            "You can test it by visiting http://127.0.0.1:8080 in your browser",
+        ),
+        12,
+        9,
+    ),
+    line: 12,
+    column: 76,
+}
+
+Statement #7: DisplayStatement {
+    value: Literal(
+        String(
+            "The server will respond with: 'Hello from WFL Web Server!'",
+        ),
+        13,
+        9,
+    ),
+    line: 13,
+    column: 69,
+}
+
+Statement #8: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        15,
+        9,
+    ),
+    line: 15,
+    column: 11,
+}
+
+Statement #9: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Testing the server with a request ===",
+        ),
+        16,
+        9,
+    ),
+    line: 16,
+    column: 52,
+}
+
+Statement #10: TryStatement {
+    body: [
+        HttpGetStatement {
+            url: Literal(
+                String(
+                    "http://127.0.0.1:8080/",
+                ),
+                20,
+                17,
+            ),
+            variable_name: "response_content",
+            line: 20,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✓ Server responded successfully!",
+                ),
+                21,
+                13,
+            ),
+            line: 21,
+            column: 49,
+        },
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "Response: ",
+                    ),
+                    22,
+                    13,
+                ),
+                right: Variable(
+                    "response_content",
+                    22,
+                    31,
+                ),
+                line: 22,
+                column: 26,
+            },
+            line: 22,
+            column: 47,
+        },
+    ],
+    when_clauses: [
+        WhenClause {
+            error_type: General,
+            error_name: "error",
+            body: [
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "✗ Could not connect to server",
+                        ),
+                        24,
+                        13,
+                    ),
+                    line: 24,
+                    column: 46,
+                },
+            ],
+        },
+    ],
+    otherwise_block: None,
+    line: 19,
+    column: 1,
+}
+
+Statement #11: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        27,
+        9,
+    ),
+    line: 27,
+    column: 11,
+}
+
+Statement #12: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Simple Web Server Demo Complete ===",
+        ),
+        28,
+        9,
+    ),
+    line: 28,
+    column: 50,
+}
+
+Statement #13: DisplayStatement {
+    value: Literal(
+        String(
+            "The server is running in the background and will continue to serve requests.",
+        ),
+        29,
+        9,
+    ),
+    line: 29,
+    column: 87,
+}

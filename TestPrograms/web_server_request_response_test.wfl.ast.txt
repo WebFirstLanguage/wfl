@@ -1,0 +1,763 @@
+AST output for: TestPrograms/web_server_request_response_test.wfl
+==============================================
+
+Program with 15 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Web Server Request/Response Test ===",
+        ),
+        5,
+        9,
+    ),
+    line: 5,
+    column: 51,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "This test validates basic HTTP request/response functionality",
+        ),
+        6,
+        9,
+    ),
+    line: 6,
+    column: 72,
+}
+
+Statement #3: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        7,
+        9,
+    ),
+    line: 7,
+    column: 11,
+}
+
+Statement #4: VariableDeclaration {
+    name: "test_port",
+    value: Literal(
+        Integer(
+            8090,
+        ),
+        10,
+        20,
+    ),
+    is_constant: false,
+    line: 10,
+    column: 1,
+}
+
+Statement #5: VariableDeclaration {
+    name: "test_timeout",
+    value: Literal(
+        Integer(
+            5000,
+        ),
+        11,
+        23,
+    ),
+    is_constant: false,
+    line: 11,
+    column: 1,
+}
+
+Statement #6: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Starting web server on port ",
+            ),
+            13,
+            9,
+        ),
+        right: Concatenation {
+            left: Variable(
+                "test_port",
+                13,
+                45,
+            ),
+            right: Literal(
+                String(
+                    "...",
+                ),
+                13,
+                60,
+            ),
+            line: 13,
+            column: 55,
+        },
+        line: 13,
+        column: 40,
+    },
+    line: 13,
+    column: 65,
+}
+
+Statement #7: TryStatement {
+    body: [
+        ListenStatement {
+            port: Variable(
+                "test_port",
+                17,
+                20,
+            ),
+            server_name: "test_server",
+            line: 17,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "✓ Server started successfully",
+                ),
+                18,
+                13,
+            ),
+            line: 18,
+            column: 46,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "",
+                ),
+                21,
+                13,
+            ),
+            line: 21,
+            column: 15,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Test 1: Basic request handling",
+                ),
+                22,
+                13,
+            ),
+            line: 22,
+            column: 45,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Waiting for incoming request...",
+                ),
+                23,
+                13,
+            ),
+            line: 23,
+            column: 46,
+        },
+        TryStatement {
+            body: [
+                WaitForRequestStatement {
+                    server: Variable(
+                        "test_server",
+                        27,
+                        38,
+                    ),
+                    request_name: "incoming_request",
+                    timeout: None,
+                    line: 27,
+                    column: 9,
+                },
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "✓ Request received successfully",
+                        ),
+                        28,
+                        17,
+                    ),
+                    line: 28,
+                    column: 52,
+                },
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "Request method: ",
+                            ),
+                            31,
+                            17,
+                        ),
+                        right: Variable(
+                            "method",
+                            31,
+                            41,
+                        ),
+                        line: 31,
+                        column: 36,
+                    },
+                    line: 31,
+                    column: 47,
+                },
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "Request path: ",
+                            ),
+                            32,
+                            17,
+                        ),
+                        right: Variable(
+                            "path",
+                            32,
+                            39,
+                        ),
+                        line: 32,
+                        column: 34,
+                    },
+                    line: 32,
+                    column: 43,
+                },
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "Request client IP: ",
+                            ),
+                            33,
+                            17,
+                        ),
+                        right: Variable(
+                            "client_ip",
+                            33,
+                            44,
+                        ),
+                        line: 33,
+                        column: 39,
+                    },
+                    line: 33,
+                    column: 53,
+                },
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "",
+                        ),
+                        36,
+                        17,
+                    ),
+                    line: 36,
+                    column: 19,
+                },
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "Test 2: Basic response handling",
+                        ),
+                        37,
+                        17,
+                    ),
+                    line: 37,
+                    column: 50,
+                },
+                TryStatement {
+                    body: [
+                        RespondStatement {
+                            request: Variable(
+                                "incoming_request",
+                                41,
+                                24,
+                            ),
+                            content: Literal(
+                                String(
+                                    "Hello from WFL Test Server!",
+                                ),
+                                41,
+                                46,
+                            ),
+                            status: None,
+                            content_type: Some(
+                                Literal(
+                                    String(
+                                        "text/plain",
+                                    ),
+                                    41,
+                                    93,
+                                ),
+                            ),
+                            line: 41,
+                            column: 13,
+                        },
+                        DisplayStatement {
+                            value: Literal(
+                                String(
+                                    "✓ Response sent successfully",
+                                ),
+                                42,
+                                21,
+                            ),
+                            line: 42,
+                            column: 53,
+                        },
+                    ],
+                    when_clauses: [
+                        WhenClause {
+                            error_type: General,
+                            error_name: "error",
+                            body: [
+                                DisplayStatement {
+                                    value: Literal(
+                                        String(
+                                            "✗ EXPECTED FAILURE: Response handling not implemented",
+                                        ),
+                                        45,
+                                        21,
+                                    ),
+                                    line: 45,
+                                    column: 78,
+                                },
+                                DisplayStatement {
+                                    value: Concatenation {
+                                        left: Literal(
+                                            String(
+                                                "Error: ",
+                                            ),
+                                            46,
+                                            21,
+                                        ),
+                                        right: Variable(
+                                            "error",
+                                            46,
+                                            36,
+                                        ),
+                                        line: 46,
+                                        column: 31,
+                                    },
+                                    line: 46,
+                                    column: 41,
+                                },
+                            ],
+                        },
+                    ],
+                    otherwise_block: None,
+                    line: 39,
+                    column: 9,
+                },
+            ],
+            when_clauses: [
+                WhenClause {
+                    error_type: General,
+                    error_name: "error",
+                    body: [
+                        DisplayStatement {
+                            value: Literal(
+                                String(
+                                    "✗ EXPECTED FAILURE: Request handling not implemented",
+                                ),
+                                50,
+                                17,
+                            ),
+                            line: 50,
+                            column: 73,
+                        },
+                        DisplayStatement {
+                            value: Concatenation {
+                                left: Literal(
+                                    String(
+                                        "Error: ",
+                                    ),
+                                    51,
+                                    17,
+                                ),
+                                right: Variable(
+                                    "error",
+                                    51,
+                                    32,
+                                ),
+                                line: 51,
+                                column: 27,
+                            },
+                            line: 51,
+                            column: 37,
+                        },
+                    ],
+                },
+            ],
+            otherwise_block: None,
+            line: 25,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "",
+                ),
+                55,
+                13,
+            ),
+            line: 55,
+            column: 15,
+        },
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Test 3: Additional request handling test",
+                ),
+                56,
+                13,
+            ),
+            line: 56,
+            column: 55,
+        },
+        TryStatement {
+            body: [
+                WaitForRequestStatement {
+                    server: Variable(
+                        "test_server",
+                        59,
+                        38,
+                    ),
+                    request_name: "test_request2",
+                    timeout: None,
+                    line: 59,
+                    column: 9,
+                },
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "Processing additional request",
+                        ),
+                        60,
+                        17,
+                    ),
+                    line: 60,
+                    column: 48,
+                },
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "Path: ",
+                            ),
+                            61,
+                            17,
+                        ),
+                        right: Variable(
+                            "path",
+                            61,
+                            31,
+                        ),
+                        line: 61,
+                        column: 26,
+                    },
+                    line: 61,
+                    column: 35,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: Variable(
+                            "path",
+                            64,
+                            18,
+                        ),
+                        operator: Equals,
+                        right: Literal(
+                            String(
+                                "/json",
+                            ),
+                            64,
+                            35,
+                        ),
+                        line: 64,
+                        column: 23,
+                    },
+                    then_block: [
+                        VariableDeclaration {
+                            name: "json_response",
+                            value: Literal(
+                                String(
+                                    "{\"message\": \"Hello JSON\"}",
+                                ),
+                                65,
+                                36,
+                            ),
+                            is_constant: false,
+                            line: 65,
+                            column: 13,
+                        },
+                        RespondStatement {
+                            request: Variable(
+                                "test_request2",
+                                66,
+                                24,
+                            ),
+                            content: Variable(
+                                "json_response",
+                                66,
+                                43,
+                            ),
+                            status: None,
+                            content_type: Some(
+                                Literal(
+                                    String(
+                                        "application/json",
+                                    ),
+                                    66,
+                                    74,
+                                ),
+                            ),
+                            line: 66,
+                            column: 13,
+                        },
+                        DisplayStatement {
+                            value: Literal(
+                                String(
+                                    "✓ JSON response sent",
+                                ),
+                                67,
+                                21,
+                            ),
+                            line: 67,
+                            column: 45,
+                        },
+                    ],
+                    else_block: Some(
+                        [
+                            VariableDeclaration {
+                                name: "text_response",
+                                value: Literal(
+                                    String(
+                                        "Hello from WFL additional test!",
+                                    ),
+                                    70,
+                                    36,
+                                ),
+                                is_constant: false,
+                                line: 70,
+                                column: 13,
+                            },
+                            RespondStatement {
+                                request: Variable(
+                                    "test_request2",
+                                    71,
+                                    24,
+                                ),
+                                content: Variable(
+                                    "text_response",
+                                    71,
+                                    43,
+                                ),
+                                status: None,
+                                content_type: Some(
+                                    Literal(
+                                        String(
+                                            "text/plain",
+                                        ),
+                                        71,
+                                        74,
+                                    ),
+                                ),
+                                line: 71,
+                                column: 13,
+                            },
+                            DisplayStatement {
+                                value: Literal(
+                                    String(
+                                        "✓ Text response sent",
+                                    ),
+                                    72,
+                                    21,
+                                ),
+                                line: 72,
+                                column: 45,
+                            },
+                        ],
+                    ),
+                    line: 64,
+                    column: 9,
+                },
+            ],
+            when_clauses: [
+                WhenClause {
+                    error_type: General,
+                    error_name: "error",
+                    body: [
+                        DisplayStatement {
+                            value: Literal(
+                                String(
+                                    "✗ EXPECTED FAILURE: Additional request handling not working",
+                                ),
+                                76,
+                                17,
+                            ),
+                            line: 76,
+                            column: 80,
+                        },
+                        DisplayStatement {
+                            value: Concatenation {
+                                left: Literal(
+                                    String(
+                                        "Error: ",
+                                    ),
+                                    77,
+                                    17,
+                                ),
+                                right: Variable(
+                                    "error",
+                                    77,
+                                    32,
+                                ),
+                                line: 77,
+                                column: 27,
+                            },
+                            line: 77,
+                            column: 37,
+                        },
+                    ],
+                },
+            ],
+            otherwise_block: None,
+            line: 58,
+            column: 5,
+        },
+    ],
+    when_clauses: [
+        WhenClause {
+            error_type: General,
+            error_name: "error",
+            body: [
+                DisplayStatement {
+                    value: Literal(
+                        String(
+                            "✗ EXPECTED FAILURE: Server startup or basic functionality failed",
+                        ),
+                        81,
+                        13,
+                    ),
+                    line: 81,
+                    column: 81,
+                },
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "Error: ",
+                            ),
+                            82,
+                            13,
+                        ),
+                        right: Variable(
+                            "error",
+                            82,
+                            28,
+                        ),
+                        line: 82,
+                        column: 23,
+                    },
+                    line: 82,
+                    column: 33,
+                },
+            ],
+        },
+    ],
+    otherwise_block: None,
+    line: 15,
+    column: 1,
+}
+
+Statement #8: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        85,
+        9,
+    ),
+    line: 85,
+    column: 11,
+}
+
+Statement #9: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Web Server Request/Response Test Complete ===",
+        ),
+        86,
+        9,
+    ),
+    line: 86,
+    column: 60,
+}
+
+Statement #10: DisplayStatement {
+    value: Literal(
+        String(
+            "Expected result: This test should FAIL until request/response handling is implemented",
+        ),
+        87,
+        9,
+    ),
+    line: 87,
+    column: 96,
+}
+
+Statement #11: DisplayStatement {
+    value: Literal(
+        String(
+            "Once implemented, this test should PASS and demonstrate:",
+        ),
+        88,
+        9,
+    ),
+    line: 88,
+    column: 67,
+}
+
+Statement #12: DisplayStatement {
+    value: Literal(
+        String(
+            "- Basic server startup",
+        ),
+        89,
+        9,
+    ),
+    line: 89,
+    column: 33,
+}
+
+Statement #13: DisplayStatement {
+    value: Literal(
+        String(
+            "- Request reception and parsing",
+        ),
+        90,
+        9,
+    ),
+    line: 90,
+    column: 42,
+}
+
+Statement #14: DisplayStatement {
+    value: Literal(
+        String(
+            "- Response sending with different content types",
+        ),
+        91,
+        9,
+    ),
+    line: 91,
+    column: 58,
+}
+
+Statement #15: DisplayStatement {
+    value: Literal(
+        String(
+            "- Multiple request handling in a loop",
+        ),
+        92,
+        9,
+    ),
+    line: 92,
+    column: 48,
+}

@@ -1,0 +1,723 @@
+AST output for: G:\Logbie\wfl\wfl framework\examples\blog_app\models.wfl
+==============================================
+
+Program with 3 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Blog Models Loaded ===",
+        ),
+        2,
+        9,
+    ),
+    line: 2,
+    column: 37,
+}
+
+Statement #2: ContainerDefinition {
+    name: "PostModel",
+    extends: None,
+    implements: [],
+    properties: [
+        PropertyDefinition {
+            name: "post_id",
+            property_type: Some(
+                Number,
+            ),
+            default_value: None,
+            validation_rules: [],
+            visibility: Public,
+            is_static: false,
+            line: 6,
+            column: 5,
+        },
+        PropertyDefinition {
+            name: "post_title",
+            property_type: Some(
+                Text,
+            ),
+            default_value: None,
+            validation_rules: [],
+            visibility: Public,
+            is_static: false,
+            line: 7,
+            column: 5,
+        },
+        PropertyDefinition {
+            name: "post_content",
+            property_type: Some(
+                Text,
+            ),
+            default_value: None,
+            validation_rules: [],
+            visibility: Public,
+            is_static: false,
+            line: 8,
+            column: 5,
+        },
+        PropertyDefinition {
+            name: "post_author",
+            property_type: Some(
+                Text,
+            ),
+            default_value: None,
+            validation_rules: [],
+            visibility: Public,
+            is_static: false,
+            line: 9,
+            column: 5,
+        },
+        PropertyDefinition {
+            name: "post_published",
+            property_type: Some(
+                Boolean,
+            ),
+            default_value: None,
+            validation_rules: [],
+            visibility: Public,
+            is_static: false,
+            line: 10,
+            column: 5,
+        },
+        PropertyDefinition {
+            name: "is_valid",
+            property_type: Some(
+                Boolean,
+            ),
+            default_value: None,
+            validation_rules: [],
+            visibility: Public,
+            is_static: false,
+            line: 11,
+            column: 5,
+        },
+        PropertyDefinition {
+            name: "errors_list",
+            property_type: Some(
+                Custom(
+                    "List",
+                ),
+            ),
+            default_value: None,
+            validation_rules: [],
+            visibility: Public,
+            is_static: false,
+            line: 12,
+            column: 5,
+        },
+    ],
+    methods: [
+        ActionDefinition {
+            name: "init_post",
+            parameters: [],
+            body: [
+                VariableDeclaration {
+                    name: "post_id",
+                    value: Literal(
+                        Integer(
+                            0,
+                        ),
+                        15,
+                        26,
+                    ),
+                    is_constant: false,
+                    line: 15,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "post_title",
+                    value: Literal(
+                        String(
+                            "",
+                        ),
+                        16,
+                        29,
+                    ),
+                    is_constant: false,
+                    line: 16,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "post_content",
+                    value: Literal(
+                        String(
+                            "",
+                        ),
+                        17,
+                        31,
+                    ),
+                    is_constant: false,
+                    line: 17,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "post_author",
+                    value: Literal(
+                        String(
+                            "",
+                        ),
+                        18,
+                        30,
+                    ),
+                    is_constant: false,
+                    line: 18,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "post_published",
+                    value: Literal(
+                        Boolean(
+                            false,
+                        ),
+                        19,
+                        33,
+                    ),
+                    is_constant: false,
+                    line: 19,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "is_valid",
+                    value: Literal(
+                        Boolean(
+                            true,
+                        ),
+                        20,
+                        27,
+                    ),
+                    is_constant: false,
+                    line: 20,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "errors_list",
+                    value: Literal(
+                        List(
+                            [],
+                        ),
+                        21,
+                        30,
+                    ),
+                    is_constant: false,
+                    line: 21,
+                    column: 9,
+                },
+            ],
+            return_type: None,
+            line: 0,
+            column: 0,
+        },
+        ActionDefinition {
+            name: "validate",
+            parameters: [],
+            body: [
+                VariableDeclaration {
+                    name: "is_valid",
+                    value: Literal(
+                        Boolean(
+                            true,
+                        ),
+                        25,
+                        27,
+                    ),
+                    is_constant: false,
+                    line: 25,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "errors_list",
+                    value: Literal(
+                        List(
+                            [],
+                        ),
+                        26,
+                        30,
+                    ),
+                    is_constant: false,
+                    line: 26,
+                    column: 9,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: FunctionCall {
+                            function: Variable(
+                                "length",
+                                28,
+                                18,
+                            ),
+                            arguments: [
+                                Argument {
+                                    name: None,
+                                    value: Variable(
+                                        "post_title",
+                                        28,
+                                        28,
+                                    ),
+                                },
+                            ],
+                            line: 28,
+                            column: 25,
+                        },
+                        operator: LessThan,
+                        right: Literal(
+                            Integer(
+                                5,
+                            ),
+                            28,
+                            52,
+                        ),
+                        line: 28,
+                        column: 39,
+                    },
+                    then_block: [
+                        PushStatement {
+                            list: Variable(
+                                "errors_list",
+                                29,
+                                23,
+                            ),
+                            value: Literal(
+                                String(
+                                    "Title must be at least 5 characters",
+                                ),
+                                29,
+                                39,
+                            ),
+                            line: 29,
+                            column: 13,
+                        },
+                        VariableDeclaration {
+                            name: "is_valid",
+                            value: Literal(
+                                Boolean(
+                                    false,
+                                ),
+                                30,
+                                31,
+                            ),
+                            is_constant: false,
+                            line: 30,
+                            column: 13,
+                        },
+                    ],
+                    else_block: None,
+                    line: 28,
+                    column: 9,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: FunctionCall {
+                            function: Variable(
+                                "length",
+                                33,
+                                18,
+                            ),
+                            arguments: [
+                                Argument {
+                                    name: None,
+                                    value: Variable(
+                                        "post_content",
+                                        33,
+                                        28,
+                                    ),
+                                },
+                            ],
+                            line: 33,
+                            column: 25,
+                        },
+                        operator: LessThan,
+                        right: Literal(
+                            Integer(
+                                10,
+                            ),
+                            33,
+                            54,
+                        ),
+                        line: 33,
+                        column: 41,
+                    },
+                    then_block: [
+                        PushStatement {
+                            list: Variable(
+                                "errors_list",
+                                34,
+                                23,
+                            ),
+                            value: Literal(
+                                String(
+                                    "Content must be at least 10 characters",
+                                ),
+                                34,
+                                39,
+                            ),
+                            line: 34,
+                            column: 13,
+                        },
+                        VariableDeclaration {
+                            name: "is_valid",
+                            value: Literal(
+                                Boolean(
+                                    false,
+                                ),
+                                35,
+                                31,
+                            ),
+                            is_constant: false,
+                            line: 35,
+                            column: 13,
+                        },
+                    ],
+                    else_block: None,
+                    line: 33,
+                    column: 9,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: FunctionCall {
+                            function: Variable(
+                                "length",
+                                38,
+                                18,
+                            ),
+                            arguments: [
+                                Argument {
+                                    name: None,
+                                    value: Variable(
+                                        "post_author",
+                                        38,
+                                        28,
+                                    ),
+                                },
+                            ],
+                            line: 38,
+                            column: 25,
+                        },
+                        operator: Equals,
+                        right: Literal(
+                            Integer(
+                                0,
+                            ),
+                            38,
+                            52,
+                        ),
+                        line: 38,
+                        column: 40,
+                    },
+                    then_block: [
+                        PushStatement {
+                            list: Variable(
+                                "errors_list",
+                                39,
+                                23,
+                            ),
+                            value: Literal(
+                                String(
+                                    "Author is required",
+                                ),
+                                39,
+                                39,
+                            ),
+                            line: 39,
+                            column: 13,
+                        },
+                        VariableDeclaration {
+                            name: "is_valid",
+                            value: Literal(
+                                Boolean(
+                                    false,
+                                ),
+                                40,
+                                31,
+                            ),
+                            is_constant: false,
+                            line: 40,
+                            column: 13,
+                        },
+                    ],
+                    else_block: None,
+                    line: 38,
+                    column: 9,
+                },
+                ReturnStatement {
+                    value: Some(
+                        Variable(
+                            "is_valid",
+                            43,
+                            16,
+                        ),
+                    ),
+                    line: 43,
+                    column: 9,
+                },
+            ],
+            return_type: None,
+            line: 0,
+            column: 0,
+        },
+        ActionDefinition {
+            name: "to_json",
+            parameters: [],
+            body: [
+                VariableDeclaration {
+                    name: "json",
+                    value: Literal(
+                        String(
+                            "{",
+                        ),
+                        47,
+                        23,
+                    ),
+                    is_constant: false,
+                    line: 47,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "json",
+                    value: Concatenation {
+                        left: Variable(
+                            "json",
+                            48,
+                            23,
+                        ),
+                        right: Concatenation {
+                            left: Literal(
+                                String(
+                                    "\"id\":",
+                                ),
+                                48,
+                                33,
+                            ),
+                            right: Variable(
+                                "post_id",
+                                48,
+                                48,
+                            ),
+                            line: 48,
+                            column: 43,
+                        },
+                        line: 48,
+                        column: 28,
+                    },
+                    is_constant: false,
+                    line: 48,
+                    column: 9,
+                },
+                Assignment {
+                    name: "json",
+                    value: Concatenation {
+                        left: Variable(
+                            "json",
+                            49,
+                            24,
+                        ),
+                        right: Concatenation {
+                            left: Literal(
+                                String(
+                                    ",\"title\":",
+                                ),
+                                49,
+                                34,
+                            ),
+                            right: FunctionCall {
+                                function: Variable(
+                                    "stringify_json",
+                                    49,
+                                    53,
+                                ),
+                                arguments: [
+                                    Argument {
+                                        name: None,
+                                        value: Variable(
+                                            "post_title",
+                                            49,
+                                            71,
+                                        ),
+                                    },
+                                ],
+                                line: 49,
+                                column: 68,
+                            },
+                            line: 49,
+                            column: 48,
+                        },
+                        line: 49,
+                        column: 29,
+                    },
+                    line: 49,
+                    column: 81,
+                },
+                Assignment {
+                    name: "json",
+                    value: Concatenation {
+                        left: Variable(
+                            "json",
+                            50,
+                            24,
+                        ),
+                        right: Concatenation {
+                            left: Literal(
+                                String(
+                                    ",\"content\":",
+                                ),
+                                50,
+                                34,
+                            ),
+                            right: FunctionCall {
+                                function: Variable(
+                                    "stringify_json",
+                                    50,
+                                    55,
+                                ),
+                                arguments: [
+                                    Argument {
+                                        name: None,
+                                        value: Variable(
+                                            "post_content",
+                                            50,
+                                            73,
+                                        ),
+                                    },
+                                ],
+                                line: 50,
+                                column: 70,
+                            },
+                            line: 50,
+                            column: 50,
+                        },
+                        line: 50,
+                        column: 29,
+                    },
+                    line: 50,
+                    column: 85,
+                },
+                Assignment {
+                    name: "json",
+                    value: Concatenation {
+                        left: Variable(
+                            "json",
+                            51,
+                            24,
+                        ),
+                        right: Concatenation {
+                            left: Literal(
+                                String(
+                                    ",\"author\":",
+                                ),
+                                51,
+                                34,
+                            ),
+                            right: FunctionCall {
+                                function: Variable(
+                                    "stringify_json",
+                                    51,
+                                    54,
+                                ),
+                                arguments: [
+                                    Argument {
+                                        name: None,
+                                        value: Variable(
+                                            "post_author",
+                                            51,
+                                            72,
+                                        ),
+                                    },
+                                ],
+                                line: 51,
+                                column: 69,
+                            },
+                            line: 51,
+                            column: 49,
+                        },
+                        line: 51,
+                        column: 29,
+                    },
+                    line: 51,
+                    column: 83,
+                },
+                Assignment {
+                    name: "json",
+                    value: Concatenation {
+                        left: Variable(
+                            "json",
+                            52,
+                            24,
+                        ),
+                        right: Concatenation {
+                            left: Literal(
+                                String(
+                                    ",\"published\":",
+                                ),
+                                52,
+                                34,
+                            ),
+                            right: Variable(
+                                "post_published",
+                                52,
+                                57,
+                            ),
+                            line: 52,
+                            column: 52,
+                        },
+                        line: 52,
+                        column: 29,
+                    },
+                    line: 52,
+                    column: 71,
+                },
+                Assignment {
+                    name: "json",
+                    value: Concatenation {
+                        left: Variable(
+                            "json",
+                            53,
+                            24,
+                        ),
+                        right: Literal(
+                            String(
+                                "}",
+                            ),
+                            53,
+                            34,
+                        ),
+                        line: 53,
+                        column: 29,
+                    },
+                    line: 53,
+                    column: 37,
+                },
+                ReturnStatement {
+                    value: Some(
+                        Variable(
+                            "json",
+                            54,
+                            16,
+                        ),
+                    ),
+                    line: 54,
+                    column: 9,
+                },
+            ],
+            return_type: None,
+            line: 0,
+            column: 0,
+        },
+    ],
+    events: [],
+    static_properties: [],
+    static_methods: [],
+    line: 5,
+    column: 1,
+}
+
+Statement #3: DisplayStatement {
+    value: Literal(
+        String(
+            "Blog Models ready (PostModel)",
+        ),
+        58,
+        9,
+    ),
+    line: 58,
+    column: 40,
+}
