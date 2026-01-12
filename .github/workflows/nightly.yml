@@ -465,8 +465,32 @@ jobs:
         run: |
           DATE=$(date +'%Y-%m-%d')
           TAG="nightly-${DATE}"
-          git tag -fa "$TAG" -m "Nightly build $DATE"
-          git push -f origin "$TAG"
+
+          # Delete existing local tag if it exists
+          echo "Checking for existing local tag: $TAG"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Deleting existing local tag: $TAG"
+            git tag -d "$TAG"
+          else
+            echo "No existing local tag found"
+          fi
+
+          # Delete existing remote tag if it exists
+          echo "Checking for existing remote tag: $TAG"
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+            echo "Deleting existing remote tag: $TAG"
+            if ! git push origin ":refs/tags/$TAG" 2>&1; then
+              echo "::warning::Failed to delete remote tag $TAG, but continuing (may not exist or insufficient permissions)"
+            fi
+          else
+            echo "No existing remote tag found"
+          fi
+
+          # Create new tag and push
+          echo "Creating new tag: $TAG"
+          git tag -a "$TAG" -m "Nightly build $DATE"
+          echo "Pushing new tag: $TAG"
+          git push origin "$TAG"
 
       - name: Publish or update nightly release
         env:
