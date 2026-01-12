@@ -429,6 +429,12 @@ fn parse_string(lex: &mut logos::Lexer<Token>) -> Result<String, ()> {
     let quoted = lex.slice(); // e.g. "\"Alice\""
     let inner = &quoted[1..quoted.len() - 1]; // strip the surrounding quotes
 
+    // Optimization: if there are no backslashes, we can avoid the expensive loop
+    // and char iteration completely.
+    if !inner.contains('\\') {
+        return Ok(inner.to_string());
+    }
+
     let mut result = String::with_capacity(inner.len());
     let mut chars = inner.chars();
 
