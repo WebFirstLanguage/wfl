@@ -111,6 +111,7 @@ pids
 *.temp
 .tmp/
 .temp/
+tmpclaude-*-cwd/
 
 # =============================================================================
 # Project-specific files
