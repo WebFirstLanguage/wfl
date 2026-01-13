@@ -3,11 +3,11 @@
 // and demonstrates that closures work correctly with weak references
 
 define action called create_counter:
-    store count as 0
+    store my_count as 0
     
     define action called increment:
-        change count to count plus 1
-        return count
+        change my_count to my_count plus 1
+        return my_count
     end action
     
     return increment
@@ -29,11 +29,11 @@ store func as create_nested_funcs with 5000
 
 // Keep calling the nested functions until we reach the counter
 define action called get_counter:
-    store current as func
+    store curr as func
     count from 1 to 5000:
-        store current as current
+        store curr as curr
     end count
-    return current
+    return curr
 end action
 
 store counter as get_counter
