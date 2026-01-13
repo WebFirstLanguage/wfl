@@ -329,7 +329,7 @@ fn parse_bind_address_to_ipv4(addr: &str) -> Option<[u8; 4]> {
             Some([127, 0, 0, 1])
         }
         Err(e) => {
-            log::error!("Failed to parse web_server_bind_address '{}':", addr, e);
+            log::error!("Failed to parse web_server_bind_address '{}': {}", addr, e);
             None
         }
     }
