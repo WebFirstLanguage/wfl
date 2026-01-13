@@ -943,17 +943,151 @@ mod tests {
         assert_eq!(config.log_level, LogLevel::Debug); // Local override
         assert!(!config.snake_case_variables); // Local override
     }
-}
-// This module used to test environment variable interference between tests
-// Since we've modified the tests to properly isolate environment variables,
-// we don't need this module anymore
-#[cfg(test)]
-mod test_reproduce_ci {
-    // This test is now obsolete but we'll keep a simpler version
-    // to make sure environment variables are handled correctly
+
     #[test]
-    fn test_env_var_interference() {
-        // For this test, we don't need to check environment variable interference,
-        // since we've fixed the issue by properly isolating tests.
+    fn test_web_server_bind_address_default() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+
+        // Verify default bind address is localhost
+        assert_eq!(
+            config.web_server_bind_address, "127.0.0.1",
+            "Default web_server_bind_address should be 127.0.0.1"
+        );
+    }
+
+    #[test]
+    fn test_web_server_bind_address_custom_ipv4() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join(".wflcfg");
+
+        let config_content = r#"
+        # Test custom IPv4 bind address
+        web_server_bind_address = 0.0.0.0
+        "#;
+
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(config_content.as_bytes()).unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+
+        assert_eq!(
+            config.web_server_bind_address, "0.0.0.0",
+            "web_server_bind_address should be set to 0.0.0.0"
+        );
+    }
+
+    #[test]
+    fn test_web_server_bind_address_custom_ipv6() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join(".wflcfg");
+
+        let config_content = r#"
+        # Test IPv6 localhost bind address
+        web_server_bind_address = ::1
+        "#;
+
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(config_content.as_bytes()).unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+
+        assert_eq!(
+            config.web_server_bind_address, "::1",
+            "web_server_bind_address should support IPv6 addresses"
+        );
+    }
+
+    #[test]
+    fn test_web_server_bind_address_specific_ip() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join(".wflcfg");
+
+        let config_content = r#"
+        # Test specific IP address
+        web_server_bind_address = 192.168.1.100
+        "#;
+
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(config_content.as_bytes()).unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+
+        assert_eq!(
+            config.web_server_bind_address, "192.168.1.100",
+            "web_server_bind_address should accept specific IP addresses"
+        );
+    }
+
+    #[test]
+    fn test_web_server_bind_address_local_override() {
+        let temp_dir = tempdir().unwrap();
+        let global_config_path = temp_dir.path().join("wfl.cfg");
+
+        let global_config_content = r#"
+        # Global config with default bind address
+        web_server_bind_address = 127.0.0.1
+        "#;
+
+        let mut file = fs::File::create(&global_config_path).unwrap();
+        file.write_all(global_config_content.as_bytes()).unwrap();
+
+        let script_dir = tempdir().unwrap();
+        let local_config_path = script_dir.path().join(".wflcfg");
+
+        let local_config_content = r#"
+        # Local config overrides to all interfaces
+        web_server_bind_address = 0.0.0.0
+        "#;
+
+        let mut file = fs::File::create(&local_config_path).unwrap();
+        file.write_all(local_config_content.as_bytes()).unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some(global_config_path.to_str().unwrap()));
+            load_config_with_global(script_dir.path())
+        });
+
+        assert_eq!(
+            config.web_server_bind_address, "0.0.0.0",
+            "Local config should override global web_server_bind_address"
+        );
+    }
+
+    #[test]
+    fn test_web_server_bind_address_empty_value_uses_default() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join(".wflcfg");
+
+        // Empty value should be ignored, keeping the default
+        let config_content = r#"
+        web_server_bind_address = 
+        "#;
+
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(config_content.as_bytes()).unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+
+        assert_eq!(
+            config.web_server_bind_address, "127.0.0.1",
+            "Empty web_server_bind_address should keep default value"
+        );
     }
 }
