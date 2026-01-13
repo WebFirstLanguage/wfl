@@ -78,6 +78,58 @@ respond to <request> with <content>
 
 Sends a 200 OK response with the specified content.
 
+
+## Configuring Network Binding
+
+By default, WFL web servers bind to **localhost (127.0.0.1)**, which means they only accept connections from the same machine. This is secure by default.
+
+To expose your server on a network, configure the binding address in `.wflcfg`:
+
+### Example: Development (Default - Localhost Only)
+
+Create `.wflcfg` in your project directory:
+
+```ini
+# Bind only to localhost (secure)
+web_server_bind_address = 127.0.0.1
+```
+
+Visit: `http://127.0.0.1:8080`
+
+### Example: Network Deployment
+
+For Docker, Kubernetes, or multi-machine setups:
+
+```ini
+# Bind to all interfaces
+web_server_bind_address = 0.0.0.0
+```
+
+Now accessible from other machines on the network.
+
+### Example: Specific Network Interface
+
+For servers with multiple network cards:
+
+```ini
+# Bind to internal network interface
+web_server_bind_address = 192.168.1.100
+```
+
+### Configuration Precedence
+
+1. **Local project config:** `.wflcfg` in script directory (highest priority)
+2. **Global system config:** `/etc/wfl/wfl.cfg` or Windows equivalent
+3. **Default:** `127.0.0.1` if not specified
+
+### Security Considerations
+
+| Binding | Use Case | Security |
+|---------|----------|----------|
+| `127.0.0.1` | Local development | Maximum - local only |
+| `0.0.0.0` | Public deployment, Docker | Network-wide - needs firewall |
+| Specific IP | Trusted network | Medium - requires network trust |
+
 ## Request Properties
 
 The request variable contains information about the HTTP request:

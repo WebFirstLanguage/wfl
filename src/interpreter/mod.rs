@@ -313,6 +313,24 @@ fn expr_type(expr: &Expression) -> String {
 }
 
 use tokio::io::AsyncReadExt;
+/// Converts a bind address string to [u8; 4] IPv4 array
+/// Falls back to localhost (127.0.0.1) if parsing fails
+fn parse_bind_address_to_ipv4(addr: &str) -> Option<[u8; 4]> {
+    use std::net::IpAddr;
+
+    match addr.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ipv4)) => Some(ipv4.octets()),
+        Ok(IpAddr::V6(_)) => {
+            // IPv6 not yet supported for try_bind_ephemeral
+            log::warn!("IPv6 address '{}' not yet supported for web server binding, using localhost", addr);
+            Some([127, 0, 0, 1])
+        }
+        Err(e) => {
+            log::error!("Failed to parse web_server_bind_address '{}':", addr, e);
+            None
+        }
+    }
+}
 use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
@@ -4059,9 +4077,16 @@ impl Interpreter {
                         },
                     );
 
+
                 // Start the server
+                // Parse bind address from config
+                let bind_ip: [u8; 4] = parse_bind_address_to_ipv4(&self.config.web_server_bind_address)
+                    .unwrap_or([127, 0, 0, 1]); // Fallback to localhost if parsing fails
+
                 let server_task =
-                    warp::serve(routes).try_bind_ephemeral(([127, 0, 0, 1], port_num));
+                    warp::serve(routes).try_bind_ephemeral((bind_ip, port_num));
+
+
 
                 match server_task {
                     Ok((addr, server)) => {

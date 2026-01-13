@@ -39,6 +39,8 @@ pub struct WflConfig {
     pub warn_on_shell_execution: bool,
     // Subprocess resource management
     pub subprocess_config: SubprocessConfig,
+    // Web server network binding
+    pub web_server_bind_address: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,6 +113,8 @@ impl Default for WflConfig {
             warn_on_shell_execution: true,
             // Subprocess resource management defaults
             subprocess_config: SubprocessConfig::default(),
+            // Web server network binding default
+            web_server_bind_address: "127.0.0.1".to_string(),
         }
     }
 }
@@ -542,6 +546,33 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                         );
                     }
                 }
+                "web_server_bind_address" => {
+                    let addr = value.trim().to_string();
+                    
+                    // Validate IP address
+                    if is_valid_ip_address(&addr) {
+                        if config.web_server_bind_address != WflConfig::default().web_server_bind_address {
+                            log::debug!(
+                                "Overriding web_server_bind_address: {} -> {} from {}",
+                                config.web_server_bind_address,
+                                addr,
+                                file.display()
+                            );
+                        }
+                        config.web_server_bind_address = addr;
+                        log::debug!(
+                            "Loaded web_server_bind_address: {} from {}",
+                            config.web_server_bind_address,
+                            file.display()
+                        );
+                    } else {
+                        log::warn!(
+                            "Invalid web_server_bind_address '{}' in {}: not a valid IP address. Using default '127.0.0.1'",
+                            addr,
+                            file.display()
+                        );
+                    }
+                }
                 _ => {
                     log::warn!("Unknown configuration key: {} in {}", key, file.display());
                 }
@@ -645,6 +676,11 @@ pub fn load_config_with_global(script_dir: &Path) -> WflConfig {
 
 pub fn load_timeout(dir: &Path) -> u64 {
     load_config(dir).timeout_seconds
+}
+n/// Validates that a string is a valid IPv4 or IPv6 address
+fn is_valid_ip_address(addr: &str) -> bool {
+    use std::net::IpAddr;
+    addr.parse::<IpAddr>().is_ok()
 }
 
 #[cfg(test)]
