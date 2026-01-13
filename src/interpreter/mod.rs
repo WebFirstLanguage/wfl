@@ -322,7 +322,10 @@ fn parse_bind_address_to_ipv4(addr: &str) -> Option<[u8; 4]> {
         Ok(IpAddr::V4(ipv4)) => Some(ipv4.octets()),
         Ok(IpAddr::V6(_)) => {
             // IPv6 not yet supported for try_bind_ephemeral
-            log::warn!("IPv6 address '{}' not yet supported for web server binding, using localhost", addr);
+            log::warn!(
+                "IPv6 address '{}' not yet supported for web server binding, using localhost",
+                addr
+            );
             Some([127, 0, 0, 1])
         }
         Err(e) => {
@@ -4077,16 +4080,13 @@ impl Interpreter {
                         },
                     );
 
-
                 // Start the server
                 // Parse bind address from config
-                let bind_ip: [u8; 4] = parse_bind_address_to_ipv4(&self.config.web_server_bind_address)
-                    .unwrap_or([127, 0, 0, 1]); // Fallback to localhost if parsing fails
+                let bind_ip: [u8; 4] =
+                    parse_bind_address_to_ipv4(&self.config.web_server_bind_address)
+                        .unwrap_or([127, 0, 0, 1]); // Fallback to localhost if parsing fails
 
-                let server_task =
-                    warp::serve(routes).try_bind_ephemeral((bind_ip, port_num));
-
-
+                let server_task = warp::serve(routes).try_bind_ephemeral((bind_ip, port_num));
 
                 match server_task {
                     Ok((addr, server)) => {
