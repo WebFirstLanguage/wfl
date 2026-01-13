@@ -2,3 +2,8 @@ timeout_seconds = 60
 logging_enabled = false
 debug_report_enabled = true
 log_level = info
+
+
+# Web server binding (default: 127.0.0.1 for security)
+# Set to 0.0.0.0 to accept connections from the network
+web_server_bind_address = 127.0.0.1

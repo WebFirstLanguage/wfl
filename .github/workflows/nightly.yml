@@ -500,6 +500,31 @@ jobs:
           TAG="nightly-$(date +'%Y-%m-%d')"
           gh release delete "$TAG" --yes 2>/dev/null || true
 
+          # Collect all artifact files to upload with the release
+          # GitHub's immutable releases require assets to be attached during creation
+          MSI_FILES=$(find artifacts -type f -name "*.msi")
+          VSIX_FILES=$(find artifacts -type f -name "*.vsix")
+
+          # Build the list of files to attach and validate them
+          ASSET_FILES=""
+          for f in $MSI_FILES $VSIX_FILES; do
+            if [ ! -s "$f" ]; then
+              echo "::error::Empty or corrupted file: $f"
+              exit 1
+            fi
+            ASSET_FILES="$ASSET_FILES $f"
+          done
+
+          if [ -z "$ASSET_FILES" ]; then
+            echo "::error::No artifact files found to upload"
+            exit 1
+          fi
+
+          echo "Files to upload: $ASSET_FILES"
+          echo "Number of files: $(echo $ASSET_FILES | wc -w)"
+
+          # Create release with assets attached in a single command
+          # This works with immutable releases since assets are part of the creation
           gh release create "$TAG" \
             --title "WFL Nightly Build $(date +'%Y-%m-%d')" \
             --notes "⚠️ Installers are **unsigned** test builds – do not use in production.
@@ -510,9 +535,7 @@ jobs:
           ## Downloads
           - **wfl-${VERSION}.msi** - Windows MSI installer (includes WFL, WFL-LSP, and VS Code extension)
           - **vscode-wfl-${VERSION}.vsix** - VS Code extension (standalone installation)" \
-            --prerelease
+            --prerelease \
+            $ASSET_FILES
 
-          find artifacts -type f -name "*.msi" -exec gh release upload "$TAG" {} \;
-          find artifacts -type f -name "*.vsix" -exec gh release upload "$TAG" {} \;
-
-          echo "Release created successfully: $TAG"
+          echo "Release created successfully: $TAG with $(echo $ASSET_FILES | wc -w) assets"
