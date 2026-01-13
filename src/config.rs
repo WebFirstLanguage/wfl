@@ -548,10 +548,12 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                 }
                 "web_server_bind_address" => {
                     let addr = value.trim().to_string();
-                    
+
                     // Validate IP address
                     if is_valid_ip_address(&addr) {
-                        if config.web_server_bind_address != WflConfig::default().web_server_bind_address {
+                        if config.web_server_bind_address
+                            != WflConfig::default().web_server_bind_address
+                        {
                             log::debug!(
                                 "Overriding web_server_bind_address: {} -> {} from {}",
                                 config.web_server_bind_address,
@@ -677,7 +679,8 @@ pub fn load_config_with_global(script_dir: &Path) -> WflConfig {
 pub fn load_timeout(dir: &Path) -> u64 {
     load_config(dir).timeout_seconds
 }
-n/// Validates that a string is a valid IPv4 or IPv6 address
+
+/// Validates that a string is a valid IPv4 or IPv6 address
 fn is_valid_ip_address(addr: &str) -> bool {
     use std::net::IpAddr;
     addr.parse::<IpAddr>().is_ok()
