@@ -505,9 +505,13 @@ jobs:
           MSI_FILES=$(find artifacts -type f -name "*.msi")
           VSIX_FILES=$(find artifacts -type f -name "*.vsix")
 
-          # Build the list of files to attach
+          # Build the list of files to attach and validate them
           ASSET_FILES=""
           for f in $MSI_FILES $VSIX_FILES; do
+            if [ ! -s "$f" ]; then
+              echo "::error::Empty or corrupted file: $f"
+              exit 1
+            fi
             ASSET_FILES="$ASSET_FILES $f"
           done
 
@@ -516,7 +520,8 @@ jobs:
             exit 1
           fi
 
-          echo "Files to upload:$ASSET_FILES"
+          echo "Files to upload: $ASSET_FILES"
+          echo "Number of files: $(echo $ASSET_FILES | wc -w)"
 
           # Create release with assets attached in a single command
           # This works with immutable releases since assets are part of the creation
@@ -533,4 +538,4 @@ jobs:
             --prerelease \
             $ASSET_FILES
 
-          echo "Release created successfully: $TAG"
+          echo "Release created successfully: $TAG with $(echo $ASSET_FILES | wc -w) assets"
