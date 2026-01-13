@@ -39,6 +39,8 @@ pub struct WflConfig {
     pub warn_on_shell_execution: bool,
     // Subprocess resource management
     pub subprocess_config: SubprocessConfig,
+    // Web server settings
+    pub web_server_bind_address: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,6 +113,8 @@ impl Default for WflConfig {
             warn_on_shell_execution: true,
             // Subprocess resource management defaults
             subprocess_config: SubprocessConfig::default(),
+            // Web server defaults
+            web_server_bind_address: "127.0.0.1".to_string(),
         }
     }
 }
@@ -538,6 +542,28 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                         log::debug!(
                             "Loaded kill_on_shutdown: {} from {}",
                             enabled,
+                            file.display()
+                        );
+                    }
+                }
+                // Web server settings
+                "web_server_bind_address" => {
+                    let addr = value.trim().to_string();
+                    if !addr.is_empty() {
+                        if config.web_server_bind_address
+                            != WflConfig::default().web_server_bind_address
+                        {
+                            log::debug!(
+                                "Overriding web_server_bind_address: {} -> {} from {}",
+                                config.web_server_bind_address,
+                                addr,
+                                file.display()
+                            );
+                        }
+                        config.web_server_bind_address = addr.clone();
+                        log::debug!(
+                            "Loaded web_server_bind_address: {} from {}",
+                            addr,
                             file.display()
                         );
                     }
