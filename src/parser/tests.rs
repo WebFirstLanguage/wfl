@@ -1497,3 +1497,99 @@ store y as x with " more""#;
         panic!("Second statement should be VariableDeclaration");
     }
 }
+
+#[test]
+fn test_respond_statement_with_headers() {
+    // Test that respond statement can parse the optional headers clause
+    // Use 'my_request' instead of 'request' (which is a keyword)
+    let input = r#"respond to my_request with "Hello" and headers my_headers"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Should parse successfully: {:?}", result);
+
+    if let Ok(Statement::RespondStatement {
+        content,
+        headers,
+        status,
+        content_type,
+        ..
+    }) = result
+    {
+        // Content should be "Hello"
+        if let Expression::Literal(Literal::String(s), ..) = content {
+            assert_eq!(s, "Hello", "Content should be 'Hello'");
+        } else {
+            panic!("Content should be string literal, got: {content:?}");
+        }
+
+        // Headers should be present
+        assert!(headers.is_some(), "Headers should be present");
+        if let Some(Expression::Variable(var_name, ..)) = headers {
+            assert_eq!(var_name, "my_headers", "Headers should be variable 'my_headers'");
+        } else {
+            panic!("Headers should be variable 'my_headers'");
+        }
+
+        // Status and content_type should be None
+        assert!(status.is_none(), "Status should be None");
+        assert!(content_type.is_none(), "Content type should be None");
+    } else {
+        panic!("Expected RespondStatement, got: {result:?}");
+    }
+}
+
+#[test]
+fn test_respond_statement_with_all_options() {
+    // Test respond statement with status, content_type, and headers
+    let input = r#"respond to my_req with "data" and status 200 and content_type "application/json" and headers hdrs"#;
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(result.is_ok(), "Should parse successfully: {:?}", result);
+
+    if let Ok(Statement::RespondStatement {
+        content,
+        headers,
+        status,
+        content_type,
+        ..
+    }) = result
+    {
+        // Content should be "data"
+        if let Expression::Literal(Literal::String(s), ..) = content {
+            assert_eq!(s, "data", "Content should be 'data'");
+        } else {
+            panic!("Content should be string literal");
+        }
+
+        // Status should be 200 - could be Integer or Float depending on parser
+        assert!(status.is_some(), "Status should be present");
+        let status_value = match status.unwrap() {
+            Expression::Literal(Literal::Integer(n), ..) => n as f64,
+            Expression::Literal(Literal::Float(n), ..) => n,
+            other => panic!("Status should be numeric literal, got: {other:?}"),
+        };
+        assert!((status_value - 200.0).abs() < 0.001, "Status should be 200, got: {status_value}");
+
+        // Content type should be present
+        assert!(content_type.is_some(), "Content type should be present");
+        if let Some(Expression::Literal(Literal::String(s), ..)) = content_type {
+            assert_eq!(s, "application/json", "Content type should be 'application/json'");
+        } else {
+            panic!("Content type should be string literal");
+        }
+
+        // Headers should be present
+        assert!(headers.is_some(), "Headers should be present");
+        if let Some(Expression::Variable(var_name, ..)) = headers {
+            assert_eq!(var_name, "hdrs", "Headers should be variable 'hdrs'");
+        } else {
+            panic!("Headers should be variable 'hdrs'");
+        }
+    } else {
+        panic!("Expected RespondStatement, got: {result:?}");
+    }
+}
