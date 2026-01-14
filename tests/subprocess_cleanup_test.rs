@@ -170,7 +170,6 @@ fn test_killed_processes_dont_leak() {
 }
 
 #[test]
-#[ignore] // TODO: Verify correct output format for is_process_running after wait
 fn test_wait_for_process_removes_handle() {
     // Verify that wait_for_process properly removes the handle from the HashMap
     let code = r#"
@@ -186,9 +185,12 @@ fn test_wait_for_process_removes_handle() {
     let result = run_wfl(code);
     assert!(result.is_ok(), "wait_for_process should work: {:?}", result);
     let output = result.unwrap();
+    // WFL displays booleans as "yes"/"no" - after wait_for_process removes the handle,
+    // is_process_running returns false which displays as "no"
     assert!(
-        output.contains("false") || output.contains("nothing"),
-        "Process should not be running after wait"
+        output.contains("no"),
+        "Process should not be running after wait (expected 'no', got: {})",
+        output
     );
 }
 
