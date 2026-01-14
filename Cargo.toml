@@ -79,5 +79,9 @@ criterion = "0.4"
 name = "parser_bench"
 harness = false
 
+[[bench]]
+name = "lexer_bench"
+harness = false
+
 [profile.release]
 debug = true
