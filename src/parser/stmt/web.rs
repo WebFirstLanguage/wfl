@@ -54,11 +54,13 @@ impl<'a> WebParser<'a> for Parser<'a> {
         // Parse content expression (use primary to avoid consuming "and")
         let content = self.parse_primary_expression()?;
 
-        // Optional status and content_type
+        // Optional status, content_type, and headers
         let mut status = None;
         let mut content_type = None;
+        let mut headers = None;
 
-        // Check for optional "and" clauses (status and/or content_type)
+        // Check for optional "and" clauses (status, content_type, and/or headers)
+        // Use parse_primary_expression() to avoid consuming "and" as a binary operator
         loop {
             if let Some(token) = self.cursor.peek()
                 && token.token == Token::KeywordAnd
@@ -68,7 +70,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
                     if next_token.token == Token::KeywordStatus {
                         self.bump_sync(); // Consume "and"
                         self.bump_sync(); // Consume "status"
-                        status = Some(self.parse_expression()?);
+                        status = Some(self.parse_primary_expression()?);
                         continue;
                     } else if let Token::Identifier(id) = &next_token.token
                         && (id == "content_type" || id == "content")
@@ -85,7 +87,12 @@ impl<'a> WebParser<'a> for Parser<'a> {
                             self.bump_sync(); // Consume "type"
                         }
 
-                        content_type = Some(self.parse_expression()?);
+                        content_type = Some(self.parse_primary_expression()?);
+                        continue;
+                    } else if next_token.token == Token::KeywordHeaders {
+                        self.bump_sync(); // Consume "and"
+                        self.bump_sync(); // Consume "headers"
+                        headers = Some(self.parse_primary_expression()?);
                         continue;
                     }
                 }
@@ -98,6 +105,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
             content,
             status,
             content_type,
+            headers,
             line: respond_token.line,
             column: respond_token.column,
         })
