@@ -28,7 +28,7 @@ fn benchmark_lexer_no_strings(c: &mut Criterion) {
         input.push_str(&i.to_string());
         input.push_str(" as ");
         input.push_str(&i.to_string());
-        input.push_str("\n");
+        input.push('\n');
     }
 
     c.bench_function("lex_large_no_strings", |b| {
