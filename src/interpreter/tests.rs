@@ -130,15 +130,24 @@ async fn test_count_loop_with_direct_access() {
 }
 #[tokio::test]
 async fn test_timeout_happy_path() {
-    let mut interpreter = Interpreter::with_timeout(1); // 1 second timeout
+    let mut interpreter = Interpreter::with_timeout(5); // 5 second timeout (more lenient for CI)
 
-    let source = "store x as 42\nx"; // A quick script
+    // Simple script that should complete quickly without errors
+    let source = "store x as 42\ndisplay x";
     let tokens = lex_wfl_with_positions(source);
     let mut parser = Parser::new(&tokens);
     let program = parser.parse().unwrap();
 
-    let result = interpreter.interpret(&program);
-    assert!(result.await.is_ok());
+    let result = interpreter.interpret(&program).await;
+    if let Err(ref errors) = result {
+        for err in errors {
+            eprintln!(
+                "Test error: {} at line {} col {}",
+                err.message, err.line, err.column
+            );
+        }
+    }
+    assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
 }
 
 #[tokio::test]

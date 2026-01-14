@@ -143,6 +143,8 @@ pub enum Token {
     KeywordComes,
     #[token("status")]
     KeywordStatus,
+    #[token("headers")]
+    KeywordHeaders,
     #[token("least")]
     KeywordLeast,
     #[token("most")]
