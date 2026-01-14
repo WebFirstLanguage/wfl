@@ -20,5 +20,23 @@ fn benchmark_lexer_strings(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, benchmark_lexer_strings);
+fn benchmark_lexer_no_strings(c: &mut Criterion) {
+    // Generate input without string literals to serve as a baseline/control
+    let mut input = String::with_capacity(1024 * 1024);
+    for i in 0..5000 {
+        input.push_str("store var");
+        input.push_str(&i.to_string());
+        input.push_str(" as ");
+        input.push_str(&i.to_string());
+        input.push_str("\n");
+    }
+
+    c.bench_function("lex_large_no_strings", |b| {
+        b.iter(|| {
+            black_box(lex_wfl_with_positions(&input));
+        })
+    });
+}
+
+criterion_group!(benches, benchmark_lexer_strings, benchmark_lexer_no_strings);
 criterion_main!(benches);

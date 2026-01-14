@@ -48,7 +48,9 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
                 if let Some(id) = current_id.take() {
                     tokens.push(Token::Identifier(id));
                 }
-                // Bolt: Optimized to avoid cloning StringLiteral
+                // Bolt: Optimized to avoid cloning StringLiteral.
+                // The token `other` is owned here, so we can consume it directly
+                // without borrowing and cloning the string content.
                 tokens.push(other);
             }
             Err(_) => {
@@ -216,7 +218,9 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                     ));
                 }
 
-                // Bolt: Optimized to avoid cloning StringLiteral
+                // Bolt: Optimized to avoid cloning StringLiteral.
+                // The token `other` is owned here, so we can consume it directly
+                // without borrowing and cloning the string content.
                 tokens.push(TokenWithPosition::with_span(
                     other,
                     token_line,
