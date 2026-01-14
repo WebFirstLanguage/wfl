@@ -2,12 +2,17 @@
 
 ## Project Structure & Modules
 - `src/`: Core compiler/runtime (`main.rs`, `lib.rs`, `repl.rs`, `builtins.rs`).
+- `crates/`: Internal crates (e.g., `wfl_core`).
 - `tests/`: Rust integration/unit tests (e.g., `file_io_*`, `crypto_test.rs`).
 - `TestPrograms/`: End‑to‑end WFL programs that must all pass.
 - `wfl-lsp/`: Language Server workspace member.
 - `vscode-extension/`: VS Code extension integration.
 - `Docs/`: Complete user documentation (organized in 6 sections plus guides/reference). See `Docs/README.md`.
-- `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`).
+- `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`, `sync-branch.sh`).
+- `Tools/`: Helper tools (Python scripts, WFL tools).
+- `Nexus/`: Experimental WFL test programs.
+- `wfl_website/`: Example WFL web application.
+- `Dev diary/`: Development logs and history.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
 ## Core Architecture
