@@ -1495,10 +1495,8 @@ impl TypeChecker {
                 if let Some(headers_expr) = headers {
                     let headers_type = self.infer_expression_type(headers_expr);
                     // Accept Map<Text, Text>, Map<Text, Any>, Map<Any, Any>, Unknown, or Error
-                    let is_valid_map = matches!(
-                        &headers_type,
-                        Type::Map(_, _) | Type::Unknown | Type::Error
-                    );
+                    let is_valid_map =
+                        matches!(&headers_type, Type::Map(_, _) | Type::Unknown | Type::Error);
                     if !is_valid_map {
                         self.type_error(
                             "Headers must be a map".to_string(),

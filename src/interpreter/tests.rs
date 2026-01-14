@@ -141,7 +141,10 @@ async fn test_timeout_happy_path() {
     let result = interpreter.interpret(&program).await;
     if let Err(ref errors) = result {
         for err in errors {
-            eprintln!("Test error: {} at line {} col {}", err.message, err.line, err.column);
+            eprintln!(
+                "Test error: {} at line {} col {}",
+                err.message, err.line, err.column
+            );
         }
     }
     assert!(result.is_ok(), "Expected Ok, got: {:?}", result);

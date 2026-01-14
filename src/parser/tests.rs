@@ -1527,7 +1527,10 @@ fn test_respond_statement_with_headers() {
         // Headers should be present
         assert!(headers.is_some(), "Headers should be present");
         if let Some(Expression::Variable(var_name, ..)) = headers {
-            assert_eq!(var_name, "my_headers", "Headers should be variable 'my_headers'");
+            assert_eq!(
+                var_name, "my_headers",
+                "Headers should be variable 'my_headers'"
+            );
         } else {
             panic!("Headers should be variable 'my_headers'");
         }
@@ -1572,12 +1575,18 @@ fn test_respond_statement_with_all_options() {
             Expression::Literal(Literal::Float(n), ..) => n,
             other => panic!("Status should be numeric literal, got: {other:?}"),
         };
-        assert!((status_value - 200.0).abs() < 0.001, "Status should be 200, got: {status_value}");
+        assert!(
+            (status_value - 200.0).abs() < 0.001,
+            "Status should be 200, got: {status_value}"
+        );
 
         // Content type should be present
         assert!(content_type.is_some(), "Content type should be present");
         if let Some(Expression::Literal(Literal::String(s), ..)) = content_type {
-            assert_eq!(s, "application/json", "Content type should be 'application/json'");
+            assert_eq!(
+                s, "application/json",
+                "Content type should be 'application/json'"
+            );
         } else {
             panic!("Content type should be string literal");
         }
