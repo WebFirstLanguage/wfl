@@ -97,6 +97,10 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 ## Commit & Pull Request Guidelines
 - **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`.
 - **Pull Requests**: Clear description, linked issues, tests added/updated, repro steps.
+- **Before Committing** (REQUIRED): Always run these commands before every commit:
+  1. `cargo fmt --all` - Format all code
+  2. `cargo clippy --all-targets --all-features -- -D warnings` - Check for lints and warnings
+  3. Fix any issues reported by clippy before committing
 - **Pre‑PR Checks**:
   - `cargo fmt --all -- --check`
   - `cargo clippy --all-targets --all-features -- -D warnings`
