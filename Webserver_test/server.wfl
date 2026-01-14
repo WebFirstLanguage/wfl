@@ -1,11 +1,63 @@
-store msg as "Hi i am Azusa"
+store html_page as "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <title>WFL Web Server - Azusa</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 40px;
+            max-width: 600px;
+            text-align: center;
+        }
+        h1 { color: #333; margin-bottom: 10px; }
+        .subtitle { color: #667eea; font-weight: bold; margin-bottom: 20px; font-size: 1.1em; }
+        p { color: #666; line-height: 1.6; margin: 15px 0; }
+        .info {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #667eea;
+        }
+        .status { font-weight: bold; color: #28a745; }
+        .footer { color: #999; font-size: 0.9em; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class=\"container\">
+        <h1>Welcome to WFL Web Server</h1>
+        <div class=\"subtitle\">Powered by WebFirst Language</div>
+        <p>Hi, I'm Azusa - your WFL web server instance!</p>
+        <div class=\"info\">
+            <p>This webpage is being served by a WFL program running on your local machine.</p>
+            <p>WebFirst Language makes it easy to create powerful web servers using natural, readable syntax.</p>
+        </div>
+        <p class=\"status\">Server Status: Running ✓</p>
+        <p class=\"footer\">Served with ♥ from WFL on port 8080</p>
+    </div>
+</body>
+</html>"
 
 listen on port 8080 as web_server
 
 try:
     main loop:
         wait for request comes in on web_server as incoming_request
-        respond to incoming_request with msg
+        respond to incoming_request with html_page and content_type "text/html"
     end loop
 catch:
     display "Server error: " with error

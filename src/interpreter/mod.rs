@@ -46,6 +46,7 @@ use crate::stdlib;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{self, Write};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -4059,9 +4060,23 @@ impl Interpreter {
                         },
                     );
 
+                // Parse the bind address from config
+                let bind_addr: IpAddr = match self.config.web_server_bind_address.parse() {
+                    Ok(addr) => addr,
+                    Err(_) => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Invalid web_server_bind_address in config: '{}'. Expected a valid IP address (e.g., '127.0.0.1' or '0.0.0.0')",
+                                self.config.web_server_bind_address
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
                 // Start the server
-                let server_task =
-                    warp::serve(routes).try_bind_ephemeral(([127, 0, 0, 1], port_num));
+                let server_task = warp::serve(routes).try_bind_ephemeral((bind_addr, port_num));
 
                 match server_task {
                     Ok((addr, server)) => {
