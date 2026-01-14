@@ -1087,7 +1087,7 @@ mod tests {
 
         // Empty value should be ignored, keeping the default
         let config_content = r#"
-        web_server_bind_address = 
+        web_server_bind_address =
         "#;
 
         let mut file = fs::File::create(&config_path).unwrap();
