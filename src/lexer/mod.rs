@@ -48,11 +48,8 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
                 if let Some(id) = current_id.take() {
                     tokens.push(Token::Identifier(id));
                 }
-                if let Token::StringLiteral(s) = &other {
-                    tokens.push(Token::StringLiteral(s.clone()));
-                } else {
-                    tokens.push(other);
-                }
+                // Bolt: Optimized to avoid cloning StringLiteral
+                tokens.push(other);
             }
             Err(_) => {
                 eprintln!(
@@ -219,25 +216,15 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                     ));
                 }
 
-                if let Token::StringLiteral(s) = &other {
-                    tokens.push(TokenWithPosition::with_span(
-                        Token::StringLiteral(s.clone()),
-                        token_line,
-                        token_column,
-                        token_length,
-                        span.start,
-                        span.end,
-                    ));
-                } else {
-                    tokens.push(TokenWithPosition::with_span(
-                        other,
-                        token_line,
-                        token_column,
-                        token_length,
-                        span.start,
-                        span.end,
-                    ));
-                }
+                // Bolt: Optimized to avoid cloning StringLiteral
+                tokens.push(TokenWithPosition::with_span(
+                    other,
+                    token_line,
+                    token_column,
+                    token_length,
+                    span.start,
+                    span.end,
+                ));
             }
             Err(_) => {
                 eprintln!(
