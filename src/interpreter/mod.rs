@@ -4,6 +4,7 @@ pub mod command_sanitizer;
 pub mod control_flow;
 pub mod environment;
 pub mod error;
+pub mod http_security;
 #[cfg(test)]
 mod memory_tests;
 #[cfg(test)]
@@ -4388,7 +4389,7 @@ impl Interpreter {
                     "text/plain".to_string() // Default content type
                 };
 
-                // Evaluate custom headers (optional)
+                // Evaluate custom headers (optional) with security validation
                 let headers_map = if let Some(headers_expr) = headers {
                     let headers_val = self
                         .evaluate_expression(headers_expr, Rc::clone(&env))
@@ -4396,14 +4397,30 @@ impl Interpreter {
                     match headers_val {
                         Value::Object(obj) => {
                             let obj_ref = obj.borrow();
-                            let mut map = HashMap::new();
+                            let mut map = HashMap::with_capacity(obj_ref.len());
                             for (key, value) in obj_ref.iter() {
+                                // Convert value to string
                                 let value_str = match value {
                                     Value::Text(t) => t.as_ref().to_string(),
                                     Value::Number(n) => n.to_string(),
                                     Value::Bool(b) => b.to_string(),
-                                    _ => format!("{:?}", value),
+                                    _ => {
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Header '{}' has invalid value type: expected text, number, or boolean",
+                                                key
+                                            ),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
                                 };
+
+                                // Validate header name and value for security
+                                if let Err(e) = http_security::validate_header(key, &value_str) {
+                                    return Err(RuntimeError::new(e.to_string(), *line, *column));
+                                }
+
                                 map.insert(key.clone(), value_str);
                             }
                             map
