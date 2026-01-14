@@ -173,8 +173,8 @@ mod bind_address_tests {
 
         // Note: This test may fail on systems without IPv6 support
         // We just verify the server attempted to bind to the IPv6 address
-        if response.is_ok() {
-            let body = response.unwrap().text().await.unwrap();
+        if let Ok(resp) = response {
+            let body = resp.text().await.unwrap();
             assert_eq!(body, "OK", "Server should respond correctly on IPv6");
         }
         // If IPv6 is not available, the test passes silently
