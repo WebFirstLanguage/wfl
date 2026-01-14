@@ -5,6 +5,7 @@ use rand::SeedableRng;
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 // Global random number generator state - initialized with entropy
 thread_local! {
@@ -218,6 +219,15 @@ pub fn native_random_seed(args: Vec<Value>) -> Result<Value, RuntimeError> {
     })
 }
 
+/// Generate a UUID v4 (random UUID)
+/// Usage: generate_uuid() -> "550e8400-e29b-41d4-a716-446655440000"
+pub fn native_generate_uuid(_args: Vec<Value>) -> Result<Value, RuntimeError> {
+    use uuid::Uuid;
+
+    let uuid = Uuid::new_v4();
+    Ok(Value::Text(Rc::from(uuid.to_string())))
+}
+
 /// Register all random functions in the environment
 pub fn register_random(env: &mut Environment) {
     let _ = env.define("random", Value::NativeFunction("random", native_random));
@@ -240,6 +250,10 @@ pub fn register_random(env: &mut Environment) {
     let _ = env.define(
         "random_seed",
         Value::NativeFunction("random_seed", native_random_seed),
+    );
+    let _ = env.define(
+        "generate_uuid",
+        Value::NativeFunction("generate_uuid", native_generate_uuid),
     );
 }
 

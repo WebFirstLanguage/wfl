@@ -46,6 +46,7 @@ use crate::stdlib;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{self, Write};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -2258,7 +2259,10 @@ impl Interpreter {
                 let mut _last_value = Value::Null;
                 loop {
                     self.check_time()?;
-                    let result = self.execute_block(body, Rc::clone(&env)).await?;
+
+                    // Create a new scope for each iteration to properly isolate variables
+                    let loop_env = Environment::new_child_env(&env);
+                    let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
                     _last_value = result.0;
 
                     match result.1 {
@@ -2304,7 +2308,10 @@ impl Interpreter {
                 loop {
                     // Note: check_time() will skip timeout check when in_main_loop is true
                     self.check_time()?;
-                    let result = self.execute_block(body, Rc::clone(&env)).await?;
+
+                    // Create a new scope for each iteration to properly isolate variables
+                    let loop_env = Environment::new_child_env(&env);
+                    let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
                     _last_value = result.0;
 
                     match result.1 {
@@ -3945,12 +3952,13 @@ impl Interpreter {
                 let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
 
                 // Create warp routes that handle all HTTP methods and paths
+                // Note: Body size validation is performed manually in the handler below
+                // to allow GET requests without Content-Length headers
                 let request_sender_clone = request_sender.clone();
                 let routes = warp::any()
                     .and(warp::method())
                     .and(warp::path::full())
                     .and(warp::header::headers_cloned())
-                    .and(warp::body::content_length_limit(1_048_576)) // 1MB limit to prevent DoS
                     .and(warp::body::bytes())
                     .and(warp::addr::remote())
                     .and_then(
@@ -3961,6 +3969,17 @@ impl Interpreter {
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
                             async move {
+                                // DoS PROTECTION: Enforce 1MB body size limit
+                                // This maintains the security requirement from web_server_body_limit_test.wfl
+                                const MAX_BODY_SIZE: usize = 1_048_576; // 1MB
+                                if body.len() > MAX_BODY_SIZE {
+                                    return Err(warp::reject::custom(ServerError(format!(
+                                        "Request body too large: {} bytes (limit: {} bytes)",
+                                        body.len(),
+                                        MAX_BODY_SIZE
+                                    ))));
+                                }
+
                                 // Generate unique request ID
                                 let request_id = uuid::Uuid::new_v4().to_string();
 
@@ -4041,9 +4060,23 @@ impl Interpreter {
                         },
                     );
 
+                // Parse the bind address from config
+                let bind_addr: IpAddr = match self.config.web_server_bind_address.parse() {
+                    Ok(addr) => addr,
+                    Err(_) => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Invalid web_server_bind_address in config: '{}'. Expected a valid IP address (e.g., '127.0.0.1' or '0.0.0.0')",
+                                self.config.web_server_bind_address
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
                 // Start the server
-                let server_task =
-                    warp::serve(routes).try_bind_ephemeral(([127, 0, 0, 1], port_num));
+                let server_task = warp::serve(routes).try_bind_ephemeral((bind_addr, port_num));
 
                 match server_task {
                     Ok((addr, server)) => {
@@ -4955,8 +4988,15 @@ impl Interpreter {
 
                 // Check if the object is a container instance
                 if let Value::ContainerInstance(instance_rc) = &object_val_clone {
-                    let instance = instance_rc.borrow();
-                    let container_type = instance.container_type.clone();
+                    // Clone instance_rc for later property write-back
+                    let instance_rc_for_writeback = instance_rc.clone();
+
+                    let (container_type, property_names) = {
+                        let instance = instance_rc.borrow();
+                        let container_type = instance.container_type.clone();
+                        let prop_names: Vec<String> = instance.properties.keys().cloned().collect();
+                        (container_type, prop_names)
+                    };
 
                     // Look up the container definition
                     let container_def = match env.borrow().get(&container_type) {
@@ -5014,7 +5054,7 @@ impl Interpreter {
                         let _ = method_env.borrow_mut().define("this", object_val.clone());
 
                         // Add container properties and events as accessible variables
-                        if let Value::ContainerInstance(instance_rc) = &object_val_clone {
+                        {
                             let instance = instance_rc.borrow();
 
                             // Add properties
@@ -5036,7 +5076,7 @@ impl Interpreter {
                                     );
                                 }
                             }
-                        }
+                        } // Drop instance borrow here
 
                         // Evaluate the arguments
                         let mut arg_values = Vec::with_capacity(arguments.len());
@@ -5061,6 +5101,18 @@ impl Interpreter {
                         let result = self
                             .call_function(&method_function, arg_values, line, column)
                             .await?;
+
+                        // WRITE BACK MODIFIED PROPERTIES TO CONTAINER
+                        // This fixes the property mutation issue where properties modified
+                        // in container actions weren't persisting
+                        for prop_name in property_names {
+                            if let Some(updated_value) = method_env.borrow().get(&prop_name) {
+                                instance_rc_for_writeback
+                                    .borrow_mut()
+                                    .properties
+                                    .insert(prop_name, updated_value);
+                            }
+                        }
 
                         Ok(result)
                     } else {
@@ -5844,12 +5896,39 @@ impl Interpreter {
             Expression::HeaderAccess {
                 header_name,
                 request: _,
-                line: _,
-                column: _,
+                line,
+                column,
             } => {
-                // TODO: Implement header access from HTTP request
-                // For now, return a placeholder value
-                Ok(Value::Text(Rc::from(format!("header_{}", header_name))))
+                // Access the headers object from the environment
+                // Headers are stored as a global variable when wait for request is executed
+                let headers_val = match env.borrow().get("headers") {
+                    Some(val) => val.clone(),
+                    None => {
+                        return Err(RuntimeError::new(
+                            "Cannot access headers: no request in scope. Use 'wait for request comes in' first.".to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Get the specific header from the headers object
+                match &headers_val {
+                    Value::Object(headers_map) => match headers_map.borrow().get(header_name) {
+                        Some(header_value) => Ok(header_value.clone()),
+                        None => Ok(Value::Nothing),
+                    },
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Expected headers to be an object, got {}",
+                                headers_val.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                }
             }
             Expression::CurrentTimeMilliseconds { line: _, column: _ } => {
                 use std::time::{SystemTime, UNIX_EPOCH};

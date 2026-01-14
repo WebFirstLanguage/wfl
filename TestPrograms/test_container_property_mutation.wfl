@@ -1,0 +1,52 @@
+// Test container property mutation behavior
+display "=== Testing Container Property Mutation ==="
+display ""
+
+// Create a counter container
+create container Counter:
+    property value: Number
+
+    action increment:
+        display "  Before: value = " with value
+        store value as value plus 1
+        display "  After: value = " with value
+    end
+
+    action get_value:
+        return value
+    end
+end
+
+create new Counter as my_counter:
+    value is 0
+end
+
+display "Test: Property Mutation in Container Actions"
+display "Initial value: " with my_counter.value
+display ""
+
+display "Calling increment() first time..."
+my_counter.increment()
+display "External view of value: " with my_counter.value
+display ""
+
+display "Calling increment() second time..."
+my_counter.increment()
+display "External view of value: " with my_counter.value
+display ""
+
+display "Calling increment() third time..."
+my_counter.increment()
+display "External view of value: " with my_counter.value
+display ""
+
+display "Using getter action..."
+store value_from_getter as my_counter.get_value()
+display "Value from getter: " with value_from_getter
+display ""
+
+display "=== Test Complete ==="
+display ""
+display "Observation: Check if 'value' increments inside actions persist"
+display "Expected: value should be 3 after three increments"
+display "Actual: " with my_counter.value

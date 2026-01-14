@@ -1,0 +1,11 @@
+// Simple JSON test
+display "Testing JSON functions..."
+
+// Test stringify
+store result as stringify_json of 42
+display "Result: " with result
+
+// Test parse
+store json_text as "{\"name\": \"Alice\", \"age\": 30}"
+store parsed as parse_json of json_text
+display "Parsed type: " with typeof of parsed

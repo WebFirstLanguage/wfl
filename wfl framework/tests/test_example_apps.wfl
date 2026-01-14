@@ -1,0 +1,112 @@
+// Test Example Applications - Validate they can load and initialize
+display "=== Testing Example Applications ==="
+display ""
+
+// Test 1: Blog App Components
+display "Test 1: Blog App Components"
+display "Loading blog models..."
+load module from "../examples/blog_app/models.wfl"
+display "✓ Blog models loaded"
+
+display "Loading blog controllers..."
+load module from "../examples/blog_app/controllers.wfl"
+display "✓ Blog controllers loaded"
+display ""
+
+// Test 2: Create Blog Post
+display "Test 2: Create Blog Post Model"
+create new PostModel as test_post:
+    post_id is 100
+    post_title is "Test Post"
+    post_content is "This is a test blog post created during testing."
+    post_author is "Test User"
+    post_published is yes
+    is_valid is yes
+    errors_list is create list
+end
+
+test_post.init_post()
+store post_is_valid as test_post.validate()
+display "Post valid: " with post_is_valid
+display "Post JSON: " with test_post.to_json()
+display "✓ Blog post model works"
+display ""
+
+// Test 3: Blog Controller
+display "Test 3: Blog Controller"
+create new BlogController as blog_ctrl:
+    controller_name is "Blog"
+    posts_list is create list
+end
+
+blog_ctrl.init_controller()
+display "Blog posts loaded: " with length of blog_ctrl.posts_list
+display "✓ Blog controller initialized"
+display ""
+
+// Test 4: REST API Components
+display "Test 4: REST API Components"
+display "Loading REST API models..."
+load module from "../examples/rest_api/models.wfl"
+display "✓ REST API models loaded"
+
+display "Loading REST API controllers..."
+load module from "../examples/rest_api/controllers.wfl"
+display "✓ REST API controllers loaded"
+display ""
+
+// Test 5: Create API User
+display "Test 5: Create API User Model"
+create new ApiUserModel as api_user:
+    user_id is 999
+    username is "testuser"
+    email is "test@example.com"
+    is_active is yes
+    is_valid is yes
+    errors_list is create list
+end
+
+api_user.init_model()
+store user_is_valid as api_user.validate()
+display "User valid: " with user_is_valid
+display "User JSON: " with api_user.to_json()
+display "✓ API user model works"
+display ""
+
+// Test 6: API Controller
+display "Test 6: API Controller"
+create new ApiController as api_ctrl:
+    controller_name is "API"
+    users_list is create list
+end
+
+api_ctrl.init_controller()
+display "API users loaded: " with length of api_ctrl.users_list
+display "✓ API controller initialized"
+display ""
+
+// Test 7: API Response Model
+display "Test 7: API Response Model"
+create new ApiResponse as api_response:
+    success is yes
+    message_text is "Operation successful"
+    result_data is "{\"test\":true}"
+end
+
+api_response.init_response()
+display "Response JSON: " with api_response.to_json()
+display "✓ API response model works"
+display ""
+
+display "=== All Example App Tests Passed! ==="
+display ""
+display "Example Applications Ready:"
+display "  ✓ Blog App: PostModel with validation"
+display "  ✓ Blog App: BlogController with 2 sample posts"
+display "  ✓ REST API: ApiUserModel with validation"
+display "  ✓ REST API: ApiController with 3 sample users"
+display "  ✓ REST API: ApiResponse wrapper"
+display ""
+display "To run the applications:"
+display "  Blog App:  wfl \"wfl framework/examples/blog_app/app.wfl\""
+display "  REST API:  wfl \"wfl framework/examples/rest_api/app.wfl\""

@@ -512,6 +512,11 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
             if matches!(token.token, Token::KeywordEnd) {
                 break;
             }
+            // Skip Eol tokens between statements
+            if matches!(token.token, Token::Eol) {
+                self.bump_sync(); // Skip Eol between statements
+                continue;
+            }
             body.push(self.parse_statement()?);
         }
 

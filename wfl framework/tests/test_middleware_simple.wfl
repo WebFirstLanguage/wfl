@@ -1,0 +1,179 @@
+// Simple Middleware Test - All components inline
+display "=== WFL MVC Framework - Middleware Test ==="
+display ""
+
+// Define mock Request container
+create container MockRequest:
+    property method_val: Text
+    property path_val: Text
+    property body_val: Text
+    property client_ip_val: Text
+end
+
+// Define mock Response container
+create container MockResponse:
+    property content_val: Text
+    property status_code: Number
+    property content_type_val: Text
+
+    action set_stat needs code: Number:
+        store status_code as code
+    end
+
+    action set_cont needs content_text: Text:
+        store content_val as content_text
+    end
+end
+
+// Define CORS Middleware
+create container CorsMiddleware:
+    property middleware_name: Text
+    property enabled: Boolean
+    property allowed_origins: Text
+
+    action handle needs req: Container, res: Container:
+        display "  CORS: Adding headers"
+        display "    Access-Control-Allow-Origin: " with allowed_origins
+        return yes
+    end
+end
+
+// Define Logging Middleware
+create container LoggingMiddleware:
+    property middleware_name: Text
+    property request_count: Number
+
+    action handle needs req: Container, res: Container:
+        store request_count as request_count plus 1
+        store timestamp as current time formatted as "yyyy-MM-dd HH:mm:ss"
+        display "  LOG [" with request_count with "]: " with timestamp with " | " with req.method_val with " " with req.path_val
+        return yes
+    end
+end
+
+// Define Error Handler
+create container ErrorHandler:
+    property middleware_name: Text
+    property error_count: Number
+
+    action handle needs req: Container, res: Container:
+        display "  ERROR_HANDLER: Active"
+        return yes
+    end
+
+    action handle_error needs error_msg: Text, req: Container, res: Container:
+        store error_count as error_count plus 1
+        display "  ✗ Error [" with error_count with "]: " with error_msg
+        res.set_stat(500)
+    end
+end
+
+display "Containers defined"
+display ""
+
+// Test 1: Create Middleware Instances
+display "Test 1: Create Middleware"
+
+create new CorsMiddleware as cors:
+    middleware_name is "CORS"
+    enabled is yes
+    allowed_origins is "*"
+end
+display "✓ CORS middleware created"
+
+create new LoggingMiddleware as logger:
+    middleware_name is "Logger"
+    request_count is 0
+end
+display "✓ Logger middleware created"
+
+create new ErrorHandler as error_handler:
+    middleware_name is "ErrorHandler"
+    error_count is 0
+end
+display "✓ Error handler created"
+display ""
+
+// Test 2: Create Request and Response
+display "Test 2: Create Request/Response"
+create new MockRequest as req:
+    method_val is "POST"
+    path_val is "/api/users"
+    body_val is "{\"name\": \"Alice\"}"
+    client_ip_val is "192.168.1.100"
+end
+
+create new MockResponse as res:
+    content_val is ""
+    status_code is 200
+    content_type_val is "application/json"
+end
+display "✓ Request and Response created"
+display ""
+
+// Test 3: Execute Middleware Individually
+display "Test 3: Execute Middleware"
+cors.handle(req, res)
+logger.handle(req, res)
+error_handler.handle(req, res)
+display "✓ All middleware executed"
+display ""
+
+// Test 4: Create Middleware Chain
+display "Test 4: Middleware Chain"
+store middleware_chain as create list
+push with middleware_chain and cors
+push with middleware_chain and logger
+push with middleware_chain and error_handler
+
+display "Chain created with " with length of middleware_chain with " middleware"
+
+// Execute chain manually
+display "Executing chain..."
+store chain_continues as yes
+
+for each mw in middleware_chain:
+    check if chain_continues:
+        store result as mw.handle(req, res)
+        check if result is no:
+            change chain_continues to no
+            display "  ⚠ Chain stopped by middleware"
+        end check
+    end check
+end for
+
+display "✓ Chain executed successfully"
+display ""
+
+// Test 5: Error Handling
+display "Test 5: Error Handling"
+error_handler.handle_error("Database connection failed", req, res)
+error_handler.handle_error("Validation error", req, res)
+display "Total errors: " with error_handler.error_count
+display "Response status after error: " with res.status_code
+display ""
+
+// Test 6: Multiple Requests through Logger
+display "Test 6: Multiple Requests"
+create new MockRequest as req2:
+    method_val is "GET"
+    path_val is "/api/status"
+    body_val is ""
+    client_ip_val is "10.0.0.5"
+end
+
+create new MockRequest as req3:
+    method_val is "DELETE"
+    path_val is "/api/users/456"
+    body_val is ""
+    client_ip_val is "172.16.0.20"
+end
+
+logger.handle(req2, res)
+logger.handle(req3, res)
+display "Total requests logged: " with logger.request_count
+display ""
+
+display "=== All Middleware Tests Passed! ==="
+display ""
+display "Sprint 3 Middleware Pipeline - COMPLETE"

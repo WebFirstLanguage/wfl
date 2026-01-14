@@ -465,8 +465,32 @@ jobs:
         run: |
           DATE=$(date +'%Y-%m-%d')
           TAG="nightly-${DATE}"
-          git tag -fa "$TAG" -m "Nightly build $DATE"
-          git push -f origin "$TAG"
+
+          # Delete existing local tag if it exists
+          echo "Checking for existing local tag: $TAG"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Deleting existing local tag: $TAG"
+            git tag -d "$TAG"
+          else
+            echo "No existing local tag found"
+          fi
+
+          # Delete existing remote tag if it exists
+          echo "Checking for existing remote tag: $TAG"
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+            echo "Deleting existing remote tag: $TAG"
+            if ! git push origin ":refs/tags/$TAG" 2>&1; then
+              echo "::warning::Failed to delete remote tag $TAG, but continuing (may not exist or insufficient permissions)"
+            fi
+          else
+            echo "No existing remote tag found"
+          fi
+
+          # Create new tag and push
+          echo "Creating new tag: $TAG"
+          git tag -a "$TAG" -m "Nightly build $DATE"
+          echo "Pushing new tag: $TAG"
+          git push origin "$TAG"
 
       - name: Publish or update nightly release
         env:
@@ -476,6 +500,31 @@ jobs:
           TAG="nightly-$(date +'%Y-%m-%d')"
           gh release delete "$TAG" --yes 2>/dev/null || true
 
+          # Collect all artifact files to upload with the release
+          # GitHub's immutable releases require assets to be attached during creation
+          MSI_FILES=$(find artifacts -type f -name "*.msi")
+          VSIX_FILES=$(find artifacts -type f -name "*.vsix")
+
+          # Build the list of files to attach and validate them
+          ASSET_FILES=""
+          for f in $MSI_FILES $VSIX_FILES; do
+            if [ ! -s "$f" ]; then
+              echo "::error::Empty or corrupted file: $f"
+              exit 1
+            fi
+            ASSET_FILES="$ASSET_FILES $f"
+          done
+
+          if [ -z "$ASSET_FILES" ]; then
+            echo "::error::No artifact files found to upload"
+            exit 1
+          fi
+
+          echo "Files to upload: $ASSET_FILES"
+          echo "Number of files: $(echo $ASSET_FILES | wc -w)"
+
+          # Create release with assets attached in a single command
+          # This works with immutable releases since assets are part of the creation
           gh release create "$TAG" \
             --title "WFL Nightly Build $(date +'%Y-%m-%d')" \
             --notes "⚠️ Installers are **unsigned** test builds – do not use in production.
@@ -486,9 +535,7 @@ jobs:
           ## Downloads
           - **wfl-${VERSION}.msi** - Windows MSI installer (includes WFL, WFL-LSP, and VS Code extension)
           - **vscode-wfl-${VERSION}.vsix** - VS Code extension (standalone installation)" \
-            --prerelease
+            --prerelease \
+            $ASSET_FILES
 
-          find artifacts -type f -name "*.msi" -exec gh release upload "$TAG" {} \;
-          find artifacts -type f -name "*.vsix" -exec gh release upload "$TAG" {} \;
-
-          echo "Release created successfully: $TAG"
+          echo "Release created successfully: $TAG with $(echo $ASSET_FILES | wc -w) assets"

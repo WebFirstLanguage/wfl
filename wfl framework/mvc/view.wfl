@@ -1,0 +1,88 @@
+// View System - Template rendering for WFL MVC Framework
+display "=== View System Loaded ==="
+
+// Base View Container
+create container BaseView:
+    property view_name: Text
+    property template_text: Text
+    property view_data: List
+
+    action init_view:
+        store view_name as "BaseView"
+        store template_text as ""
+        store view_data as create list
+    end
+
+    action set_template needs template: Text:
+        store template_text as template
+    end
+
+    action render:
+        // Base render - just returns template as-is
+        return template_text
+    end
+end
+
+// HTML View - For rendering HTML pages
+create container HtmlView:
+    property view_name: Text
+    property template_text: Text
+    property page_title: Text
+    property page_content: Text
+
+    action init_view:
+        store view_name as "HtmlView"
+        store template_text as ""
+        store page_title as "WFL MVC App"
+        store page_content as ""
+    end
+
+    action set_title needs title: Text:
+        store page_title as title
+    end
+
+    action set_content needs html_content: Text:
+        store page_content as html_content
+    end
+
+    action render:
+        // Build HTML page
+        store html as "<!DOCTYPE html>\n"
+        store html as html with "<html>\n"
+        store html as html with "<head>\n"
+        store html as html with "    <title>" with page_title with "</title>\n"
+        store html as html with "    <style>\n"
+        store html as html with "        body { font-family: Arial, sans-serif; margin: 40px; }\n"
+        store html as html with "        h1 { color: #333; }\n"
+        store html as html with "    </style>\n"
+        store html as html with "</head>\n"
+        store html as html with "<body>\n"
+        store html as html with page_content
+        store html as html with "</body>\n"
+        store html as html with "</html>"
+        return html
+    end
+end
+
+// JSON View - For API responses
+create container JsonView:
+    property view_name: Text
+    property json_data: List
+
+    action init_view:
+        store view_name as "JsonView"
+        store json_data as create list
+    end
+
+    action set_data needs data_obj: List:
+        store json_data as data_obj
+    end
+
+    action render:
+        // Convert data to JSON string
+        store json_str as stringify_json of json_data
+        return json_str
+    end
+end
+
+display "View system ready (BaseView, HtmlView, JsonView)"

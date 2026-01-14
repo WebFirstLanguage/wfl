@@ -4,11 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Structure & Modules
 - `src/`: Core compiler/runtime (`main.rs`, `lib.rs`, `repl.rs`, `builtins.rs`).
+- `crates/`: Internal crates (e.g., `wfl_core`).
 - `tests/`: Rust integration/unit tests (e.g., `file_io_*`, `crypto_test.rs`).
 - `TestPrograms/`: End‑to‑end WFL programs that must all pass.
-- `wfl-lsp/`: Language Server workspace member; `vscode-extension/` for VS Code.
-- `Docs/`: Complete user documentation (43 files across 5 sections). See `Docs/README.md` hub.
-- `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`).
+- `wfl-lsp/`: Language Server workspace member.
+- `vscode-extension/`: VS Code extension integration.
+- `Docs/`: Complete user documentation (organized in 6 sections plus guides/reference). See `Docs/README.md`.
+- `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`, `sync-branch.sh`).
+- `Tools/`: Helper tools (Python scripts, WFL tools).
+- `Nexus/`: Experimental WFL test programs.
+- `wfl_website/`: Example WFL web application.
+- `Dev diary/`: Development logs and history.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
 ## Core Architecture
@@ -20,7 +26,6 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 ```
 
 ### Key Components
-
 - **Lexer** (`src/lexer/`): High-performance tokenization using Logos crate
 - **Parser** (`src/parser/`): Recursive descent parser with natural language constructs and error recovery
   - Includes specialized parsers for containers and AST generation
@@ -51,8 +56,9 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Build**: `cargo build` (release: `cargo build --release`).
 - **Run**: `cargo run -- <file.wfl>` or `target/release/wfl <file.wfl>`.
 - **Test**: `cargo test`; integration requires release binary.
-  - Windows: `./scripts/run_integration_tests.ps1`
-  - Linux/macOS: `./scripts/run_integration_tests.sh`
+  - Integration: `./scripts/run_integration_tests.ps1` or `.sh`
+  - Web Server: `./scripts/run_web_tests.ps1` or `.sh`
+  - Docs Validation: `python scripts/validate_docs_examples.py`
 - **Bench**: `cargo bench` (Criterion).
 - **Format**: `cargo fmt --all`.
 - **Lint**: `cargo clippy --all-targets --all-features -- -D warnings`.
@@ -61,7 +67,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `wfl <file>`: Run a WFL program.
 - `wfl`: Start interactive REPL.
 - `wfl --lint <file>`: Lint WFL code.
-- `wfl --fix <file> --in-place`: Auto-fix WFL code.
+- `wfl --lint --fix <file> --in-place`: Auto-fix WFL code.
 - `wfl --debug <file>`: Debug WFL execution.
 - `wfl --step <file>`: Run in single-step debug mode.
 - `wfl --time <file>`: Run with execution timing.
@@ -126,7 +132,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 
 ## Technical Requirements
 - **Rust Edition**: 2024 (Min: 1.75+, Dev: 1.91.1+)
-- **Versioning**: YY.MM.BUILD (e.g., 26.1.13). Major version always < 256 (Windows MSI compatibility).
+- **Versioning**: YY.MM.BUILD (e.g., 26.1.22). Major version always < 256 (Windows MSI compatibility).
 - **Key Dependencies**:
   - `logos`: Lexer
   - `tokio`: Async runtime
@@ -141,4 +147,4 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Build/Run**: `cargo build -p wfl-lsp`.
 - **Debug**: `RUST_LOG=trace cargo run -p wfl-lsp`.
 - **Setup**: `scripts/configure_lsp.ps1`, `scripts/install_vscode_extension.ps1`.
-- **Docs**: See `Docs/02-getting-started/editor-setup.md` for LSP and MCP integration guides.
+- **Docs**: See `Docs/development/lsp-integration.md` for dev guides and `Docs/02-getting-started/editor-setup.md` for user setup.
