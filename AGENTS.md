@@ -12,6 +12,10 @@
 - `Tools/`: Helper tools (Python scripts, WFL tools).
 - `Nexus/`: Experimental WFL test programs.
 - `wfl_website/`: Example WFL web application.
+- `wfl framework/`: WebFirst Language Framework (MVC, Routing, Middleware).
+- `wflpkg/`: Package management design.
+- `examples/`: Basic WFL examples and benchmarks.
+- `benches/`: Performance benchmarks.
 - `Dev diary/`: Development logs and history.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
