@@ -1,0 +1,42 @@
+
+// Performance and Correctness Test for Substring Optimization
+
+display "--- Basic Correctness ---"
+store text as "Hello, World!"
+display "Original: " with text
+display "Sub(0, 5): " with substring of text and 0 and 5
+display "Sub(7, 5): " with substring of text and 7 and 5
+
+display "--- Edge Cases ---"
+store empty as ""
+display "Empty sub(0, 1): '" with substring of empty and 0 and 1 with "'"
+
+store short as "Hi"
+display "Start > len (3, 1): '" with substring of short and 3 and 1 with "'"
+display "Start = len (2, 1): '" with substring of short and 2 and 1 with "'"
+display "Length > remaining (0, 10): '" with substring of short and 0 and 10 with "'"
+
+display "--- Unicode ---"
+store unicode_text as "Héllo 🦀 World"
+// 'é' is 2 bytes but 1 char. '🦀' is 4 bytes but 1 char.
+// H(0) é(1) l(2) l(3) o(4)  (5) 🦀(6)  (7) W(8)
+display "Unicode full: " with unicode_text
+display "Sub(1, 1) should be 'é': " with substring of unicode_text and 1 and 1
+display "Sub(6, 1) should be '🦀': " with substring of unicode_text and 6 and 1
+display "Sub(5, 4) should be ' 🦀 ': " with substring of unicode_text and 5 and 4
+
+display "--- Large String Performance Test ---"
+// Construct a larger string by repeating
+store chunk as "0123456789"
+store large as ""
+// Append chunk 100 times to make a 1000 char string
+count from 1 to 100:
+    change large to large with chunk
+end count
+
+display "Large string length: " with length of large
+store large_sub as substring of large and 500 and 10
+display "Sub of large (500, 10): " with large_sub
+
+store very_large_start as substring of large and 2000 and 5
+display "Very large start (2000, 5): '" with very_large_start with "'"
