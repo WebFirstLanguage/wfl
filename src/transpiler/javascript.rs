@@ -95,15 +95,22 @@ impl JavaScriptTranspiler {
         }
 
         // Check for main action and call it
-        let has_main = actions
+        let main_action = actions
             .iter()
-            .any(|s| matches!(s, Statement::ActionDefinition { name, .. } if name == "main"));
+            .find(|s| matches!(s, Statement::ActionDefinition { name, .. } if name == "main"));
 
-        if has_main {
-            output.push_str(&self.indent());
-            output.push_str("// Entry point\n");
-            output.push_str(&self.indent());
-            output.push_str("main();\n");
+        if let Some(main_stmt) = main_action {
+            if let Statement::ActionDefinition { body, .. } = main_stmt {
+                let is_main_async = self.contains_async(body);
+                output.push_str(&self.indent());
+                output.push_str("// Entry point\n");
+                output.push_str(&self.indent());
+                if is_main_async {
+                    output.push_str("(async () => { await main(); })();\n");
+                } else {
+                    output.push_str("main();\n");
+                }
+            }
         }
 
         // Close IIFE
@@ -342,7 +349,7 @@ impl JavaScriptTranspiler {
                 let params = parameters
                     .iter()
                     .map(|p| self.transpile_parameter(p))
-                    .collect::<Vec<_>>()
+                    .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
 
                 let async_keyword = if is_async { "async " } else { "" };
@@ -663,15 +670,31 @@ impl JavaScriptTranspiler {
             }
 
             Statement::WaitForStatement { inner, .. } => {
-                // Wrap the inner statement's expression in await
-                let inner_code = self.transpile_statement(inner)?;
-                // If the inner statement ends with a semicolon, we need to handle it
-                let trimmed = inner_code.trim();
-                if trimmed.ends_with(';') {
-                    let expr = &trimmed[..trimmed.len() - 1];
-                    Ok(format!("{}await {};\n", self.indent(), expr.trim_start()))
-                } else {
-                    Ok(format!("{}await {};\n", self.indent(), trimmed))
+                // For variable declarations, we need to await the expression part,
+                // not the entire statement
+                match inner.as_ref() {
+                    Statement::VariableDeclaration { name, value, is_constant, .. } => {
+                        let js_name = self.sanitize_name(name);
+                        let awaited_value = format!("await {}", self.transpile_expression(value)?);
+                        let keyword = if *is_constant { "const" } else { "let" };
+                        Ok(format!("{}{} {} = {};\n", self.indent(), keyword, js_name, awaited_value))
+                    }
+                    Statement::Assignment { name, value, .. } => {
+                        let js_name = self.sanitize_name(name);
+                        let awaited_value = format!("await {}", self.transpile_expression(value)?);
+                        Ok(format!("{}{} = {};\n", self.indent(), js_name, awaited_value))
+                    }
+                    _ => {
+                        // For other statement types, wrap the result in await
+                        let inner_code = self.transpile_statement(inner)?;
+                        let trimmed = inner_code.trim();
+                        if trimmed.ends_with(';') {
+                            let expr = &trimmed[..trimmed.len() - 1];
+                            Ok(format!("{}await {};\n", self.indent(), expr.trim_start()))
+                        } else {
+                            Ok(format!("{}await {};\n", self.indent(), trimmed))
+                        }
+                    }
                 }
             }
 
@@ -867,7 +890,7 @@ impl JavaScriptTranspiler {
                         let params = parameters
                             .iter()
                             .map(|p| self.transpile_parameter(p))
-                            .collect::<Vec<_>>()
+                            .collect::<Result<Vec<_>, _>>()?
                             .join(", ");
 
                         result.push_str(&format!(
@@ -900,7 +923,7 @@ impl JavaScriptTranspiler {
                         let params = parameters
                             .iter()
                             .map(|p| self.transpile_parameter(p))
-                            .collect::<Vec<_>>()
+                            .collect::<Result<Vec<_>, _>>()?
                             .join(", ");
 
                         result.push_str(&format!(
@@ -1093,13 +1116,14 @@ impl JavaScriptTranspiler {
                 ..
             } => {
                 self.warn(
-                    "Web server functionality requires Node.js http module",
+                    "Server functionality has limitations: WFL's web server statements are transpiled to basic Node.js http setup. Features like middleware, routing, and request handling require manual implementation in JS",
                     *line,
                     *column,
                 );
                 let port_expr = self.transpile_expression(port)?;
                 Ok(format!(
-                    "{}const {} = require('http').createServer(); {}.listen({});\n",
+                    "{}// Note: Basic server setup only - implement request handlers manually\n{}const {} = require('http').createServer(); {}.listen({});\n",
+                    self.indent(),
                     self.indent(),
                     self.sanitize_name(server_name),
                     self.sanitize_name(server_name),
@@ -1109,12 +1133,12 @@ impl JavaScriptTranspiler {
 
             Statement::WaitForRequestStatement { line, column, .. } => {
                 self.warn(
-                    "WaitForRequest requires event-driven architecture in JS",
+                    "WaitForRequest cannot be directly transpiled: WFL's synchronous request waiting model doesn't map to JavaScript's event-driven model. Use server.on('request', callback) pattern instead",
                     *line,
                     *column,
                 );
                 Ok(format!(
-                    "{}// WaitForRequest - use server.on('request', callback) pattern\n",
+                    "{}// TODO: WaitForRequest - implement using server.on('request', (req, res) => {{ ... }}) pattern\n",
                     self.indent()
                 ))
             }
@@ -1454,14 +1478,21 @@ impl JavaScriptTranspiler {
     }
 
     /// Transpile a parameter to JavaScript
-    fn transpile_parameter(&self, param: &Parameter) -> String {
+    fn transpile_parameter(&self, param: &Parameter) -> Result<String, TranspileError> {
         let name = self.sanitize_name(&param.name);
         if let Some(default) = &param.default_value {
             // Clone self to transpile the expression (since we need mutable access)
-            let default_val = self.clone().transpile_expression(default).unwrap_or_else(|_| "null".to_string());
-            format!("{} = {}", name, default_val)
+            let mut cloned = self.clone();
+            let default_val = cloned.transpile_expression(default).map_err(|e| {
+                TranspileError {
+                    message: format!("Failed to transpile default value for parameter '{}': {}", name, e),
+                    line: e.line,
+                    column: e.column,
+                }
+            })?;
+            Ok(format!("{} = {}", name, default_val))
         } else {
-            name
+            Ok(name)
         }
     }
 
@@ -1666,6 +1697,58 @@ impl JavaScriptTranspiler {
             key.to_string()
         } else {
             format!("\"{}\"", self.escape_string(key))
+        }
+    }
+
+    /// Create an error with location information from a statement
+    fn error_from_stmt(&self, message: String, stmt: &Statement) -> TranspileError {
+        let (line, column) = self.get_stmt_location(stmt);
+        TranspileError { message, line, column }
+    }
+
+    /// Create an error with location information from an expression
+    fn error_from_expr(&self, message: String, expr: &Expression) -> TranspileError {
+        let (line, column) = self.get_expr_location(expr);
+        TranspileError { message, line, column }
+    }
+
+    /// Get location information from a statement
+    fn get_stmt_location(&self, stmt: &Statement) -> (usize, usize) {
+        match stmt {
+            Statement::VariableDeclaration { line, column, .. } => (*line, *column),
+            Statement::Assignment { line, column, .. } => (*line, *column),
+            Statement::IfStatement { line, column, .. } => (*line, *column),
+            Statement::SingleLineIf { line, column, .. } => (*line, *column),
+            Statement::ForEachLoop { line, column, .. } => (*line, *column),
+            Statement::CountLoop { line, column, .. } => (*line, *column),
+            Statement::WhileLoop { line, column, .. } => (*line, *column),
+            Statement::DisplayStatement { line, column, .. } => (*line, *column),
+            Statement::ReturnStatement { line, column, .. } => (*line, *column),
+            Statement::BreakStatement { line, column, .. } => (*line, *column),
+            Statement::ContinueStatement { line, column, .. } => (*line, *column),
+            Statement::ActionDefinition { line, column, .. } => (*line, *column),
+            Statement::WaitForStatement { line, column, .. } => (*line, *column),
+            Statement::WaitForDurationStatement { line, column, .. } => (*line, *column),
+            // Add more cases as needed, defaulting to 0,0 for now
+            _ => (0, 0),
+        }
+    }
+
+    /// Get location information from an expression
+    fn get_expr_location(&self, expr: &Expression) -> (usize, usize) {
+        match expr {
+            Expression::Literal(_, line, column) => (*line, *column),
+            Expression::Variable(_, line, column) => (*line, *column),
+            Expression::BinaryOperation { line, column, .. } => (*line, *column),
+            Expression::UnaryOperation { line, column, .. } => (*line, *column),
+            Expression::ActionCall { line, column, .. } => (*line, *column),
+            Expression::IndexAccess { line, column, .. } => (*line, *column),
+            Expression::MemberAccess { line, column, .. } => (*line, *column),
+            Expression::FunctionCall { line, column, .. } => (*line, *column),
+            Expression::Concatenation { line, column, .. } => (*line, *column),
+            Expression::PatternMatch { line, column, .. } => (*line, *column),
+            // Add more cases as needed, defaulting to 0,0 for now
+            _ => (0, 0),
         }
     }
 }

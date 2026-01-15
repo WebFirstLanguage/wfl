@@ -483,3 +483,86 @@ display "after"
     let display_before = js.find(r#"WFL.display("before")"#).unwrap();
     assert!(func_pos < display_before, "Function should be hoisted before other statements");
 }
+
+#[test]
+fn test_runtime_inclusion() {
+    let source = r#"
+        store x as 42
+        display x
+    "#;
+    
+    // Parse the source
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().unwrap();
+    
+    // Test with runtime included (default)
+    let config = TranspilerConfig {
+        include_runtime: true,
+        target: TranspilerTarget::Node,
+        ..Default::default()
+    };
+    let result = transpile(&program, &config).unwrap();
+    assert!(result.code.contains("// WFL Runtime Library"));
+    assert!(result.code.contains("const WFL = {"));
+    
+    // Test with runtime excluded
+    let config = TranspilerConfig {
+        include_runtime: false,
+        target: TranspilerTarget::Node,
+        ..Default::default()
+    };
+    let result = transpile(&program, &config).unwrap();
+    assert!(!result.code.contains("// WFL Runtime Library"));
+    assert!(!result.code.contains("const WFL = {"));
+    assert!(result.code.contains("let x = 42"));
+}
+
+#[test]
+fn test_pattern_matching_basic() {
+    let source = r#"
+        create pattern test_pattern:
+            "test"
+            one or more digit
+        end pattern
+        
+        store text as "test123"
+        if text matches test_pattern then
+            display "matches"
+        else
+            display "no match"
+        end if
+    "#;
+    
+    let js = transpile_wfl(source).unwrap();
+    assert_contains(&js, "new WFL.Pattern");
+    println!("Generated JS:\n{}", js);
+}
+
+#[test]
+fn test_async_main_function_detection() {
+    let source = r#"
+        define action called main:
+            wait for 1000 milliseconds
+            display "async main"
+        end action
+    "#;
+    
+    let js = transpile_wfl(source).unwrap();
+    // Should detect async main and wrap in IIFE with await
+    assert_contains(&js, "(async () => { await main(); })()");
+    assert_contains(&js, "async function main()");
+}
+
+#[test]
+fn test_wait_for_with_variable_declaration() {
+    let source = r#"
+        wait for store result as 42
+        display result
+    "#;
+    
+    let js = transpile_wfl(source).unwrap();
+    // Should generate proper await for variable declaration
+    assert_contains(&js, "let result = await 42");
+    assert!(!js.contains("await let"));
+}

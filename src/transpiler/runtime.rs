@@ -9,7 +9,7 @@ pub const RUNTIME_NODE: &str = r#"// WFL Runtime Library for Node.js
 
 const fs = require('fs');
 const path = require('path');
-const { spawn, execSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 // WFL Runtime namespace
 const WFL = {
@@ -144,24 +144,75 @@ const WFL = {
 
   // File operations (Node.js)
   file: {
-    read: (filepath) => fs.readFileSync(filepath, 'utf8'),
-    write: (filepath, content) => fs.writeFileSync(filepath, content, 'utf8'),
-    append: (filepath, content) => fs.appendFileSync(filepath, content, 'utf8'),
-    exists: (filepath) => fs.existsSync(filepath),
-    delete: (filepath) => fs.unlinkSync(filepath),
-    copy: (src, dest) => fs.copyFileSync(src, dest),
-    move: (src, dest) => fs.renameSync(src, dest),
-    size: (filepath) => fs.statSync(filepath).size,
-    isFile: (filepath) => fs.existsSync(filepath) && fs.statSync(filepath).isFile(),
-    isDirectory: (filepath) => fs.existsSync(filepath) && fs.statSync(filepath).isDirectory(),
+    _validatePath: (filepath) => {
+      const resolved = path.resolve(filepath);
+      const normalized = path.normalize(resolved);
+      // Prevent path traversal attacks by checking for suspicious patterns
+      if (normalized.includes('..') || normalized !== resolved) {
+        throw new Error(`Invalid file path: ${filepath}`);
+      }
+      return normalized;
+    },
+    read: (filepath) => {
+      const validPath = WFL.file._validatePath(filepath);
+      return fs.readFileSync(validPath, 'utf8');
+    },
+    write: (filepath, content) => {
+      const validPath = WFL.file._validatePath(filepath);
+      return fs.writeFileSync(validPath, content, 'utf8');
+    },
+    append: (filepath, content) => {
+      const validPath = WFL.file._validatePath(filepath);
+      return fs.appendFileSync(validPath, content, 'utf8');
+    },
+    exists: (filepath) => {
+      const validPath = WFL.file._validatePath(filepath);
+      return fs.existsSync(validPath);
+    },
+    delete: (filepath) => {
+      const validPath = WFL.file._validatePath(filepath);
+      return fs.unlinkSync(validPath);
+    },
+    copy: (src, dest) => {
+      const validSrc = WFL.file._validatePath(src);
+      const validDest = WFL.file._validatePath(dest);
+      return fs.copyFileSync(validSrc, validDest);
+    },
+    move: (src, dest) => {
+      const validSrc = WFL.file._validatePath(src);
+      const validDest = WFL.file._validatePath(dest);
+      return fs.renameSync(validSrc, validDest);
+    },
+    size: (filepath) => {
+      const validPath = WFL.file._validatePath(filepath);
+      return fs.statSync(validPath).size;
+    },
+    isFile: (filepath) => {
+      const validPath = WFL.file._validatePath(filepath);
+      return fs.existsSync(validPath) && fs.statSync(validPath).isFile();
+    },
+    isDirectory: (filepath) => {
+      const validPath = WFL.file._validatePath(filepath);
+      return fs.existsSync(validPath) && fs.statSync(validPath).isDirectory();
+    },
   },
 
   // Directory operations (Node.js)
   directory: {
-    create: (dirpath) => fs.mkdirSync(dirpath, { recursive: true }),
-    delete: (dirpath) => fs.rmSync(dirpath, { recursive: true, force: true }),
-    list: (dirpath) => fs.readdirSync(dirpath),
+    create: (dirpath) => {
+      const validPath = WFL.file._validatePath(dirpath);
+      return fs.mkdirSync(validPath, { recursive: true });
+    },
+    delete: (dirpath) => {
+      const validPath = WFL.file._validatePath(dirpath);
+      return fs.rmSync(validPath, { recursive: true, force: true });
+    },
+    list: (dirpath) => {
+      const validPath = WFL.file._validatePath(dirpath);
+      return fs.readdirSync(validPath);
+    },
     listRecursive: (dirpath, extensions) => {
+      const validPath = WFL.file._validatePath(dirpath);
       const results = [];
       const walk = (dir) => {
         const files = fs.readdirSync(dir);
@@ -178,10 +229,13 @@ const WFL = {
           }
         }
       };
-      walk(dirpath);
+      walk(validPath);
       return results;
     },
-    exists: (dirpath) => fs.existsSync(dirpath) && fs.statSync(dirpath).isDirectory(),
+    exists: (dirpath) => {
+      const validPath = WFL.file._validatePath(dirpath);
+      return fs.existsSync(validPath) && fs.statSync(validPath).isDirectory();
+    },
   },
 
   // Date/Time operations
@@ -215,8 +269,15 @@ const WFL = {
   // Process operations (Node.js)
   process: {
     execute: (command, args) => {
-      const cmd = args ? `${command} ${args.join(' ')}` : command;
-      return execSync(cmd, { encoding: 'utf8' });
+      const result = spawnSync(command, args || [], { encoding: 'utf8' });
+      if (result.error) throw result.error;
+      if (result.status !== 0) {
+        const error = new Error(`Command failed with exit code ${result.status}`);
+        error.code = result.status;
+        error.stderr = result.stderr;
+        throw error;
+      }
+      return result.stdout;
     },
     spawn: (command, args) => {
       const proc = spawn(command, args || [], { stdio: 'pipe' });
@@ -274,21 +335,47 @@ const WFL = {
 
   // HTTP operations (Node.js)
   http: {
-    get: async (url) => {
+    get: async (url, timeout = 10000) => {
       const https = url.startsWith('https') ? require('https') : require('http');
       return new Promise((resolve, reject) => {
-        https.get(url, (res) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error(`Request timeout after ${timeout}ms`));
+        }, timeout);
+
+        const req = https.get(url, (res) => {
+          clearTimeout(timeoutId);
+          
+          // Check HTTP status code
+          if (res.statusCode < 200 || res.statusCode >= 400) {
+            reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+            return;
+          }
+
           let data = '';
           res.on('data', chunk => data += chunk);
           res.on('end', () => resolve(data));
-        }).on('error', reject);
+          res.on('error', reject);
+        });
+
+        req.on('error', (err) => {
+          clearTimeout(timeoutId);
+          reject(err);
+        });
+        req.setTimeout(timeout, () => {
+          req.destroy();
+          reject(new Error(`Request timeout after ${timeout}ms`));
+        });
       });
     },
-    post: async (url, data) => {
+    post: async (url, data, timeout = 10000) => {
       const https = url.startsWith('https') ? require('https') : require('http');
       const urlObj = new URL(url);
       const postData = typeof data === 'string' ? data : JSON.stringify(data);
       return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error(`Request timeout after ${timeout}ms`));
+        }, timeout);
+
         const req = https.request({
           hostname: urlObj.hostname,
           port: urlObj.port,
@@ -299,11 +386,33 @@ const WFL = {
             'Content-Length': Buffer.byteLength(postData),
           },
         }, (res) => {
+          clearTimeout(timeoutId);
+          
+          // Check HTTP status code
+          if (res.statusCode < 200 || res.statusCode >= 400) {
+            let errorBody = '';
+            res.on('data', chunk => errorBody += chunk);
+            res.on('end', () => {
+              reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage} - ${errorBody}`));
+            });
+            return;
+          }
+
           let body = '';
           res.on('data', chunk => body += chunk);
           res.on('end', () => resolve(body));
+          res.on('error', reject);
         });
-        req.on('error', reject);
+
+        req.on('error', (err) => {
+          clearTimeout(timeoutId);
+          reject(err);
+        });
+        req.setTimeout(timeout, () => {
+          req.destroy();
+          reject(new Error(`Request timeout after ${timeout}ms`));
+        });
+        
         req.write(postData);
         req.end();
       });
@@ -524,17 +633,56 @@ const WFL = {
 
   // HTTP operations (Browser - using fetch)
   http: {
-    get: async (url) => {
-      const response = await fetch(url);
-      return response.text();
+    get: async (url, timeout = 10000) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+        }
+        
+        return response.text();
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          throw new Error(`Request timeout after ${timeout}ms`);
+        }
+        throw error;
+      }
     },
-    post: async (url, data) => {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: typeof data === 'string' ? data : JSON.stringify(data),
-      });
-      return response.text();
+    post: async (url, data, timeout = 10000) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: typeof data === 'string' ? data : JSON.stringify(data),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+        }
+        
+        return response.text();
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          throw new Error(`Request timeout after ${timeout}ms`);
+        }
+        throw error;
+      }
     },
   },
 
