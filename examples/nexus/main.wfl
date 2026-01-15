@@ -1,0 +1,94 @@
+// Nexus Framework - Main Entry Point
+// This file imports the Core modules, registers routes, and starts the Server.
+// 
+// Usage: wfl examples/nexus/main.wfl
+//
+// Architecture: Server -> Router
+// - Server: Handles connections, passes requests to Router
+// - Router: Resolves requests (static files first, then dynamic routes, then 404)
+
+display "=============================================="
+display "       Nexus Framework - WFL Server          "
+display "=============================================="
+display ""
+
+// Load Core modules
+load module from "core/Server.wfl"
+load module from "core/Router.wfl"
+
+// Load handlers
+load module from "src/handlers.wfl"
+
+// Configuration
+store server_port as 8080
+store server_host as "127.0.0.1"
+store web_root as "examples/nexus/public"
+
+display "Configuration:"
+display "  Port: " with server_port
+display "  Host: " with server_host
+display "  Web Root: " with web_root
+display ""
+
+// Create the Router (The "Traffic Cop")
+display "Initializing Router..."
+store router as create_router with web_root
+
+// Register dynamic routes
+// These are checked AFTER static files (the "hierarchy of laziness")
+display "Registering dynamic routes..."
+
+// Create handlers
+store api_handler as create_api_handler
+store user_handler as create_user_handler
+store health_handler as create_health_handler
+store echo_handler as create_echo_handler
+
+// Register handlers with the router
+router.register_handler with "api" and api_handler
+router.register_handler with "users" and user_handler
+router.register_handler with "health" and health_handler
+router.register_handler with "echo" and echo_handler
+
+// Register routes (method, path, handler_name)
+router.register with "GET" and "/api/hello" and "api"
+router.register with "GET" and "/api/users" and "users"
+router.register with "POST" and "/api/users" and "users"
+router.register with "GET" and "/health" and "health"
+router.register with "GET" and "/api/echo" and "echo"
+router.register with "POST" and "/api/echo" and "echo"
+
+display ""
+display "Routes registered: " with router.route_count
+display ""
+
+// Create the Server (The "Bouncer")
+display "Initializing Server..."
+store server as create_server with server_port and server_host and web_root
+
+// Start the server
+display "Starting server..."
+server.start
+
+display ""
+display "=============================================="
+display "  Nexus Server is running!                   "
+display "  Visit: http://" with server_host with ":" with server_port
+display "=============================================="
+display ""
+display "Available endpoints:"
+display "  Static:  / (serves index.html)"
+display "  Static:  /styles.css"
+display "  Dynamic: GET  /api/hello"
+display "  Dynamic: GET  /api/users"
+display "  Dynamic: POST /api/users"
+display "  Dynamic: GET  /health"
+display "  Dynamic: GET  /api/echo"
+display "  Dynamic: POST /api/echo"
+display ""
+display "Press Ctrl+C to stop the server."
+display ""
+
+// Run the server's main loop
+// This passes all requests to the Router for resolution
+server.run with router

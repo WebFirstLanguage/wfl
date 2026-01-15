@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Framework - Welcome</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Welcome to Nexus</h1>
+            <p class="subtitle">A lightweight WFL server framework</p>
+        </header>
+        
+        <main>
+            <section class="intro">
+                <h2>About Nexus</h2>
+                <p>Nexus is a semantic server framework built on WFL's native server capabilities. 
+                   It follows a simple Server -> Router architecture designed for clarity and ease of use.</p>
+            </section>
+            
+            <section class="features">
+                <h2>Features</h2>
+                <ul>
+                    <li><strong>Static File Serving</strong> - Automatically serves files from the /public directory</li>
+                    <li><strong>Dynamic Routing</strong> - Register custom handlers for API endpoints</li>
+                    <li><strong>Pretty URLs</strong> - Supports .html extension-free URLs</li>
+                    <li><strong>Security</strong> - Built-in path sanitization to prevent directory traversal</li>
+                </ul>
+            </section>
+            
+            <section class="api-demo">
+                <h2>Try the API</h2>
+                <p>Test the dynamic routes:</p>
+                <ul>
+                    <li><a href="/api/hello">/api/hello</a> - Simple API endpoint</li>
+                    <li><a href="/api/users">/api/users</a> - List of users</li>
+                    <li><a href="/health">/health</a> - Health check endpoint</li>
+                    <li><a href="/api/echo">/api/echo</a> - Echo request info</li>
+                </ul>
+            </section>
+        </main>
+        
+        <footer>
+            <p>Powered by <a href="https://github.com/WebFirstLanguage/wfl">WFL (WebFirst Language)</a></p>
+        </footer>
+    </div>
+</body>
+</html>
