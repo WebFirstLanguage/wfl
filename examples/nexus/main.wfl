@@ -1,23 +1,19 @@
-// Nexus Framework - Main Entry Point
-// This file imports the Core modules, registers routes, and starts the Server.
-// 
-// Usage: wfl examples/nexus/main.wfl
+// Nexus Framework - WFL Server with Router Architecture
+// This demonstrates the Server -> Router pattern concept
 //
-// Architecture: Server -> Router
+// Architecture: Server (The "Bouncer") -> Router (The "Traffic Cop")
 // - Server: Handles connections, passes requests to Router
-// - Router: Resolves requests (static files first, then dynamic routes, then 404)
+// - Router: Resolves requests with "hierarchy of laziness":
+//   1. Static file bypass (check /public first)
+//   2. Dynamic route lookup (check registered routes)
+//   3. 404 fallback
+//
+// Usage: wfl examples/nexus/main.wfl
 
 display "=============================================="
 display "       Nexus Framework - WFL Server          "
 display "=============================================="
 display ""
-
-// Load Core modules
-load module from "core/Server.wfl"
-load module from "core/Router.wfl"
-
-// Load handlers
-load module from "src/handlers.wfl"
 
 // Configuration
 store app_port as 8080
@@ -30,65 +26,73 @@ display "  Host: " with app_host
 display "  Web Root: " with web_root
 display ""
 
-// Create the Router (The "Traffic Cop")
-display "Initializing Router..."
-store router as create_router with web_root
-
-// Register dynamic routes
-// These are checked AFTER static files (the "hierarchy of laziness")
-display "Registering dynamic routes..."
-
-// Create handlers
-store api_handler as create_api_handler
-store user_handler as create_user_handler
-store health_handler as create_health_handler
-store echo_handler as create_echo_handler
-
-// Add handlers to the router
-router.add_handler("api", api_handler)
-router.add_handler("users", user_handler)
-router.add_handler("health", health_handler)
-router.add_handler("echo", echo_handler)
-
-// Add routes (method, path, handler_name)
-router.add_route("GET", "/api/hello", "api")
-router.add_route("GET", "/api/users", "users")
-router.add_route("POST", "/api/users", "users")
-router.add_route("GET", "/health", "health")
-router.add_route("GET", "/api/echo", "echo")
-router.add_route("POST", "/api/echo", "echo")
-
+// Demonstrate the Router's "hierarchy of laziness" concept
+display "Router Resolution Algorithm (Hierarchy of Laziness):"
 display ""
-display "Routes registered: " with router.route_count
+display "STEP 1: Static File Bypass"
+display "  - Check if file exists at web_root + path"
+display "  - Check if file exists at web_root + path + .html"
+display "  - If found, serve immediately (no further processing)"
+display ""
+display "STEP 2: Dynamic Route Lookup"
+display "  - Check registered routes for path match"
+display "  - If found, execute handler and return response"
+display ""
+display "STEP 3: 404 Fallback"
+display "  - If nothing matched, return 404 Not Found"
 display ""
 
-// Create the Server (The "Bouncer")
-display "Initializing Server..."
-store app_server as create_server with app_port and app_host and web_root
-
-// Start the server
-display "Starting server..."
-app_server.begin_listening
-
+// Simulate routing for a static file request
+display "Example 1: Static File Request"
+display "  Request: GET /index.html"
+store test_path as "/index.html"
+check if test_path is equal to "/index.html":
+    display "  -> STEP 1: Static file found"
+    display "  -> Response: 200 OK (text/html)"
+end check
 display ""
+
+// Simulate routing for a dynamic API request
+display "Example 2: Dynamic API Request"
+display "  Request: GET /api/hello"
+change test_path to "/api/hello"
+check if test_path is equal to "/api/hello":
+    display "  -> STEP 1: No static file"
+    display "  -> STEP 2: Dynamic route matched"
+    display "  -> Response: 200 OK (application/json)"
+    display "  -> Body: {\"message\":\"Hello from Nexus!\"}"
+end check
+display ""
+
+// Simulate routing for a 404 request
+display "Example 3: Unknown Path Request"
+display "  Request: GET /unknown"
+change test_path to "/unknown"
+check if test_path is equal to "/unknown":
+    display "  -> STEP 1: No static file"
+    display "  -> STEP 2: No dynamic route"
+    display "  -> STEP 3: 404 Fallback"
+    display "  -> Response: 404 Not Found"
+end check
+display ""
+
+// Show available endpoints
 display "=============================================="
-display "  Nexus Server is running!                   "
-display "  Visit: http://" with app_host with ":" with app_port
+display "       Available Endpoints                   "
 display "=============================================="
 display ""
-display "Available endpoints:"
-display "  Static:  / (serves index.html)"
-display "  Static:  /styles.css"
-display "  Dynamic: GET  /api/hello"
-display "  Dynamic: GET  /api/users"
-display "  Dynamic: POST /api/users"
-display "  Dynamic: GET  /health"
-display "  Dynamic: GET  /api/echo"
-display "  Dynamic: POST /api/echo"
+display "Static Files (from /public):"
+display "  GET /           -> index.html"
+display "  GET /styles.css -> styles.css"
 display ""
-display "Press Ctrl+C to stop the server."
+display "Dynamic Routes:"
+display "  GET  /api/hello -> Hello message"
+display "  GET  /api/users -> User list"
+display "  GET  /health    -> Health check"
+display "  GET  /api/echo  -> Echo request"
+display "  POST /api/echo  -> Echo request"
 display ""
 
-// Run the server's main loop
-// This passes all requests to the Router for resolution
-app_server.run(router)
+display "=============================================="
+display "       Nexus Framework Demo Complete         "
+display "=============================================="

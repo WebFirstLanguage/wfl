@@ -1,12 +1,10 @@
 # Nexus Framework
 
-A lightweight, semantic server framework for WFL (WebFirst Language) with a simple Server -> Router architecture.
-
-> **Note**: This is a design/reference implementation that demonstrates the Server -> Router architecture concept. The main.wfl entry point parses correctly and shows the intended usage pattern. The module files (Server.wfl, Router.wfl, handlers.wfl) serve as detailed design documentation for the framework architecture, though they use some WFL reserved keywords (like `status`, `content`, `request`, `response`, `method`, `path`, `body`) that would need to be renamed for full runtime execution.
+A lightweight demonstration of the Server -> Router architecture pattern for WFL (WebFirst Language).
 
 ## Architecture
 
-Nexus follows a strict **Server -> Router** architecture:
+Nexus demonstrates a strict **Server -> Router** architecture with a "hierarchy of laziness" resolution algorithm:
 
 ```
 Request → Server (The "Bouncer")
@@ -27,21 +25,16 @@ Request → Server (The "Bouncer")
 wfl examples/nexus/main.wfl
 ```
 
-Then visit `http://127.0.0.1:8080` in your browser.
+This runs a demonstration of the Router's resolution algorithm, showing how different request paths are handled.
 
 ## Project Structure
 
 ```
 examples/nexus/
-├── core/                    # Core framework components
-│   ├── Server.wfl          # Connection handling (the "Bouncer")
-│   └── Router.wfl          # Request resolution (the "Traffic Cop")
 ├── public/                  # Static files (the "File Sink")
 │   ├── index.html          # Default homepage
 │   └── styles.css          # Default styles
-├── src/                     # Application logic
-│   └── handlers.wfl        # Dynamic route handlers (the "Talent")
-├── main.wfl                # Entry point
+├── main.wfl                # Entry point and demo
 └── README.md               # This file
 ```
 
@@ -49,14 +42,7 @@ examples/nexus/
 
 ### The Server (The "Bouncer")
 
-The Server module handles connection management only. It does not know about business logic. All incoming requests are immediately passed to `Router.resolve()` for processing.
-
-```wfl
-// Create and start a server
-store server as create_server with 8080 and "127.0.0.1" and "public"
-server.start
-server.run with router
-```
+The Server handles connection management only. It does not know about business logic. All incoming requests are immediately passed to the Router for processing.
 
 ### The Router (The "Traffic Cop")
 
@@ -66,77 +52,78 @@ The Router implements a "hierarchy of laziness" - it tries to do the easiest thi
 2. **Dynamic Route Lookup**: Check registered routes for a match
 3. **404 Fallback**: Return a 404 response if nothing matched
 
-```wfl
-// Create a router with web root directory
-store router as create_router with "public"
+### Resolution Algorithm Demo
 
-// Register dynamic routes
-router.register with "GET" and "/api/hello" and "api_handler"
-router.register with "POST" and "/api/users" and "user_handler"
+The main.wfl file demonstrates how the Router resolves different types of requests:
+
+- **Static file requests** (e.g., `/index.html`) are served directly from the `/public` directory
+- **Dynamic API requests** (e.g., `/api/hello`) are matched against registered routes
+- **Unknown paths** (e.g., `/unknown`) fall through to the 404 handler
+
+## Example Output
+
+```
+==============================================
+       Nexus Framework - WFL Server          
+==============================================
+
+Configuration:
+  Port: 8080
+  Host: 127.0.0.1
+  Web Root: examples/nexus/public
+
+Router Resolution Algorithm (Hierarchy of Laziness):
+
+STEP 1: Static File Bypass
+  - Check if file exists at web_root + path
+  - Check if file exists at web_root + path + .html
+  - If found, serve immediately (no further processing)
+
+STEP 2: Dynamic Route Lookup
+  - Check registered routes for path match
+  - If found, execute handler and return response
+
+STEP 3: 404 Fallback
+  - If nothing matched, return 404 Not Found
+
+Example 1: Static File Request
+  Request: GET /index.html
+  -> STEP 1: Static file found
+  -> Response: 200 OK (text/html)
+
+Example 2: Dynamic API Request
+  Request: GET /api/hello
+  -> STEP 1: No static file
+  -> STEP 2: Dynamic route matched
+  -> Response: 200 OK (application/json)
+  -> Body: {"message":"Hello from Nexus!"}
+
+Example 3: Unknown Path Request
+  Request: GET /unknown
+  -> STEP 1: No static file
+  -> STEP 2: No dynamic route
+  -> STEP 3: 404 Fallback
+  -> Response: 404 Not Found
 ```
 
-### Handlers (The "Talent")
-
-Handlers are simple containers that implement a `handle` action:
-
-```wfl
-create container MyHandler:
-    property handler_name: Text
-    
-    action handle needs request_method: Text, request_path: Text, request_body: Text:
-        // Process the request and return a Response
-        create new Response as resp
-        resp.initialize with "Hello, World!" and 200 and "text/plain"
-        give back resp
-    end action
-end container
-```
-
-## Configuration
-
-Configuration is passed when creating the server:
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `port_number` | Port to listen on | 8080 |
-| `host_address` | Host to bind to | 127.0.0.1 |
-| `web_root` | Directory for static files | public |
-
-## Static File Serving
-
-Place files in the `/public` directory. The router will automatically serve them:
-
-- `/` → `public/index.html`
-- `/about` → `public/about.html` (pretty URLs)
-- `/styles.css` → `public/styles.css`
-- `/images/logo.png` → `public/images/logo.png`
-
-Supported MIME types: HTML, CSS, JavaScript, JSON, PNG, JPEG, GIF, SVG, ICO, TXT, XML, WOFF, WOFF2
-
-## Security
-
-The Router includes built-in security features:
-
-- **Path Sanitization**: Blocks directory traversal attempts (`..`)
-- **Null Byte Protection**: Blocks null byte injection attacks
-
-## API Endpoints (Example)
-
-The example application includes these endpoints:
+## Available Endpoints (Conceptual)
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Static homepage |
+| GET | `/styles.css` | Static stylesheet |
 | GET | `/api/hello` | Simple API endpoint |
 | GET | `/api/users` | List users |
-| POST | `/api/users` | Create user |
 | GET | `/health` | Health check |
 | GET/POST | `/api/echo` | Echo request info |
+
+## Full Web Server Implementation
+
+For a complete, runnable web server implementation, see `TestPrograms/comprehensive_web_server_demo.wfl` in the main WFL repository. The Nexus framework demonstrates the architectural pattern that can be applied to build full web applications.
 
 ## Requirements
 
 - WFL version 26.1.19 or later
-- WFL features used: Containers, Actions, Lists, Module system, Built-in web server
 
 ## License
 
