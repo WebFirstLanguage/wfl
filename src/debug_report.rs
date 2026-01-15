@@ -429,6 +429,12 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         use tempfile::tempdir;
 
+        // Skip test if running as root (root bypasses permission checks)
+        if unsafe { libc::geteuid() } == 0 {
+            eprintln!("Skipping test_report_failure_message: running as root");
+            return;
+        }
+
         let error = RuntimeError::new("Test error".to_string(), 1, 1);
         let call_frame = CallFrame::new("test_function".to_string(), 1, 1);
         let call_stack = vec![call_frame];
