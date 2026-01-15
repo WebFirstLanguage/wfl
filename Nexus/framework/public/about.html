@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About - Nexus Framework</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-weight: 300;
+            font-size: 2.5rem;
+        }
+
+        p {
+            color: #555;
+            line-height: 1.8;
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            color: #333;
+            margin: 30px 0 15px 0;
+            font-weight: 500;
+        }
+
+        code {
+            background: #f0f0f0;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'SF Mono', Monaco, monospace;
+        }
+
+        pre {
+            background: #1a1a2e;
+            color: #eee;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .back {
+            display: inline-block;
+            margin-top: 30px;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: transform 0.2s;
+        }
+
+        .back:hover {
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>About Nexus</h1>
+
+            <p>
+                <strong>Nexus</strong> is a lightweight, semantic server framework built
+                entirely in <strong>WebFirst Language (WFL)</strong>. It provides a clean,
+                understandable architecture for building web applications.
+            </p>
+
+            <h2>The Philosophy</h2>
+            <p>
+                Nexus follows the principle of "lazy routing" - it tries the easiest
+                thing first (serving a static file) before doing any real work (running
+                a handler). This makes it fast and efficient by default.
+            </p>
+
+            <h2>Architecture</h2>
+            <p>
+                The framework uses a strict <code>Server -> Router</code> architecture:
+            </p>
+
+            <pre><code>Server (The "Bouncer")
+  - Listens for connections
+  - Passes ALL requests to Router
+  - No business logic here
+
+Router (The "Traffic Cop")
+  - Check 1: Static file? Serve it!
+  - Check 2: Dynamic route? Run handler!
+  - Check 3: Nothing? Return 404
+
+Handler (The "Talent")
+  - Receives request object
+  - Returns response</code></pre>
+
+            <h2>Usage</h2>
+            <p>
+                To add a new route, simply register it and define a handler:
+            </p>
+
+            <pre><code>// Register the route
+route_get with "/my-page" and "handle_my_page"
+
+// Define the handler
+define action called handle_my_page needs request:
+    respond_json with request and "{\"message\": \"Hello!\"}"
+end action</code></pre>
+
+            <p>
+                This page itself is served as a static file. Try accessing
+                <code>/about</code> (without .html) - the router automatically
+                resolves it!
+            </p>
+
+            <a href="/" class="back">← Back to Home</a>
+        </div>
+    </div>
+</body>
+</html>

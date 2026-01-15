@@ -1,0 +1,437 @@
+// ===========================================================================
+// Nexus Framework - Router.wfl
+// ===========================================================================
+// The "Traffic Cop" - Routes requests with a specific hierarchy of laziness.
+// Priority Order:
+//   1. Static files (try to serve a file first - the lazy approach)
+//   2. Dynamic routes (registered handlers)
+//   3. 404 fallback
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Route Container - Represents a single registered route
+// ---------------------------------------------------------------------------
+create container Route:
+    property route_path: Text
+    property route_method: Text
+    property handler_name: Text
+    property is_pattern: Boolean
+end container
+
+// ---------------------------------------------------------------------------
+// Response Container - Standardized response structure
+// ---------------------------------------------------------------------------
+create container NexusResponse:
+    property content: Text
+    property status_code: Number
+    property content_type: Text
+
+    action set_json needs json_content:
+        change content to json_content
+        change content_type to "application/json"
+        change status_code to 200
+    end action
+
+    action set_html needs html_content:
+        change content to html_content
+        change content_type to "text/html"
+        change status_code to 200
+    end action
+
+    action set_error needs error_msg and code:
+        change content to error_msg
+        change status_code to code
+        change content_type to "text/plain"
+    end action
+end container
+
+// ---------------------------------------------------------------------------
+// Global Route Registry - List of registered routes
+// ---------------------------------------------------------------------------
+store nexus_routes as []
+
+// ---------------------------------------------------------------------------
+// Route Registration Actions
+// ---------------------------------------------------------------------------
+
+// Register a GET route
+define action called route_get needs route_path and handler_name:
+    create new Route as new_route:
+        route_path is route_path
+        route_method is "GET"
+        handler_name is handler_name
+        is_pattern is false
+    end new
+    push with nexus_routes and new_route
+    display "[Router] Registered GET " with route_path with " -> " with handler_name
+end action
+
+// Register a POST route
+define action called route_post needs route_path and handler_name:
+    create new Route as new_route:
+        route_path is route_path
+        route_method is "POST"
+        handler_name is handler_name
+        is_pattern is false
+    end new
+    push with nexus_routes and new_route
+    display "[Router] Registered POST " with route_path with " -> " with handler_name
+end action
+
+// Register a PUT route
+define action called route_put needs route_path and handler_name:
+    create new Route as new_route:
+        route_path is route_path
+        route_method is "PUT"
+        handler_name is handler_name
+        is_pattern is false
+    end new
+    push with nexus_routes and new_route
+    display "[Router] Registered PUT " with route_path with " -> " with handler_name
+end action
+
+// Register a DELETE route
+define action called route_delete needs route_path and handler_name:
+    create new Route as new_route:
+        route_path is route_path
+        route_method is "DELETE"
+        handler_name is handler_name
+        is_pattern is false
+    end new
+    push with nexus_routes and new_route
+    display "[Router] Registered DELETE " with route_path with " -> " with handler_name
+end action
+
+// Register any method route
+define action called route_any needs route_path and route_method and handler_name:
+    create new Route as new_route:
+        route_path is route_path
+        route_method is route_method
+        handler_name is handler_name
+        is_pattern is false
+    end new
+    push with nexus_routes and new_route
+    display "[Router] Registered " with route_method with " " with route_path with " -> " with handler_name
+end action
+
+// ---------------------------------------------------------------------------
+// Path Sanitization - Security measure against directory traversal
+// ---------------------------------------------------------------------------
+define action called sanitize_path needs raw_path:
+    // Remove any directory traversal attempts
+    store safe_path as raw_path
+
+    // Replace dangerous patterns
+    // Note: In production, this would be more comprehensive
+    check if safe_path contains "..":
+        // Path traversal attempt detected
+        give back ""
+    end check
+
+    check if safe_path contains "//":
+        // Double slash normalization
+        change safe_path to replace "//" with "/" in safe_path
+    end check
+
+    // Ensure path starts with /
+    check if safe_path starts with "/":
+        give back safe_path
+    otherwise:
+        give back "/" with safe_path
+    end check
+end action
+
+// ---------------------------------------------------------------------------
+// MIME Type Detection
+// ---------------------------------------------------------------------------
+define action called get_mime_type needs file_path:
+    store mime as "text/plain"
+
+    check if file_path ends with ".html":
+        change mime to "text/html"
+    otherwise check if file_path ends with ".htm":
+        change mime to "text/html"
+    otherwise check if file_path ends with ".css":
+        change mime to "text/css"
+    otherwise check if file_path ends with ".js":
+        change mime to "application/javascript"
+    otherwise check if file_path ends with ".json":
+        change mime to "application/json"
+    otherwise check if file_path ends with ".png":
+        change mime to "image/png"
+    otherwise check if file_path ends with ".jpg":
+        change mime to "image/jpeg"
+    otherwise check if file_path ends with ".jpeg":
+        change mime to "image/jpeg"
+    otherwise check if file_path ends with ".gif":
+        change mime to "image/gif"
+    otherwise check if file_path ends with ".svg":
+        change mime to "image/svg+xml"
+    otherwise check if file_path ends with ".ico":
+        change mime to "image/x-icon"
+    otherwise check if file_path ends with ".txt":
+        change mime to "text/plain"
+    otherwise check if file_path ends with ".xml":
+        change mime to "application/xml"
+    otherwise check if file_path ends with ".pdf":
+        change mime to "application/pdf"
+    otherwise check if file_path ends with ".woff":
+        change mime to "font/woff"
+    otherwise check if file_path ends with ".woff2":
+        change mime to "font/woff2"
+    otherwise check if file_path ends with ".ttf":
+        change mime to "font/ttf"
+    end check
+
+    give back mime
+end action
+
+// ---------------------------------------------------------------------------
+// Static File Server - Check 1: The Laziness Protocol
+// ---------------------------------------------------------------------------
+// Tries to serve a static file before doing any real work
+// Returns: true if file was served, false otherwise
+define action called try_serve_static needs request and web_root and request_path:
+    // Sanitize the path first (security!)
+    store safe_path as sanitize_path with request_path
+
+    // If sanitization failed (suspicious path), don't serve
+    check if safe_path is equal to "":
+        display "[Router] Blocked suspicious path: " with request_path
+        give back false
+    end check
+
+    // Build full file path
+    store full_path as web_root with safe_path
+
+    // Check 1a: Try exact file path
+    check if file exists at full_path:
+        // File exists! Serve it immediately (lazy success!)
+        try:
+            open file at full_path for reading as static_file
+            store file_content as read content from static_file
+            close file static_file
+
+            store mime as get_mime_type with full_path
+            respond to request with file_content and content_type mime
+            display "[Router] Static: " with safe_path with " (" with mime with ")"
+            give back true
+        catch:
+            display "[Router] Error reading file: " with full_path
+            give back false
+        end try
+    end check
+
+    // Check 1b: Try with .html extension (pretty URLs)
+    store html_path as full_path with ".html"
+    check if file exists at html_path:
+        try:
+            open file at html_path for reading as html_file
+            store html_content as read content from html_file
+            close file html_file
+
+            respond to request with html_content and content_type "text/html"
+            display "[Router] Static (pretty URL): " with safe_path with " -> " with html_path
+            give back true
+        catch:
+            display "[Router] Error reading file: " with html_path
+            give back false
+        end try
+    end check
+
+    // Check 1c: Try index.html for directory paths
+    check if safe_path ends with "/":
+        store index_path as full_path with "index.html"
+        check if file exists at index_path:
+            try:
+                open file at index_path for reading as index_file
+                store index_content as read content from index_file
+                close file index_file
+
+                respond to request with index_content and content_type "text/html"
+                display "[Router] Static (index): " with safe_path with " -> index.html"
+                give back true
+            catch:
+                give back false
+            end try
+        end check
+    end check
+
+    // Check 1d: Root path special case - serve index.html
+    check if safe_path is equal to "/":
+        store root_index as web_root with "/index.html"
+        check if file exists at root_index:
+            try:
+                open file at root_index for reading as root_file
+                store root_content as read content from root_file
+                close file root_file
+
+                respond to request with root_content and content_type "text/html"
+                display "[Router] Static (root): / -> index.html"
+                give back true
+            catch:
+                give back false
+            end try
+        end check
+    end check
+
+    // No static file found
+    give back false
+end action
+
+// ---------------------------------------------------------------------------
+// Dynamic Route Matcher - Check 2: The Dynamic Lookup
+// ---------------------------------------------------------------------------
+// Searches registered routes for a match
+// Returns: matched route or nothing
+define action called find_matching_route needs request_method and request_path:
+    for each route in nexus_routes:
+        // Check method match
+        check if route.route_method is equal to request_method:
+            // Check path match (exact match for now)
+            check if route.route_path is equal to request_path:
+                give back route
+            end check
+        end check
+    end for
+
+    // No match found
+    give back nothing
+end action
+
+// ---------------------------------------------------------------------------
+// 404 Response - Check 3: The Fallback
+// ---------------------------------------------------------------------------
+define action called send_404 needs request and request_path:
+    store not_found_html as "<!DOCTYPE html>
+<html>
+<head>
+    <title>404 - Not Found</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               display: flex; justify-content: center; align-items: center;
+               height: 100vh; margin: 0; background: #f5f5f5; }
+        .error { text-align: center; padding: 40px; background: white;
+                 border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #e74c3c; margin: 0 0 10px 0; font-size: 72px; }
+        h2 { color: #333; margin: 0 0 20px 0; }
+        p { color: #666; }
+        code { background: #f0f0f0; padding: 4px 8px; border-radius: 4px; }
+        a { color: #3498db; }
+    </style>
+</head>
+<body>
+    <div class=\"error\">
+        <h1>404</h1>
+        <h2>Page Not Found</h2>
+        <p>The requested path <code>" with request_path with "</code> could not be found.</p>
+        <p><a href=\"/\">Return to home</a></p>
+        <hr style=\"margin: 20px 0; border: none; border-top: 1px solid #eee;\">
+        <small style=\"color: #999;\">Nexus Framework</small>
+    </div>
+</body>
+</html>"
+
+    respond to request with not_found_html and status 404 and content_type "text/html"
+    display "[Router] 404: " with request_path
+end action
+
+// ---------------------------------------------------------------------------
+// Method Not Allowed Response
+// ---------------------------------------------------------------------------
+define action called send_405 needs request and request_method:
+    store error_json as "{\"error\": \"Method not allowed\", \"method\": \"" with request_method with "\"}"
+    respond to request with error_json and status 405 and content_type "application/json"
+    display "[Router] 405: Method " with request_method with " not allowed"
+end action
+
+// ---------------------------------------------------------------------------
+// THE MAIN RESOLVE FUNCTION - The "Traffic Cop" Algorithm
+// ---------------------------------------------------------------------------
+// This is called by Server for EVERY request
+// Priority:
+//   1. Try static file (be lazy)
+//   2. Try dynamic route (do some work)
+//   3. Return 404 (give up gracefully)
+// ---------------------------------------------------------------------------
+define action called router_resolve needs request and web_root:
+    // Extract request info
+    store req_method as method of request
+    store req_path as path of request
+
+    // =========================================================================
+    // CHECK 1: THE STATIC BYPASS (Laziness Protocol)
+    // =========================================================================
+    // Try to serve a static file first - it's the easiest thing to do
+    store was_static as try_serve_static with request and web_root and req_path
+
+    check if was_static is equal to true:
+        // File was served! Our work here is done.
+        give back true
+    end check
+
+    // =========================================================================
+    // CHECK 2: THE DYNAMIC LOOKUP
+    // =========================================================================
+    // No static file found, check registered dynamic routes
+    store matched_route as find_matching_route with req_method and req_path
+
+    check if matched_route is not equal to nothing:
+        // Found a matching route! Execute its handler
+        display "[Router] Dynamic: " with req_path with " -> " with matched_route.handler_name
+
+        // The handler execution happens in the main file where handlers are defined
+        // We return the handler name so the caller can dispatch
+        give back matched_route.handler_name
+    end check
+
+    // =========================================================================
+    // CHECK 3: THE FALLBACK (404)
+    // =========================================================================
+    // Neither static nor dynamic - give up gracefully
+    send_404 with request and req_path
+    give back false
+end action
+
+// ---------------------------------------------------------------------------
+// JSON Response Helper
+// ---------------------------------------------------------------------------
+define action called respond_json needs request and json_data:
+    respond to request with json_data and content_type "application/json"
+end action
+
+// ---------------------------------------------------------------------------
+// JSON Response with Status Helper
+// ---------------------------------------------------------------------------
+define action called respond_json_status needs request and json_data and status_code:
+    respond to request with json_data and status status_code and content_type "application/json"
+end action
+
+// ---------------------------------------------------------------------------
+// HTML Response Helper
+// ---------------------------------------------------------------------------
+define action called respond_html needs request and html_content:
+    respond to request with html_content and content_type "text/html"
+end action
+
+// ---------------------------------------------------------------------------
+// Redirect Helper
+// ---------------------------------------------------------------------------
+define action called respond_redirect needs request and redirect_url:
+    store redirect_html as "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0;url=" with redirect_url with "\"></head><body>Redirecting to <a href=\"" with redirect_url with "\">" with redirect_url with "</a></body></html>"
+    respond to request with redirect_html and status 302 and content_type "text/html"
+    display "[Router] Redirect: -> " with redirect_url
+end action
+
+// ---------------------------------------------------------------------------
+// Display registered routes (debugging)
+// ---------------------------------------------------------------------------
+define action called show_routes:
+    display ""
+    display "[Router] Registered Routes:"
+    display "----------------------------"
+    for each route in nexus_routes:
+        display "  " with route.route_method with " " with route.route_path with " -> " with route.handler_name
+    end for
+    display ""
+end action

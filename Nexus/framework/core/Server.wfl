@@ -1,0 +1,179 @@
+// ===========================================================================
+// Nexus Framework - Server.wfl
+// ===========================================================================
+// The "Bouncer" - Connection handler that knows nothing about business logic.
+// It only listens for connections and passes requests to the Router.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Server Configuration Container
+// ---------------------------------------------------------------------------
+// Holds all server-related configuration values
+create container ServerConfig:
+    property port: Number
+    property host: Text
+    property web_root: Text
+    property max_requests: Number
+    property shutdown_timeout: Number
+
+    action get_address: Text
+        give back host with ":" with port
+    end action
+end container
+
+// ---------------------------------------------------------------------------
+// Server State Container
+// ---------------------------------------------------------------------------
+// Tracks runtime state of the server
+create container ServerState:
+    property request_count: Number
+    property start_time: Number
+    property is_running: Boolean
+
+    action increment_requests:
+        change request_count to request_count plus 1
+    end action
+
+    action get_uptime needs current_time: Number
+        give back current_time minus start_time
+    end action
+end container
+
+// ---------------------------------------------------------------------------
+// Server Actions
+// ---------------------------------------------------------------------------
+
+// Initialize the server with configuration
+// Returns: Nothing (side effect: creates global server instance)
+define action called server_init needs config:
+    display "[Nexus] Initializing server..."
+    display "[Nexus] Host: " with config.host
+    display "[Nexus] Port: " with config.port
+    display "[Nexus] Web Root: " with config.web_root
+    display "[Nexus] Max Requests: " with config.max_requests
+end action
+
+// Start the server - the main entry point
+// This is the "dumb muscle" that only listens and passes to Router
+define action called server_start needs config and router_resolve:
+    // Initialize state
+    create new ServerState as state:
+        request_count is 0
+        start_time is current time in milliseconds
+        is_running is true
+    end new
+
+    // Log startup
+    display ""
+    display "============================================"
+    display "[Nexus] Starting server on " with config.get_address()
+    display "============================================"
+    display ""
+
+    // Ensure web root directory exists
+    try:
+        check if directory exists at config.web_root:
+            display "[Nexus] Web root directory verified: " with config.web_root
+        otherwise:
+            create directory at config.web_root
+            display "[Nexus] Created web root directory: " with config.web_root
+        end check
+    catch:
+        display "[Nexus] Warning: Could not verify web root directory"
+    end try
+
+    // Start the WFL HTTP server
+    try:
+        listen on port config.port as nexus_server
+        display "[Nexus] Server started successfully!"
+        display "[Nexus] Listening at http://" with config.get_address()
+        display ""
+
+        // Main server loop - THE BOUNCER
+        // No business logic here - just listen and pass to Router
+        repeat forever:
+            try:
+                // Check shutdown conditions
+                check if state.request_count is greater than or equal to config.max_requests:
+                    display ""
+                    display "[Nexus] Max requests reached (" with config.max_requests with "), shutting down..."
+                    break
+                end check
+
+                // Wait for incoming request (with timeout)
+                wait for request comes in on nexus_server as incoming_request timeout config.shutdown_timeout
+
+                // Increment request counter
+                state.increment_requests()
+
+                // Extract request data into a clean request object
+                store req_method as method of incoming_request
+                store req_path as path of incoming_request
+                store req_ip as client_ip of incoming_request
+                store req_body as body of incoming_request
+                store req_headers as headers of incoming_request
+                store req_timestamp as current time formatted as "yyyy-MM-dd HH:mm:ss"
+
+                // Log the incoming request (minimal - just for visibility)
+                display "[" with req_timestamp with "] " with req_method with " " with req_path with " from " with req_ip
+
+                // THE HANDOFF - Pass to Router.resolve()
+                // Router handles ALL routing logic - Server is dumb
+                router_resolve with incoming_request and config.web_root
+
+            catch:
+                // Timeout or error - continue listening
+                check if error_message contains "timeout":
+                    // Timeout is normal, just continue
+                    skip
+                otherwise:
+                    display "[Nexus] Request error: " with error_message
+                end check
+            end try
+        end repeat
+
+        // Graceful shutdown
+        display ""
+        display "[Nexus] Server shutting down..."
+        store final_time as current time in milliseconds
+        display "[Nexus] Total requests handled: " with state.request_count
+        display "[Nexus] Total uptime: " with state.get_uptime(final_time) with "ms"
+
+    catch:
+        display "[Nexus] FATAL: Could not start server - " with error_message
+        display "[Nexus] Common issues:"
+        display "  - Port " with config.port with " may be in use"
+        display "  - Check firewall settings"
+        display "  - Verify permissions"
+    end try
+end action
+
+// ---------------------------------------------------------------------------
+// Server Factory - Creates a configured server instance
+// ---------------------------------------------------------------------------
+define action called create_server needs port_num and host_name and root_dir:
+    create new ServerConfig as config:
+        port is port_num
+        host is host_name
+        web_root is root_dir
+        max_requests is 10000
+        shutdown_timeout is 30000
+    end new
+
+    give back config
+end action
+
+// ---------------------------------------------------------------------------
+// Server Factory with all options
+// ---------------------------------------------------------------------------
+define action called create_server_full needs port_num and host_name and root_dir and max_req and timeout_ms:
+    create new ServerConfig as config:
+        port is port_num
+        host is host_name
+        web_root is root_dir
+        max_requests is max_req
+        shutdown_timeout is timeout_ms
+    end new
+
+    give back config
+end action

@@ -1,0 +1,54 @@
+# ===========================================================================
+# Nexus Framework Configuration
+# ===========================================================================
+# Copy this file to your project root and modify as needed.
+# The framework reads configuration from the main.wfl file directly.
+# This file serves as documentation for available options.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Server Configuration
+# ---------------------------------------------------------------------------
+
+# Port to listen on (default: 8080)
+# NEXUS_PORT = 8080
+
+# Host/address to bind to (default: localhost)
+# Use "0.0.0.0" for network access (Docker, cloud deployment)
+# NEXUS_HOST = localhost
+
+# Web root directory for static files (default: public)
+# NEXUS_WEB_ROOT = public
+
+# Maximum requests before auto-shutdown (default: 1000)
+# Set to a very high number for production use
+# NEXUS_MAX_REQUESTS = 1000
+
+# Request timeout in milliseconds (default: 30000)
+# Requests that take longer will timeout
+# NEXUS_TIMEOUT = 30000
+
+# ---------------------------------------------------------------------------
+# Router Configuration
+# ---------------------------------------------------------------------------
+
+# Static file extensions to serve
+# Currently supported: .html, .css, .js, .json, .png, .jpg, .gif, .svg, .ico
+
+# Pretty URL support: /about automatically resolves to /about.html
+
+# Directory index: / automatically resolves to /index.html
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+
+# Path traversal protection is enabled by default
+# Requests containing ".." are blocked
+
+# ---------------------------------------------------------------------------
+# Notes
+# ---------------------------------------------------------------------------
+# - To modify configuration, edit the values in main.wfl directly
+# - Restart the server after configuration changes
+# - Use the WFL web_server_bind_address config in .wflcfg for network binding

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Framework - WFL Server</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: white;
+        }
+
+        header h1 {
+            font-size: 3rem;
+            font-weight: 200;
+            letter-spacing: 4px;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .endpoints {
+            display: grid;
+            gap: 12px;
+        }
+
+        .endpoint {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .endpoint:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .method {
+            font-family: 'SF Mono', Monaco, monospace;
+            font-weight: bold;
+            padding: 4px 12px;
+            border-radius: 4px;
+            margin-right: 15px;
+            font-size: 0.85rem;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .method.get { background: #28a745; color: white; }
+        .method.post { background: #007bff; color: white; }
+        .method.put { background: #fd7e14; color: white; }
+        .method.delete { background: #dc3545; color: white; }
+
+        .endpoint a {
+            color: #333;
+            text-decoration: none;
+            font-family: 'SF Mono', Monaco, monospace;
+            flex: 1;
+        }
+
+        .endpoint a:hover {
+            color: #667eea;
+        }
+
+        .endpoint .desc {
+            color: #666;
+            font-size: 0.9rem;
+            margin-left: auto;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .feature {
+            padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .feature-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .feature h3 {
+            color: #333;
+            font-size: 1rem;
+            margin-bottom: 5px;
+        }
+
+        .feature p {
+            color: #666;
+            font-size: 0.85rem;
+        }
+
+        .architecture {
+            background: #1a1a2e;
+            color: #eee;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+        }
+
+        .architecture .comment {
+            color: #6c7a89;
+        }
+
+        .architecture .keyword {
+            color: #667eea;
+        }
+
+        .architecture .arrow {
+            color: #28a745;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            color: white;
+            opacity: 0.8;
+        }
+
+        footer a {
+            color: white;
+        }
+
+        @media (max-width: 600px) {
+            header h1 {
+                font-size: 2rem;
+            }
+
+            .endpoint {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .method {
+                margin-bottom: 10px;
+            }
+
+            .endpoint .desc {
+                margin-left: 0;
+                margin-top: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>NEXUS</h1>
+            <p>A lightweight, semantic server framework for WebFirst Language</p>
+        </header>
+
+        <div class="card">
+            <h2>API Endpoints</h2>
+            <div class="endpoints">
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <a href="/">/</a>
+                    <span class="desc">This page (static file)</span>
+                </div>
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <a href="/hello">/hello</a>
+                    <span class="desc">Simple greeting</span>
+                </div>
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <a href="/api/status">/api/status</a>
+                    <span class="desc">Health check</span>
+                </div>
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <a href="/api/time">/api/time</a>
+                    <span class="desc">Server time</span>
+                </div>
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <a href="/api/info">/api/info</a>
+                    <span class="desc">Request info</span>
+                </div>
+                <div class="endpoint">
+                    <span class="method post">POST</span>
+                    <span>/api/echo</span>
+                    <span class="desc">Echo body back</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Architecture</h2>
+            <div class="architecture">
+                <span class="comment">// Request Flow</span><br>
+                Client Request <span class="arrow">-></span> <span class="keyword">Server</span> (Bouncer)<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow">-></span> <span class="keyword">Router</span> (Traffic Cop)<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow">-></span> Check 1: Static Files (Lazy)<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow">-></span> Check 2: Dynamic Routes<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow">-></span> Check 3: 404 Fallback<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow">-></span> <span class="keyword">Handler</span> (Talent)<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="arrow"><-</span> Response
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Features</h2>
+            <div class="features">
+                <div class="feature">
+                    <div class="feature-icon">📁</div>
+                    <h3>Static Files</h3>
+                    <p>Automatic static file serving with MIME detection</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🛤️</div>
+                    <h3>Dynamic Routes</h3>
+                    <p>Clean route registration with handler mapping</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Security</h3>
+                    <p>Path sanitization to prevent traversal attacks</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">💨</div>
+                    <h3>Lazy Routing</h3>
+                    <p>Serves static files first for optimal performance</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Pretty URLs</h3>
+                    <p>Automatic .html extension resolution</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">📝</div>
+                    <h3>Natural Syntax</h3>
+                    <p>Written entirely in WFL's readable syntax</p>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Built with <strong>Nexus Framework</strong> on <strong>WebFirst Language</strong></p>
+        </footer>
+    </div>
+</body>
+</html>

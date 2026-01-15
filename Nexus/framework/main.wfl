@@ -1,0 +1,299 @@
+// ===========================================================================
+// Nexus Framework - Main Entry Point
+// ===========================================================================
+// A lightweight, semantic server framework for WFL
+// Architecture: Server -> Router
+// To run: wfl main.wfl
+// ===========================================================================
+
+display ""
+display "  _   _                      "
+display " | \\ | | _____  ___   _ ___ "
+display " |  \\| |/ _ \\ \\/ / | | / __|"
+display " | |\\  |  __/>  <| |_| \\__ \\"
+display " |_| \\_|\\___/_/\\_\\\\__,_|___/"
+display ""
+display " WFL Server Framework v1.0.0"
+display "=============================="
+display ""
+
+// ===========================================================================
+// CONFIGURATION
+// ===========================================================================
+
+store NEXUS_PORT as 8080
+store NEXUS_HOST as "localhost"
+store NEXUS_WEB_ROOT as "public"
+store NEXUS_MAX_REQUESTS as 1000
+
+display "[Nexus] Port: " with NEXUS_PORT
+display "[Nexus] Host: " with NEXUS_HOST
+display "[Nexus] Web Root: " with NEXUS_WEB_ROOT
+display ""
+
+// ===========================================================================
+// ROUTE CONTAINER
+// ===========================================================================
+
+create container Route:
+    property route_path: Text
+    property route_method: Text
+    property handler_name: Text
+end
+
+// Global routes list
+store nexus_routes as []
+
+// ===========================================================================
+// ROUTE REGISTRATION
+// ===========================================================================
+
+define action called route_get needs url_path and fn_name:
+    create new Route as new_route:
+        route_path is url_path
+        route_method is "GET"
+        handler_name is fn_name
+    end
+    push with nexus_routes and new_route
+    display "[Router] GET  " with url_path with " -> " with fn_name
+end action
+
+define action called route_post needs url_path and fn_name:
+    create new Route as new_route:
+        route_path is url_path
+        route_method is "POST"
+        handler_name is fn_name
+    end
+    push with nexus_routes and new_route
+    display "[Router] POST " with url_path with " -> " with fn_name
+end action
+
+// ===========================================================================
+// MIME TYPE DETECTION (using nested otherwise pattern)
+// ===========================================================================
+
+define action called get_mime_type needs fpath:
+    store mime_result as "text/plain"
+    check if fpath ends with ".html":
+        change mime_result to "text/html"
+    otherwise:
+        check if fpath ends with ".css":
+            change mime_result to "text/css"
+        otherwise:
+            check if fpath ends with ".js":
+                change mime_result to "application/javascript"
+            otherwise:
+                check if fpath ends with ".json":
+                    change mime_result to "application/json"
+                otherwise:
+                    check if fpath ends with ".png":
+                        change mime_result to "image/png"
+                    otherwise:
+                        check if fpath ends with ".jpg":
+                            change mime_result to "image/jpeg"
+                        end check
+                    end check
+                end check
+            end check
+        end check
+    end check
+    give back mime_result
+end action
+
+// ===========================================================================
+// ROUTE FINDER
+// ===========================================================================
+
+define action called find_route needs method_name and url_path:
+    for each route in nexus_routes:
+        check if route.route_method is equal to method_name:
+            check if route.route_path is equal to url_path:
+                give back route.handler_name
+            end check
+        end check
+    end for
+    give back ""
+end action
+
+// ===========================================================================
+// REGISTER ROUTES
+// ===========================================================================
+
+display "[Nexus] Registering routes..."
+route_get with "/api/status" and "handle_status"
+route_get with "/api/time" and "handle_time"
+route_get with "/hello" and "handle_hello"
+route_post with "/api/echo" and "handle_echo"
+display ""
+
+// ===========================================================================
+// SETUP WEB ROOT
+// ===========================================================================
+
+try:
+    check if directory exists at NEXUS_WEB_ROOT:
+        display "[Server] Web root exists: " with NEXUS_WEB_ROOT
+    otherwise:
+        create directory at NEXUS_WEB_ROOT
+        display "[Server] Created web root: " with NEXUS_WEB_ROOT
+    end check
+catch:
+    display "[Server] Warning: Could not verify web root"
+end try
+
+// ===========================================================================
+// SERVER STARTUP
+// ===========================================================================
+
+try:
+    display ""
+    display "============================================"
+    display "[Server] Starting on " with NEXUS_HOST with ":" with NEXUS_PORT
+    display "============================================"
+    display ""
+
+    listen on port NEXUS_PORT as nexus_server
+
+    display "[Server] Server started!"
+    display "[Server] Visit http://" with NEXUS_HOST with ":" with NEXUS_PORT
+    display ""
+
+    store req_count as 0
+
+    // Main loop
+    repeat forever:
+        try:
+            check if req_count is greater than NEXUS_MAX_REQUESTS:
+                display "[Server] Max requests reached"
+                break
+            end check
+
+            wait for request comes in on nexus_server as incoming_request
+
+            add 1 to req_count
+
+            store req_method as method of incoming_request
+            store req_path as path of incoming_request
+            store req_ip as client_ip of incoming_request
+            store req_body as body of incoming_request
+
+            display "[" with req_count with "] " with req_method with " " with req_path
+
+            store route_handled as false
+
+            // =========================================================
+            // CHECK 1: STATIC FILES (Laziness Protocol)
+            // =========================================================
+
+            // Try root path -> index.html
+            check if req_path is equal to "/":
+                store root_index as NEXUS_WEB_ROOT with "/index.html"
+                check if file exists at root_index:
+                    try:
+                        open file at root_index for reading as index_file
+                        store index_content as read content from index_file
+                        close file index_file
+                        respond to incoming_request with index_content and content_type "text/html"
+                        display "[Router] STATIC: / -> index.html"
+                        change route_handled to true
+                    catch:
+                        display "[Router] Error reading index"
+                    end try
+                end check
+            end check
+
+            // Try exact file path
+            check if route_handled is equal to false:
+                store full_path as NEXUS_WEB_ROOT with req_path
+                check if file exists at full_path:
+                    try:
+                        open file at full_path for reading as static_file
+                        store fdata as read content from static_file
+                        close file static_file
+                        respond to incoming_request with fdata
+                        display "[Router] STATIC: " with req_path
+                        change route_handled to true
+                    catch:
+                        display "[Router] Error reading: " with full_path
+                    end try
+                end check
+            end check
+
+            // Try with .html extension (pretty URLs)
+            check if route_handled is equal to false:
+                store html_path as NEXUS_WEB_ROOT with req_path with ".html"
+                check if file exists at html_path:
+                    try:
+                        open file at html_path for reading as html_file
+                        store html_content as read content from html_file
+                        close file html_file
+                        respond to incoming_request with html_content and content_type "text/html"
+                        display "[Router] STATIC (pretty): " with req_path
+                        change route_handled to true
+                    catch:
+                        display "[Router] Error reading: " with html_path
+                    end try
+                end check
+            end check
+
+            // =========================================================
+            // CHECK 2: DYNAMIC ROUTES (using nested otherwise pattern)
+            // =========================================================
+
+            check if route_handled is equal to false:
+                store fn_name as find_route with req_method and req_path
+
+                check if fn_name is equal to "handle_status":
+                    store status_json as "{\"status\": \"healthy\", \"server\": \"Nexus\", \"version\": \"1.0.0\"}"
+                    respond to incoming_request with status_json and content_type "application/json"
+                    display "[Router] DYNAMIC: /api/status"
+                    change route_handled to true
+                otherwise:
+                    check if fn_name is equal to "handle_time":
+                        store ms as current time in milliseconds
+                        store time_json as "{\"timestamp\": " with ms with "}"
+                        respond to incoming_request with time_json and content_type "application/json"
+                        display "[Router] DYNAMIC: /api/time"
+                        change route_handled to true
+                    otherwise:
+                        check if fn_name is equal to "handle_hello":
+                            store greeting as "Hello from Nexus Framework!"
+                            respond to incoming_request with greeting and content_type "text/plain"
+                            display "[Router] DYNAMIC: /hello"
+                            change route_handled to true
+                        otherwise:
+                            check if fn_name is equal to "handle_echo":
+                                store echo_json as "{\"echoed\": \"" with req_body with "\"}"
+                                respond to incoming_request with echo_json and content_type "application/json"
+                                display "[Router] DYNAMIC: /api/echo"
+                                change route_handled to true
+                            end check
+                        end check
+                    end check
+                end check
+            end check
+
+            // =========================================================
+            // CHECK 3: 404 FALLBACK
+            // =========================================================
+
+            check if route_handled is equal to false:
+                store not_found_html as "<!DOCTYPE html><html><head><title>404</title></head><body><h1>404 Not Found</h1><p>Path not found: " with req_path with "</p><a href='/'>Home</a></body></html>"
+                respond to incoming_request with not_found_html and status 404 and content_type "text/html"
+                display "[Router] 404: " with req_path
+            end check
+
+        catch:
+            display "[Server] Error: " with error_message
+        end try
+    end repeat
+
+    display ""
+    display "[Server] Shutdown. Handled " with req_count with " requests."
+
+catch:
+    display "[Server] FATAL: " with error_message
+    display "[Server] Check that port " with NEXUS_PORT with " is available"
+end try
+
+display "[Nexus] Stopped."
