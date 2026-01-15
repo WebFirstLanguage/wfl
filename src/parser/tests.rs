@@ -1497,3 +1497,187 @@ store y as x with " more""#;
         panic!("Second statement should be VariableDeclaration");
     }
 }
+
+// ===== Tests for "otherwise check if" else-if chain pattern =====
+
+#[test]
+fn test_otherwise_check_if_chain() {
+    // Test the "otherwise check if" pattern (else-if chain without colon)
+    let input = r#"check if x is equal to 1:
+    display "one"
+otherwise check if x is equal to 2:
+    display "two"
+otherwise:
+    display "other"
+end check"#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Should parse 'otherwise check if' chain successfully: {:?}",
+        result.err()
+    );
+
+    if let Ok(Statement::IfStatement {
+        then_block,
+        else_block,
+        ..
+    }) = result
+    {
+        // Then block should have one statement
+        assert_eq!(then_block.len(), 1, "Then block should have 1 statement");
+
+        // Else block should exist and contain a nested if
+        let else_stmts = else_block.expect("Should have else block");
+        assert_eq!(else_stmts.len(), 1, "Else block should have 1 statement");
+
+        // The else statement should be another IfStatement (the chained else-if)
+        if let Statement::IfStatement {
+            then_block: inner_then,
+            else_block: inner_else,
+            ..
+        } = &else_stmts[0]
+        {
+            assert_eq!(
+                inner_then.len(),
+                1,
+                "Inner then block should have 1 statement"
+            );
+
+            // Inner else block should exist (the final "otherwise:" clause)
+            let inner_else_stmts = inner_else.as_ref().expect("Should have inner else block");
+            assert_eq!(
+                inner_else_stmts.len(),
+                1,
+                "Inner else block should have 1 statement"
+            );
+        } else {
+            panic!(
+                "Expected nested IfStatement in else block, got: {:?}",
+                else_stmts[0]
+            );
+        }
+    } else {
+        panic!("Expected IfStatement, got: {:?}", result);
+    }
+}
+
+#[test]
+fn test_otherwise_check_if_in_action() {
+    // Test that "otherwise check if" works inside action definitions
+    let input = r#"define action called classify with value:
+    check if value is less than 0:
+        give back "negative"
+    otherwise check if value is equal to 0:
+        give back "zero"
+    otherwise:
+        give back "positive"
+    end check
+end action"#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Should parse 'otherwise check if' inside action: {:?}",
+        result.err()
+    );
+
+    if let Ok(Statement::ActionDefinition { body, .. }) = result {
+        assert_eq!(body.len(), 1, "Action body should have 1 statement");
+
+        // The body should contain an IfStatement with chained else-if
+        if let Statement::IfStatement { else_block, .. } = &body[0] {
+            let else_stmts = else_block.as_ref().expect("Should have else block");
+            assert_eq!(else_stmts.len(), 1, "Else block should have 1 statement");
+
+            // Should be a nested IfStatement
+            assert!(
+                matches!(else_stmts[0], Statement::IfStatement { .. }),
+                "Else block should contain nested IfStatement"
+            );
+        } else {
+            panic!("Expected IfStatement in action body, got: {:?}", body[0]);
+        }
+    } else {
+        panic!("Expected ActionDefinition, got: {:?}", result);
+    }
+}
+
+#[test]
+fn test_otherwise_colon_check_if_still_works() {
+    // Test that the traditional nested syntax still works
+    let input = r#"check if x is equal to 1:
+    display "one"
+otherwise:
+    check if x is equal to 2:
+        display "two"
+    end check
+end check"#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Traditional 'otherwise: check if' syntax should still work: {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn test_deep_else_if_chain() {
+    // Test multiple chained else-if statements
+    let input = r#"check if x is equal to 1:
+    display "one"
+otherwise check if x is equal to 2:
+    display "two"
+otherwise check if x is equal to 3:
+    display "three"
+otherwise check if x is equal to 4:
+    display "four"
+otherwise:
+    display "other"
+end check"#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Should parse deep else-if chain: {:?}",
+        result.err()
+    );
+
+    // Verify the structure: each else block should contain a single nested IfStatement
+    if let Ok(Statement::IfStatement { else_block, .. }) = result {
+        let mut current_else = else_block;
+        let mut depth = 0;
+
+        while let Some(stmts) = current_else {
+            depth += 1;
+            if depth > 4 {
+                break; // Prevent infinite loop
+            }
+
+            if stmts.len() == 1 {
+                if let Statement::IfStatement { else_block, .. } = &stmts[0] {
+                    current_else = else_block.clone();
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        assert_eq!(depth, 4, "Should have 4 levels of else-if chaining");
+    }
+}
