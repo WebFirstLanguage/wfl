@@ -31,7 +31,7 @@ create container Server:
     
     // Start the server and begin listening for connections
     // This is the main entry point - it starts the WFL built-in server
-    action start:
+    action begin_listening:
         store port_val as config.port_number
         display "Nexus Server starting on port " with port_val with "..."
         
@@ -63,13 +63,13 @@ create container Server:
             
             // THE HANDOFF: Pass the request to the Router for resolution
             // No if/else logic here - the Router handles all decision making
-            store response_data as router.resolve with incoming_request
+            store response_data as router.resolve(incoming_request)
             
             // Send the response back to the client
             check if response_data is not equal to nothing:
-                store response_content as response_data.content
+                store response_content as response_data.body_content
                 store response_status as response_data.status_code
-                store response_type as response_data.content_type
+                store response_type as response_data.mime_type
                 
                 respond to incoming_request with response_content and status response_status and content_type response_type
             otherwise:

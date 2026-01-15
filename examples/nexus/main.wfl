@@ -20,13 +20,13 @@ load module from "core/Router.wfl"
 load module from "src/handlers.wfl"
 
 // Configuration
-store server_port as 8080
-store server_host as "127.0.0.1"
+store app_port as 8080
+store app_host as "127.0.0.1"
 store web_root as "examples/nexus/public"
 
 display "Configuration:"
-display "  Port: " with server_port
-display "  Host: " with server_host
+display "  Port: " with app_port
+display "  Host: " with app_host
 display "  Web Root: " with web_root
 display ""
 
@@ -44,19 +44,19 @@ store user_handler as create_user_handler
 store health_handler as create_health_handler
 store echo_handler as create_echo_handler
 
-// Register handlers with the router
-router.register_handler with "api" and api_handler
-router.register_handler with "users" and user_handler
-router.register_handler with "health" and health_handler
-router.register_handler with "echo" and echo_handler
+// Add handlers to the router
+router.add_handler("api", api_handler)
+router.add_handler("users", user_handler)
+router.add_handler("health", health_handler)
+router.add_handler("echo", echo_handler)
 
-// Register routes (method, path, handler_name)
-router.register with "GET" and "/api/hello" and "api"
-router.register with "GET" and "/api/users" and "users"
-router.register with "POST" and "/api/users" and "users"
-router.register with "GET" and "/health" and "health"
-router.register with "GET" and "/api/echo" and "echo"
-router.register with "POST" and "/api/echo" and "echo"
+// Add routes (method, path, handler_name)
+router.add_route("GET", "/api/hello", "api")
+router.add_route("GET", "/api/users", "users")
+router.add_route("POST", "/api/users", "users")
+router.add_route("GET", "/health", "health")
+router.add_route("GET", "/api/echo", "echo")
+router.add_route("POST", "/api/echo", "echo")
 
 display ""
 display "Routes registered: " with router.route_count
@@ -64,16 +64,16 @@ display ""
 
 // Create the Server (The "Bouncer")
 display "Initializing Server..."
-store server as create_server with server_port and server_host and web_root
+store app_server as create_server with app_port and app_host and web_root
 
 // Start the server
 display "Starting server..."
-server.start
+app_server.begin_listening
 
 display ""
 display "=============================================="
 display "  Nexus Server is running!                   "
-display "  Visit: http://" with server_host with ":" with server_port
+display "  Visit: http://" with app_host with ":" with app_port
 display "=============================================="
 display ""
 display "Available endpoints:"
@@ -91,4 +91,4 @@ display ""
 
 // Run the server's main loop
 // This passes all requests to the Router for resolution
-server.run with router
+app_server.run(router)

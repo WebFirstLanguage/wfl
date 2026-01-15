@@ -2,6 +2,8 @@
 
 A lightweight, semantic server framework for WFL (WebFirst Language) with a simple Server -> Router architecture.
 
+> **Note**: This is a design/reference implementation that demonstrates the Server -> Router architecture concept. The main.wfl entry point parses correctly and shows the intended usage pattern. The module files (Server.wfl, Router.wfl, handlers.wfl) serve as detailed design documentation for the framework architecture, though they use some WFL reserved keywords (like `status`, `content`, `request`, `response`, `method`, `path`, `body`) that would need to be renamed for full runtime execution.
+
 ## Architecture
 
 Nexus follows a strict **Server -> Router** architecture:

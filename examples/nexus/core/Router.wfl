@@ -6,14 +6,14 @@
 
 // Response container for standardized responses
 create container Response:
-    property content: Text
+    property body_content: Text
     property status_code: Number
-    property content_type: Text
+    property mime_type: Text
     
-    action initialize needs body: Text, status: Number, mime_type: Text:
-        change content to body
+    action initialize needs body: Text, status: Number, content_type: Text:
+        change body_content to body
         change status_code to status
-        change content_type to mime_type
+        change mime_type to content_type
     end action
 end container
 
@@ -45,21 +45,21 @@ create container Router:
         change handlers to create map
     end action
     
-    // Register a dynamic route
+    // Add a dynamic route
     // Maps a URL path to a handler action name
-    action register needs http_method: Text, url_path: Text, handler_name: Text:
+    action add_route needs http_method: Text, url_path: Text, handler_name: Text:
         create new RouteEntry as route
         route.initialize with url_path and handler_name and http_method
         
         push with routes and route
         change route_count to route_count plus 1
         
-        display "Registered route: " with http_method with " " with url_path with " -> " with handler_name
+        display "Added route: " with http_method with " " with url_path with " -> " with handler_name
     end action
     
-    // Register a handler action
+    // Add a handler action
     // Stores a reference to the handler for later execution
-    action register_handler needs handler_name: Text, handler_action: Container:
+    action add_handler needs handler_name: Text, handler_action: Container:
         change handlers[handler_name] to handler_action
     end action
     
@@ -236,7 +236,8 @@ create container Router:
                         give back handler_response
                     otherwise:
                         display "Warning: Handler not found: " with handler_name
-                        give back create_500_response with "Handler not found: " with handler_name
+                        store error_msg as "Handler not found: " with handler_name
+                        give back create_500_response with error_msg
                     end check
                 end check
             end check
