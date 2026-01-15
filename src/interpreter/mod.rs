@@ -274,6 +274,7 @@ fn expr_type(expr: &Expression) -> String {
             Literal::Nothing => "NullLiteral".to_string(),
             Literal::Pattern(p) => format!("PatternLiteral \"{p}\""),
             Literal::List(_) => "ListLiteral".to_string(),
+            Literal::InterpolatedString(_) => "InterpolatedStringLiteral".to_string(),
         },
         Expression::Variable(name, ..) => format!("Variable '{name}'"),
         Expression::BinaryOperation { operator, .. } => format!("BinaryOperation '{operator:?}'"),
@@ -1220,6 +1221,122 @@ impl Interpreter {
             Value::Null | Value::Nothing => Type::Nothing,
             _ => Type::Unknown,
         }
+    }
+
+    /// Evaluate an interpolation expression string (e.g., "name", "user.name", "items[0]")
+    /// This parses the expression string and evaluates it in the given environment
+    async fn evaluate_interpolation_expr(
+        &self,
+        expr_str: &str,
+        env: Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError> {
+        // Handle simple variable lookup first (most common case)
+        if expr_str.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            // Simple variable name
+            if let Some(value) = env.borrow().get(expr_str) {
+                return Ok(value);
+            }
+            return Err(RuntimeError::new(
+                format!("Undefined variable '{}' in string interpolation", expr_str),
+                line,
+                column,
+            ));
+        }
+
+        // Handle property access (e.g., "user.name")
+        if expr_str.contains('.') && !expr_str.contains('[') {
+            let parts: Vec<&str> = expr_str.split('.').collect();
+            if parts.len() >= 2 {
+                let var_name = parts[0].trim();
+                if let Some(mut value) = env.borrow().get(var_name) {
+                    for prop in parts.iter().skip(1) {
+                        let prop_name = prop.trim();
+                        value = match &value {
+                            Value::Object(map) => {
+                                map.borrow().get(prop_name).cloned().unwrap_or(Value::Null)
+                            }
+                            Value::ContainerInstance(inst) => {
+                                let inst_borrowed = inst.borrow();
+                                inst_borrowed
+                                    .properties
+                                    .get(prop_name)
+                                    .cloned()
+                                    .unwrap_or(Value::Null)
+                            }
+                            _ => Value::Null,
+                        };
+                    }
+                    return Ok(value);
+                }
+                return Err(RuntimeError::new(
+                    format!("Undefined variable '{}' in string interpolation", var_name),
+                    line,
+                    column,
+                ));
+            }
+        }
+
+        // Handle index access (e.g., "items[0]")
+        if expr_str.contains('[') && expr_str.contains(']') {
+            if let Some(bracket_pos) = expr_str.find('[') {
+                let var_name = &expr_str[..bracket_pos].trim();
+                let rest = &expr_str[bracket_pos + 1..];
+                if let Some(close_pos) = rest.find(']') {
+                    let index_str = rest[..close_pos].trim();
+
+                    if let Some(value) = env.borrow().get(*var_name) {
+                        match &value {
+                            Value::List(list) => {
+                                if let Ok(index) = index_str.parse::<i64>() {
+                                    let list_borrowed = list.borrow();
+                                    let idx = if index < 0 {
+                                        (list_borrowed.len() as i64 + index) as usize
+                                    } else {
+                                        index as usize
+                                    };
+                                    if idx < list_borrowed.len() {
+                                        return Ok(list_borrowed[idx].clone());
+                                    }
+                                    return Err(RuntimeError::new(
+                                        format!("Index {} out of bounds for list of length {}", index, list_borrowed.len()),
+                                        line,
+                                        column,
+                                    ));
+                                }
+                            }
+                            Value::Object(map) => {
+                                // Try string key access
+                                let key = index_str.trim_matches(|c| c == '"' || c == '\'');
+                                let map_borrowed = map.borrow();
+                                if let Some(val) = map_borrowed.get(key) {
+                                    return Ok(val.clone());
+                                }
+                                return Ok(Value::Null);
+                            }
+                            _ => {}
+                        }
+                    }
+                    return Err(RuntimeError::new(
+                        format!("Undefined variable '{}' in string interpolation", var_name),
+                        line,
+                        column,
+                    ));
+                }
+            }
+        }
+
+        // For complex expressions, fall back to parsing and evaluating
+        // This handles cases like function calls or more complex expressions
+        Err(RuntimeError::new(
+            format!(
+                "Complex expression '{}' not supported in string interpolation. Use simple variables, property access (a.b), or index access (a[0]).",
+                expr_str
+            ),
+            line,
+            column,
+        ))
     }
 
     async fn resolve_module_path(
@@ -5163,6 +5280,25 @@ impl Interpreter {
                         list_values.push(value);
                     }
                     Ok(Value::List(Rc::new(RefCell::new(list_values))))
+                }
+                Literal::InterpolatedString(parts) => {
+                    use crate::parser::ast::InterpolatedPart;
+                    let mut result = String::new();
+                    for part in parts {
+                        match part {
+                            InterpolatedPart::Text(text) => {
+                                result.push_str(text);
+                            }
+                            InterpolatedPart::Variable(var_expr) => {
+                                // Parse and evaluate the variable expression
+                                let value = self
+                                    .evaluate_interpolation_expr(var_expr, Rc::clone(&env), *_line, *_column)
+                                    .await?;
+                                result.push_str(&format!("{}", value));
+                            }
+                        }
+                    }
+                    Ok(Value::Text(Rc::from(result.as_str())))
                 }
             },
 

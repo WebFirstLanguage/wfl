@@ -744,6 +744,27 @@ impl Analyzer {
             Expression::AwaitExpression { expression, .. } => {
                 self.mark_used_in_expression(expression, usages);
             }
+            Expression::Literal(literal, ..) => {
+                // Handle interpolated strings - mark embedded variables as used
+                if let crate::parser::ast::Literal::InterpolatedString(parts) = literal {
+                    for part in parts {
+                        if let crate::parser::ast::InterpolatedPart::Variable(var_expr) = part {
+                            // Extract the base variable name (handle "user.name" or "items[0]")
+                            let base_var = if let Some(dot_pos) = var_expr.find('.') {
+                                &var_expr[..dot_pos]
+                            } else if let Some(bracket_pos) = var_expr.find('[') {
+                                &var_expr[..bracket_pos]
+                            } else {
+                                var_expr.as_str()
+                            };
+                            let base_var = base_var.trim();
+                            if let Some(usage) = usages.get_mut(base_var) {
+                                usage.used = true;
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }

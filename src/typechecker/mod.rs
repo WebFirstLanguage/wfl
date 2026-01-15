@@ -1529,6 +1529,7 @@ impl TypeChecker {
                 Literal::Nothing => Type::Nothing,
                 Literal::Pattern(_) => Type::Pattern,
                 Literal::List(_) => Type::List(Box::new(Type::Any)),
+                Literal::InterpolatedString(_) => Type::Text, // Interpolated strings evaluate to text
             },
             Expression::Variable(name, _line, _column) => {
                 if let Some(symbol) = self.analyzer.get_symbol(name) {

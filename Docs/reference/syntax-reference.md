@@ -45,6 +45,9 @@ not a                         // NOT
 
 // String
 text1 with text2              // Concatenation
+"Hello {name}!"               // String interpolation
+"Value: {count}"              // Embed variables in strings
+"{{literal}}"                 // Escaped braces (outputs {literal})
 ```
 
 ## Control Flow
@@ -208,7 +211,9 @@ instance.method()
 
 ```wfl
 // Core
-display value
+display value                             // Display a value
+display "Hello {name}!"                   // Display with string interpolation
+display "Count: " with count              // Display with concatenation (legacy)
 typeof of value
 isnothing of value
 

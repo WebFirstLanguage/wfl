@@ -2,7 +2,7 @@
 //!
 //! This module handles parsing of atomic expressions (literals, variables, etc.)
 
-use super::super::{Argument, Expression, Literal, ParseError, Parser, UnaryOperator};
+use super::super::{Argument, Expression, InterpolatedPart, Literal, ParseError, Parser, UnaryOperator};
 use super::{BinaryExprParser, ExprParser};
 use crate::exec_trace;
 use crate::lexer::token::Token;
@@ -95,11 +95,20 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                 }
                 Token::StringLiteral(s) => {
                     let token_pos = self.bump_sync().unwrap();
-                    Ok(Expression::Literal(
-                        Literal::String(s.to_string()),
-                        token_pos.line,
-                        token_pos.column,
-                    ))
+                    // Check if this is an interpolated string (contains {variable} patterns)
+                    if let Some(parts) = parse_interpolated_string(s) {
+                        Ok(Expression::Literal(
+                            Literal::InterpolatedString(parts),
+                            token_pos.line,
+                            token_pos.column,
+                        ))
+                    } else {
+                        Ok(Expression::Literal(
+                            Literal::String(s.to_string()),
+                            token_pos.line,
+                            token_pos.column,
+                        ))
+                    }
                 }
                 Token::IntLiteral(n) => {
                     let token_pos = self.bump_sync().unwrap();
@@ -1178,5 +1187,101 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
         // Parse a single list element without parsing binary operators
         // This prevents "and" from being interpreted as a boolean operator
         self.parse_primary_expression()
+    }
+}
+
+/// Parses an interpolated string like "Hello {name}, you have {count} messages"
+/// Returns None if the string contains no interpolation markers or escape sequences.
+/// Returns Some(parts) if interpolation markers or escape sequences are found.
+///
+/// Supports:
+/// - Simple variable references: {name}
+/// - Property access: {user.name}
+/// - Index access: {items[0]}
+/// - Escaped braces: {{ and }} produce literal { and }
+fn parse_interpolated_string(s: &str) -> Option<Vec<InterpolatedPart>> {
+    // Quick check: if no '{' or '}}' found, this is not an interpolated string
+    if !s.contains('{') && !s.contains("}}") {
+        return None;
+    }
+
+    let mut parts: Vec<InterpolatedPart> = Vec::new();
+    let mut current_text = String::new();
+    let mut chars = s.chars().peekable();
+    let mut found_interpolation = false;
+    let mut found_escape = false;
+
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            // Check for escaped brace {{ -> {
+            if chars.peek() == Some(&'{') {
+                chars.next(); // consume second {
+                current_text.push('{');
+                found_escape = true;
+                continue;
+            }
+
+            // Start of interpolation - save any accumulated text
+            if !current_text.is_empty() {
+                parts.push(InterpolatedPart::Text(std::mem::take(&mut current_text)));
+            }
+
+            // Parse the variable/expression name until }
+            let mut var_name = String::new();
+            let mut found_close = false;
+
+            while let Some(ch) = chars.next() {
+                if ch == '}' {
+                    found_close = true;
+                    break;
+                }
+                var_name.push(ch);
+            }
+
+            // If we didn't find closing }, treat the { as literal text
+            if !found_close {
+                current_text.push('{');
+                current_text.push_str(&var_name);
+                continue;
+            }
+
+            // Trim whitespace from variable name
+            let var_name = var_name.trim().to_string();
+
+            // Empty braces {} are treated as literal "{}"
+            if var_name.is_empty() {
+                current_text.push_str("{}");
+                continue;
+            }
+
+            // Valid interpolation found
+            found_interpolation = true;
+            parts.push(InterpolatedPart::Variable(var_name));
+        } else if ch == '}' {
+            // Check for escaped brace }} -> }
+            if chars.peek() == Some(&'}') {
+                chars.next(); // consume second }
+                current_text.push('}');
+                found_escape = true;
+            } else {
+                // Lone } is kept as literal
+                current_text.push('}');
+            }
+        } else {
+            current_text.push(ch);
+        }
+    }
+
+    // Add any remaining text
+    if !current_text.is_empty() {
+        parts.push(InterpolatedPart::Text(current_text));
+    }
+
+    // Return Some if we found interpolation markers or escape sequences
+    // For escape-only strings, we still use InterpolatedString to handle the escapes
+    if found_interpolation || found_escape {
+        Some(parts)
+    } else {
+        None
     }
 }

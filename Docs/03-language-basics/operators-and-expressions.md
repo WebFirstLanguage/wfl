@@ -273,6 +273,57 @@ store sum as 5 with 3             // This concatenates: "53"
 store sum as 5 plus 3             // This adds: 8
 ```
 
+## String Interpolation
+
+String interpolation provides a cleaner way to embed variables directly in text using `{variable}` syntax:
+
+**Basic usage:**
+```wfl
+store name as "Alice"
+store age as 25
+display "Hello, {name}!"           // Output: "Hello, Alice!"
+display "Age: {age}"               // Output: "Age: 25"
+```
+
+**Multiple values in one string:**
+```wfl
+store name as "Alice"
+store age as 25
+store city as "Portland"
+
+display "Name: {name}, Age: {age}, City: {city}"
+// Output: "Name: Alice, Age: 25, City: Portland"
+```
+
+Compare this with the equivalent using `with`:
+```wfl
+display "Name: " with name with ", Age: " with age with ", City: " with city
+```
+
+**Property access:**
+```wfl
+store user.name as "Alice"
+display "Welcome, {user.name}!"
+```
+
+**List index access:**
+```wfl
+store items as ["apple", "banana", "cherry"]
+display "First item: {items[0]}"   // Output: "First item: apple"
+```
+
+**Escaped braces:**
+Use `{{` and `}}` to output literal braces:
+```wfl
+display "Use {{name}} for interpolation"
+// Output: "Use {name} for interpolation"
+```
+
+**When to use interpolation vs concatenation:**
+- Use interpolation (`{var}`) for cleaner, more readable code
+- Use concatenation (`with`) when you need to build strings dynamically in complex expressions
+- Both methods work equally well; choose based on readability
+
 ## Order of Operations
 
 WFL follows standard mathematical order of operations (PEMDAS):
@@ -625,6 +676,7 @@ Check if:
 | OR | `or` | - | `a or b` |
 | NOT | `not` | - | `not x` |
 | Concatenate | `with` | - | `"Hi" with name` |
+| Interpolate | `{var}` | - | `"Hi {name}"` |
 
 ## What You've Learned
 
@@ -634,6 +686,7 @@ In this section, you learned:
 ✅ **Comparison operators** - is equal to, is greater than, is less than
 ✅ **Logical operators** - and, or, not
 ✅ **String concatenation** - with keyword
+✅ **String interpolation** - embed variables with {variable} syntax
 ✅ **Order of operations** - How WFL evaluates expressions
 ✅ **Natural language alternatives** - Readable operator names
 

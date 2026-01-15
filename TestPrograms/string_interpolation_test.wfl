@@ -1,0 +1,52 @@
+# String Interpolation Test
+# Tests the new string interpolation feature using {variable} syntax
+
+# Basic variable interpolation
+store name as "Alice"
+store age as 30
+display "Hello, {name}!"
+display "You are {age} years old."
+
+# Multiple interpolations in one string
+display "Name: {name}, Age: {age}"
+
+# Interpolation at beginning, middle, and end
+store greeting as "Hi"
+store punctuation as "!"
+display "{greeting} there, {name}{punctuation}"
+
+# Numbers in interpolation
+store count as 42
+store price as 19.99
+display "Count: {count}, Price: ${price}"
+
+# Empty string and special cases
+store empty as ""
+display "Empty value: '{empty}'"
+
+# Escaped braces (using {{ and }})
+display "This shows literal braces: {{name}}"
+display "Closing brace only: }}"
+
+# String in string (nested)
+store message as "Hello World"
+display "The message is: {message}"
+
+# Boolean interpolation
+store is_active as yes
+display "Active status: {is_active}"
+
+# Summary display - the cleaner way
+display ""
+display "========================================"
+display "SUMMARY"
+display "========================================"
+display "Total files: {count}"
+display "Total price: {price}"
+
+# Compare with the old verbose way:
+# display "Total files: " with count
+# display "Total price: " with price
+
+display ""
+display "String interpolation test completed successfully!"

@@ -626,6 +626,15 @@ pub enum Expression {
     },
 }
 
+/// Represents a part of an interpolated string - either static text or an expression
+#[derive(Debug, Clone, PartialEq)]
+pub enum InterpolatedPart {
+    /// Static text portion of the string
+    Text(String),
+    /// An expression to be evaluated and converted to string (the string is the variable/expression name)
+    Variable(String),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     String(String),
@@ -635,6 +644,8 @@ pub enum Literal {
     Nothing,
     Pattern(String),
     List(Vec<Expression>),
+    /// An interpolated string like "Hello {name}, you have {count} messages"
+    InterpolatedString(Vec<InterpolatedPart>),
 }
 
 /// Represents different types of character classes in patterns

@@ -833,6 +833,23 @@ impl CodeFixer {
                     }
                     output.push(']');
                 }
+                Literal::InterpolatedString(parts) => {
+                    use crate::parser::ast::InterpolatedPart;
+                    output.push('"');
+                    for part in parts {
+                        match part {
+                            InterpolatedPart::Text(text) => {
+                                output.push_str(text);
+                            }
+                            InterpolatedPart::Variable(var) => {
+                                output.push('{');
+                                output.push_str(var);
+                                output.push('}');
+                            }
+                        }
+                    }
+                    output.push('"');
+                }
             },
             Expression::Variable(name, ..) => {
                 let fixed_name = self.fix_identifier_name(name, summary);
