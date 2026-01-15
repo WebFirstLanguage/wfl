@@ -146,12 +146,16 @@ const WFL = {
   file: {
     _validatePath: (filepath) => {
       const resolved = path.resolve(filepath);
-      const normalized = path.normalize(resolved);
-      // Prevent path traversal attacks by checking for suspicious patterns
-      if (normalized.includes('..') || normalized !== resolved) {
-        throw new Error(`Invalid file path: ${filepath}`);
+      // Define allowed base directory (current working directory by default)
+      const baseDir = path.resolve('.');
+      // Use path.relative to check if the resolved path is within the base directory
+      const relative = path.relative(baseDir, resolved);
+      // Reject if the relative path starts with '..' (goes outside baseDir)
+      // or if it's an absolute path (shouldn't happen with path.relative from same root)
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error(`Path traversal detected: ${filepath} resolves outside of ${baseDir}`);
       }
-      return normalized;
+      return resolved;
     },
     read: (filepath) => {
       const validPath = WFL.file._validatePath(filepath);

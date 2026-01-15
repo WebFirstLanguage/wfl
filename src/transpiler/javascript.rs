@@ -4,8 +4,8 @@
 //! WFL AST nodes into JavaScript code.
 
 use crate::parser::ast::{
-    Anchor, Argument, CharClass, ErrorType, Expression, FileOpenMode, Literal, Operator,
-    Parameter, PatternExpression, Program, Quantifier, Statement, UnaryOperator, WriteMode,
+    Anchor, Argument, CharClass, ErrorType, Expression, FileOpenMode, Literal, Operator, Parameter,
+    PatternExpression, Program, Quantifier, Statement, UnaryOperator, WriteMode,
 };
 
 use super::runtime::get_runtime;
@@ -136,12 +136,23 @@ impl JavaScriptTranspiler {
             } => {
                 let keyword = if *is_constant { "const" } else { "let" };
                 let val = self.transpile_expression(value)?;
-                Ok(format!("{}{} {} = {};\n", self.indent(), keyword, self.sanitize_name(name), val))
+                Ok(format!(
+                    "{}{} {} = {};\n",
+                    self.indent(),
+                    keyword,
+                    self.sanitize_name(name),
+                    val
+                ))
             }
 
             Statement::Assignment { name, value, .. } => {
                 let val = self.transpile_expression(value)?;
-                Ok(format!("{}{} = {};\n", self.indent(), self.sanitize_name(name), val))
+                Ok(format!(
+                    "{}{} = {};\n",
+                    self.indent(),
+                    self.sanitize_name(name),
+                    val
+                ))
             }
 
             Statement::IfStatement {
@@ -177,7 +188,8 @@ impl JavaScriptTranspiler {
             } => {
                 let cond = self.transpile_expression(condition)?;
                 let then_code = self.transpile_statement(then_stmt)?;
-                let mut result = format!("{}if ({}) {}", self.indent(), cond, then_code.trim_start());
+                let mut result =
+                    format!("{}if ({}) {}", self.indent(), cond, then_code.trim_start());
                 if let Some(else_s) = else_stmt {
                     let else_code = self.transpile_statement(else_s)?;
                     result = format!(
@@ -439,20 +451,24 @@ impl JavaScriptTranspiler {
                 ))
             }
 
-            Statement::ClearListStatement { list_name, .. } => {
-                Ok(format!(
-                    "{}{}.length = 0;\n",
-                    self.indent(),
-                    self.sanitize_name(list_name)
-                ))
-            }
+            Statement::ClearListStatement { list_name, .. } => Ok(format!(
+                "{}{}.length = 0;\n",
+                self.indent(),
+                self.sanitize_name(list_name)
+            )),
 
             Statement::MapCreation { name, entries, .. } => {
-                let mut result = format!("{}let {} = {{\n", self.indent(), self.sanitize_name(name));
+                let mut result =
+                    format!("{}let {} = {{\n", self.indent(), self.sanitize_name(name));
                 self.push_indent();
                 for (key, value) in entries {
                     let val = self.transpile_expression(value)?;
-                    result.push_str(&format!("{}{}: {},\n", self.indent(), self.escape_key(key), val));
+                    result.push_str(&format!(
+                        "{}{}: {},\n",
+                        self.indent(),
+                        self.escape_key(key),
+                        val
+                    ));
                 }
                 self.pop_indent();
                 result.push_str(&format!("{}}};\n", self.indent()));
@@ -569,7 +585,9 @@ impl JavaScriptTranspiler {
                 Ok(format!("{}// File closed (no-op in JS)\n", self.indent()))
             }
 
-            Statement::WriteContentStatement { content, target, .. } => {
+            Statement::WriteContentStatement {
+                content, target, ..
+            } => {
                 let content_expr = self.transpile_expression(content)?;
                 let target_expr = self.transpile_expression(target)?;
                 Ok(format!(
@@ -673,16 +691,32 @@ impl JavaScriptTranspiler {
                 // For variable declarations, we need to await the expression part,
                 // not the entire statement
                 match inner.as_ref() {
-                    Statement::VariableDeclaration { name, value, is_constant, .. } => {
+                    Statement::VariableDeclaration {
+                        name,
+                        value,
+                        is_constant,
+                        ..
+                    } => {
                         let js_name = self.sanitize_name(name);
                         let awaited_value = format!("await {}", self.transpile_expression(value)?);
                         let keyword = if *is_constant { "const" } else { "let" };
-                        Ok(format!("{}{} {} = {};\n", self.indent(), keyword, js_name, awaited_value))
+                        Ok(format!(
+                            "{}{} {} = {};\n",
+                            self.indent(),
+                            keyword,
+                            js_name,
+                            awaited_value
+                        ))
                     }
                     Statement::Assignment { name, value, .. } => {
                         let js_name = self.sanitize_name(name);
                         let awaited_value = format!("await {}", self.transpile_expression(value)?);
-                        Ok(format!("{}{} = {};\n", self.indent(), js_name, awaited_value))
+                        Ok(format!(
+                            "{}{} = {};\n",
+                            self.indent(),
+                            js_name,
+                            awaited_value
+                        ))
                     }
                     _ => {
                         // For other statement types, wrap the result in await
@@ -711,9 +745,7 @@ impl JavaScriptTranspiler {
             }
 
             Statement::HttpGetStatement {
-                url,
-                variable_name,
-                ..
+                url, variable_name, ..
             } => {
                 let url_expr = self.transpile_expression(url)?;
                 Ok(format!(
@@ -761,18 +793,19 @@ impl JavaScriptTranspiler {
                 for clause in when_clauses {
                     let error_check = match clause.error_type {
                         ErrorType::General => "true".to_string(),
-                        ErrorType::FileNotFound => {
-                            "_wfl_error.code === 'ENOENT'".to_string()
-                        }
-                        ErrorType::PermissionDenied => {
-                            "_wfl_error.code === 'EACCES'".to_string()
-                        }
+                        ErrorType::FileNotFound => "_wfl_error.code === 'ENOENT'".to_string(),
+                        ErrorType::PermissionDenied => "_wfl_error.code === 'EACCES'".to_string(),
                         _ => "true".to_string(),
                     };
 
                     let keyword = if first { "if" } else { "else if" };
                     first = false;
-                    result.push_str(&format!("{}{} ({}) {{\n", self.indent(), keyword, error_check));
+                    result.push_str(&format!(
+                        "{}{} ({}) {{\n",
+                        self.indent(),
+                        keyword,
+                        error_check
+                    ));
                     self.push_indent();
                     // Bind the error name
                     result.push_str(&format!(
@@ -972,7 +1005,9 @@ impl JavaScriptTranspiler {
                 Ok(result)
             }
 
-            Statement::InterfaceDefinition { name, line, column, .. } => {
+            Statement::InterfaceDefinition {
+                name, line, column, ..
+            } => {
                 // Interfaces don't exist in JavaScript, emit a comment
                 self.warn(
                     format!("Interface '{}' has no JavaScript equivalent, skipped", name),
@@ -1026,7 +1061,9 @@ impl JavaScriptTranspiler {
                 ))
             }
 
-            Statement::EventDefinition { name, line, column, .. } => {
+            Statement::EventDefinition {
+                name, line, column, ..
+            } => {
                 self.warn(
                     format!("Event '{}' definition not fully supported in JS", name),
                     *line,
@@ -1035,7 +1072,9 @@ impl JavaScriptTranspiler {
                 Ok(format!("{}// Event: {}\n", self.indent(), name))
             }
 
-            Statement::EventTrigger { name, arguments, .. } => {
+            Statement::EventTrigger {
+                name, arguments, ..
+            } => {
                 let args = arguments
                     .iter()
                     .map(|a| self.transpile_argument(a))
@@ -1089,7 +1128,13 @@ impl JavaScriptTranspiler {
                 ))
             }
 
-            Statement::LoadModuleStatement { path, alias, line, column, .. } => {
+            Statement::LoadModuleStatement {
+                path,
+                alias,
+                line,
+                column,
+                ..
+            } => {
                 self.warn(
                     "Module loading requires bundler support in JavaScript",
                     *line,
@@ -1144,7 +1189,12 @@ impl JavaScriptTranspiler {
             }
 
             Statement::RespondStatement {
-                content, status, content_type, line, column, ..
+                content,
+                status,
+                content_type,
+                line,
+                column,
+                ..
             } => {
                 self.warn("Respond requires request context in JS", *line, *column);
                 let content_expr = self.transpile_expression(content)?;
@@ -1187,20 +1237,12 @@ impl JavaScriptTranspiler {
 
             Statement::StopAcceptingConnectionsStatement { server, .. } => {
                 let server_expr = self.transpile_expression(server)?;
-                Ok(format!(
-                    "{}{}.close();\n",
-                    self.indent(),
-                    server_expr
-                ))
+                Ok(format!("{}{}.close();\n", self.indent(), server_expr))
             }
 
             Statement::CloseServerStatement { server, .. } => {
                 let server_expr = self.transpile_expression(server)?;
-                Ok(format!(
-                    "{}{}.close();\n",
-                    self.indent(),
-                    server_expr
-                ))
+                Ok(format!("{}{}.close();\n", self.indent(), server_expr))
             }
         }
     }
@@ -1256,7 +1298,9 @@ impl JavaScriptTranspiler {
                 Ok(format!("{}({})", func, args))
             }
 
-            Expression::ActionCall { name, arguments, .. } => {
+            Expression::ActionCall {
+                name, arguments, ..
+            } => {
                 let args = arguments
                     .iter()
                     .map(|a| self.transpile_argument(a))
@@ -1358,13 +1402,11 @@ impl JavaScriptTranspiler {
 
             Expression::StaticMemberAccess {
                 container, member, ..
-            } => {
-                Ok(format!(
-                    "{}.{}",
-                    self.sanitize_name(container),
-                    self.sanitize_name(member)
-                ))
-            }
+            } => Ok(format!(
+                "{}.{}",
+                self.sanitize_name(container),
+                self.sanitize_name(member)
+            )),
 
             Expression::HeaderAccess {
                 header_name,
@@ -1483,13 +1525,16 @@ impl JavaScriptTranspiler {
         if let Some(default) = &param.default_value {
             // Clone self to transpile the expression (since we need mutable access)
             let mut cloned = self.clone();
-            let default_val = cloned.transpile_expression(default).map_err(|e| {
-                TranspileError {
-                    message: format!("Failed to transpile default value for parameter '{}': {}", name, e),
+            let default_val = cloned
+                .transpile_expression(default)
+                .map_err(|e| TranspileError {
+                    message: format!(
+                        "Failed to transpile default value for parameter '{}': {}",
+                        name, e
+                    ),
                     line: e.line,
                     column: e.column,
-                }
-            })?;
+                })?;
             Ok(format!("{} = {}", name, default_val))
         } else {
             Ok(name)
@@ -1502,7 +1547,10 @@ impl JavaScriptTranspiler {
     }
 
     /// Transpile a pattern expression to a JavaScript regex string
-    fn transpile_pattern_expression(&self, pattern: &PatternExpression) -> Result<String, TranspileError> {
+    fn transpile_pattern_expression(
+        &self,
+        pattern: &PatternExpression,
+    ) -> Result<String, TranspileError> {
         let regex = self.pattern_expr_to_regex(pattern)?;
         Ok(format!("/{}/", regex))
     }
@@ -1511,36 +1559,45 @@ impl JavaScriptTranspiler {
     fn pattern_expr_to_regex(&self, pattern: &PatternExpression) -> Result<String, TranspileError> {
         match pattern {
             PatternExpression::Literal(s) => Ok(regex_escape(s)),
-            PatternExpression::CharacterClass(class) => {
-                Ok(match class {
-                    CharClass::Digit => r"\d".to_string(),
-                    CharClass::Letter => r"[a-zA-Z]".to_string(),
-                    CharClass::Whitespace => r"\s".to_string(),
-                    CharClass::Any => ".".to_string(),
-                    CharClass::UnicodeCategory(cat) => format!(r"\p{{{}}}", cat),
-                    CharClass::UnicodeScript(script) => format!(r"\p{{Script={}}}", script),
-                    CharClass::UnicodeProperty(prop) => format!(r"\p{{{}}}", prop),
-                })
-            }
-            PatternExpression::Quantified { pattern, quantifier } => {
+            PatternExpression::CharacterClass(class) => Ok(match class {
+                CharClass::Digit => r"\d".to_string(),
+                CharClass::Letter => r"[a-zA-Z]".to_string(),
+                CharClass::Whitespace => r"\s".to_string(),
+                CharClass::Any => ".".to_string(),
+                CharClass::UnicodeCategory(cat) => format!(r"\p{{{}}}", cat),
+                CharClass::UnicodeScript(script) => format!(r"\p{{Script={}}}", script),
+                CharClass::UnicodeProperty(prop) => format!(r"\p{{{}}}", prop),
+            }),
+            PatternExpression::Quantified {
+                pattern,
+                quantifier,
+            } => {
                 let inner = self.pattern_expr_to_regex(pattern)?;
                 let quant = match quantifier {
                     Quantifier::Optional => "?",
                     Quantifier::ZeroOrMore => "*",
                     Quantifier::OneOrMore => "+",
                     Quantifier::Exactly(n) => return Ok(format!("(?:{}){{{}}}", inner, n)),
-                    Quantifier::Between(min, max) => return Ok(format!("(?:{}){{{},{}}}", inner, min, max)),
+                    Quantifier::Between(min, max) => {
+                        return Ok(format!("(?:{}){{{},{}}}", inner, min, max));
+                    }
                     Quantifier::AtLeast(n) => return Ok(format!("(?:{}){{{},}}", inner, n)),
                     Quantifier::AtMost(n) => return Ok(format!("(?:{}){{0,{}}}", inner, n)),
                 };
                 Ok(format!("(?:{}){}", inner, quant))
             }
             PatternExpression::Sequence(patterns) => {
-                let parts: Result<Vec<_>, _> = patterns.iter().map(|p| self.pattern_expr_to_regex(p)).collect();
+                let parts: Result<Vec<_>, _> = patterns
+                    .iter()
+                    .map(|p| self.pattern_expr_to_regex(p))
+                    .collect();
                 Ok(parts?.join(""))
             }
             PatternExpression::Alternative(patterns) => {
-                let parts: Result<Vec<_>, _> = patterns.iter().map(|p| self.pattern_expr_to_regex(p)).collect();
+                let parts: Result<Vec<_>, _> = patterns
+                    .iter()
+                    .map(|p| self.pattern_expr_to_regex(p))
+                    .collect();
                 Ok(format!("(?:{})", parts?.join("|")))
             }
             PatternExpression::Capture { name, pattern } => {
@@ -1548,12 +1605,10 @@ impl JavaScriptTranspiler {
                 Ok(format!("(?<{}>{})", name, inner))
             }
             PatternExpression::Backreference(name) => Ok(format!(r"\k<{}>", name)),
-            PatternExpression::Anchor(anchor) => {
-                Ok(match anchor {
-                    Anchor::StartOfText => "^".to_string(),
-                    Anchor::EndOfText => "$".to_string(),
-                })
-            }
+            PatternExpression::Anchor(anchor) => Ok(match anchor {
+                Anchor::StartOfText => "^".to_string(),
+                Anchor::EndOfText => "$".to_string(),
+            }),
             PatternExpression::Lookahead(pattern) => {
                 let inner = self.pattern_expr_to_regex(pattern)?;
                 Ok(format!("(?={})", inner))
@@ -1652,12 +1707,50 @@ impl JavaScriptTranspiler {
     fn sanitize_name(&self, name: &str) -> String {
         // Handle reserved JavaScript keywords
         let reserved = [
-            "break", "case", "catch", "continue", "debugger", "default", "delete",
-            "do", "else", "finally", "for", "function", "if", "in", "instanceof",
-            "new", "return", "switch", "this", "throw", "try", "typeof", "var",
-            "void", "while", "with", "class", "const", "enum", "export", "extends",
-            "import", "super", "implements", "interface", "let", "package", "private",
-            "protected", "public", "static", "yield", "await", "async",
+            "break",
+            "case",
+            "catch",
+            "continue",
+            "debugger",
+            "default",
+            "delete",
+            "do",
+            "else",
+            "finally",
+            "for",
+            "function",
+            "if",
+            "in",
+            "instanceof",
+            "new",
+            "return",
+            "switch",
+            "this",
+            "throw",
+            "try",
+            "typeof",
+            "var",
+            "void",
+            "while",
+            "with",
+            "class",
+            "const",
+            "enum",
+            "export",
+            "extends",
+            "import",
+            "super",
+            "implements",
+            "interface",
+            "let",
+            "package",
+            "private",
+            "protected",
+            "public",
+            "static",
+            "yield",
+            "await",
+            "async",
         ];
 
         let mut result = name.to_string();
@@ -1666,7 +1759,12 @@ impl JavaScriptTranspiler {
         result = result.replace(' ', "_").replace('-', "_");
 
         // If starts with a digit, prefix with underscore
-        if result.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        if result
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+        {
             result = format!("_{}", result);
         }
 
@@ -1690,7 +1788,11 @@ impl JavaScriptTranspiler {
     /// Escape a key for JavaScript object literal
     fn escape_key(&self, key: &str) -> String {
         // Check if key is a valid identifier
-        let is_valid_identifier = key.chars().next().map(|c| c.is_alphabetic() || c == '_').unwrap_or(false)
+        let is_valid_identifier = key
+            .chars()
+            .next()
+            .map(|c| c.is_alphabetic() || c == '_')
+            .unwrap_or(false)
             && key.chars().all(|c| c.is_alphanumeric() || c == '_');
 
         if is_valid_identifier {
@@ -1703,13 +1805,21 @@ impl JavaScriptTranspiler {
     /// Create an error with location information from a statement
     fn error_from_stmt(&self, message: String, stmt: &Statement) -> TranspileError {
         let (line, column) = self.get_stmt_location(stmt);
-        TranspileError { message, line, column }
+        TranspileError {
+            message,
+            line,
+            column,
+        }
     }
 
     /// Create an error with location information from an expression
     fn error_from_expr(&self, message: String, expr: &Expression) -> TranspileError {
         let (line, column) = self.get_expr_location(expr);
-        TranspileError { message, line, column }
+        TranspileError {
+            message,
+            line,
+            column,
+        }
     }
 
     /// Get location information from a statement
@@ -1766,7 +1876,9 @@ impl Clone for JavaScriptTranspiler {
 
 /// Escape special regex characters in a string
 fn regex_escape(s: &str) -> String {
-    let special_chars = ['.', '*', '+', '?', '^', '$', '{', '}', '[', ']', '(', ')', '|', '\\'];
+    let special_chars = [
+        '.', '*', '+', '?', '^', '$', '{', '}', '[', ']', '(', ')', '|', '\\',
+    ];
     let mut result = String::with_capacity(s.len() * 2);
     for c in s.chars() {
         if special_chars.contains(&c) {
