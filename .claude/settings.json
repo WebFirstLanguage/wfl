@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -Command \"$json = [Console]::In.ReadToEnd() | ConvertFrom-Json; $path = $json.tool_input.file_path; if ($path -like '*.rs') { cargo fmt --all }\"",
+            "command": "powershell -File .claude/hooks/format-rust.ps1",
             "timeout": 120
           }
         ]

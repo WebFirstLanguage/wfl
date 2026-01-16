@@ -161,3 +161,12 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Debug**: `RUST_LOG=trace cargo run -p wfl-lsp`.
 - **Setup**: `scripts/configure_lsp.ps1`, `scripts/install_vscode_extension.ps1`.
 - **Docs**: See `Docs/development/lsp-integration.md` for dev guides and `Docs/02-getting-started/editor-setup.md` for user setup.
+
+## Claude Code Hooks
+- **Location**: `.claude/hooks/` (hook scripts), `.claude/settings.json` (configuration).
+- **Auto-format**: Rust files are automatically formatted after Edit/Write operations via `PostToolUse` hook.
+- **Prerequisites**:
+  - **Windows PowerShell**: Default configuration (built into Windows).
+  - **PowerShell Core (pwsh)**: Optional cross-platform alternative (requires installation).
+  - **Bash**: Alternative hook available (`format-rust.sh`) for Unix/Linux/macOS/Git Bash.
+- **Docs**: See `.claude/hooks/README.md` for configuration options and troubleshooting.

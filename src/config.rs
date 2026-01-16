@@ -616,6 +616,7 @@ pub fn load_config(dir: &Path) -> WflConfig {
     }
 
     // Walk up directory tree looking for .wflcfg (closest wins)
+    // Canonicalize the starting directory to resolve relative paths
     let mut current_dir = Some(std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()));
     let mut found_local_config = None;
 
