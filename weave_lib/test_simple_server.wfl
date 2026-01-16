@@ -1,0 +1,46 @@
+// Simplified test - just test the web server without containers
+display "Testing simple WFL web server..."
+
+// Start simple web server
+listen on port 3002 as test_server
+display "Server listening on port 3002"
+display "Waiting for one request (timeout 5 seconds)..."
+
+// Wait for one request with timeout
+store request_received as no
+store max_wait as 5
+
+count from 1 to max_wait:
+    display "Waiting... " with count with "/" with max_wait
+    try:
+        wait for request comes in on test_server as req with timeout 1000
+
+        // Access request properties
+        store req_method as method of req
+        store req_path as path of req
+        store req_ip as client_ip of req
+
+        display "✅ Request received!"
+        display "  Method: " with req_method
+        display "  Path: " with req_path
+        display "  Client IP: " with req_ip
+
+        // Send response
+        respond to req with "Hello from WFL test server! Your request was successful."
+
+        change request_received to yes
+        break
+    catch:
+        // Timeout - continue waiting
+    end try
+end count
+
+check if request_received:
+    display "✅ Test passed! Web server is working correctly."
+otherwise:
+    display "⚠️  No request received in " with max_wait with " seconds"
+    display "   (This is OK for automated tests)"
+end check
+
+display ""
+display "Test complete!"

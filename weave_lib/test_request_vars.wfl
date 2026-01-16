@@ -1,0 +1,39 @@
+// Test if method, path, etc. are auto-defined as globals after wait for request
+display "Testing request variable auto-definition..."
+
+listen on port 3003 as test_server
+display "Server listening on port 3003"
+display "Waiting for request (timeout 5 seconds)..."
+
+store request_received as no
+
+count from 1 to 5:
+    display "Waiting... " with the current count with "/5"
+    try:
+        wait for request comes in on test_server as req with timeout 1000
+
+        display "✅ Request received!"
+
+        // Try accessing as global variables (not properties)
+        display "  Method: " with method
+        display "  Path: " with path
+        display "  Client IP: " with client_ip
+
+        // Send response
+        store response_text as "Hello! You sent a " with method with " request to " with path
+        respond to req with response_text
+
+        change request_received to yes
+        break
+    catch:
+        // Timeout
+    end try
+end count
+
+check if request_received:
+    display "✅ Test passed!"
+otherwise:
+    display "⚠️  No request received (OK for automated tests)"
+end check
+
+display "Test complete!"

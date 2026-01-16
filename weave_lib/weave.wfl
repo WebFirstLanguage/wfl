@@ -1,0 +1,337 @@
+// Weave Web Framework for WFL
+// A simple, powerful web framework with routing, middleware, and security features
+// Version: 0.1.0
+
+display "📦 Loading Weave Web Framework..."
+
+// Load dependencies
+// Note: In WFL, we'll need to import these modules
+// For now, we'll inline the necessary functions
+
+// ===== Route Container =====
+create container Route:
+    property method: Text
+    property path: Text
+    property handler: Any
+    property params: Any
+end
+
+// ===== WeaveApp Container =====
+create container WeaveApp:
+    // Configuration properties
+    property port: Number
+    property host: Text
+    property static_dir: Text
+    property enable_cors: Boolean
+    property enable_security_headers: Boolean
+    property enable_rate_limiting: Boolean
+
+    // Internal state
+    property routes: List
+    property middleware_list: List
+    property server_instance: Any
+    property is_running: Boolean
+    property request_count: Number
+
+    // ===== Route Registration Actions =====
+
+    action get needs route_path: Text, route_handler: Any:
+        // Register GET route
+        create new Route as new_route:
+            method is "GET"
+            path is route_path
+            handler is route_handler
+            params is nothing
+        end
+        push with routes and new_route
+        display "  ✓ Registered GET " with route_path
+    end
+
+    action post needs route_path: Text, route_handler: Any:
+        // Register POST route
+        create new Route as new_route:
+            method is "POST"
+            path is route_path
+            handler is route_handler
+            params is nothing
+        end
+        push with routes and new_route
+        display "  ✓ Registered POST " with route_path
+    end
+
+    action put needs route_path: Text, route_handler: Any:
+        // Register PUT route
+        create new Route as new_route:
+            method is "PUT"
+            path is route_path
+            handler is route_handler
+            params is nothing
+        end
+        push with routes and new_route
+        display "  ✓ Registered PUT " with route_path
+    end
+
+    action delete needs route_path: Text, route_handler: Any:
+        // Register DELETE route
+        create new Route as new_route:
+            method is "DELETE"
+            path is route_path
+            handler is route_handler
+            params is nothing
+        end
+        push with routes and new_route
+        display "  ✓ Registered DELETE " with route_path
+    end
+
+    // ===== Configuration Actions =====
+
+    action serve_static needs directory_path: Text:
+        // Configure static file serving
+        change static_dir to directory_path
+
+        try:
+            check if directory exists at directory_path:
+                display "  ✓ Static files directory: " with directory_path
+            otherwise:
+                display "  ⚠ Warning: Static directory not found: " with directory_path
+                display "    Create it before serving static files"
+            end check
+        catch:
+            display "  ⚠ Warning: Could not verify static directory"
+        end try
+    end
+
+    action use needs middleware_action: Any:
+        // Register custom middleware
+        push with middleware_list and middleware_action
+        display "  ✓ Middleware registered"
+    end
+
+    // ===== Server Lifecycle Actions =====
+
+    action start:
+        display ""
+        display "🚀 Starting Weave Server"
+        display "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        display "  Host: " with host
+        display "  Port: " with port
+
+        store route_count as length of routes
+        display "  Routes: " with route_count with " registered"
+
+        check if static_dir is not equal to "":
+            display "  Static files: enabled (" with static_dir with ")"
+        end check
+
+        check if enable_cors:
+            display "  CORS: enabled"
+        end check
+
+        check if enable_security_headers:
+            display "  Security headers: enabled"
+        end check
+
+        check if enable_rate_limiting:
+            display "  Rate limiting: enabled"
+        end check
+
+        display "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        display "✅ Server started at http://" with host with ":" with port
+        display "   Press Ctrl+C to stop"
+        display ""
+
+        // Start WFL web server
+        listen on port port as server_instance
+        change is_running to yes
+
+        // Main request handling loop
+        main loop:
+            wait for request comes in on server_instance as incoming_request
+            handle_request(incoming_request)
+        end loop
+    end
+
+    // ===== Request Handling =====
+
+    action handle_request needs req: Any:
+        store start_time as current time in milliseconds
+
+        // Increment request counter
+        add 1 to request_count
+
+        // Extract request information
+        store req_method as method of req
+        store req_path as path of req
+        store req_ip as client_ip of req
+
+        // Log incoming request
+        display "📥 [" with request_count with "] " with req_method with " " with req_path with " from " with req_ip
+
+        // Run middleware pipeline
+        store should_continue as yes
+        for each middleware_fn in middleware_list:
+            try:
+                store middleware_result as call middleware_fn with req
+                check if middleware_result is equal to "stop":
+                    change should_continue to no
+                    break
+                end check
+            catch:
+                display "  ⚠ Middleware error"
+            end try
+        end for
+
+        // If middleware stopped request, don't proceed
+        check if should_continue is equal to no:
+            return nothing
+        end check
+
+        // Try to match and execute route
+        store matched_route as find_route(req_method, req_path)
+
+        check if matched_route is not equal to nothing:
+            // Route found - execute handler
+            try:
+                store route_handler as handler of matched_route
+
+                // Check if handler is a text response or an action
+                store handler_type as typeof of route_handler
+
+                check if handler_type is equal to "text":
+                    // Simple text response
+                    respond to req with route_handler
+
+                    store end_time as current time in milliseconds
+                    store duration as end_time minus start_time
+                    display "  ✓ 200 OK (" with duration with "ms)"
+                otherwise:
+                    // Handler is an action - call it
+                    store response_content as call route_handler with req
+                    respond to req with response_content
+
+                    store end_time as current time in milliseconds
+                    store duration as end_time minus start_time
+                    display "  ✓ 200 OK (" with duration with "ms)"
+                end check
+            catch:
+                // Error executing route handler
+                display "  ✗ 500 Internal Server Error"
+                store error_html as generate_error_page("Internal Server Error")
+                respond to req with error_html and status 500 and content_type "text/html"
+            end try
+        otherwise:
+            // No matching route - return 404
+            display "  ✗ 404 Not Found"
+            store not_found_html as generate_404_page(req_path)
+            respond to req with not_found_html and status 404 and content_type "text/html"
+        end check
+    end
+
+    // ===== Internal Helper Actions =====
+
+    action find_route needs request_method: Text, request_path: Text:
+        // Find matching route in routes list
+        for each route_item in routes:
+            store route_method as method of route_item
+            store route_path as path of route_item
+
+            // Check method and exact path match
+            check if route_method is equal to request_method:
+                check if route_path is equal to request_path:
+                    return route_item
+                end check
+            end check
+        end for
+
+        // No match found
+        return nothing
+    end
+
+    action generate_404_page needs not_found_path: Text: Text
+        store error_html as "<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=\"UTF-8\">
+    <title>404 - Not Found</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            text-align: center;
+            margin-top: 100px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            color: #333;
+            padding: 60px 80px;
+            border-radius: 10px;
+            display: inline-block;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #e74c3c;
+            font-size: 96px;
+            margin: 0;
+        }
+        p { font-size: 18px; color: #555; }
+        code {
+            background: #f4f4f4;
+            padding: 5px 10px;
+            border-radius: 3px;
+        }
+        a {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 30px;
+            background: #007acc;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+        a:hover { background: #005a9c; }
+    </style>
+</head>
+<body>
+    <div class=\"container\">
+        <h1>404</h1>
+        <p>The page <code>" with not_found_path with "</code> was not found.</p>
+        <a href=\"/\">← Go Back Home</a>
+        <hr style=\"margin: 40px 0; border: none; border-top: 1px solid #eee;\">
+        <small style=\"color: #999;\">Powered by Weave</small>
+    </div>
+</body>
+</html>"
+        return error_html
+    end
+
+    action generate_error_page needs error_message: Text: Text
+        store error_html as "<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=\"UTF-8\">
+    <title>Error</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            text-align: center;
+            margin-top: 100px;
+        }
+        h1 { color: #e74c3c; }
+        p { color: #555; }
+    </style>
+</head>
+<body>
+    <h1>⚠️ Error</h1>
+    <p>" with error_message with "</p>
+    <p><a href=\"/\">← Go Back Home</a></p>
+</body>
+</html>"
+        return error_html
+    end
+end
+
+display "✅ Weave Framework loaded successfully!"
+display ""
