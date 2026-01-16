@@ -1,5 +1,7 @@
 # Credits
 
+WFL would not exist without the amazing open source community. If we missed any credits, please open an issue and let us know so we can give proper credit to the projects that make WFL possible.
+
 This project uses the following third-party Rust packages:
 
 ## logos (v0.15.0)
