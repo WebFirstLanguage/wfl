@@ -89,7 +89,8 @@
       "Bash(target/release/wfl.exe:*)",
       "Bash(gh issue view:*)",
       "Bash(gh api:*)",
-      "Bash(gh repo view:*)"
+      "Bash(gh repo view:*)",
+      "Bash(start /B \"G:\\\\Logbie\\\\wfl\\\\target\\\\release\\\\wfl.exe\" server.wfl)"
     ],
     "deny": [],
     "ask": []

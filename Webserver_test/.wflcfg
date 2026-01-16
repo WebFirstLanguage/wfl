@@ -5,5 +5,5 @@ log_level = info
 
 # Web server settings
 # The IP address the web server will bind to (default: 127.0.0.1)
-# Use 0.0.0.0 to listen on all interfaces
+# Use 0.0.0.0 to listen on all interfaces (allows external connections)
 web_server_bind_address = 0.0.0.0
