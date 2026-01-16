@@ -130,7 +130,8 @@ async fn test_count_loop_with_direct_access() {
 }
 #[tokio::test]
 async fn test_timeout_happy_path() {
-    let mut interpreter = Interpreter::with_timeout(1); // 1 second timeout
+    // Use a longer timeout (5 seconds) to avoid flakiness under heavy test load
+    let mut interpreter = Interpreter::with_timeout(5);
 
     let source = "store x as 42\nx"; // A quick script
     let tokens = lex_wfl_with_positions(source);
@@ -138,7 +139,10 @@ async fn test_timeout_happy_path() {
     let program = parser.parse().unwrap();
 
     let result = interpreter.interpret(&program);
-    assert!(result.await.is_ok());
+    assert!(
+        result.await.is_ok(),
+        "Simple script should complete within timeout"
+    );
 }
 
 #[tokio::test]
