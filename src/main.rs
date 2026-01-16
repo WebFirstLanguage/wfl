@@ -3,7 +3,6 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 use std::process;
-use std::sync::Arc;
 use std::time::Instant;
 use wfl::Interpreter;
 use wfl::analyzer::{Analyzer, StaticAnalyzer};
@@ -760,7 +759,7 @@ async fn main() -> io::Result<()> {
                 // Log execution start if execution logging is enabled
                 exec_trace!("Starting execution of script: {}", &file_path);
 
-                let mut interpreter = Interpreter::with_config(Arc::new(config.clone()));
+                let mut interpreter = Interpreter::with_timeout(config.timeout_seconds);
                 interpreter.set_step_mode(step_mode); // Set step mode from CLI flag
                 interpreter.set_script_args(script_args); // Pass script arguments
                 interpreter.set_source_file(std::path::PathBuf::from(&file_path)); // Set source file for module resolution
