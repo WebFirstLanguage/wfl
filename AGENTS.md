@@ -12,6 +12,8 @@
 - `Tools/`: Helper tools (Python scripts, WFL tools).
 - `Nexus/`: Experimental WFL test programs.
 - `wfl_website/`: Example WFL web application.
+- `wfl framework/`: Full-featured MVC web framework written in WFL.
+- `wflpkg/`: Package Manager design documents.
 - `Dev diary/`: Development logs and history.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
@@ -66,7 +68,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `wfl`: Start interactive REPL.
 - `wfl --lint <file>`: Lint WFL code.
 - `wfl --lint --fix <file> --in-place`: Auto-fix WFL code.
-- `wfl --debug <file>`: Debug WFL execution.
+- `wfl --edit <file>`: Open the specified file in the default editor.
 - `wfl --step <file>`: Run in single-step debug mode.
 - `wfl --time <file>`: Run with execution timing.
 - `wfl --lex <file>` / `wfl --parse <file>`: Dump tokens or AST.
