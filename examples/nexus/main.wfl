@@ -1,0 +1,98 @@
+// Nexus Framework - WFL Server with Router Architecture
+// This demonstrates the Server -> Router pattern concept
+//
+// Architecture: Server (The "Bouncer") -> Router (The "Traffic Cop")
+// - Server: Handles connections, passes requests to Router
+// - Router: Resolves requests with "hierarchy of laziness":
+//   1. Static file bypass (check /public first)
+//   2. Dynamic route lookup (check registered routes)
+//   3. 404 fallback
+//
+// Usage: wfl examples/nexus/main.wfl
+
+display "=============================================="
+display "       Nexus Framework - WFL Server          "
+display "=============================================="
+display ""
+
+// Configuration
+store app_port as 8080
+store app_host as "127.0.0.1"
+store web_root as "examples/nexus/public"
+
+display "Configuration:"
+display "  Port: " with app_port
+display "  Host: " with app_host
+display "  Web Root: " with web_root
+display ""
+
+// Demonstrate the Router's "hierarchy of laziness" concept
+display "Router Resolution Algorithm (Hierarchy of Laziness):"
+display ""
+display "STEP 1: Static File Bypass"
+display "  - Check if file exists at web_root + path"
+display "  - Check if file exists at web_root + path + .html"
+display "  - If found, serve immediately (no further processing)"
+display ""
+display "STEP 2: Dynamic Route Lookup"
+display "  - Check registered routes for path match"
+display "  - If found, execute handler and return response"
+display ""
+display "STEP 3: 404 Fallback"
+display "  - If nothing matched, return 404 Not Found"
+display ""
+
+// Simulate routing for a static file request
+display "Example 1: Static File Request"
+display "  Request: GET /index.html"
+store test_path as "/index.html"
+check if test_path is equal to "/index.html":
+    display "  -> STEP 1: Static file found"
+    display "  -> Response: 200 OK (text/html)"
+end check
+display ""
+
+// Simulate routing for a dynamic API request
+display "Example 2: Dynamic API Request"
+display "  Request: GET /api/hello"
+change test_path to "/api/hello"
+check if test_path is equal to "/api/hello":
+    display "  -> STEP 1: No static file"
+    display "  -> STEP 2: Dynamic route matched"
+    display "  -> Response: 200 OK (application/json)"
+    display "  -> Body: {\"message\":\"Hello from Nexus!\"}"
+end check
+display ""
+
+// Simulate routing for a 404 request
+display "Example 3: Unknown Path Request"
+display "  Request: GET /unknown"
+change test_path to "/unknown"
+check if test_path is equal to "/unknown":
+    display "  -> STEP 1: No static file"
+    display "  -> STEP 2: No dynamic route"
+    display "  -> STEP 3: 404 Fallback"
+    display "  -> Response: 404 Not Found"
+end check
+display ""
+
+// Show available endpoints
+display "=============================================="
+display "       Available Endpoints                   "
+display "=============================================="
+display ""
+display "Static Files (from /public):"
+display "  GET /           -> index.html"
+display "  GET /styles.css -> styles.css"
+display ""
+display "Dynamic Routes:"
+display "  GET  /api/hello -> Hello message"
+display "  GET  /api/users -> User list"
+display "  GET  /health    -> Health check"
+display "  GET  /api/echo  -> Echo request"
+display "  POST /api/echo  -> Echo request"
+display ""
+
+display "=============================================="
+display "       Nexus Framework Demo Complete         "
+display "=============================================="
