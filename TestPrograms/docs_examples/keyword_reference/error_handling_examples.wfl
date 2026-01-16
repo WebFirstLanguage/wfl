@@ -1,0 +1,59 @@
+// Error Handling Keywords Examples
+// Keywords covered: try, catch, when, error
+
+// Example 1: Basic try/catch
+display "Example 1: Basic error handling"
+
+try:
+    store risky_value as 10
+    display "Trying risky operation"
+catch:
+    display "An error occurred"
+end try
+
+// Example 2: Accessing error information
+display "Example 2: With error info"
+
+try:
+    store test as 5
+    display "Operation succeeded"
+catch:
+    display "Error caught"
+end try
+
+// Example 3: Multiple try/catch blocks
+display "Example 3: Multiple blocks"
+
+store result as 0
+
+try:
+    change result to 10
+    display "First operation: " with result
+catch:
+    display "Error in first operation"
+end try
+
+try:
+    change result to result plus 5
+    display "Second operation: " with result
+catch:
+    display "Error in second operation"
+end try
+
+// Example 4: Nested error handling
+display "Example 4: Nested handling"
+
+try:
+    store outer as 1
+    try:
+        store inner as 2
+        display "Inner try block"
+    catch:
+        display "Inner error"
+    end try
+    display "Outer try block"
+catch:
+    display "Outer error"
+end try
+
+display "Error handling examples complete"

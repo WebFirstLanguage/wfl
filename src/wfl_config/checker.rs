@@ -16,6 +16,9 @@ pub enum ConfigType {
     Integer,
     Boolean,
     LogLevel,
+    ShellMode,
+    StringList,
+    IpAddress,
 }
 
 impl fmt::Display for ConfigType {
@@ -25,6 +28,9 @@ impl fmt::Display for ConfigType {
             ConfigType::Integer => write!(f, "integer"),
             ConfigType::Boolean => write!(f, "boolean"),
             ConfigType::LogLevel => write!(f, "log level"),
+            ConfigType::ShellMode => write!(f, "shell mode"),
+            ConfigType::StringList => write!(f, "string list"),
+            ConfigType::IpAddress => write!(f, "IP address"),
         }
     }
 }
@@ -84,6 +90,7 @@ pub struct ExpectedSetting {
     pub default_value: Option<String>,
     pub description: String,
     pub valid_values: Option<Vec<String>>,
+    pub category: String,
 }
 
 pub struct ConfigChecker {
@@ -109,6 +116,7 @@ impl ConfigChecker {
                 default_value: Some("60".to_string()),
                 description: "Maximum execution time (minimum 1s)".to_string(),
                 valid_values: None,
+                category: "General Runtime".to_string(),
             },
         );
 
@@ -121,6 +129,7 @@ impl ConfigChecker {
                 default_value: Some("false".to_string()),
                 description: "Enables log output to wfl.log".to_string(),
                 valid_values: None,
+                category: "General Runtime".to_string(),
             },
         );
 
@@ -133,6 +142,7 @@ impl ConfigChecker {
                 default_value: Some("true".to_string()),
                 description: "Enables debug reports on runtime errors".to_string(),
                 valid_values: None,
+                category: "General Runtime".to_string(),
             },
         );
 
@@ -150,6 +160,7 @@ impl ConfigChecker {
                     "warn".to_string(),
                     "error".to_string(),
                 ]),
+                category: "General Runtime".to_string(),
             },
         );
 
@@ -162,6 +173,7 @@ impl ConfigChecker {
                 default_value: Some("false".to_string()),
                 description: "Enables execution logging".to_string(),
                 valid_values: None,
+                category: "Execution Logging".to_string(),
             },
         );
 
@@ -174,6 +186,7 @@ impl ConfigChecker {
                 default_value: Some("100".to_string()),
                 description: "Maximum line length".to_string(),
                 valid_values: None,
+                category: "Code Quality".to_string(),
             },
         );
 
@@ -186,6 +199,7 @@ impl ConfigChecker {
                 default_value: Some("5".to_string()),
                 description: "Maximum control structure depth".to_string(),
                 valid_values: None,
+                category: "Code Quality".to_string(),
             },
         );
 
@@ -198,6 +212,7 @@ impl ConfigChecker {
                 default_value: Some("4".to_string()),
                 description: "Spaces per indent level".to_string(),
                 valid_values: None,
+                category: "Code Quality".to_string(),
             },
         );
 
@@ -210,6 +225,7 @@ impl ConfigChecker {
                 default_value: Some("true".to_string()),
                 description: "Enforce snake_case variable names".to_string(),
                 valid_values: None,
+                category: "Code Quality".to_string(),
             },
         );
 
@@ -222,6 +238,7 @@ impl ConfigChecker {
                 default_value: Some("false".to_string()),
                 description: "Allow trailing whitespace".to_string(),
                 valid_values: None,
+                category: "Code Quality".to_string(),
             },
         );
 
@@ -234,10 +251,246 @@ impl ConfigChecker {
                 default_value: Some("true".to_string()),
                 description: "Require consistent keyword casing".to_string(),
                 valid_values: None,
+                category: "Code Quality".to_string(),
+            },
+        );
+
+        // Execution Logging settings
+        expected_settings.insert(
+            "verbose_execution".to_string(),
+            ExpectedSetting {
+                name: "verbose_execution".to_string(),
+                config_type: ConfigType::Boolean,
+                required: false,
+                default_value: Some("false".to_string()),
+                description: "Enables verbose execution output".to_string(),
+                valid_values: None,
+                category: "Execution Logging".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "log_loop_iterations".to_string(),
+            ExpectedSetting {
+                name: "log_loop_iterations".to_string(),
+                config_type: ConfigType::Boolean,
+                required: false,
+                default_value: Some("false".to_string()),
+                description: "Log each loop iteration".to_string(),
+                valid_values: None,
+                category: "Execution Logging".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "log_throttle_factor".to_string(),
+            ExpectedSetting {
+                name: "log_throttle_factor".to_string(),
+                config_type: ConfigType::Integer,
+                required: false,
+                default_value: Some("1000".to_string()),
+                description: "Throttle factor for loop logging (log every Nth iteration)"
+                    .to_string(),
+                valid_values: None,
+                category: "Execution Logging".to_string(),
+            },
+        );
+
+        // Security settings
+        expected_settings.insert(
+            "allow_shell_execution".to_string(),
+            ExpectedSetting {
+                name: "allow_shell_execution".to_string(),
+                config_type: ConfigType::Boolean,
+                required: false,
+                default_value: Some("false".to_string()),
+                description: "Allow shell command execution".to_string(),
+                valid_values: None,
+                category: "Security".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "shell_execution_mode".to_string(),
+            ExpectedSetting {
+                name: "shell_execution_mode".to_string(),
+                config_type: ConfigType::ShellMode,
+                required: false,
+                default_value: Some("forbidden".to_string()),
+                description: "Shell execution security mode".to_string(),
+                valid_values: Some(vec![
+                    "forbidden".to_string(),
+                    "allowlist_only".to_string(),
+                    "sanitized".to_string(),
+                    "unrestricted".to_string(),
+                ]),
+                category: "Security".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "allowed_shell_commands".to_string(),
+            ExpectedSetting {
+                name: "allowed_shell_commands".to_string(),
+                config_type: ConfigType::StringList,
+                required: false,
+                default_value: Some("".to_string()),
+                description: "Comma-separated list of allowed shell commands".to_string(),
+                valid_values: None,
+                category: "Security".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "warn_on_shell_execution".to_string(),
+            ExpectedSetting {
+                name: "warn_on_shell_execution".to_string(),
+                config_type: ConfigType::Boolean,
+                required: false,
+                default_value: Some("true".to_string()),
+                description: "Warn when shell commands are executed".to_string(),
+                valid_values: None,
+                category: "Security".to_string(),
+            },
+        );
+
+        // Subprocess Management settings
+        expected_settings.insert(
+            "max_concurrent_processes".to_string(),
+            ExpectedSetting {
+                name: "max_concurrent_processes".to_string(),
+                config_type: ConfigType::Integer,
+                required: false,
+                default_value: Some("100".to_string()),
+                description: "Maximum number of concurrent subprocesses".to_string(),
+                valid_values: None,
+                category: "Subprocess Management".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "max_buffer_size_bytes".to_string(),
+            ExpectedSetting {
+                name: "max_buffer_size_bytes".to_string(),
+                config_type: ConfigType::Integer,
+                required: false,
+                default_value: Some("10485760".to_string()),
+                description: "Maximum buffer size for subprocess output (bytes)".to_string(),
+                valid_values: None,
+                category: "Subprocess Management".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "enable_auto_cleanup".to_string(),
+            ExpectedSetting {
+                name: "enable_auto_cleanup".to_string(),
+                config_type: ConfigType::Boolean,
+                required: false,
+                default_value: Some("true".to_string()),
+                description: "Automatically clean up completed subprocesses".to_string(),
+                valid_values: None,
+                category: "Subprocess Management".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "enable_reaper".to_string(),
+            ExpectedSetting {
+                name: "enable_reaper".to_string(),
+                config_type: ConfigType::Boolean,
+                required: false,
+                default_value: Some("false".to_string()),
+                description: "Enable subprocess reaper for zombie processes".to_string(),
+                valid_values: None,
+                category: "Subprocess Management".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "reaper_interval_secs".to_string(),
+            ExpectedSetting {
+                name: "reaper_interval_secs".to_string(),
+                config_type: ConfigType::Integer,
+                required: false,
+                default_value: Some("30".to_string()),
+                description: "Interval for subprocess reaper checks (seconds)".to_string(),
+                valid_values: None,
+                category: "Subprocess Management".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "kill_on_shutdown".to_string(),
+            ExpectedSetting {
+                name: "kill_on_shutdown".to_string(),
+                config_type: ConfigType::Boolean,
+                required: false,
+                default_value: Some("false".to_string()),
+                description: "Kill all subprocesses on shutdown".to_string(),
+                valid_values: None,
+                category: "Subprocess Management".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "warn_on_orphan".to_string(),
+            ExpectedSetting {
+                name: "warn_on_orphan".to_string(),
+                config_type: ConfigType::Boolean,
+                required: false,
+                default_value: Some("true".to_string()),
+                description: "Warn when orphan processes are detected".to_string(),
+                valid_values: None,
+                category: "Subprocess Management".to_string(),
+            },
+        );
+
+        // Web Server settings
+        expected_settings.insert(
+            "web_server_bind_address".to_string(),
+            ExpectedSetting {
+                name: "web_server_bind_address".to_string(),
+                config_type: ConfigType::IpAddress,
+                required: false,
+                default_value: Some("127.0.0.1".to_string()),
+                description: "IP address for web server binding".to_string(),
+                valid_values: None,
+                category: "Web Server".to_string(),
             },
         );
 
         Self { expected_settings }
+    }
+
+    /// Get all expected settings
+    pub fn get_expected_settings(&self) -> &HashMap<String, ExpectedSetting> {
+        &self.expected_settings
+    }
+
+    /// Get settings grouped by category (ordered)
+    pub fn get_settings_by_category(&self) -> Vec<(String, Vec<&ExpectedSetting>)> {
+        let categories = vec![
+            "General Runtime",
+            "Execution Logging",
+            "Code Quality",
+            "Security",
+            "Subprocess Management",
+            "Web Server",
+        ];
+
+        categories
+            .into_iter()
+            .map(|category| {
+                let settings: Vec<&ExpectedSetting> = self
+                    .expected_settings
+                    .values()
+                    .filter(|s| s.category == category)
+                    .collect();
+                (category.to_string(), settings)
+            })
+            .filter(|(_, settings)| !settings.is_empty())
+            .collect()
     }
 
     pub fn get_global_config_path() -> PathBuf {
@@ -381,6 +634,46 @@ impl ConfigChecker {
                                         format!("Set to default value: {default}")
                                     }),
                                 });
+                        }
+                    }
+                    ConfigType::ShellMode => {
+                        if let Some(valid_values) = &setting.valid_values
+                            && !valid_values.contains(&value.to_string())
+                        {
+                            issues.push(ConfigIssue {
+                                    file_path: file_path.to_path_buf(),
+                                    kind: ConfigIssueKind::InvalidValue,
+                                    issue_type: ConfigIssueType::Error,
+                                    message: format!(
+                                        "Invalid value for {key}: expected one of {valid_values:?}, got '{value}'"
+                                    ),
+                                    setting_name: Some(key.to_string()),
+                                    line_number: Some(line_number + 1),
+                                    fix_message: setting.default_value.as_ref().map(|default| {
+                                        format!("Set to default value: {default}")
+                                    }),
+                                });
+                        }
+                    }
+                    ConfigType::StringList => {
+                        // StringList is comma-separated values, basic validation
+                        // Empty string is valid
+                    }
+                    ConfigType::IpAddress => {
+                        // Validate IP address format
+                        if !is_valid_ip_address(value) {
+                            issues.push(ConfigIssue {
+                                file_path: file_path.to_path_buf(),
+                                kind: ConfigIssueKind::InvalidValue,
+                                issue_type: ConfigIssueType::Error,
+                                message: format!("Invalid IP address for {key}: '{value}'"),
+                                setting_name: Some(key.to_string()),
+                                line_number: Some(line_number + 1),
+                                fix_message: setting
+                                    .default_value
+                                    .as_ref()
+                                    .map(|default| format!("Set to default value: {default}")),
+                            });
                         }
                     }
                 }
@@ -601,6 +894,12 @@ pub fn fix_config(dir: &Path) -> Result<(Vec<ConfigIssue>, bool), io::Error> {
     checker.print_report(&all_issues, true);
 
     Ok((all_issues, !has_errors))
+}
+
+/// Helper function to validate IP address format (IPv4 or IPv6)
+fn is_valid_ip_address(addr: &str) -> bool {
+    use std::net::IpAddr;
+    addr.parse::<IpAddr>().is_ok()
 }
 
 #[cfg(test)]

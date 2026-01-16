@@ -1,0 +1,71 @@
+// Contextual Keywords Examples
+// Demonstrating keywords that CAN be used as variables in certain contexts
+// Keywords covered: count, list, pattern, at, called, change, create, text
+
+// Example 1: 'count' as a variable (outside count loops)
+display "Example 1: 'count' as variable"
+store count as 0
+change count to count plus 1
+display "Count value: " with count
+
+// But 'count' is reserved inside count loops:
+count from 1 to 3:
+    display "Loop count: " with count
+end count
+
+// Example 2: 'list' as a variable (outside type context)
+display "Example 2: 'list' as variable"
+store list as "shopping_list"
+display "List name: " with list
+
+// But 'list' is reserved in type declarations:
+create list called items:
+    add "item1"
+    add "item2"
+end list
+
+// Example 3: 'at' as a variable
+store at as 5
+display "Position at: " with at
+
+// Example 4: 'called' as a variable
+store called as "named"
+display "Also called: " with called
+
+// Example 5: 'change' as a variable in expression
+store change as 50
+display "Change amount: " with change
+
+// Example 6: 'create' as a variable
+store create as "make"
+display "Action to create: " with create
+
+// Example 7: 'text' as a variable (outside type context)
+store text as "Hello World"
+display "Text message: " with text
+
+// Example 8: Multiple contextual keywords as variables
+store back as "rear"
+store give as "donate"
+store needs as "requirements"
+
+display "Back: " with back
+display "Give: " with give
+display "Needs: " with needs
+
+// Example 9: Demonstrating context switching
+store pattern as "design_pattern"
+display "Pattern name: " with pattern
+
+// Example 10: 'reversed' as a variable
+store reversed as "backwards"
+display "Reversed: " with reversed
+
+// Example 11: Combining regular variables with contextual keywords
+store item_count as 0
+store list_name as "groceries"
+store pattern_type as "observer"
+
+display "Count: " with item_count
+display "List: " with list_name
+display "Pattern: " with pattern_type

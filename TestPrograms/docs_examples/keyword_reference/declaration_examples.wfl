@@ -1,0 +1,75 @@
+// Declaration Keywords Examples
+// Keywords covered: store, as, change, define, action, called, with, return, property, container
+
+// Example 1: Variable declaration with store/as
+store name as "Alice"
+store age as 30
+store is_active as yes
+
+display "Name: " with name
+display "Age: " with age
+
+// Example 2: Change variable value
+store counter as 0
+display "Initial counter: " with counter
+
+change counter to 10
+display "Changed counter: " with counter
+
+// Example 3: Define action with parameters
+define action called greet with parameters person_name:
+    display "Hello, " with person_name
+end action
+
+call greet with "Bob"
+
+// Example 4: Action with return value
+define action called add_numbers with parameters x and y:
+    store sum as x plus y
+    return sum
+end action
+
+store result as call add_numbers with 5 and 3
+display "5 + 3 = " with result
+
+// Example 5: Container definition
+define container called Person:
+    property first_name as "Unknown"
+    property last_name as "Unknown"
+    property age_value as 0
+
+    define action called get_full_name:
+        store full as first_name with " " with last_name
+        return full
+    end action
+end container
+
+// Example 6: Create instance and use properties
+store alice as new Person
+change alice property first_name to "Alice"
+change alice property last_name to "Smith"
+change alice property age_value to 28
+
+store full_name as call alice action get_full_name
+display "Full name: " with full_name
+
+// Example 7: Lists and create
+create list called numbers:
+    add 10
+    add 20
+    add 30
+end list
+
+display "Numbers:"
+for each num in numbers:
+    display num
+end for
+
+// Example 8: Multiple variable declarations
+store x as 1
+store y as 2
+store z as x plus y
+
+display "x = " with x
+display "y = " with y
+display "z = " with z

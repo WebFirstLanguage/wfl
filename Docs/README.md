@@ -206,7 +206,8 @@ Guidelines for quality, security, performance, and collaboration.
 
 - **[Language Specification](reference/language-specification.md)** - Formal language spec *(coming soon)*
 - **[Syntax Reference](reference/syntax-reference.md)** - Quick syntax lookup *(coming soon)*
-- **[Keyword Reference](reference/keyword-reference.md)** - All keywords explained *(coming soon)*
+- **[Keyword Reference (Quick)](reference/keyword-reference.md)** - Fast scannable keyword lookup
+- **[Reserved Keywords (Complete)](reference/reserved-keywords.md)** - Complete technical reference
 - **[Operator Reference](reference/operator-reference.md)** - All operators *(coming soon)*
 - **[Built-in Functions](reference/builtin-functions-reference.md)** - Complete function list *(coming soon)*
 - **[Error Codes](reference/error-codes.md)** - Understanding errors *(coming soon)*

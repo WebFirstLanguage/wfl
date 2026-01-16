@@ -1,0 +1,22 @@
+// File I/O Keywords Examples (Simplified)
+// Keywords covered: file, open, read, write, close
+// Note: Full file I/O examples require filesystem access
+
+// Example 1: File-related keyword demonstration
+display "File I/O examples"
+
+// Demonstrating file-related variable naming
+store filename as "data.txt"
+store file_path as "/tmp/test.txt"
+
+display "Filename: " with filename
+display "Path: " with file_path
+
+// Example 2: File operation concepts
+store content as "Sample file content"
+store extension as ".txt"
+
+display "Content: " with content
+display "Extension: " with extension
+
+display "File I/O examples complete (simplified)"
