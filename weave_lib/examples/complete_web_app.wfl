@@ -1,0 +1,267 @@
+// Weave Framework - Complete Web Application Example
+// Demonstrates: Routing + Static Files + Security + JSON API
+
+display "=== Weave Complete Web Application ==="
+display ""
+
+// ===== Configuration =====
+store server_port_number as 3006
+store static_directory as "../test_public"
+store request_counter as 0
+store route_count as 0
+
+// ===== Helper Functions (MIME & Security) =====
+
+define action called string_ends_with with parameters text_string and suffix_string:
+    store text_len as length of text_string
+    store suffix_len as length of suffix_string
+    check if suffix_len is greater than text_len:
+        return no
+    end check
+    store start_pos as text_len minus suffix_len
+    store ending as substring of text_string and start_pos and text_len
+    check if ending is equal to suffix_string:
+        return yes
+    otherwise:
+        return no
+    end check
+end action
+
+define action called detect_mime_type with parameters file_path:
+    store is_html as call string_ends_with with file_path and ".html"
+    check if is_html:
+        return "text/html"
+    end check
+    store is_css as call string_ends_with with file_path and ".css"
+    check if is_css:
+        return "text/css"
+    end check
+    store is_js as call string_ends_with with file_path and ".js"
+    check if is_js:
+        return "application/javascript"
+    end check
+    store is_json as call string_ends_with with file_path and ".json"
+    check if is_json:
+        return "application/json"
+    end check
+    return "application/octet-stream"
+end action
+
+define action called contains_string with parameters haystack and needle:
+    store haystack_len as length of haystack
+    store needle_len as length of needle
+    check if needle_len is greater than haystack_len:
+        return no
+    end check
+    store max_pos as haystack_len minus needle_len
+    add 1 to max_pos
+    count from 0 to max_pos:
+        store check_end as count plus needle_len
+        store substr as substring of haystack and count and check_end
+        check if substr is equal to needle:
+            return yes
+        end check
+    end count
+    return no
+end action
+
+define action called is_safe_path with parameters request_path:
+    store has_dotdot as call contains_string with request_path and ".."
+    check if has_dotdot:
+        return no
+    end check
+    store has_slashdot as call contains_string with request_path and "/."
+    check if has_slashdot:
+        return no
+    end check
+    return yes
+end action
+
+define action called try_serve_file with parameters req and static_dir and req_path:
+    store path_safe as call is_safe_path with req_path
+    check if path_safe is equal to no:
+        respond to req with "403 Forbidden" and status 403
+        display "  🚫 Security: Blocked " with req_path
+        return yes
+    end check
+    store full_path as static_dir with req_path
+    check if file exists at full_path:
+        try:
+            open file at full_path for reading as static_file
+            store file_content as read content from static_file
+            close file static_file
+            store content_type as call detect_mime_type with full_path
+            respond to req with file_content
+            display "  📄 Static: " with req_path with " (" with content_type with ")"
+            return yes
+        catch:
+            respond to req with "500 Error" and status 500
+            display "  ❌ Error: " with full_path
+            return yes
+        end try
+    end check
+    return no
+end action
+
+// ===== Route Registration =====
+
+create container SimpleRoute:
+    property path_value: Text
+    property response_value: Text
+    property http_method: Text
+end
+
+create list registered_routes:
+end list
+
+define action called register_route with parameters route_path and response_text:
+    create new SimpleRoute as route_entry:
+        path_value is route_path
+        response_value is response_text
+        http_method is "GET"
+    end
+    push with registered_routes and route_entry
+    add 1 to route_count
+    display "  ✓ Route: GET " with route_path
+end action
+
+// ===== Register API Routes =====
+
+display "Registering API routes..."
+
+call register_route with "/api/status" and "{\"status\": \"running\", \"framework\": \"Weave\", \"version\": \"0.1.0\"}"
+
+call register_route with "/api/health" and "{\"healthy\": true, \"uptime\": 0}"
+
+call register_route with "/api/features" and "{\"features\": [\"routing\", \"static files\", \"security\", \"MIME detection\"]}"
+
+call register_route with "/" and "<!DOCTYPE html>
+<html>
+<head>
+    <title>Weave App</title>
+    <style>
+        body { font-family: Arial; margin: 40px; }
+        h1 { color: #007acc; }
+        .endpoint { background: #f0f0f0; padding: 10px; margin: 10px 0; border-left: 3px solid #007acc; }
+        code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>Welcome to Weave!</h1>
+    <p>A web framework for WFL with routing, static files, and security.</p>
+
+    <h2>API Endpoints:</h2>
+    <div class=\"endpoint\"><code>GET /api/status</code> - Server status</div>
+    <div class=\"endpoint\"><code>GET /api/health</code> - Health check</div>
+    <div class=\"endpoint\"><code>GET /api/features</code> - Framework features</div>
+
+    <h2>Static Files:</h2>
+    <div class=\"endpoint\"><a href=\"/index.html\">index.html</a> - HTML file</div>
+    <div class=\"endpoint\"><a href=\"/style.css\">style.css</a> - CSS file</div>
+    <div class=\"endpoint\"><a href=\"/app.js\">app.js</a> - JavaScript file</div>
+    <div class=\"endpoint\"><a href=\"/data.json\">data.json</a> - JSON file</div>
+
+    <hr>
+    <small>Powered by Weave Web Framework</small>
+</body>
+</html>"
+
+display ""
+
+// ===== Start Server =====
+
+display "🚀 Starting Weave Complete Web App"
+display "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+display "  Port: " with server_port_number
+display "  Routes: " with route_count with " registered"
+display "  Static directory: " with static_directory
+display "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+check if directory exists at static_directory:
+    display "  ✅ Static directory found"
+otherwise:
+    display "  ⚠️  Static directory not found"
+end check
+
+display "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+display "✅ Server started at http://127.0.0.1:" with server_port_number
+display "   Visit http://127.0.0.1:" with server_port_number with "/"
+display ""
+
+listen on port server_port_number as web_server
+
+// ===== Main Request Loop =====
+
+main loop:
+    wait for request comes in on web_server as incoming_request
+    add 1 to request_counter
+
+    // Log request
+    display "📥 [" with request_counter with "] " with method with " " with path with " from " with client_ip
+
+    // Step 1: Try routes first
+    store route_found as no
+    for each registered_route in registered_routes:
+        store route_path_value as registered_route.path_value
+        store route_response_value as registered_route.response_value
+
+        check if route_path_value is equal to path:
+            respond to incoming_request with route_response_value
+            display "  ✅ Route: " with path
+            change route_found to yes
+            break
+        end check
+    end for
+
+    check if route_found is equal to yes:
+        continue
+    end check
+
+    // Step 2: Try static files
+    store was_static as call try_serve_file with incoming_request and static_directory and path
+
+    check if was_static is equal to yes:
+        // File was served, continue to next request
+        continue
+    end check
+
+    // Step 3: No match - return 404
+    store not_found_html as "<!DOCTYPE html>
+<html>
+<head>
+    <title>404 - Not Found</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            margin-top: 100px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .container {
+            background: white;
+            color: #333;
+            padding: 60px;
+            border-radius: 10px;
+            display: inline-block;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        h1 { color: #e74c3c; font-size: 72px; margin: 0; }
+        code { background: #f4f4f4; padding: 5px 10px; border-radius: 3px; }
+        a { color: #007acc; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class=\"container\">
+        <h1>404</h1>
+        <p>The page <code>" with path with "</code> was not found.</p>
+        <p><a href=\"/\">← Go Back Home</a></p>
+        <hr style=\"margin: 40px 0; border: none; border-top: 1px solid #eee;\">
+        <small style=\"color: #999;\">Powered by Weave</small>
+    </div>
+</body>
+</html>"
+    respond to incoming_request with not_found_html and status 404
+    display "  ✗ 404: Not Found"
+end loop
