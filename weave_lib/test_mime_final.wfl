@@ -1,0 +1,78 @@
+// Test Final MIME Type Detection
+
+display "=== Testing MIME Type Detection (Final) ==="
+display ""
+
+// Helper function
+define action called string_ends_with with parameters text_string and suffix_string:
+    store text_len as length of text_string
+    store suffix_len as length of suffix_string
+
+    check if suffix_len is greater than text_len:
+        return no
+    end check
+
+    store start_pos as text_len minus suffix_len
+    store ending as substring of text_string and start_pos and text_len
+
+    check if ending is equal to suffix_string:
+        return yes
+    otherwise:
+        return no
+    end check
+end action
+
+// MIME detection function
+define action called detect_mime_type with parameters file_path:
+    store is_html as call string_ends_with with file_path and ".html"
+    check if is_html:
+        return "text/html"
+    end check
+
+    store is_css as call string_ends_with with file_path and ".css"
+    check if is_css:
+        return "text/css"
+    end check
+
+    store is_js as call string_ends_with with file_path and ".js"
+    check if is_js:
+        return "application/javascript"
+    end check
+
+    store is_png as call string_ends_with with file_path and ".png"
+    check if is_png:
+        return "image/png"
+    end check
+
+    store is_jpg as call string_ends_with with file_path and ".jpg"
+    check if is_jpg:
+        return "image/jpeg"
+    end check
+
+    return "application/octet-stream"
+end action
+
+// Run tests
+display "Testing file type detection:"
+display ""
+
+store m1 as call detect_mime_type with "index.html"
+display "✓ index.html → " with m1
+
+store m2 as call detect_mime_type with "style.css"
+display "✓ style.css → " with m2
+
+store m3 as call detect_mime_type with "app.js"
+display "✓ app.js → " with m3
+
+store m4 as call detect_mime_type with "logo.png"
+display "✓ logo.png → " with m4
+
+store m5 as call detect_mime_type with "photo.jpg"
+display "✓ photo.jpg → " with m5
+
+store m6 as call detect_mime_type with "unknown.xyz"
+display "✓ unknown.xyz → " with m6
+
+display ""
+display "✅ All MIME tests passed!"

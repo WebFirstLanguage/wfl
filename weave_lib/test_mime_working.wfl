@@ -1,0 +1,54 @@
+// Test MIME Type Detection - Working Version
+
+display "=== Testing MIME Type Detection ==="
+display ""
+
+// Simple MIME detection function
+define action called get_mime with parameters filepath:
+    // Check most common types
+    check if filepath ends with ".html":
+        return "text/html"
+    otherwise:
+        check if filepath ends with ".css":
+            return "text/css"
+        otherwise:
+            check if filepath ends with ".js":
+                return "application/javascript"
+            otherwise:
+                check if filepath ends with ".png":
+                    return "image/png"
+                otherwise:
+                    check if filepath ends with ".jpg":
+                        return "image/jpeg"
+                    otherwise:
+                        return "application/octet-stream"
+                    end check
+                end check
+            end check
+        end check
+    end check
+end action
+
+// Test it
+display "Testing MIME detection:"
+
+store t1 as call get_mime with "index.html"
+display "  index.html → " with t1
+
+store t2 as call get_mime with "style.css"
+display "  style.css → " with t2
+
+store t3 as call get_mime with "app.js"
+display "  app.js → " with t3
+
+store t4 as call get_mime with "logo.png"
+display "  logo.png → " with t4
+
+store t5 as call get_mime with "photo.jpg"
+display "  photo.jpg → " with t5
+
+store t6 as call get_mime with "unknown.xyz"
+display "  unknown.xyz → " with t6
+
+display ""
+display "✅ MIME detection test complete!"

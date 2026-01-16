@@ -1,0 +1,218 @@
+// Weave Framework - MIME Type Detection Module
+// Determines Content-Type headers based on file extensions
+// Supports 40+ common file types
+
+display "📦 Loading MIME Types Module..."
+
+// Main MIME type detection function
+define action called get_mime_type with parameters file_path:
+    // Extract file extension by finding last dot
+    store extension as ""
+    store path_length as length of file_path
+
+    // Find the last dot in the filename
+    store found_extension as no
+    store check_pos as path_length
+
+    // Search backwards for the dot
+    count from 1 to path_length:
+        subtract 1 from check_pos
+        check if check_pos is less than 0:
+            break
+        end check
+
+        store char_at_pos as substring of file_path from check_pos to check_pos plus 1
+        check if char_at_pos is equal to ".":
+            // Found the dot, extract extension
+            add 1 to check_pos
+            store extension as substring of file_path from check_pos
+            change found_extension to yes
+            break
+        end check
+    end count
+
+    // If no extension found, return default
+    check if found_extension is equal to no:
+        return "application/octet-stream"
+    end check
+
+    // Convert extension to lowercase for comparison
+    store ext_lower as lowercase of extension
+
+    // Text formats
+    check if ext_lower is equal to "html":
+        return "text/html; charset=utf-8"
+    otherwise check if ext_lower is equal to "htm":
+        return "text/html; charset=utf-8"
+    otherwise check if ext_lower is equal to "css":
+        return "text/css; charset=utf-8"
+    otherwise check if ext_lower is equal to "js":
+        return "application/javascript; charset=utf-8"
+    otherwise check if ext_lower is equal to "mjs":
+        return "application/javascript; charset=utf-8"
+    otherwise check if ext_lower is equal to "json":
+        return "application/json"
+    otherwise check if ext_lower is equal to "xml":
+        return "application/xml; charset=utf-8"
+    otherwise check if ext_lower is equal to "txt":
+        return "text/plain; charset=utf-8"
+    otherwise check if ext_lower is equal to "md":
+        return "text/markdown; charset=utf-8"
+    otherwise check if ext_lower is equal to "csv":
+        return "text/csv; charset=utf-8"
+
+    // Images
+    otherwise check if ext_lower is equal to "png":
+        return "image/png"
+    otherwise check if ext_lower is equal to "jpg":
+        return "image/jpeg"
+    otherwise check if ext_lower is equal to "jpeg":
+        return "image/jpeg"
+    otherwise check if ext_lower is equal to "gif":
+        return "image/gif"
+    otherwise check if ext_lower is equal to "svg":
+        return "image/svg+xml"
+    otherwise check if ext_lower is equal to "ico":
+        return "image/x-icon"
+    otherwise check if ext_lower is equal to "webp":
+        return "image/webp"
+    otherwise check if ext_lower is equal to "bmp":
+        return "image/bmp"
+    otherwise check if ext_lower is equal to "tiff":
+        return "image/tiff"
+    otherwise check if ext_lower is equal to "tif":
+        return "image/tiff"
+
+    // Fonts
+    otherwise check if ext_lower is equal to "woff":
+        return "font/woff"
+    otherwise check if ext_lower is equal to "woff2":
+        return "font/woff2"
+    otherwise check if ext_lower is equal to "ttf":
+        return "font/ttf"
+    otherwise check if ext_lower is equal to "otf":
+        return "font/otf"
+    otherwise check if ext_lower is equal to "eot":
+        return "application/vnd.ms-fontobject"
+
+    // Documents
+    otherwise check if ext_lower is equal to "pdf":
+        return "application/pdf"
+    otherwise check if ext_lower is equal to "doc":
+        return "application/msword"
+    otherwise check if ext_lower is equal to "docx":
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    otherwise check if ext_lower is equal to "xls":
+        return "application/vnd.ms-excel"
+    otherwise check if ext_lower is equal to "xlsx":
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    otherwise check if ext_lower is equal to "ppt":
+        return "application/vnd.ms-powerpoint"
+    otherwise check if ext_lower is equal to "pptx":
+        return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+    // Archives
+    otherwise check if ext_lower is equal to "zip":
+        return "application/zip"
+    otherwise check if ext_lower is equal to "rar":
+        return "application/x-rar-compressed"
+    otherwise check if ext_lower is equal to "7z":
+        return "application/x-7z-compressed"
+    otherwise check if ext_lower is equal to "tar":
+        return "application/x-tar"
+    otherwise check if ext_lower is equal to "gz":
+        return "application/gzip"
+
+    // Audio
+    otherwise check if ext_lower is equal to "mp3":
+        return "audio/mpeg"
+    otherwise check if ext_lower is equal to "wav":
+        return "audio/wav"
+    otherwise check if ext_lower is equal to "ogg":
+        return "audio/ogg"
+    otherwise check if ext_lower is equal to "m4a":
+        return "audio/mp4"
+
+    // Video
+    otherwise check if ext_lower is equal to "mp4":
+        return "video/mp4"
+    otherwise check if ext_lower is equal to "webm":
+        return "video/webm"
+    otherwise check if ext_lower is equal to "avi":
+        return "video/x-msvideo"
+    otherwise check if ext_lower is equal to "mov":
+        return "video/quicktime"
+    otherwise check if ext_lower is equal to "wmv":
+        return "video/x-ms-wmv"
+
+    // Web application files
+    otherwise check if ext_lower is equal to "wasm":
+        return "application/wasm"
+    otherwise check if ext_lower is equal to "manifest":
+        return "application/manifest+json"
+    otherwise check if ext_lower is equal to "webmanifest":
+        return "application/manifest+json"
+
+    // Default for unknown types
+    otherwise:
+        return "application/octet-stream"
+    end check
+end action
+
+// Helper: Check if a file extension is a text format
+define action called is_text_format with parameters file_path:
+    store mime as call get_mime_type with file_path
+
+    // Check if MIME type starts with "text/"
+    check if mime starts with "text/":
+        return yes
+    end check
+
+    // Check for other text-based formats
+    check if mime starts with "application/json":
+        return yes
+    otherwise check if mime starts with "application/javascript":
+        return yes
+    otherwise check if mime starts with "application/xml":
+        return yes
+    end check
+
+    return no
+end action
+
+// Helper: Check if a file extension is an image format
+define action called is_image_format with parameters file_path:
+    store mime as call get_mime_type with file_path
+
+    check if mime starts with "image/":
+        return yes
+    otherwise:
+        return no
+    end check
+end action
+
+// Helper: Get a list of supported extensions by category
+define action called get_supported_extensions with parameters category:
+    check if category is equal to "text":
+        return "html, htm, css, js, json, xml, txt, md, csv"
+    otherwise check if category is equal to "image":
+        return "png, jpg, jpeg, gif, svg, ico, webp, bmp, tiff, tif"
+    otherwise check if category is equal to "font":
+        return "woff, woff2, ttf, otf, eot"
+    otherwise check if category is equal to "document":
+        return "pdf, doc, docx, xls, xlsx, ppt, pptx"
+    otherwise check if category is equal to "archive":
+        return "zip, rar, 7z, tar, gz"
+    otherwise check if category is equal to "audio":
+        return "mp3, wav, ogg, m4a"
+    otherwise check if category is equal to "video":
+        return "mp4, webm, avi, mov, wmv"
+    otherwise check if category is equal to "all":
+        return "html, css, js, json, xml, txt, png, jpg, gif, svg, ico, pdf, zip, mp3, mp4, woff, woff2, ttf, and 30+ more"
+    otherwise:
+        return "unknown category"
+    end check
+end action
+
+display "✅ MIME Types Module loaded - 40+ file types supported"
+display ""
