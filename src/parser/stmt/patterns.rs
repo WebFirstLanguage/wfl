@@ -9,6 +9,24 @@ use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
 use crate::parser::helpers::is_reserved_pattern_name;
 
+/// Check if a token is a simple character class keyword (letter, digit, whitespace)
+fn is_simple_char_class_token(token: &Token) -> bool {
+    matches!(
+        token,
+        Token::KeywordLetter | Token::KeywordDigit | Token::KeywordWhitespace
+    )
+}
+
+/// Convert a simple character class token to a CharClass
+fn token_to_char_class(token: &Token) -> Option<CharClass> {
+    match token {
+        Token::KeywordLetter => Some(CharClass::Letter),
+        Token::KeywordDigit => Some(CharClass::Digit),
+        Token::KeywordWhitespace => Some(CharClass::Whitespace),
+        _ => None,
+    }
+}
+
 pub(crate) trait PatternParser<'a>: ExprParser<'a> {
     fn parse_create_pattern_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_pattern_tokens(tokens: &[TokenWithPosition]) -> Result<PatternExpression, ParseError>;
@@ -570,18 +588,29 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                 }
             }
 
-            // Direct character classes
-            Token::KeywordLetter => {
+            // Direct character classes - check for "or" unions like "letter or digit"
+            Token::KeywordLetter | Token::KeywordDigit | Token::KeywordWhitespace => {
+                let first_class = token_to_char_class(&token.token).unwrap();
                 *i += 1;
-                PatternExpression::CharacterClass(CharClass::Letter)
-            }
-            Token::KeywordDigit => {
-                *i += 1;
-                PatternExpression::CharacterClass(CharClass::Digit)
-            }
-            Token::KeywordWhitespace => {
-                *i += 1;
-                PatternExpression::CharacterClass(CharClass::Whitespace)
+
+                // Check if this is a character class union like "letter or digit"
+                let mut classes = vec![PatternExpression::CharacterClass(first_class)];
+
+                while *i + 1 < tokens.len()
+                    && tokens[*i].token == Token::KeywordOr
+                    && is_simple_char_class_token(&tokens[*i + 1].token)
+                {
+                    *i += 1; // Skip "or"
+                    let next_class = token_to_char_class(&tokens[*i].token).unwrap();
+                    *i += 1; // Skip the character class keyword
+                    classes.push(PatternExpression::CharacterClass(next_class));
+                }
+
+                if classes.len() == 1 {
+                    classes.into_iter().next().unwrap()
+                } else {
+                    PatternExpression::Alternative(classes)
+                }
             }
 
             // Handle plural forms of character classes
