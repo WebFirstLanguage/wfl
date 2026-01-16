@@ -1,3 +1,17 @@
+# ARCHIVED: WFL Reserved Keywords (Technical Reference)
+
+**Note:** This technical reference has been integrated into user documentation:
+- Quick Reference: `Docs/reference/keyword-reference.md`
+- Comprehensive Reference: `Docs/reference/reserved-keywords.md`
+
+This file is preserved for historical reference and technical accuracy verification.
+
+**Date archived:** 2026-01-16
+**Integration approach:** Multi-tiered (quick + comprehensive)
+**Original source:** Root directory keywords.md
+
+---
+
 # WFL Reserved Keywords
 
 Complete reference of all reserved keywords in the WFL programming language.

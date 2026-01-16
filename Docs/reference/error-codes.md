@@ -27,7 +27,7 @@ store is as 10  // ERROR: 'is' is reserved
 store is_valid as 10
 ```
 
-**[Reserved keywords →](../03-language-basics/variables-and-types.md#reserved-keywords)**
+**[Quick lookup →](keyword-reference.md)** | **[Complete details →](reserved-keywords.md)**
 
 ---
 

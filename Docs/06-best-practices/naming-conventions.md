@@ -49,7 +49,7 @@ store rc as 3
 
 ### Avoid Reserved Keywords
 
-60+ keywords are reserved. **[See complete list →](../03-language-basics/variables-and-types.md#reserved-keywords)**
+178 keywords are reserved. **[Quick Reference →](../reference/keyword-reference.md)** | **[Complete Details →](../reference/reserved-keywords.md)**
 
 **Common conflicts:**
 - `is` → Use `is_value` or `is_valid`

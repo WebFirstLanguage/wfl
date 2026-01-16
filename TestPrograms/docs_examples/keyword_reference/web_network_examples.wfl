@@ -1,0 +1,22 @@
+// Web & Network Keywords Examples (Simplified)
+// Keywords covered: server, port, request, response, listen
+// Note: Full web examples require web server functionality
+
+// Example 1: Web-related concepts
+display "Web & Network examples"
+
+// Demonstrating web-related variables
+store port as 8080
+store server as "localhost"
+
+display "Port: " with port
+display "Server: " with server
+
+// Example 2: Request/response concepts
+store status as 200
+store header as "Content-Type"
+
+display "Status: " with status
+display "Header: " with header
+
+display "Web examples complete (simplified)"

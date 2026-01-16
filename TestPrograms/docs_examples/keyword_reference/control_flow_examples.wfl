@@ -1,0 +1,86 @@
+// Control Flow Keywords Examples
+// Keywords covered: check, if, otherwise, end, for, each, in, count, from, to, by
+// repeat, while, until, forever, break, continue, skip
+
+// Example 1: Basic conditional with check/if/otherwise/end
+store age as 25
+
+check if age is greater than 18:
+    display "Adult"
+otherwise:
+    display "Minor"
+end check
+
+// Example 2: For each loop
+create list called fruits:
+    add "apple"
+    add "banana"
+    add "orange"
+end list
+
+display "Fruits:"
+for each fruit in fruits:
+    display fruit
+end for
+
+// Example 3: Count loop with from/to
+display "Count from 1 to 5:"
+count from 1 to 5:
+    display count
+end count
+
+// Example 4: Count loop with by (step)
+display "Count by 2:"
+count from 0 to 10 by 2:
+    display count
+end count
+
+// Example 5: Repeat with while condition
+store counter as 0
+
+display "Repeat while:"
+repeat while counter is less than 3:
+    display counter
+    change counter to counter plus 1
+end repeat
+
+// Example 6: Repeat with until condition
+store value as 0
+
+display "Repeat until:"
+repeat until value is equal to 3:
+    display value
+    change value to value plus 1
+end repeat
+
+// Example 7: Break in loop
+display "Break example:"
+count from 1 to 10:
+    check if count is equal to 5:
+        display "Breaking at 5"
+        break
+    end check
+    display count
+end count
+
+// Example 8: Continue/skip in loop
+display "Continue example:"
+count from 1 to 5:
+    check if count is equal to 3:
+        continue
+    end check
+    display count
+end count
+
+// Example 9: Nested conditionals
+store score as 85
+
+check if score is greater than 90:
+    display "Grade A"
+otherwise:
+    check if score is greater than 80:
+        display "Grade B"
+    otherwise:
+        display "Grade C"
+    end check
+end check

@@ -1,0 +1,104 @@
+// Comparison Keywords Examples
+// Keywords covered: is, not, and, or, greater, less, than, equal
+
+// Example 1: Basic is comparison
+store x as 10
+
+check if x is 10:
+    display "x is 10"
+end check
+
+// Example 2: Greater than comparison
+store age as 25
+
+check if age is greater than 18:
+    display "Adult"
+end check
+
+// Example 3: Less than comparison
+store temperature as 15
+
+check if temperature is less than 20:
+    display "It's cool"
+end check
+
+// Example 4: Equal comparison
+store status as "active"
+
+check if status is equal to "active":
+    display "Status is active"
+end check
+
+// Example 5: Not operator
+store is_ready as no
+
+check if not is_ready:
+    display "Not ready yet"
+end check
+
+// Example 6: And operator
+store has_license as yes
+store age_check as 18
+
+check if has_license and age_check is greater than 17:
+    display "Can drive"
+end check
+
+// Example 7: Or operator
+store is_weekend as yes
+store is_holiday as no
+
+check if is_weekend or is_holiday:
+    display "Day off!"
+end check
+
+// Example 8: Combined comparisons
+store score as 85
+
+check if score is greater than 80 and score is less than 90:
+    display "Grade B"
+end check
+
+// Example 9: Multiple conditions with and/or
+store has_ticket as yes
+store has_id as yes
+store is_adult as yes
+
+check if has_ticket and has_id and is_adult:
+    display "Can enter venue"
+end check
+
+// Example 10: Greater than or equal (using or)
+store points as 100
+
+check if points is greater than 100 or points is equal to 100:
+    display "Level unlocked!"
+end check
+
+// Example 11: Complex nested conditions
+store user_age as 30
+store user_premium as yes
+
+check if user_age is greater than 25:
+    check if user_premium:
+        display "Premium adult user"
+    otherwise:
+        display "Regular adult user"
+    end check
+otherwise:
+    display "Young user"
+end check
+
+// Example 12: Text comparison
+store username as "alice"
+
+check if username is equal to "alice":
+    display "Welcome Alice!"
+end check
+
+// Example 13: Not equal (using not)
+store value as 5
+
+check if not value is equal to 0:
+    display "Value is not zero"
+end check
