@@ -1,6 +1,0 @@
-display "before main"
-main loop:
-    display "in loop"
-    break
-end loop
-display "after main"
