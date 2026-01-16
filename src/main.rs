@@ -44,6 +44,7 @@ fn print_help() {
     println!("Configuration Maintenance:");
     println!("    --configCheck      Check configuration files for issues");
     println!("    --configFix        Check and fix configuration files");
+    println!("    --init [dir]       Create .wflcfg interactively (default: current directory)");
     println!();
     println!("ENVIRONMENT VARIABLES:");
     println!("    WFL_GLOBAL_CONFIG_PATH  Override the global configuration path");
@@ -89,6 +90,7 @@ async fn main() -> io::Result<()> {
     let mut fix_diff = false;
     let mut config_check_mode = false;
     let mut config_fix_mode = false;
+    let mut init_mode = false;
     let mut step_mode = false;
     let mut edit_mode = false;
     let mut lex_dump = false;
@@ -149,6 +151,21 @@ async fn main() -> io::Result<()> {
                 }
                 config_fix_mode = true;
                 i += 1;
+                if i < args.len() && !args[i].starts_with("--") {
+                    file_path = args[i].clone();
+                    i += 1;
+                }
+            }
+            "--init" => {
+                if lint_mode || analyze_mode || fix_mode || config_check_mode || config_fix_mode {
+                    eprintln!(
+                        "Error: --init cannot be combined with other operation flags"
+                    );
+                    process::exit(2);
+                }
+                init_mode = true;
+                i += 1;
+                // Optional: accept directory path
                 if i < args.len() && !args[i].starts_with("--") {
                     file_path = args[i].clone();
                     i += 1;
@@ -346,7 +363,52 @@ async fn main() -> io::Result<()> {
         }
     }
 
-    if file_path.is_empty() && !config_check_mode && !config_fix_mode {
+    // Handle --init mode
+    if init_mode {
+        use std::io::Write;
+
+        let target_dir = if !file_path.is_empty() {
+            std::path::Path::new(&file_path)
+        } else {
+            std::path::Path::new(".")
+        };
+
+        if !target_dir.is_dir() {
+            eprintln!("Error: --init requires a valid directory");
+            process::exit(2);
+        }
+
+        let config_path = target_dir.join(".wflcfg");
+
+        // Check if file exists and prompt for overwrite
+        if config_path.exists() {
+            eprint!(
+                "File {} already exists. Overwrite? (y/n): ",
+                config_path.display()
+            );
+            std::io::stdout().flush()?;
+            let mut response = String::new();
+            std::io::stdin().read_line(&mut response)?;
+            if !response.trim().to_lowercase().starts_with('y') {
+                println!("Aborted.");
+                process::exit(0);
+            }
+        }
+
+        match wfl_config::run_wizard(&config_path) {
+            Ok(()) => {
+                println!("\n✅ Configuration created: {}", config_path.display());
+                println!("You can edit this file directly or run 'wfl --init' again.");
+                process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                process::exit(2);
+            }
+        }
+    }
+
+    if file_path.is_empty() && !config_check_mode && !config_fix_mode && !init_mode {
         eprintln!("Error: No file path provided");
         process::exit(2);
     }

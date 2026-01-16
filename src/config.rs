@@ -615,15 +615,27 @@ pub fn load_config(dir: &Path) -> WflConfig {
         }
     }
 
-    let local_config = dir.join(".wflcfg");
-    if local_config.exists()
-        && let Ok(text) = std::fs::read_to_string(&local_config)
-    {
-        log::debug!(
-            "Loading local configuration from {}",
-            local_config.display()
-        );
-        parse_config_text(&mut config, &text, &local_config);
+    // Walk up directory tree looking for .wflcfg (closest wins)
+    let mut current_dir = Some(dir.to_path_buf());
+    let mut found_local_config = None;
+
+    while let Some(dir_path) = current_dir {
+        let config_path = dir_path.join(".wflcfg");
+        if config_path.exists() {
+            found_local_config = Some(config_path);
+            break; // Stop at first .wflcfg found
+        }
+        current_dir = dir_path.parent().map(Path::to_path_buf);
+    }
+
+    if let Some(local_config) = found_local_config {
+        if let Ok(text) = std::fs::read_to_string(&local_config) {
+            log::debug!(
+                "Loading local configuration from {}",
+                local_config.display()
+            );
+            parse_config_text(&mut config, &text, &local_config);
+        }
     }
 
     config
@@ -661,16 +673,27 @@ pub fn load_config_with_global(script_dir: &Path) -> WflConfig {
         }
     }
 
-    // Load local configuration
-    let local_config = script_dir.join(".wflcfg");
-    if local_config.exists()
-        && let Ok(text) = std::fs::read_to_string(&local_config)
-    {
-        log::debug!(
-            "Loading local configuration from {}",
-            local_config.display()
-        );
-        parse_config_text(&mut config, &text, &local_config);
+    // Walk up directory tree looking for .wflcfg (closest wins)
+    let mut current_dir = Some(script_dir.to_path_buf());
+    let mut found_local_config = None;
+
+    while let Some(dir_path) = current_dir {
+        let config_path = dir_path.join(".wflcfg");
+        if config_path.exists() {
+            found_local_config = Some(config_path);
+            break; // Stop at first .wflcfg found
+        }
+        current_dir = dir_path.parent().map(Path::to_path_buf);
+    }
+
+    if let Some(local_config) = found_local_config {
+        if let Ok(text) = std::fs::read_to_string(&local_config) {
+            log::debug!(
+                "Loading local configuration from {}",
+                local_config.display()
+            );
+            parse_config_text(&mut config, &text, &local_config);
+        }
     }
 
     config
