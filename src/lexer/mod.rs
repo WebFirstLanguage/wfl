@@ -296,8 +296,7 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                 } else {
                     eprintln!(
                         "Lexing error at position {}: unexpected input `{}`",
-                        span.start,
-                        slice
+                        span.start, slice
                     );
                 }
             }
