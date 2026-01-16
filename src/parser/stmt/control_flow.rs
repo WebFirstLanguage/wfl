@@ -10,6 +10,11 @@ pub(crate) trait ControlFlowParser<'a>: ExprParser<'a> {
     where
         Self: StmtParser<'a>;
 
+    /// Parse an if statement as part of an else-if chain (doesn't consume its own `end check`)
+    fn parse_if_statement_chained(&mut self) -> Result<Statement, ParseError>
+    where
+        Self: StmtParser<'a>;
+
     fn parse_single_line_if(&mut self) -> Result<Statement, ParseError>
     where
         Self: StmtParser<'a>;
@@ -74,33 +79,45 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
             if matches!(token.token, Token::KeywordOtherwise) {
                 self.bump_sync(); // Consume "otherwise"
 
+                // Check for "otherwise check if" (else-if chain pattern)
+                // This allows: otherwise check if condition:
+                // Instead of requiring: otherwise: check if condition:
                 if let Some(token) = self.cursor.peek()
-                    && matches!(token.token, Token::Colon)
+                    && matches!(token.token, Token::KeywordCheck)
                 {
-                    self.bump_sync(); // Consume the colon if present
+                    // This is an else-if chain - parse the nested if without consuming its end
+                    let nested_if = self.parse_if_statement_chained()?;
+                    Some(vec![nested_if])
+                } else {
+                    // Standard else block with colon
+                    if let Some(token) = self.cursor.peek()
+                        && matches!(token.token, Token::Colon)
+                    {
+                        self.bump_sync(); // Consume the colon if present
+                    }
+
+                    // Skip any Eol tokens after the colon
+                    self.skip_eol();
+
+                    let mut else_stmts = Vec::with_capacity(8);
+
+                    while let Some(token) = self.cursor.peek().cloned() {
+                        if matches!(token.token, Token::KeywordEnd) {
+                            break;
+                        }
+                        if matches!(token.token, Token::Eol) {
+                            self.bump_sync(); // Skip Eol between statements
+                            continue;
+                        }
+
+                        match self.parse_statement() {
+                            Ok(stmt) => else_stmts.push(stmt),
+                            Err(e) => return Err(e),
+                        }
+                    }
+
+                    Some(else_stmts)
                 }
-
-                // Skip any Eol tokens after the colon
-                self.skip_eol();
-
-                let mut else_stmts = Vec::with_capacity(8);
-
-                while let Some(token) = self.cursor.peek().cloned() {
-                    if matches!(token.token, Token::KeywordEnd) {
-                        break;
-                    }
-                    if matches!(token.token, Token::Eol) {
-                        self.bump_sync(); // Skip Eol between statements
-                        continue;
-                    }
-
-                    match self.parse_statement() {
-                        Ok(stmt) => else_stmts.push(stmt),
-                        Err(e) => return Err(e),
-                    }
-                }
-
-                Some(else_stmts)
             } else {
                 None
             }
@@ -141,6 +158,105 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                 check_token,
             ));
         }
+
+        Ok(Statement::IfStatement {
+            condition,
+            then_block,
+            else_block,
+            line: check_token.line,
+            column: check_token.column,
+        })
+    }
+
+    /// Parse an if statement as part of an else-if chain.
+    /// This method does NOT consume the `end check` - it's handled by the outer if statement.
+    fn parse_if_statement_chained(&mut self) -> Result<Statement, ParseError>
+    where
+        Self: StmtParser<'a>,
+    {
+        let check_token = self.bump_sync().unwrap(); // Consume "check"
+
+        self.expect_token(Token::KeywordIf, "Expected 'if' after 'check'")?;
+
+        let condition = self.parse_expression()?;
+
+        if let Some(token) = self.cursor.peek()
+            && matches!(token.token, Token::Colon)
+        {
+            self.bump_sync(); // Consume the colon if present
+        }
+
+        // Skip any Eol tokens after the colon
+        self.skip_eol();
+
+        let mut then_block = Vec::with_capacity(8);
+
+        while let Some(token) = self.cursor.peek().cloned() {
+            match &token.token {
+                Token::KeywordOtherwise | Token::KeywordEnd => {
+                    break;
+                }
+                Token::Eol => {
+                    self.bump_sync(); // Skip Eol between statements
+                    continue;
+                }
+                _ => match self.parse_statement() {
+                    Ok(stmt) => then_block.push(stmt),
+                    Err(e) => return Err(e),
+                },
+            }
+        }
+
+        // Handle the "otherwise" clause (else block) - can also chain
+        let else_block = if let Some(token) = self.cursor.peek() {
+            if matches!(token.token, Token::KeywordOtherwise) {
+                self.bump_sync(); // Consume "otherwise"
+
+                // Check for "otherwise check if" (continue else-if chain)
+                if let Some(token) = self.cursor.peek()
+                    && matches!(token.token, Token::KeywordCheck)
+                {
+                    // Continue the chain - recursively parse next else-if
+                    let nested_if = self.parse_if_statement_chained()?;
+                    Some(vec![nested_if])
+                } else {
+                    // Standard else block with colon
+                    if let Some(token) = self.cursor.peek()
+                        && matches!(token.token, Token::Colon)
+                    {
+                        self.bump_sync(); // Consume the colon if present
+                    }
+
+                    // Skip any Eol tokens after the colon
+                    self.skip_eol();
+
+                    let mut else_stmts = Vec::with_capacity(8);
+
+                    while let Some(token) = self.cursor.peek().cloned() {
+                        if matches!(token.token, Token::KeywordEnd) {
+                            break;
+                        }
+                        if matches!(token.token, Token::Eol) {
+                            self.bump_sync(); // Skip Eol between statements
+                            continue;
+                        }
+
+                        match self.parse_statement() {
+                            Ok(stmt) => else_stmts.push(stmt),
+                            Err(e) => return Err(e),
+                        }
+                    }
+
+                    Some(else_stmts)
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // NOTE: We do NOT consume "end check" here - the outer if statement handles it
 
         Ok(Statement::IfStatement {
             condition,

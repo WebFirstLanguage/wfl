@@ -485,3 +485,100 @@ fn test_empty_comment_with_cr() {
         .count();
     assert_eq!(store_count, 2);
 }
+
+// Issue: Identifiers containing keywords (like content_type) should be tokenized as single identifiers
+#[test]
+fn test_keyword_with_underscore_becomes_identifier() {
+    use crate::lexer::lex_wfl_with_positions;
+
+    // "content_type" should be tokenized as a single identifier, not KeywordContent + error
+    let input = "store content_type as \"text/html\"";
+    let tokens = lex_wfl_with_positions(input);
+
+    // Should have: store, content_type, as, "text/html"
+    let has_content_type_identifier = tokens
+        .iter()
+        .any(|t| matches!(&t.token, Token::Identifier(s) if s == "content_type"));
+    assert!(
+        has_content_type_identifier,
+        "content_type should be tokenized as a single identifier. Got tokens: {:?}",
+        tokens.iter().map(|t| &t.token).collect::<Vec<_>>()
+    );
+
+    // Should NOT have KeywordContent
+    let has_keyword_content = tokens
+        .iter()
+        .any(|t| matches!(t.token, Token::KeywordContent));
+    assert!(
+        !has_keyword_content,
+        "Should not have KeywordContent when followed by underscore"
+    );
+}
+
+#[test]
+fn test_multiple_keywords_with_underscores() {
+    use crate::lexer::lex_wfl_with_positions;
+
+    // Test various keyword_suffix patterns
+    let test_cases = vec![
+        ("file_path", "file_path"),
+        ("is_active", "is_active"),
+        ("on_click", "on_click"),
+        ("data_type", "data_type"),
+        ("time_value", "time_value"),
+        ("status_code", "status_code"),
+    ];
+
+    for (input, expected_id) in test_cases {
+        let tokens = lex_wfl_with_positions(input);
+        let has_identifier = tokens
+            .iter()
+            .any(|t| matches!(&t.token, Token::Identifier(s) if s == expected_id));
+        assert!(
+            has_identifier,
+            "'{input}' should be tokenized as identifier '{expected_id}'. Got tokens: {:?}",
+            tokens.iter().map(|t| &t.token).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn test_keyword_without_underscore_stays_keyword() {
+    use crate::lexer::lex_wfl_with_positions;
+
+    // "content" alone should still be a keyword
+    let input = "content";
+    let tokens = lex_wfl_with_positions(input);
+
+    let has_keyword_content = tokens
+        .iter()
+        .any(|t| matches!(t.token, Token::KeywordContent));
+    assert!(
+        has_keyword_content,
+        "Standalone 'content' should be KeywordContent"
+    );
+}
+
+#[test]
+fn test_keyword_in_context_vs_identifier() {
+    use crate::lexer::lex_wfl_with_positions;
+
+    // In this input, "content" should be keyword but "content_type" should be identifier
+    let input = "store content_type as content";
+    let tokens = lex_wfl_with_positions(input);
+
+    // Should have content_type as identifier
+    let has_content_type = tokens
+        .iter()
+        .any(|t| matches!(&t.token, Token::Identifier(s) if s == "content_type"));
+    assert!(has_content_type, "Should have content_type as identifier");
+
+    // Should have content as keyword
+    let has_content_keyword = tokens
+        .iter()
+        .any(|t| matches!(t.token, Token::KeywordContent));
+    assert!(
+        has_content_keyword,
+        "Should have standalone 'content' as keyword"
+    );
+}

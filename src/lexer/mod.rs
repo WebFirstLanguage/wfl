@@ -45,20 +45,48 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
                 tokens.push(Token::Eol);
             }
             Ok(other) => {
-                if let Some(id) = current_id.take() {
-                    tokens.push(Token::Identifier(id));
+                // Check if this keyword/token is actually part of a longer identifier
+                // e.g., "content_type" should be an identifier, not KeywordContent + error
+                let span = lexer.span();
+                let is_keyword_in_identifier = other.is_keyword()
+                    && span.end < input.len()
+                    && input.as_bytes().get(span.end) == Some(&b'_');
+
+                if is_keyword_in_identifier {
+                    // This keyword is followed by underscore - treat as identifier start
+                    let keyword_str = &input[span.start..span.end];
+                    if let Some(ref mut id) = current_id {
+                        id.push(' ');
+                        id.push_str(keyword_str);
+                    } else {
+                        current_id = Some(keyword_str.to_string());
+                    }
+                } else {
+                    if let Some(id) = current_id.take() {
+                        tokens.push(Token::Identifier(id));
+                    }
+                    // Bolt: Optimized to avoid cloning StringLiteral.
+                    // The token `other` is owned here, so we can consume it directly
+                    // without borrowing and cloning the string content.
+                    tokens.push(other);
                 }
-                // Bolt: Optimized to avoid cloning StringLiteral.
-                // The token `other` is owned here, so we can consume it directly
-                // without borrowing and cloning the string content.
-                tokens.push(other);
             }
             Err(_) => {
-                eprintln!(
-                    "Lexing error at position {}: unexpected input `{}`",
-                    lexer.span().start,
-                    lexer.slice()
-                );
+                let slice = lexer.slice();
+                // Check if this is an underscore that's part of an identifier being accumulated
+                // This handles cases like "content_type" where "content" was a keyword
+                if slice == "_" && current_id.is_some() {
+                    // Append underscore to current identifier
+                    if let Some(ref mut id) = current_id {
+                        id.push('_');
+                    }
+                } else {
+                    eprintln!(
+                        "Lexing error at position {}: unexpected input `{}`",
+                        lexer.span().start,
+                        slice
+                    );
+                }
             }
         }
     }
@@ -124,8 +152,18 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                 _ => {
                     // Scan bytes for StringLiteral or Error
                     let bytes = slice.as_bytes();
-                    let mut i = 0;
                     let len = bytes.len();
+
+                    // Bolt Optimization: Fast path for single-line strings.
+                    // Most string literals don't contain newlines. slice.contains(char) for ASCII
+                    // chars uses memchr (SIMD-optimized), which is much faster than the manual byte loop.
+                    // If no newlines are present, we skip the loop by initializing i to len.
+                    let mut i = if !slice.contains('\n') && !slice.contains('\r') {
+                        len
+                    } else {
+                        0
+                    };
+
                     while i < len {
                         if bytes[i] == b'\n' {
                             newline_count += 1;
@@ -207,35 +245,70 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                 ));
             }
             Ok(other) => {
-                if let Some(id) = current_id.take() {
+                // Check if this keyword/token is actually part of a longer identifier
+                // e.g., "content_type" should be an identifier, not KeywordContent + error
+                let is_keyword_in_identifier = other.is_keyword()
+                    && span.end < input.len()
+                    && input.as_bytes().get(span.end) == Some(&b'_');
+
+                if is_keyword_in_identifier {
+                    // This keyword is followed by underscore - treat as identifier start
+                    let keyword_str = &input[span.start..span.end];
+                    if let Some(ref mut id) = current_id {
+                        id.push(' ');
+                        id.push_str(keyword_str);
+                        current_id_length += 1 + token_length;
+                        current_id_byte_end = span.end;
+                    } else {
+                        current_id = Some(keyword_str.to_string());
+                        current_id_start_line = token_line;
+                        current_id_start_column = token_column;
+                        current_id_length = token_length;
+                        current_id_byte_start = span.start;
+                        current_id_byte_end = span.end;
+                    }
+                } else {
+                    if let Some(id) = current_id.take() {
+                        tokens.push(TokenWithPosition::with_span(
+                            Token::Identifier(id),
+                            current_id_start_line,
+                            current_id_start_column,
+                            current_id_length,
+                            current_id_byte_start,
+                            current_id_byte_end,
+                        ));
+                    }
+
+                    // Bolt: Optimized to avoid cloning StringLiteral.
+                    // The token `other` is owned here, so we can consume it directly
+                    // without borrowing and cloning the string content.
                     tokens.push(TokenWithPosition::with_span(
-                        Token::Identifier(id),
-                        current_id_start_line,
-                        current_id_start_column,
-                        current_id_length,
-                        current_id_byte_start,
-                        current_id_byte_end,
+                        other,
+                        token_line,
+                        token_column,
+                        token_length,
+                        span.start,
+                        span.end,
                     ));
                 }
-
-                // Bolt: Optimized to avoid cloning StringLiteral.
-                // The token `other` is owned here, so we can consume it directly
-                // without borrowing and cloning the string content.
-                tokens.push(TokenWithPosition::with_span(
-                    other,
-                    token_line,
-                    token_column,
-                    token_length,
-                    span.start,
-                    span.end,
-                ));
             }
             Err(_) => {
-                eprintln!(
-                    "Lexing error at position {}: unexpected input `{}`",
-                    span.start,
-                    lexer.slice()
-                );
+                let slice = lexer.slice();
+                // Check if this is an underscore that's part of an identifier being accumulated
+                // This handles cases like "content_type" where "content" was a keyword
+                if slice == "_" && current_id.is_some() {
+                    // Append underscore to current identifier
+                    if let Some(ref mut id) = current_id {
+                        id.push('_');
+                        current_id_length += 1;
+                        current_id_byte_end = span.end;
+                    }
+                } else {
+                    eprintln!(
+                        "Lexing error at position {}: unexpected input `{}`",
+                        span.start, slice
+                    );
+                }
             }
         }
     }
