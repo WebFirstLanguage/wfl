@@ -215,7 +215,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "url"
 
                     // Continue with URL-specific parsing
-                    if let Some(token) = self.cursor.peek().cloned()
+                    if let Some(token) = self.cursor.peek()
                         && token.token == Token::KeywordAt
                     {
                         self.bump_sync(); // Consume "at"
@@ -223,7 +223,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                         let url_expr = self.parse_primary_expression()?;
 
                         // Check for "and read content as" pattern
-                        if let Some(next_token) = self.cursor.peek().cloned() {
+                        if let Some(next_token) = self.cursor.peek() {
                             if next_token.token == Token::KeywordAnd {
                                 self.bump_sync(); // Consume "and"
                                 self.expect_token(
@@ -239,7 +239,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                     "Expected 'as' after 'content'",
                                 )?;
 
-                                let variable_name = if let Some(token) = self.cursor.peek().cloned()
+                                let variable_name = if let Some(token) = self.cursor.peek()
                                 {
                                     if let Token::Identifier(name) = &token.token {
                                         self.bump_sync(); // Consume the identifier
@@ -250,7 +250,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                                 "Expected identifier for variable name, found {:?}",
                                                 token.token
                                             ),
-                                            &token,
+                                            token,
                                         ));
                                     }
                                 } else {
@@ -271,7 +271,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                 // Handle "open url at "..." as variable" syntax
                                 self.bump_sync(); // Consume "as"
 
-                                let variable_name = if let Some(token) = self.cursor.peek().cloned()
+                                let variable_name = if let Some(token) = self.cursor.peek()
                                 {
                                     if let Token::Identifier(name) = &token.token {
                                         self.bump_sync(); // Consume the identifier
@@ -282,7 +282,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                                 "Expected identifier for variable name, found {:?}",
                                                 token.token
                                             ),
-                                            &token,
+                                            token,
                                         ));
                                     }
                                 } else {
@@ -305,7 +305,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                         "Expected 'and' or 'as' after URL, found {:?}",
                                         next_token.token
                                     ),
-                                    &next_token,
+                                    next_token,
                                 ));
                             }
                         }
@@ -333,7 +333,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
             ));
         }
 
-        if let Some(token) = self.cursor.peek().cloned()
+        if let Some(token) = self.cursor.peek()
             && token.token == Token::KeywordAt
         {
             self.bump_sync(); // Consume "at"
@@ -341,13 +341,13 @@ impl<'a> IoParser<'a> for Parser<'a> {
             let path_expr = self.parse_primary_expression()?;
 
             // Check for "for append", "and read content as" pattern AND direct "as" pattern
-            if let Some(next_token) = self.cursor.peek().cloned() {
+            if let Some(next_token) = self.cursor.peek() {
                 if next_token.token == Token::KeywordFor {
                     // Check for "for [mode] as" pattern where mode can be append, reading, or writing
                     self.bump_sync(); // Consume "for"
 
-                    let mode = if let Some(token) = self.cursor.peek().cloned() {
-                        match token.token {
+                    let mode = if let Some(token) = self.cursor.peek() {
+                        match &token.token {
                             Token::KeywordAppend => {
                                 self.bump_sync(); // Consume "append"
                                 FileOpenMode::Append
@@ -356,11 +356,11 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                 self.bump_sync(); // Consume "appending"
                                 FileOpenMode::Append
                             }
-                            Token::Identifier(ref mode_str) if mode_str == "reading" => {
+                            Token::Identifier(mode_str) if mode_str == "reading" => {
                                 self.bump_sync(); // Consume "reading"
                                 FileOpenMode::Read
                             }
-                            Token::Identifier(ref mode_str) if mode_str == "writing" => {
+                            Token::Identifier(mode_str) if mode_str == "writing" => {
                                 self.bump_sync(); // Consume "writing"
                                 FileOpenMode::Write
                             }
@@ -368,27 +368,27 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                 return Err(ParseError::from_token(
                                     "Expected 'append', 'appending', 'reading', or 'writing' after 'for'"
                                         .to_string(),
-                                    &token,
+                                    token,
                                 ));
                             }
                         }
                     } else {
                         return Err(ParseError::from_token(
                             "Expected mode after 'for'".to_string(),
-                            &next_token,
+                            next_token,
                         ));
                     };
 
                     self.expect_token(Token::KeywordAs, "Expected 'as' after file mode")?;
 
-                    let variable_name = if let Some(token) = self.cursor.peek().cloned() {
+                    let variable_name = if let Some(token) = self.cursor.peek() {
                         if let Token::Identifier(name) = &token.token {
                             self.bump_sync(); // Consume the identifier
                             name.clone()
                         } else {
                             return Err(ParseError::from_token(
                                 format!("Expected identifier after 'as', found {:?}", token.token),
-                                &token,
+                                token,
                             ));
                         }
                     } else {
@@ -412,7 +412,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                     self.expect_token(Token::KeywordContent, "Expected 'content' after 'read'")?;
                     self.expect_token(Token::KeywordAs, "Expected 'as' after 'content'")?;
 
-                    let variable_name = if let Some(token) = self.cursor.peek().cloned() {
+                    let variable_name = if let Some(token) = self.cursor.peek() {
                         if let Token::Identifier(name) = &token.token {
                             self.bump_sync(); // Consume the identifier
                             name.clone()
@@ -426,7 +426,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                     "Expected identifier for variable name, found {:?}",
                                     token.token
                                 ),
-                                &token,
+                                token,
                             ));
                         }
                     } else {
@@ -443,14 +443,14 @@ impl<'a> IoParser<'a> for Parser<'a> {
                     // NEW pattern: "open file at "path" as variable"
                     self.bump_sync(); // Consume "as"
 
-                    let variable_name = if let Some(token) = self.cursor.peek().cloned() {
+                    let variable_name = if let Some(token) = self.cursor.peek() {
                         if let Token::Identifier(id) = &token.token {
                             self.bump_sync();
                             id.clone()
                         } else {
                             return Err(ParseError::from_token(
                                 format!("Expected identifier after 'as', found {:?}", token.token),
-                                &token,
+                                token,
                             ));
                         }
                     } else {
@@ -473,7 +473,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                             "Expected 'and' or 'as' after file path, found {:?}",
                             next_token.token
                         ),
-                        &next_token,
+                        next_token,
                     ));
                 }
             } else {
@@ -488,14 +488,14 @@ impl<'a> IoParser<'a> for Parser<'a> {
 
         self.expect_token(Token::KeywordAs, "Expected 'as' after file path")?;
 
-        let variable_name = if let Some(token) = self.cursor.peek().cloned() {
+        let variable_name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
                 self.bump_sync();
                 id.clone()
             } else {
                 return Err(ParseError::from_token(
                     format!("Expected identifier after 'as', found {:?}", token.token),
-                    &token,
+                    token,
                 ));
             }
         } else {
@@ -546,7 +546,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
         self.expect_token(Token::KeywordContent, "Expected 'content' after 'read'")?;
         self.expect_token(Token::KeywordAs, "Expected 'as' after 'content'")?;
 
-        let variable_name = if let Some(token) = self.cursor.peek().cloned() {
+        let variable_name = if let Some(token) = self.cursor.peek() {
             if let Token::Identifier(name) = &token.token {
                 self.bump_sync(); // Consume the identifier
                 name.clone()
@@ -559,7 +559,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                         "Expected identifier for variable name, found {:?}",
                         token.token
                     ),
-                    &token,
+                    token,
                 ));
             }
         } else {
@@ -599,7 +599,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
 
         // Check if next token is "content" for "write content X into Y" syntax
         if let Some(next_token) = self.cursor.peek()
-            && matches!(next_token.token, Token::KeywordContent)
+            && matches!(&next_token.token, Token::KeywordContent)
         {
             self.bump_sync(); // Consume "content"
 

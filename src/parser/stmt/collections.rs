@@ -51,8 +51,8 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
         // Parse list items
         let mut initial_values = Vec::new();
 
-        while let Some(token) = self.cursor.peek().cloned() {
-            match token.token {
+        while let Some(token) = self.cursor.peek() {
+            match &token.token {
                 Token::KeywordEnd => {
                     self.bump_sync(); // Consume "end"
                     self.expect_token(Token::KeywordList, "Expected 'list' after 'end'")?;
@@ -73,7 +73,7 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
                             "Expected 'add' or 'end list' in list creation, found {:?}",
                             token.token
                         ),
-                        &token,
+                        token,
                     ));
                 }
             }
@@ -99,7 +99,7 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
 
         // Parse as binary expression if not at Eol or statement starter, otherwise just primary
         let value_expr = if let Some(token) = self.cursor.peek()
-            && !matches!(token.token, Token::Eol)
+            && !matches!(&token.token, Token::Eol)
             && !Parser::is_statement_starter(&token.token)
         {
             self.parse_binary_expression(0)?
@@ -259,7 +259,7 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
         // Parse map entries
         let mut entries = Vec::new();
 
-        while let Some(token) = self.cursor.peek().cloned() {
+        while let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordEnd => {
                     self.bump_sync(); // Consume "end"
@@ -284,7 +284,7 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
                             "Expected map key (identifier) or 'end map', found {:?}",
                             token.token
                         ),
-                        &token,
+                        token,
                     ));
                 }
             }

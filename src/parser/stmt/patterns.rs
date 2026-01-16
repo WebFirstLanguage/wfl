@@ -204,7 +204,7 @@ impl<'a> PatternParser<'a> for Parser<'a> {
         // Filter out Eol tokens from pattern definition
         let filtered_tokens: Vec<TokenWithPosition> = tokens
             .iter()
-            .filter(|t| !matches!(t.token, Token::Eol))
+            .filter(|t| !matches!(&t.token, Token::Eol))
             .cloned()
             .collect();
 

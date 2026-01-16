@@ -19,7 +19,7 @@ pub(crate) trait PrimaryExprParser<'a> {
 
 impl<'a> PrimaryExprParser<'a> for Parser<'a> {
     fn parse_primary_expression(&mut self) -> Result<Expression, ParseError> {
-        if let Some(token) = self.cursor.peek().cloned() {
+        if let Some(token) = self.cursor.peek() {
             let result = match &token.token {
                 Token::LeftBracket => {
                     let bracket_token = self.bump_sync().unwrap(); // Consume '['
@@ -76,20 +76,20 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume '('
                     let expr = self.parse_expression()?;
 
-                    if let Some(token) = self.cursor.peek().cloned() {
+                    if let Some(token) = self.cursor.peek() {
                         if token.token == Token::RightParen {
                             self.bump_sync(); // Consume ')'
                             return Ok(expr);
                         } else {
                             return Err(ParseError::from_token(
                                 format!("Expected closing parenthesis, found {:?}", token.token),
-                                &token,
+                                token,
                             ));
                         }
                     } else {
                         return Err(ParseError::from_token(
                             "Expected closing parenthesis, found end of input".into(),
-                            &token,
+                            token,
                         ));
                     }
                 }
@@ -145,16 +145,16 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                     let token_column = token.column;
 
                     // Check for property access (dot notation)
-                    if let Some(next_token) = self.cursor.peek().cloned() {
+                    if let Some(next_token) = self.cursor.peek() {
                         if next_token.token == Token::Dot {
                             self.bump_sync(); // Consume '.'
 
-                            if let Some(property_token) = self.cursor.peek().cloned() {
+                            if let Some(property_token) = self.cursor.peek() {
                                 if let Token::Identifier(property_name) = &property_token.token {
                                     self.bump_sync(); // Consume property name
 
                                     // Check for method call with parentheses
-                                    if let Some(paren_token) = self.cursor.peek().cloned()
+                                    if let Some(paren_token) = self.cursor.peek()
                                         && paren_token.token == Token::LeftParen
                                     {
                                         self.bump_sync(); // Consume '('
@@ -216,13 +216,13 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                 } else {
                                     return Err(ParseError::from_token(
                                         "Expected property name after '.'".to_string(),
-                                        &property_token,
+                                        property_token,
                                     ));
                                 }
                             } else {
                                 return Err(ParseError::from_token(
                                     "Expected property name after '.'".to_string(),
-                                    &token,
+                                    token,
                                 ));
                             }
                         } else if let Token::Identifier(id) = &next_token.token
@@ -300,7 +300,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                 Token::KeywordPattern => {
                     self.bump_sync(); // Consume "pattern"
 
-                    if let Some(pattern_token) = self.cursor.peek().cloned() {
+                    if let Some(pattern_token) = self.cursor.peek() {
                         if let Token::StringLiteral(pattern) = &pattern_token.token {
                             let token_pos = self.bump_sync().unwrap();
                             return Ok(Expression::Literal(
@@ -314,13 +314,13 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                     "Expected string literal after 'pattern', found {:?}",
                                     pattern_token.token
                                 ),
-                                &pattern_token,
+                                pattern_token,
                             ));
                         }
                     } else {
                         return Err(ParseError::from_token(
                             "Unexpected end of input after 'pattern'".to_string(),
-                            &token,
+                            token,
                         ));
                     }
                 }
@@ -761,8 +761,8 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                     let text_expr = self.parse_expression()?;
 
                     // Check for "by" (string split) or "on" (pattern split)
-                    if let Some(next_token) = self.cursor.peek().cloned() {
-                        match next_token.token {
+                    if let Some(next_token) = self.cursor.peek() {
+                        match &next_token.token {
                             Token::KeywordBy => {
                                 // Handle "split text by delimiter" syntax
                                 self.bump_sync(); // Consume "by"
@@ -791,13 +791,13 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                             }
                             _ => Err(ParseError::from_token(
                                 "Expected 'by' or 'on' after text in split expression".to_string(),
-                                &token,
+                                token,
                             )),
                         }
                     } else {
                         Err(ParseError::from_token(
                             "Expected 'by' or 'on' after text in split expression".to_string(),
-                            &token,
+                            token,
                         ))
                     }
                 }
@@ -897,17 +897,17 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                         let token_column = token.column;
 
                         // Check for property access (dot notation) - same as identifier handling
-                        if let Some(next_token) = self.cursor.peek().cloned() {
+                        if let Some(next_token) = self.cursor.peek() {
                             if next_token.token == Token::Dot {
                                 self.bump_sync(); // Consume '.'
 
-                                if let Some(property_token) = self.cursor.peek().cloned()
+                                if let Some(property_token) = self.cursor.peek()
                                     && let Token::Identifier(property_name) = &property_token.token
                                 {
                                     self.bump_sync(); // Consume property name
 
                                     // Check for method call with parentheses
-                                    if let Some(paren_token) = self.cursor.peek().cloned()
+                                    if let Some(paren_token) = self.cursor.peek()
                                         && paren_token.token == Token::LeftParen
                                     {
                                         // Handle method call - similar to identifier method handling
@@ -964,16 +964,16 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                 }
                 Token::Eol => Err(ParseError::from_token(
                     "Unexpected end of line in expression".to_string(),
-                    &token,
+                    token,
                 )),
                 _ => Err(ParseError::from_token(
                     format!("Unexpected token in expression: {:?}", token.token),
-                    &token,
+                    token,
                 )),
             };
 
             if let Ok(mut expr) = result {
-                while let Some(token) = self.cursor.peek().cloned() {
+                while let Some(token) = self.cursor.peek() {
                     match &token.token {
                         // Support direct index access: listName index (e.g., states 1)
                         Token::IntLiteral(index) => {
@@ -1040,7 +1040,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                     value: first_arg,
                                 });
 
-                                while let Some(and_token) = self.cursor.peek().cloned() {
+                                while let Some(and_token) = self.cursor.peek() {
                                     if let Token::KeywordAnd = &and_token.token {
                                         self.bump_sync(); // Consume "and"
 
@@ -1066,7 +1066,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                 return Err(ParseError::from_token(
                                     "Member access not supported with expression arguments"
                                         .to_string(),
-                                    &token,
+                                    token,
                                 ));
                             }
                         }
@@ -1088,7 +1088,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                             let index = self.parse_expression()?;
 
                             // Expect closing bracket
-                            if let Some(closing_token) = self.cursor.peek().cloned() {
+                            if let Some(closing_token) = self.cursor.peek() {
                                 if closing_token.token == Token::RightBracket {
                                     self.bump_sync(); // Consume "]"
                                     expr = Expression::IndexAccess {
@@ -1103,14 +1103,14 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                             "Expected ']' after array index, found {:?}",
                                             closing_token.token
                                         ),
-                                        &closing_token,
+                                        closing_token,
                                     ));
                                 }
                             } else {
                                 return Err(ParseError::from_token(
                                     "Expected ']' after array index, found end of input"
                                         .to_string(),
-                                    &token,
+                                    token,
                                 ));
                             }
                         }
@@ -1118,7 +1118,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                         Token::Dot => {
                             self.bump_sync(); // Consume "."
 
-                            if let Some(member_token) = self.cursor.peek().cloned() {
+                            if let Some(member_token) = self.cursor.peek() {
                                 if let Token::Identifier(member) = &member_token.token {
                                     self.bump_sync(); // Consume member name
 
@@ -1130,7 +1130,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                         return Err(ParseError::from_token(
                                             "Static member access requires a container name"
                                                 .to_string(),
-                                            &token,
+                                            token,
                                         ));
                                     };
 
@@ -1146,13 +1146,13 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                             "Expected identifier after '.', found {:?}",
                                             member_token.token
                                         ),
-                                        &member_token,
+                                        member_token,
                                     ));
                                 }
                             } else {
                                 return Err(ParseError::from_token(
                                     "Unexpected end of input after '.'".to_string(),
-                                    &token,
+                                    token,
                                 ));
                             }
                         }
