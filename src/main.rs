@@ -157,9 +157,7 @@ async fn main() -> io::Result<()> {
             }
             "--init" => {
                 if lint_mode || analyze_mode || fix_mode || config_check_mode || config_fix_mode {
-                    eprintln!(
-                        "Error: --init cannot be combined with other operation flags"
-                    );
+                    eprintln!("Error: --init cannot be combined with other operation flags");
                     process::exit(2);
                 }
                 init_mode = true;

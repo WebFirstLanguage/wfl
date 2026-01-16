@@ -31,16 +31,16 @@ impl ConfigWizard {
         println!("\nWebFirst Language Configuration Wizard");
         println!("======================================\n");
         println!("This wizard will help you create a .wflcfg file with all configuration options.");
-        println!("Press Enter to accept the default value shown in brackets, or type a new value.\n");
+        println!(
+            "Press Enter to accept the default value shown in brackets, or type a new value.\n"
+        );
 
         // Get settings grouped by category - collect into owned data to avoid borrow issues
         let categories: Vec<(String, Vec<ExpectedSetting>)> = self
             .checker
             .get_settings_by_category()
             .into_iter()
-            .map(|(cat, settings)| {
-                (cat, settings.into_iter().cloned().collect())
-            })
+            .map(|(cat, settings)| (cat, settings.into_iter().cloned().collect()))
             .collect();
 
         for (category_name, settings) in categories {
@@ -61,9 +61,13 @@ impl ConfigWizard {
         // Sort settings alphabetically within category for consistency
         settings.sort_by(|a, b| a.name.cmp(&b.name));
 
-        println!("================================================================================");
+        println!(
+            "================================================================================"
+        );
         println!("{}", category);
-        println!("================================================================================\n");
+        println!(
+            "================================================================================\n"
+        );
 
         for setting in &settings {
             let value = self.prompt_setting(setting)?;
@@ -102,11 +106,7 @@ impl ConfigWizard {
         }
     }
 
-    fn validate_input(
-        &self,
-        setting: &ExpectedSetting,
-        input: &str,
-    ) -> Result<String, String> {
+    fn validate_input(&self, setting: &ExpectedSetting, input: &str) -> Result<String, String> {
         // Empty input is only valid if there's a default
         if input.is_empty() {
             return if setting.default_value.is_some() {
@@ -128,9 +128,9 @@ impl ConfigWizard {
                 }
             }
             ConfigType::Integer => {
-                input.parse::<i64>().map_err(|_| {
-                    format!("Invalid integer value: '{input}'")
-                })?;
+                input
+                    .parse::<i64>()
+                    .map_err(|_| format!("Invalid integer value: '{input}'"))?;
                 Ok(input.to_string())
             }
             ConfigType::LogLevel => {
@@ -173,7 +173,9 @@ impl ConfigWizard {
                 if input.parse::<IpAddr>().is_ok() {
                     // Warn about 0.0.0.0 binding (security concern)
                     if input == "0.0.0.0" {
-                        eprintln!("⚠ Warning: Binding to 0.0.0.0 makes the server accessible from any network interface.");
+                        eprintln!(
+                            "⚠ Warning: Binding to 0.0.0.0 makes the server accessible from any network interface."
+                        );
                         eprintln!("  This may be a security risk if not intended.");
                     }
                     Ok(input.to_string())
@@ -224,16 +226,26 @@ impl ConfigWizard {
 
         // Write header
         writeln!(file, "# WebFirst Language Configuration File")?;
-        writeln!(file, "# Created by wfl --init on {}", chrono::Local::now().format("%Y-%m-%d"))?;
+        writeln!(
+            file,
+            "# Created by wfl --init on {}",
+            chrono::Local::now().format("%Y-%m-%d")
+        )?;
         writeln!(file)?;
 
         // Get settings grouped by category
         let categories = self.checker.get_settings_by_category();
 
         for (category_name, mut settings) in categories {
-            writeln!(file, "# ================================================================================")?;
+            writeln!(
+                file,
+                "# ================================================================================"
+            )?;
             writeln!(file, "# {}", category_name)?;
-            writeln!(file, "# ================================================================================")?;
+            writeln!(
+                file,
+                "# ================================================================================"
+            )?;
             writeln!(file)?;
 
             // Sort settings alphabetically within category
@@ -332,12 +344,21 @@ mod tests {
         };
 
         // Test valid IPv4
-        assert_eq!(wizard.validate_input(&setting, "127.0.0.1").unwrap(), "127.0.0.1");
-        assert_eq!(wizard.validate_input(&setting, "192.168.1.1").unwrap(), "192.168.1.1");
+        assert_eq!(
+            wizard.validate_input(&setting, "127.0.0.1").unwrap(),
+            "127.0.0.1"
+        );
+        assert_eq!(
+            wizard.validate_input(&setting, "192.168.1.1").unwrap(),
+            "192.168.1.1"
+        );
 
         // Test valid IPv6
         assert_eq!(wizard.validate_input(&setting, "::1").unwrap(), "::1");
-        assert_eq!(wizard.validate_input(&setting, "fe80::1").unwrap(), "fe80::1");
+        assert_eq!(
+            wizard.validate_input(&setting, "fe80::1").unwrap(),
+            "fe80::1"
+        );
 
         // Test invalid input
         assert!(wizard.validate_input(&setting, "999.999.999.999").is_err());

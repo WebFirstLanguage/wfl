@@ -289,7 +289,8 @@ impl ConfigChecker {
                 config_type: ConfigType::Integer,
                 required: false,
                 default_value: Some("1000".to_string()),
-                description: "Throttle factor for loop logging (log every Nth iteration)".to_string(),
+                description: "Throttle factor for loop logging (log every Nth iteration)"
+                    .to_string(),
                 valid_values: None,
                 category: "Execution Logging".to_string(),
             },
@@ -665,14 +666,13 @@ impl ConfigChecker {
                                 file_path: file_path.to_path_buf(),
                                 kind: ConfigIssueKind::InvalidValue,
                                 issue_type: ConfigIssueType::Error,
-                                message: format!(
-                                    "Invalid IP address for {key}: '{value}'"
-                                ),
+                                message: format!("Invalid IP address for {key}: '{value}'"),
                                 setting_name: Some(key.to_string()),
                                 line_number: Some(line_number + 1),
-                                fix_message: setting.default_value.as_ref().map(|default| {
-                                    format!("Set to default value: {default}")
-                                }),
+                                fix_message: setting
+                                    .default_value
+                                    .as_ref()
+                                    .map(|default| format!("Set to default value: {default}")),
                             });
                         }
                     }
