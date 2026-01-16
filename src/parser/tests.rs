@@ -1681,3 +1681,133 @@ end check"#;
         assert_eq!(depth, 4, "Should have 4 levels of else-if chaining");
     }
 }
+
+/// Regression test for character class union parsing.
+/// Verifies that "letter or digit" is parsed as a single Alternative pattern
+/// rather than being split across top-level alternatives.
+/// See: https://github.com/WebFirstLanguage/wfl/pull/270
+#[test]
+fn test_character_class_union_parsing() {
+    let input = r#"create pattern alphanum:
+    one or more letter or digit
+end pattern"#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse character class union pattern: {result:?}"
+    );
+
+    if let Ok(Statement::PatternDefinition { name, pattern, .. }) = result {
+        assert_eq!(name, "alphanum");
+        // The pattern should be: Quantified { OneOrMore, Alternative([Letter, Digit]) }
+        if let PatternExpression::Quantified {
+            pattern: inner,
+            quantifier,
+        } = pattern
+        {
+            assert!(
+                matches!(quantifier, Quantifier::OneOrMore),
+                "Expected OneOrMore quantifier, got {quantifier:?}"
+            );
+            if let PatternExpression::Alternative(alternatives) = inner.as_ref() {
+                assert_eq!(
+                    alternatives.len(),
+                    2,
+                    "Expected 2 alternatives in character class union"
+                );
+                assert!(
+                    matches!(
+                        &alternatives[0],
+                        PatternExpression::CharacterClass(CharClass::Letter)
+                    ),
+                    "First alternative should be Letter, got {:?}",
+                    alternatives[0]
+                );
+                assert!(
+                    matches!(
+                        &alternatives[1],
+                        PatternExpression::CharacterClass(CharClass::Digit)
+                    ),
+                    "Second alternative should be Digit, got {:?}",
+                    alternatives[1]
+                );
+            } else {
+                panic!("Expected Alternative pattern inside quantifier, got {inner:?}");
+            }
+        } else {
+            panic!("Expected Quantified pattern, got {pattern:?}");
+        }
+    } else {
+        panic!("Expected PatternDefinition, got {result:?}");
+    }
+}
+
+/// Regression test for Unicode character class union parsing.
+/// Verifies that "unicode letter or unicode digit" is parsed as a single Alternative pattern.
+#[test]
+fn test_unicode_character_class_union_parsing() {
+    let input = r#"create pattern unicode_alphanum:
+    one or more unicode letter or unicode digit
+end pattern"#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+
+    let result = parser.parse_statement();
+    assert!(
+        result.is_ok(),
+        "Failed to parse unicode character class union pattern: {result:?}"
+    );
+
+    if let Ok(Statement::PatternDefinition { name, pattern, .. }) = result {
+        assert_eq!(name, "unicode_alphanum");
+        // The pattern should be: Quantified { OneOrMore, Alternative([UnicodeProperty("Alphabetic"), UnicodeProperty("Numeric")]) }
+        if let PatternExpression::Quantified {
+            pattern: inner,
+            quantifier,
+        } = pattern
+        {
+            assert!(
+                matches!(quantifier, Quantifier::OneOrMore),
+                "Expected OneOrMore quantifier, got {quantifier:?}"
+            );
+            if let PatternExpression::Alternative(alternatives) = inner.as_ref() {
+                assert_eq!(
+                    alternatives.len(),
+                    2,
+                    "Expected 2 alternatives in unicode character class union"
+                );
+                if let PatternExpression::CharacterClass(CharClass::UnicodeProperty(prop)) =
+                    &alternatives[0]
+                {
+                    assert_eq!(prop, "Alphabetic", "First alternative should be Alphabetic");
+                } else {
+                    panic!(
+                        "First alternative should be UnicodeProperty, got {:?}",
+                        alternatives[0]
+                    );
+                }
+                if let PatternExpression::CharacterClass(CharClass::UnicodeProperty(prop)) =
+                    &alternatives[1]
+                {
+                    assert_eq!(prop, "Numeric", "Second alternative should be Numeric");
+                } else {
+                    panic!(
+                        "Second alternative should be UnicodeProperty, got {:?}",
+                        alternatives[1]
+                    );
+                }
+            } else {
+                panic!("Expected Alternative pattern inside quantifier, got {inner:?}");
+            }
+        } else {
+            panic!("Expected Quantified pattern, got {pattern:?}");
+        }
+    } else {
+        panic!("Expected PatternDefinition, got {result:?}");
+    }
+}
