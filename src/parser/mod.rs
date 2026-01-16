@@ -271,24 +271,24 @@ impl<'a> Parser<'a> {
     /// Helper method to parse a variable name that can consist of multiple identifiers.
     /// Used by variable declarations and other statement parsers.
     fn parse_variable_name_list(&mut self) -> Result<String, ParseError> {
-        let mut name_parts = Vec::with_capacity(3);
+        let mut name = String::with_capacity(32);
 
-        if let Some(token) = self.cursor.peek().cloned() {
+        if let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::Identifier(id) => {
+                    name.push_str(id);
                     self.bump_sync(); // Consume the identifier
-                    name_parts.push(id.clone());
                 }
                 Token::IntLiteral(_) | Token::FloatLiteral(_) => {
                     return Err(ParseError::from_token(
                         format!("Cannot use a number as a variable name: {:?}", token.token),
-                        &token,
+                        token,
                     ));
                 }
                 Token::KeywordAs => {
                     return Err(ParseError::from_token(
                         "Expected a variable name before 'as'".to_string(),
-                        &token,
+                        token,
                     ));
                 }
                 _ if token.token.is_structural_keyword() => {
@@ -297,14 +297,14 @@ impl<'a> Parser<'a> {
                             "Cannot use reserved keyword '{:?}' as a variable name",
                             token.token
                         ),
-                        &token,
+                        token,
                     ));
                 }
                 _ if token.token.is_contextual_keyword() => {
                     // Contextual keywords can be used as variable names
-                    let name = self.get_token_text(&token.token);
+                    let text = self.get_token_text(&token.token);
+                    name.push_str(&text);
                     self.bump_sync(); // Consume the contextual keyword
-                    name_parts.push(name);
                 }
                 _ => {
                     return Err(ParseError::from_token(
@@ -312,7 +312,7 @@ impl<'a> Parser<'a> {
                             "Expected identifier for variable name, found {:?}",
                             token.token
                         ),
-                        &token,
+                        token,
                     ));
                 }
             }
@@ -325,11 +325,12 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        while let Some(token) = self.cursor.peek().cloned() {
+        while let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::Identifier(id) => {
+                    name.push(' ');
+                    name.push_str(id);
                     self.bump_sync(); // Consume the identifier
-                    name_parts.push(id.clone());
                 }
                 Token::KeywordAs => {
                     break;
@@ -340,7 +341,7 @@ impl<'a> Parser<'a> {
                             "Expected 'as' after variable name, but found number: {:?}",
                             token.token
                         ),
-                        &token,
+                        token,
                     ));
                 }
                 _ => {
@@ -349,13 +350,13 @@ impl<'a> Parser<'a> {
                             "Expected 'as' after variable name, but found {:?}",
                             token.token
                         ),
-                        &token,
+                        token,
                     ));
                 }
             }
         }
 
-        Ok(name_parts.join(" "))
+        Ok(name)
     }
 
     /// Helper method to parse a simple variable name (space-separated identifiers).
@@ -364,7 +365,7 @@ impl<'a> Parser<'a> {
         let mut name = String::new();
         let mut has_identifier = false;
 
-        while let Some(token) = self.cursor.peek().cloned() {
+        while let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
                 has_identifier = true;
                 if !name.is_empty() {
@@ -403,7 +404,7 @@ impl<'a> Parser<'a> {
 // Implementation of StmtParser trait
 impl<'a> StmtParser<'a> for Parser<'a> {
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
-        if let Some(token) = self.cursor.peek().cloned() {
+        if let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordStore => self.parse_variable_declaration(),
                 Token::KeywordLoad => self.parse_load_module_statement(),
