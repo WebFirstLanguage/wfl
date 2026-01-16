@@ -13,11 +13,8 @@ pub struct ConfigWizard {
 
 impl ConfigWizard {
     pub fn new() -> Result<Self, io::Error> {
-        let editor = DefaultEditor::new().map_err(|e| {
-            io::Error::other(
-                format!("Failed to create editor: {e}"),
-            )
-        })?;
+        let editor = DefaultEditor::new()
+            .map_err(|e| io::Error::other(format!("Failed to create editor: {e}")))?;
 
         Ok(Self {
             editor,
@@ -81,17 +78,19 @@ impl ConfigWizard {
         let prompt = self.format_prompt(setting);
 
         loop {
-            let line = self.editor.readline(&prompt).map_err(|e| {
-                io::Error::other(format!("Readline error: {e}"))
-            })?;
+            let line = self
+                .editor
+                .readline(&prompt)
+                .map_err(|e| io::Error::other(format!("Readline error: {e}")))?;
 
             let input = line.trim();
 
             // Empty input means accept default
             if input.is_empty()
-                && let Some(default) = &setting.default_value {
-                    return Ok(default.clone());
-                }
+                && let Some(default) = &setting.default_value
+            {
+                return Ok(default.clone());
+            }
 
             // Validate the input
             match self.validate_input(setting, input) {
@@ -120,7 +119,9 @@ impl ConfigWizard {
                 match normalized.as_str() {
                     "y" | "yes" | "true" | "1" => Ok("true".to_string()),
                     "n" | "no" | "false" | "0" => Ok("false".to_string()),
-                    _ => Err("Invalid boolean value. Enter y/yes/true/1 or n/no/false/0".to_string()),
+                    _ => {
+                        Err("Invalid boolean value. Enter y/yes/true/1 or n/no/false/0".to_string())
+                    }
                 }
             }
             ConfigType::Integer => {
