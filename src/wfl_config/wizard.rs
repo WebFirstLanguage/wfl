@@ -14,8 +14,7 @@ pub struct ConfigWizard {
 impl ConfigWizard {
     pub fn new() -> Result<Self, io::Error> {
         let editor = DefaultEditor::new().map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
+            io::Error::other(
                 format!("Failed to create editor: {e}"),
             )
         })?;
@@ -83,17 +82,16 @@ impl ConfigWizard {
 
         loop {
             let line = self.editor.readline(&prompt).map_err(|e| {
-                io::Error::new(io::ErrorKind::Other, format!("Readline error: {e}"))
+                io::Error::other(format!("Readline error: {e}"))
             })?;
 
             let input = line.trim();
 
             // Empty input means accept default
-            if input.is_empty() {
-                if let Some(default) = &setting.default_value {
+            if input.is_empty()
+                && let Some(default) = &setting.default_value {
                     return Ok(default.clone());
                 }
-            }
 
             // Validate the input
             match self.validate_input(setting, input) {
@@ -122,9 +120,7 @@ impl ConfigWizard {
                 match normalized.as_str() {
                     "y" | "yes" | "true" | "1" => Ok("true".to_string()),
                     "n" | "no" | "false" | "0" => Ok("false".to_string()),
-                    _ => Err(format!(
-                        "Invalid boolean value. Enter y/yes/true/1 or n/no/false/0"
-                    )),
+                    _ => Err("Invalid boolean value. Enter y/yes/true/1 or n/no/false/0".to_string()),
                 }
             }
             ConfigType::Integer => {
@@ -279,7 +275,6 @@ pub fn run_wizard(output_path: &Path) -> Result<(), io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     #[test]
     fn test_validate_boolean_input() {

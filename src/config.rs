@@ -628,15 +628,14 @@ pub fn load_config(dir: &Path) -> WflConfig {
         current_dir = dir_path.parent().map(Path::to_path_buf);
     }
 
-    if let Some(local_config) = found_local_config {
-        if let Ok(text) = std::fs::read_to_string(&local_config) {
+    if let Some(local_config) = found_local_config
+        && let Ok(text) = std::fs::read_to_string(&local_config) {
             log::debug!(
                 "Loading local configuration from {}",
                 local_config.display()
             );
             parse_config_text(&mut config, &text, &local_config);
         }
-    }
 
     config
 }
@@ -686,15 +685,14 @@ pub fn load_config_with_global(script_dir: &Path) -> WflConfig {
         current_dir = dir_path.parent().map(Path::to_path_buf);
     }
 
-    if let Some(local_config) = found_local_config {
-        if let Ok(text) = std::fs::read_to_string(&local_config) {
+    if let Some(local_config) = found_local_config
+        && let Ok(text) = std::fs::read_to_string(&local_config) {
             log::debug!(
                 "Loading local configuration from {}",
                 local_config.display()
             );
             parse_config_text(&mut config, &text, &local_config);
         }
-    }
 
     config
 }
