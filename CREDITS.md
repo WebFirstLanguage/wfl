@@ -86,6 +86,88 @@ This project uses the following third-party Rust packages:
 - **Repository**: https://github.com/time-rs/time
 - **Usage in WFL**: Provides additional time handling functionality.
 
+## warp (v0.3.7)
+- **Description**: A fast, composable web server framework.
+- **License**: MIT
+- **Repository**: https://github.com/seanmonstar/warp
+- **Usage in WFL**: Powers WFL's web server capabilities and HTTP request/response handling.
+
+## uuid (v1.6.1)
+- **Description**: A library for generating and parsing UUIDs.
+- **License**: MIT/Apache-2.0
+- **Repository**: https://github.com/uuid-rs/uuid
+- **Usage in WFL**: Provides unique identifier generation for WFL applications.
+
+## bytes (v1.5.0)
+- **Description**: A utility library for working with bytes.
+- **License**: MIT
+- **Repository**: https://github.com/tokio-rs/bytes
+- **Usage in WFL**: Efficient byte buffer management for network and I/O operations.
+
+## glob (v0.3.2)
+- **Description**: Support for matching file paths against Unix shell style patterns.
+- **License**: MIT/Apache-2.0
+- **Repository**: https://github.com/rust-lang/glob
+- **Usage in WFL**: File pattern matching for path operations in WFL programs.
+
+## zeroize (v1.7)
+- **Description**: Securely clear secrets from memory.
+- **License**: MIT/Apache-2.0
+- **Repository**: https://github.com/RustCrypto/utils/tree/master/zeroize
+- **Usage in WFL**: Ensures sensitive cryptographic data is properly cleared from memory.
+
+## subtle (v2.5)
+- **Description**: Pure-Rust traits and utilities for constant-time cryptographic implementations.
+- **License**: BSD-3-Clause
+- **Repository**: https://github.com/dalek-cryptography/subtle
+- **Usage in WFL**: Provides constant-time operations for cryptographic security in WFLHASH.
+
+## sha2 (v0.10)
+- **Description**: SHA-2 hash functions.
+- **License**: MIT/Apache-2.0
+- **Repository**: https://github.com/RustCrypto/hashes
+- **Usage in WFL**: Implements SHA-256 and SHA-512 hash functions for cryptographic operations.
+
+## hkdf (v0.12)
+- **Description**: HMAC-based Extract-and-Expand Key Derivation Function (HKDF).
+- **License**: MIT/Apache-2.0
+- **Repository**: https://github.com/RustCrypto/KDFs
+- **Usage in WFL**: Key derivation for WFLHASH custom cryptographic hash function.
+
+## num-bigint-dig (v0.8.6)
+- **Description**: Big integer implementation for Rust.
+- **License**: MIT/Apache-2.0
+- **Repository**: https://github.com/dignifiedquire/num-bigint
+- **Usage in WFL**: Dependency for cryptographic operations requiring large integer arithmetic.
+
+## dhat (v0.3.0)
+- **Description**: A heap profiling and ad hoc profiling tool.
+- **License**: MIT/Apache-2.0
+- **Repository**: https://github.com/nnethercote/dhat-rs
+- **Usage in WFL**: Optional dependency for heap profiling during development and performance analysis.
+
+## Development Dependencies
+
+The following packages are used during development and testing:
+
+## tempfile (v3.19.1)
+- **Description**: A library for creating temporary files and directories.
+- **License**: MIT/Apache-2.0
+- **Repository**: https://github.com/Stebalien/tempfile
+- **Usage in WFL**: Creates isolated temporary files for testing file I/O operations.
+
+## libc (v0.2.152)
+- **Description**: Raw FFI bindings to platform libraries like libc.
+- **License**: MIT/Apache-2.0
+- **Repository**: https://github.com/rust-lang/libc
+- **Usage in WFL**: Provides low-level system interface bindings for testing platform-specific behavior.
+
+## criterion (v0.4)
+- **Description**: Statistics-driven benchmarking library.
+- **License**: MIT/Apache-2.0
+- **Repository**: https://github.com/bheisler/criterion.rs
+- **Usage in WFL**: Powers the benchmarking suite for parser and lexer performance measurements.
+
 ## Rust Standard Library
 - **License**: MIT/Apache-2.0
 - **Repository**: https://github.com/rust-lang/rust
