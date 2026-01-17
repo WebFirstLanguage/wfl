@@ -1516,6 +1516,55 @@ impl TypeChecker {
                 // TODO: Add type checking for server expression
                 // For now, just accept any type
             }
+            // Test framework statements
+            Statement::DescribeBlock {
+                description: _description,
+                setup,
+                teardown,
+                tests,
+                line: _line,
+                column: _column,
+            } => {
+                // Type check setup block if present
+                if let Some(setup_stmts) = setup {
+                    for stmt in setup_stmts {
+                        self.check_statement_types(stmt);
+                    }
+                }
+
+                // Type check all test blocks
+                for test in tests {
+                    self.check_statement_types(test);
+                }
+
+                // Type check teardown block if present
+                if let Some(teardown_stmts) = teardown {
+                    for stmt in teardown_stmts {
+                        self.check_statement_types(stmt);
+                    }
+                }
+            }
+            Statement::TestBlock {
+                description: _description,
+                body,
+                line: _line,
+                column: _column,
+            } => {
+                // Type check test body
+                for stmt in body {
+                    self.check_statement_types(stmt);
+                }
+            }
+            Statement::ExpectStatement {
+                subject,
+                assertion: _assertion,
+                line: _line,
+                column: _column,
+            } => {
+                // Type check the subject expression
+                self.infer_expression_type(subject);
+                // Note: assertion type checking will be done in the interpreter
+            }
         }
     }
 

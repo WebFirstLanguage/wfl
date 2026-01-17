@@ -465,6 +465,43 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    // Test framework statements
+    DescribeBlock {
+        description: String,
+        setup: Option<Vec<Statement>>,
+        teardown: Option<Vec<Statement>>,
+        tests: Vec<Statement>, // Contains TestBlock and nested DescribeBlock
+        line: usize,
+        column: usize,
+    },
+    TestBlock {
+        description: String,
+        body: Vec<Statement>,
+        line: usize,
+        column: usize,
+    },
+    ExpectStatement {
+        subject: Expression,
+        assertion: Assertion,
+        line: usize,
+        column: usize,
+    },
+}
+
+/// Represents different types of assertions in test expectations
+#[derive(Debug, Clone, PartialEq)]
+pub enum Assertion {
+    Equal(Expression),
+    Be(Expression),              // Synonym for Equal
+    GreaterThan(Expression),
+    LessThan(Expression),
+    BeYes,                       // Truthy check
+    BeNo,                        // Falsy check
+    Exist,
+    Contain(Expression),         // List/text contains
+    BeEmpty,
+    HaveLength(Expression),
+    BeOfType(String),           // Type check
 }
 
 #[derive(Debug, Clone, PartialEq)]

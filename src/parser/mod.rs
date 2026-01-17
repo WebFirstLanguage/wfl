@@ -13,7 +13,8 @@ pub use cursor::Cursor; // Re-export Cursor publicly for doctests
 use expr::ExprParser;
 use stmt::{
     ActionParser, CollectionParser, ContainerParser, ControlFlowParser, ErrorHandlingParser,
-    IoParser, ModuleParser, PatternParser, ProcessParser, StmtParser, VariableParser, WebParser,
+    IoParser, ModuleParser, PatternParser, ProcessParser, StmtParser, TestingParser,
+    VariableParser, WebParser,
 };
 
 pub struct Parser<'a> {
@@ -530,6 +531,10 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                         self.parse_expression_statement()
                     }
                 }
+                // Test framework keywords
+                Token::KeywordDescribe => self.parse_describe_block(),
+                Token::KeywordTest => self.parse_test_block(),
+                Token::KeywordExpect => self.parse_expect_statement(),
                 _ => self.parse_expression_statement(),
             }
         } else {
