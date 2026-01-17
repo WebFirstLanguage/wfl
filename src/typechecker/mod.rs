@@ -1557,13 +1557,120 @@ impl TypeChecker {
             }
             Statement::ExpectStatement {
                 subject,
-                assertion: _assertion,
+                assertion,
                 line: _line,
                 column: _column,
             } => {
                 // Type check the subject expression
-                self.infer_expression_type(subject);
-                // Note: assertion type checking will be done in the interpreter
+                let subject_type = self.infer_expression_type(subject);
+
+                // Perform compile-time type checking for assertions where possible
+                use crate::parser::ast::Assertion;
+                match assertion {
+                    Assertion::Equal(expr) | Assertion::Be(expr) => {
+                        // Type check the expected value
+                        self.infer_expression_type(expr);
+                    }
+                    Assertion::GreaterThan(expr) | Assertion::LessThan(expr) => {
+                        // Check that subject is a number
+                        if subject_type != Type::Number
+                            && subject_type != Type::Unknown
+                            && subject_type != Type::Error
+                        {
+                            self.type_error(
+                                "Comparison assertions require numeric types".to_string(),
+                                Some(Type::Number),
+                                Some(subject_type.clone()),
+                                *_line,
+                                *_column,
+                            );
+                        }
+                        // Type check the comparison value
+                        let expr_type = self.infer_expression_type(expr);
+                        if expr_type != Type::Number
+                            && expr_type != Type::Unknown
+                            && expr_type != Type::Error
+                        {
+                            self.type_error(
+                                "Comparison value must be numeric".to_string(),
+                                Some(Type::Number),
+                                Some(expr_type),
+                                *_line,
+                                *_column,
+                            );
+                        }
+                    }
+                    Assertion::BeYes | Assertion::BeNo => {
+                        // Truthiness checks work on any type, no validation needed
+                    }
+                    Assertion::Exist => {
+                        // Existence checks work on any type
+                    }
+                    Assertion::Contain(expr) => {
+                        // Check that subject is a list or text
+                        if !matches!(
+                            subject_type,
+                            Type::List(_) | Type::Text | Type::Unknown | Type::Error
+                        ) {
+                            self.type_error(
+                                "contain assertion requires List or Text type".to_string(),
+                                None,
+                                Some(subject_type.clone()),
+                                *_line,
+                                *_column,
+                            );
+                        }
+                        // Type check the item expression
+                        self.infer_expression_type(expr);
+                    }
+                    Assertion::BeEmpty => {
+                        // Check that subject is a list or text
+                        if !matches!(
+                            subject_type,
+                            Type::List(_) | Type::Text | Type::Unknown | Type::Error
+                        ) {
+                            self.type_error(
+                                "be empty assertion requires List or Text type".to_string(),
+                                None,
+                                Some(subject_type.clone()),
+                                *_line,
+                                *_column,
+                            );
+                        }
+                    }
+                    Assertion::HaveLength(expr) => {
+                        // Check that subject is a list or text
+                        if !matches!(
+                            subject_type,
+                            Type::List(_) | Type::Text | Type::Unknown | Type::Error
+                        ) {
+                            self.type_error(
+                                "have length assertion requires List or Text type".to_string(),
+                                None,
+                                Some(subject_type.clone()),
+                                *_line,
+                                *_column,
+                            );
+                        }
+                        // Type check the length value (should be number)
+                        let length_type = self.infer_expression_type(expr);
+                        if length_type != Type::Number
+                            && length_type != Type::Unknown
+                            && length_type != Type::Error
+                        {
+                            self.type_error(
+                                "Length value must be numeric".to_string(),
+                                Some(Type::Number),
+                                Some(length_type),
+                                *_line,
+                                *_column,
+                            );
+                        }
+                    }
+                    Assertion::BeOfType(_type_name) => {
+                        // Type name is validated at runtime
+                    }
+                }
             }
         }
     }

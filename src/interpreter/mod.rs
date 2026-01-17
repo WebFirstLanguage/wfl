@@ -350,6 +350,7 @@ pub struct Interpreter {
     test_mode: RefCell<bool>,
     test_results: RefCell<TestResults>,
     current_describe_stack: RefCell<Vec<String>>,
+    current_test_name: RefCell<Option<String>>,
 }
 
 // Test framework data structures
@@ -1182,6 +1183,7 @@ impl Interpreter {
             test_mode: RefCell::new(false),
             test_results: RefCell::new(TestResults::default()),
             current_describe_stack: RefCell::new(Vec::new()),
+            current_test_name: RefCell::new(None),
         }
     }
 
@@ -4928,22 +4930,26 @@ impl Interpreter {
                     .borrow_mut()
                     .push(description.clone());
 
-                // Run setup if present
+                // Create describe-level environment for setup/teardown sharing
+                // This allows tests to access setup variables while remaining isolated from each other
+                let describe_env = Environment::new_child_env(&env);
+
+                // Run setup if present (runs in describe environment)
                 if let Some(setup_stmts) = setup {
                     for stmt in setup_stmts {
-                        Box::pin(self._execute_statement(stmt, env.clone())).await?;
+                        Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
                     }
                 }
 
-                // Execute all tests
+                // Execute all tests (each gets a child of describe_env for isolation)
                 for test in tests {
-                    Box::pin(self._execute_statement(test, env.clone())).await?;
+                    Box::pin(self._execute_statement(test, describe_env.clone())).await?;
                 }
 
-                // Run teardown if present
+                // Run teardown if present (runs in describe environment)
                 if let Some(teardown_stmts) = teardown {
                     for stmt in teardown_stmts {
-                        Box::pin(self._execute_statement(stmt, env.clone())).await?;
+                        Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
                     }
                 }
 
@@ -4967,23 +4973,45 @@ impl Interpreter {
                     ));
                 }
 
+                // Set current test name for failure tracking
+                *self.current_test_name.borrow_mut() = Some(description.clone());
+
                 // Increment test count
                 self.test_results.borrow_mut().total_tests += 1;
 
-                // Create isolated environment for test (child of current env)
-                let test_env = Environment::new_child_env(&env);
+                // Create isolated environment for test (child of describe env)
+                // Using isolated mode prevents tests from mutating setup variables,
+                // ensuring each test gets a fresh copy for true isolation
+                let test_env = Environment::new_isolated_child_env(&env);
 
                 // Execute test body and catch assertion failures
                 let mut test_passed = true;
+                let mut failure_recorded = false;
+
                 for stmt in body {
                     match Box::pin(self._execute_statement(stmt, test_env.clone())).await {
                         Ok(_) => {}
                         Err(e) => {
-                            // Check if this is an assertion failure (we'll mark it specially)
                             test_passed = false;
-                            // The failure is already recorded in test_results
+
+                            // Only record failure if not already recorded by expect statement
+                            // Check if this is an assertion failure (which has already been recorded)
+                            let error_msg = e.to_string();
+                            if !error_msg.starts_with("Assertion failed:") {
+                                // This is a non-assertion error (e.g., runtime error in test code)
+                                let context = self.current_describe_stack.borrow().clone();
+                                let failure = TestFailure {
+                                    describe_context: context,
+                                    test_name: description.clone(),
+                                    assertion_message: error_msg,
+                                    line: *line,
+                                    column: *column,
+                                };
+                                self.test_results.borrow_mut().failures.push(failure);
+                                failure_recorded = true;
+                            }
+
                             // Don't propagate the error - continue running other tests
-                            eprintln!("Test failed: {}", e);
                             break;
                         }
                     }
@@ -4992,6 +5020,9 @@ impl Interpreter {
                 if test_passed {
                     self.test_results.borrow_mut().passed_tests += 1;
                 }
+
+                // Clear current test name
+                *self.current_test_name.borrow_mut() = None;
 
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -5017,13 +5048,18 @@ impl Interpreter {
                 let passed = self.check_assertion(&subject_value, assertion, env.clone()).await?;
 
                 if !passed {
-                    // Record failure
+                    // Record failure with proper test name tracking
                     let message = self.create_assertion_message(assertion, &subject_value);
                     let context = self.current_describe_stack.borrow().clone();
+                    let test_name = self
+                        .current_test_name
+                        .borrow()
+                        .clone()
+                        .unwrap_or_else(|| "unknown test".to_string());
 
                     let failure = TestFailure {
                         describe_context: context,
-                        test_name: "current test".to_string(), // TODO: track current test name
+                        test_name,
                         assertion_message: message.clone(),
                         line: *line,
                         column: *column,
