@@ -232,7 +232,7 @@ impl Interpreter {
                 }
             }
             Value::Text(s) => format!("\"{}\"", s),
-            Value::Bool(b) => format!("{}", if *b { "yes" } else { "no" }),
+            Value::Bool(b) => (if *b { "yes" } else { "no" }).to_string(),
             Value::List(list) => {
                 let items = list.borrow();
                 if items.is_empty() {
@@ -247,7 +247,7 @@ impl Interpreter {
             }
             Value::Null => "null".to_string(),
             Value::Nothing => "nothing".to_string(),
-            _ => format!("{}", value.type_name()),
+            _ => value.type_name().to_string(),
         }
     }
 }
