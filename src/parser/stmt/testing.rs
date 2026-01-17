@@ -81,10 +81,10 @@ impl<'a> TestingParser<'a> for Parser<'a> {
                         let mut setup_stmts = Vec::new();
                         loop {
                             self.skip_eol();
-                            if let Some(token) = self.cursor.peek() {
-                                if matches!(token.token, Token::KeywordEnd) {
-                                    break;
-                                }
+                            if let Some(token) = self.cursor.peek()
+                                && matches!(token.token, Token::KeywordEnd)
+                            {
+                                break;
                             }
                             setup_stmts.push(self.parse_statement()?);
                         }
@@ -108,10 +108,10 @@ impl<'a> TestingParser<'a> for Parser<'a> {
                         let mut teardown_stmts = Vec::new();
                         loop {
                             self.skip_eol();
-                            if let Some(token) = self.cursor.peek() {
-                                if matches!(token.token, Token::KeywordEnd) {
-                                    break;
-                                }
+                            if let Some(token) = self.cursor.peek()
+                                && matches!(token.token, Token::KeywordEnd)
+                            {
+                                break;
                             }
                             teardown_stmts.push(self.parse_statement()?);
                         }
@@ -225,10 +225,10 @@ impl<'a> TestingParser<'a> for Parser<'a> {
         loop {
             self.skip_eol();
 
-            if let Some(token) = self.cursor.peek() {
-                if matches!(token.token, Token::KeywordEnd) {
-                    break;
-                }
+            if let Some(token) = self.cursor.peek()
+                && matches!(token.token, Token::KeywordEnd)
+            {
+                break;
             }
 
             body.push(self.parse_statement()?);
@@ -344,20 +344,19 @@ impl<'a> Parser<'a> {
                             self.cursor.bump(); // Consume 'of'
 
                             // Check if next token is "type" identifier
-                            if let Some(token) = self.cursor.peek() {
-                                if let Token::Identifier(id) = &token.token {
-                                    if id == "type" {
-                                        self.cursor.bump(); // Consume 'type'
+                            if let Some(token) = self.cursor.peek()
+                                && let Token::Identifier(id) = &token.token
+                                && id == "type"
+                            {
+                                self.cursor.bump(); // Consume 'type'
 
-                                        // Expect a string literal for the type name
-                                        if let Some(token) = self.cursor.peek() {
-                                            if let Token::StringLiteral(type_name) = &token.token {
-                                                let tn = type_name.clone();
-                                                self.cursor.bump();
-                                                return Ok(Assertion::BeOfType(tn));
-                                            }
-                                        }
-                                    }
+                                // Expect a string literal for the type name
+                                if let Some(token) = self.cursor.peek()
+                                    && let Token::StringLiteral(type_name) = &token.token
+                                {
+                                    let tn = type_name.clone();
+                                    self.cursor.bump();
+                                    return Ok(Assertion::BeOfType(tn));
                                 }
                             }
 
@@ -408,14 +407,13 @@ impl<'a> Parser<'a> {
                 self.cursor.bump(); // Consume 'have'
 
                 // Check if next token is "length" identifier
-                if let Some(token) = self.cursor.peek() {
-                    if let Token::Identifier(id) = &token.token {
-                        if id == "length" {
-                            self.cursor.bump(); // Consume 'length'
-                            let value = self.parse_expression()?;
-                            return Ok(Assertion::HaveLength(value));
-                        }
-                    }
+                if let Some(token) = self.cursor.peek()
+                    && let Token::Identifier(id) = &token.token
+                    && id == "length"
+                {
+                    self.cursor.bump(); // Consume 'length'
+                    let value = self.parse_expression()?;
+                    return Ok(Assertion::HaveLength(value));
                 }
 
                 Err(ParseError::from_span(

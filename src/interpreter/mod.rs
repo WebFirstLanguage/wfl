@@ -4986,7 +4986,6 @@ impl Interpreter {
 
                 // Execute test body and catch assertion failures
                 let mut test_passed = true;
-                let mut failure_recorded = false;
 
                 for stmt in body {
                     match Box::pin(self._execute_statement(stmt, test_env.clone())).await {
@@ -5008,7 +5007,6 @@ impl Interpreter {
                                     column: *column,
                                 };
                                 self.test_results.borrow_mut().failures.push(failure);
-                                failure_recorded = true;
                             }
 
                             // Don't propagate the error - continue running other tests
