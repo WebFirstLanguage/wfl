@@ -74,7 +74,17 @@ impl<'a> TestingParser<'a> for Parser<'a> {
                 Some(t) => match &t.token {
                     Token::KeywordSetup => {
                         // Parse setup block
+                        let setup_token = t.clone();
                         self.cursor.bump(); // Consume 'setup'
+
+                        // Check for duplicate setup block
+                        if setup.is_some() {
+                            return Err(ParseError::from_token(
+                                "Duplicate 'setup' block found. Only one setup block is allowed per describe block".to_string(),
+                                &setup_token,
+                            ));
+                        }
+
                         self.expect_token(Token::Colon, "Expected ':' after 'setup'")?;
                         self.skip_eol();
 
@@ -101,7 +111,17 @@ impl<'a> TestingParser<'a> for Parser<'a> {
                     }
                     Token::KeywordTeardown => {
                         // Parse teardown block
+                        let teardown_token = t.clone();
                         self.cursor.bump(); // Consume 'teardown'
+
+                        // Check for duplicate teardown block
+                        if teardown.is_some() {
+                            return Err(ParseError::from_token(
+                                "Duplicate 'teardown' block found. Only one teardown block is allowed per describe block".to_string(),
+                                &teardown_token,
+                            ));
+                        }
+
                         self.expect_token(Token::Colon, "Expected ':' after 'teardown'")?;
                         self.skip_eol();
 
@@ -351,12 +371,24 @@ impl<'a> Parser<'a> {
                                 self.cursor.bump(); // Consume 'type'
 
                                 // Expect a string literal for the type name
-                                if let Some(token) = self.cursor.peek()
-                                    && let Token::StringLiteral(type_name) = &token.token
-                                {
-                                    let tn = type_name.clone();
-                                    self.cursor.bump();
-                                    return Ok(Assertion::BeOfType(tn));
+                                if let Some(token) = self.cursor.peek() {
+                                    if let Token::StringLiteral(type_name) = &token.token {
+                                        let tn = type_name.clone();
+                                        self.cursor.bump();
+                                        return Ok(Assertion::BeOfType(tn));
+                                    } else {
+                                        return Err(ParseError::from_token(
+                                            "Expected type name as string literal after 'be of type'".to_string(),
+                                            token,
+                                        ));
+                                    }
+                                } else {
+                                    return Err(ParseError::from_span(
+                                        "Expected type name as string literal after 'be of type'".to_string(),
+                                        self.cursor.current_span(),
+                                        self.cursor.current_line(),
+                                        1,
+                                    ));
                                 }
                             }
 
