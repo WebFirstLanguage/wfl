@@ -13,7 +13,7 @@ Automatically runs `cargo fmt --all` after any Edit or Write operation on Rust f
 
 ### Prerequisites
 
-The hook configured in `../.claude/settings.json` currently uses PowerShell:
+The hook configured in `../.claude/settings.json` currently uses Bash:
 
 - **Windows PowerShell**: Built into Windows (default configuration)
   - Verify: `powershell --version`
@@ -43,12 +43,12 @@ For bash (Unix/macOS/Git Bash on Windows):
 }
 ```
 
-Current configuration (Windows PowerShell):
+Current configuration (Bash for Linux):
 
 ```json
 {
   "type": "command",
-  "command": "powershell -File .claude/hooks/format-rust.ps1",
+  "command": "bash .claude/hooks/format-rust.sh",
   "timeout": 120
 }
 ```

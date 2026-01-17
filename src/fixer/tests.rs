@@ -17,7 +17,7 @@ fn test_fix_variable_naming() {
 
 #[test]
 fn test_fix_indentation() {
-    let input = "define action called test:\ndisplay \"Hello\"\nend action";
+    let input = "define action called my_test:\ndisplay \"Hello\"\nend action";
     let tokens = lex_wfl_with_positions(input);
     let program = Parser::new(&tokens).parse().unwrap();
 

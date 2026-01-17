@@ -1,8 +1,8 @@
 # Test edge cases for string split functionality
 
 # Test 1: Empty string
-store empty as ""
-store empty_result as split empty by ","
+store empty_str as ""
+store empty_result as split empty_str by ","
 display "Empty string split count: " with length of empty_result
 
 # Test 2: String with no delimiter

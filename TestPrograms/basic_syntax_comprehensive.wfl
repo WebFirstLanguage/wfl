@@ -37,10 +37,10 @@ display ""
 
 // === Variable Redefinition ===
 display "4. Variable Redefinition Test"
-store test var as "original"
-display "Before: " with test var
-change test var to "modified"
-display "After: " with test var
+store test_var as "original"
+display "Before: " with test_var
+change test_var to "modified"
+display "After: " with test_var
 display ""
 
 // === Conditional Statements ===

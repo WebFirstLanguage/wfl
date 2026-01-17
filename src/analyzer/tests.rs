@@ -20,7 +20,7 @@ fn test_unused_variable_detection() {
 
 #[test]
 fn test_unreachable_code_detection() {
-    let input = "define action called test:\n  give back 10\n  display \"This is unreachable\"\nend action";
+    let input = "define action called my_action:\n  give back 10\n  display \"This is unreachable\"\nend action";
     let tokens = lex_wfl_with_positions(input);
     let program = Parser::new(&tokens).parse().unwrap();
     
@@ -34,7 +34,7 @@ fn test_unreachable_code_detection() {
 
 #[test]
 fn test_shadowing_detection() {
-    let input = "store x as 10\ndefine action called test:\n  store x as 20\n  display x\nend action";
+    let input = "store x as 10\ndefine action called my_action:\n  store x as 20\n  display x\nend action";
     let tokens = lex_wfl_with_positions(input);
     let program = Parser::new(&tokens).parse().unwrap();
     

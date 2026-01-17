@@ -1,0 +1,20 @@
+// Simple test framework validation
+
+describe "Basic assertions":
+
+    test "numbers are equal":
+        store result as 5
+        expect result to equal 5
+    end test
+
+    test "text values are equal":
+        store message as "hello"
+        expect message to equal "hello"
+    end test
+
+    test "boolean values work":
+        store flag as yes
+        expect flag to be yes
+    end test
+
+end describe
