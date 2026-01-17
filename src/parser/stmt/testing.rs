@@ -384,7 +384,8 @@ impl<'a> Parser<'a> {
                                     }
                                 } else {
                                     return Err(ParseError::from_span(
-                                        "Expected type name as string literal after 'be of type'".to_string(),
+                                        "Expected type name as string literal after 'be of type'"
+                                            .to_string(),
                                         self.cursor.current_span(),
                                         self.cursor.current_line(),
                                         1,

@@ -5043,13 +5043,17 @@ impl Interpreter {
                 let subject_value = self.evaluate_expression(subject, env.clone()).await?;
 
                 // Check assertion
-                let passed = self
+                let (passed, expected_value) = self
                     .check_assertion(&subject_value, assertion, env.clone())
                     .await?;
 
                 if !passed {
                     // Record failure with proper test name tracking
-                    let message = self.create_assertion_message(assertion, &subject_value);
+                    let message = self.create_assertion_message_with_values(
+                        assertion,
+                        &subject_value,
+                        expected_value.as_ref(),
+                    );
                     let context = self.current_describe_stack.borrow().clone();
                     let test_name = self
                         .current_test_name
