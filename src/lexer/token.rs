@@ -378,6 +378,8 @@ pub enum Token {
     KeywordExist,
     #[token("contain")]
     KeywordContain,
+    #[token("empty")]
+    KeywordEmpty,
 
     #[token(":")]
     Colon,
@@ -593,6 +595,7 @@ impl Token {
                 | Token::KeywordSetup
                 | Token::KeywordTeardown
                 | Token::KeywordBe
+                | Token::KeywordEmpty
         )
     }
 

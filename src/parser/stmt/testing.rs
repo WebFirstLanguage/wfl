@@ -336,7 +336,7 @@ impl<'a> Parser<'a> {
                             let value = self.parse_expression()?;
                             Ok(Assertion::LessThan(value))
                         }
-                        Token::Identifier(id) if id == "empty" => {
+                        Token::KeywordEmpty => {
                             self.cursor.bump(); // Consume 'empty'
                             Ok(Assertion::BeEmpty)
                         }

@@ -8,8 +8,8 @@ display "Sub(0, 5): " with substring of text and 0 and 5
 display "Sub(7, 5): " with substring of text and 7 and 5
 
 display "--- Edge Cases ---"
-store empty as ""
-display "Empty sub(0, 1): '" with substring of empty and 0 and 1 with "'"
+store empty_string as ""
+display "Empty sub(0, 1): '" with substring of empty_string and 0 and 1 with "'"
 
 store short as "Hi"
 display "Start > len (3, 1): '" with substring of short and 3 and 1 with "'"
