@@ -492,16 +492,16 @@ pub enum Statement {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Assertion {
     Equal(Expression),
-    Be(Expression),              // Synonym for Equal
+    Be(Expression), // Synonym for Equal
     GreaterThan(Expression),
     LessThan(Expression),
-    BeYes,                       // Truthy check
-    BeNo,                        // Falsy check
+    BeYes, // Truthy check
+    BeNo,  // Falsy check
     Exist,
-    Contain(Expression),         // List/text contains
+    Contain(Expression), // List/text contains
     BeEmpty,
     HaveLength(Expression),
-    BeOfType(String),           // Type check
+    BeOfType(String), // Type check
 }
 
 #[derive(Debug, Clone, PartialEq)]

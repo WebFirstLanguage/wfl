@@ -75,7 +75,11 @@ impl Interpreter {
     }
 
     /// Create a helpful assertion failure message
-    pub(super) fn create_assertion_message(&self, assertion: &Assertion, subject: &Value) -> String {
+    pub(super) fn create_assertion_message(
+        &self,
+        assertion: &Assertion,
+        subject: &Value,
+    ) -> String {
         match assertion {
             Assertion::Equal(expr) | Assertion::Be(expr) => {
                 format!("Expected value to equal {:?}, but got {:?}", expr, subject)
@@ -128,7 +132,10 @@ fn values_equal(a: &Value, b: &Value) -> bool {
             if a_ref.len() != b_ref.len() {
                 return false;
             }
-            a_ref.iter().zip(b_ref.iter()).all(|(x, y)| values_equal(x, y))
+            a_ref
+                .iter()
+                .zip(b_ref.iter())
+                .all(|(x, y)| values_equal(x, y))
         }
         _ => false,
     }

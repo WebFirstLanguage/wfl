@@ -89,7 +89,10 @@ impl<'a> TestingParser<'a> for Parser<'a> {
                             setup_stmts.push(self.parse_statement()?);
                         }
 
-                        self.expect_token(Token::KeywordEnd, "Expected 'end' to close setup block")?;
+                        self.expect_token(
+                            Token::KeywordEnd,
+                            "Expected 'end' to close setup block",
+                        )?;
                         self.expect_token(
                             Token::KeywordSetup,
                             "Expected 'setup' after 'end' in setup block",
@@ -233,7 +236,10 @@ impl<'a> TestingParser<'a> for Parser<'a> {
 
         // Expect 'end test'
         self.expect_token(Token::KeywordEnd, "Expected 'end' to close test block")?;
-        self.expect_token(Token::KeywordTest, "Expected 'test' after 'end' in test block")?;
+        self.expect_token(
+            Token::KeywordTest,
+            "Expected 'test' after 'end' in test block",
+        )?;
 
         Ok(Statement::TestBlock {
             description,
@@ -317,7 +323,10 @@ impl<'a> Parser<'a> {
                         }
                         Token::KeywordGreater => {
                             self.cursor.bump(); // Consume 'greater'
-                            self.expect_token(Token::KeywordThan, "Expected 'than' after 'greater'")?;
+                            self.expect_token(
+                                Token::KeywordThan,
+                                "Expected 'than' after 'greater'",
+                            )?;
                             let value = self.parse_expression()?;
                             Ok(Assertion::GreaterThan(value))
                         }

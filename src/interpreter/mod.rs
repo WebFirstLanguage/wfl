@@ -5045,7 +5045,9 @@ impl Interpreter {
                 let subject_value = self.evaluate_expression(subject, env.clone()).await?;
 
                 // Check assertion
-                let passed = self.check_assertion(&subject_value, assertion, env.clone()).await?;
+                let passed = self
+                    .check_assertion(&subject_value, assertion, env.clone())
+                    .await?;
 
                 if !passed {
                     // Record failure with proper test name tracking

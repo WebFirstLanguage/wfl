@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -File .claude/hooks/format-rust.ps1",
+            "command": "bash .claude/hooks/format-rust.sh",
             "timeout": 120
           }
         ]
