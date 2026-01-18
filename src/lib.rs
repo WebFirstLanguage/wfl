@@ -20,6 +20,7 @@ pub mod parser;
 pub mod pattern;
 pub mod repl;
 pub mod stdlib;
+pub mod transpiler;
 pub mod typechecker;
 pub mod version;
 pub mod wfl_config;
