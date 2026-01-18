@@ -1,0 +1,41 @@
+// Containers & OOP Keywords Examples
+// Keywords covered: container, property, extends, new
+
+// Example 1: Basic container definition
+display "Container examples"
+
+define container called Animal:
+    property name as "Unknown"
+    property age_years as 0
+
+    define action called make_sound:
+        display "Some sound"
+    end action
+end container
+
+// Example 2: Create instance
+store pet as new Animal
+change pet property name to "Buddy"
+change pet property age_years to 3
+
+display "Pet name: " with pet property name
+
+// Example 3: Another container
+define container called Vehicle:
+    property brand as "Generic"
+    property year_made as 2020
+
+    define action called get_info:
+        store info as brand with " " with year_made
+        return info
+    end action
+end container
+
+store car as new Vehicle
+change car property brand to "Toyota"
+change car property year_made to 2024
+
+store car_info as call car action get_info
+display "Car: " with car_info
+
+display "Container examples complete"

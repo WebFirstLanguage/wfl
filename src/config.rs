@@ -615,8 +615,21 @@ pub fn load_config(dir: &Path) -> WflConfig {
         }
     }
 
-    let local_config = dir.join(".wflcfg");
-    if local_config.exists()
+    // Walk up directory tree looking for .wflcfg (closest wins)
+    // Canonicalize the starting directory to resolve relative paths
+    let mut current_dir = Some(std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()));
+    let mut found_local_config = None;
+
+    while let Some(dir_path) = current_dir {
+        let config_path = dir_path.join(".wflcfg");
+        if config_path.exists() {
+            found_local_config = Some(config_path);
+            break; // Stop at first .wflcfg found
+        }
+        current_dir = dir_path.parent().map(Path::to_path_buf);
+    }
+
+    if let Some(local_config) = found_local_config
         && let Ok(text) = std::fs::read_to_string(&local_config)
     {
         log::debug!(
@@ -661,9 +674,22 @@ pub fn load_config_with_global(script_dir: &Path) -> WflConfig {
         }
     }
 
-    // Load local configuration
-    let local_config = script_dir.join(".wflcfg");
-    if local_config.exists()
+    // Walk up directory tree looking for .wflcfg (closest wins)
+    // Canonicalize the starting directory to resolve relative paths
+    let mut current_dir =
+        Some(std::fs::canonicalize(script_dir).unwrap_or_else(|_| script_dir.to_path_buf()));
+    let mut found_local_config = None;
+
+    while let Some(dir_path) = current_dir {
+        let config_path = dir_path.join(".wflcfg");
+        if config_path.exists() {
+            found_local_config = Some(config_path);
+            break; // Stop at first .wflcfg found
+        }
+        current_dir = dir_path.parent().map(Path::to_path_buf);
+    }
+
+    if let Some(local_config) = found_local_config
         && let Ok(text) = std::fs::read_to_string(&local_config)
     {
         log::debug!(

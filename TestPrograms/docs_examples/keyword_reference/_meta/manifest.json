@@ -1,0 +1,86 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-01-16",
+  "description": "Keyword reference documentation examples",
+  "validation_status": "in_progress",
+  "examples": [
+    {
+      "file": "control_flow_examples.wfl",
+      "keywords_covered": ["check", "if", "otherwise", "end", "for", "each", "in", "count", "from", "to", "by", "repeat", "while", "until", "break", "continue", "skip"],
+      "validation_status": "needs_syntax_fixes",
+      "notes": "List creation syntax needs correction",
+      "tested_with": ["parse", "analyze", "typecheck", "lint"]
+    },
+    {
+      "file": "declaration_examples.wfl",
+      "keywords_covered": ["store", "as", "change", "define", "action", "called", "with", "return", "property", "container"],
+      "validation_status": "pending",
+      "tested_with": []
+    },
+    {
+      "file": "operations_examples.wfl",
+      "keywords_covered": ["display", "call", "push", "pop", "add", "return", "give", "back"],
+      "validation_status": "pending",
+      "tested_with": []
+    },
+    {
+      "file": "comparison_examples.wfl",
+      "keywords_covered": ["is", "and", "or", "not", "greater", "less", "than", "equal"],
+      "validation_status": "pending",
+      "tested_with": []
+    },
+    {
+      "file": "pattern_examples.wfl",
+      "keywords_covered": ["pattern", "matches", "find", "digit", "letter", "text"],
+      "validation_status": "simplified",
+      "notes": "Simplified version - full pattern matching requires pattern module",
+      "tested_with": []
+    },
+    {
+      "file": "file_io_examples.wfl",
+      "keywords_covered": ["file", "open", "read", "write", "close", "extension", "files"],
+      "validation_status": "simplified",
+      "notes": "Simplified version - full file I/O requires filesystem access",
+      "tested_with": []
+    },
+    {
+      "file": "web_network_examples.wfl",
+      "keywords_covered": ["server", "port", "request", "response", "listen", "status", "header"],
+      "validation_status": "simplified",
+      "notes": "Simplified version - full web examples require web server functionality",
+      "tested_with": []
+    },
+    {
+      "file": "containers_examples.wfl",
+      "keywords_covered": ["container", "property", "extends", "new", "define", "action"],
+      "validation_status": "pending",
+      "tested_with": []
+    },
+    {
+      "file": "error_handling_examples.wfl",
+      "keywords_covered": ["try", "catch", "when", "error"],
+      "validation_status": "pending",
+      "tested_with": []
+    },
+    {
+      "file": "process_examples.wfl",
+      "keywords_covered": ["process", "execute", "command", "spawn", "shell", "arguments"],
+      "validation_status": "simplified",
+      "notes": "Simplified version - full process examples require subprocess capabilities",
+      "tested_with": []
+    },
+    {
+      "file": "contextual_keywords_examples.wfl",
+      "keywords_covered": ["count", "list", "pattern", "at", "called", "change", "create", "text", "back", "give", "needs", "reversed"],
+      "validation_status": "pending",
+      "notes": "Demonstrates contextual keyword usage as variables",
+      "tested_with": []
+    }
+  ],
+  "next_steps": [
+    "Fix syntax errors in control_flow_examples.wfl",
+    "Validate all pending examples with MCP tools",
+    "Expand simplified examples with full functionality",
+    "Add more edge case examples for contextual keywords"
+  ]
+}

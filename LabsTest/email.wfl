@@ -1,0 +1,13 @@
+create pattern email:
+    one or more letter or digit
+    followed by "@"
+    followed by one or more letter or digit
+    followed by "."
+    followed by 2 to 4 letter
+end pattern
+
+check if "user@example.com" matches email:
+    display "Valid email!"
+otherwise
+    display "Not valid"
+end check

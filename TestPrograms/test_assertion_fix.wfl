@@ -1,0 +1,22 @@
+describe "test assertion message improvements":
+    test "simple equal assertion that should fail":
+        store x as 5
+        expect x to equal 10
+    end test
+
+    test "greater than assertion that should fail":
+        store y as 3
+        expect y to be greater than 7
+    end test
+
+    test "list contain assertion that should fail":
+        store mylist as [1, 2, 3]
+        expect mylist to contain 5
+    end test
+
+    test "length assertion that should fail":
+        store text as "hello"
+        expect text to have length 10
+    end test
+
+end describe

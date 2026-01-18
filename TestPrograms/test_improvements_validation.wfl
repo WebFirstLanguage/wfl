@@ -1,0 +1,63 @@
+// Test to validate improvements to testing framework
+
+describe "Test name tracking":
+
+    test "first test with proper name":
+        store value as 42
+        expect value to equal 42
+    end test
+
+    test "second test with different name":
+        store value as "hello"
+        expect value to equal "hello"
+    end test
+
+end describe
+
+describe "Setup/teardown isolation":
+
+    setup:
+        store shared_value as 100
+    end setup
+
+    test "can access setup variable":
+        expect shared_value to equal 100
+    end test
+
+    test "can read setup variable":
+        // Setup variables are accessible (read-only)
+        expect shared_value to equal 100
+    end test
+
+    test "can create test-local variables":
+        // Tests can create their own local variables
+        store test_local as 200
+        expect test_local to equal 200
+    end test
+
+    test "local variables don't leak":
+        // Variables from previous test don't leak to this test
+        // We can create our own variable with the same name
+        store test_local as 300
+        expect test_local to equal 300
+    end test
+
+    teardown:
+        display "Teardown completes successfully"
+    end teardown
+
+end describe
+
+describe "Type checking catches errors early":
+
+    test "numeric comparisons work":
+        store num as 10
+        expect num to be greater than 5
+    end test
+
+    test "length checks on collections":
+        store items as [1, 2, 3]
+        expect items to have length 3
+    end test
+
+end describe

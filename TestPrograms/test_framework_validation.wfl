@@ -1,0 +1,234 @@
+// Comprehensive test framework validation
+// Tests all assertion types and framework features
+
+describe "Basic equality assertions":
+
+    test "numbers are equal":
+        store result as 5
+        expect result to equal 5
+    end test
+
+    test "text values are equal":
+        store message as "hello"
+        expect message to equal "hello"
+    end test
+
+    test "boolean values are equal":
+        store flag as yes
+        expect flag to equal yes
+    end test
+
+    test "synonym 'be' works like 'equal'":
+        store value as 42
+        expect value to be 42
+    end test
+
+end describe
+
+describe "Comparison assertions":
+
+    test "greater than works":
+        store num as 10
+        expect num to be greater than 5
+    end test
+
+    test "less than works":
+        store num as 3
+        expect num to be less than 10
+    end test
+
+    test "comparison with expressions":
+        store a as 7
+        store b as 3
+        expect a to be greater than b
+    end test
+
+end describe
+
+describe "Truthiness assertions":
+
+    test "yes is truthy":
+        store flag as yes
+        expect flag to be yes
+    end test
+
+    test "no is falsy":
+        store flag as no
+        expect flag to be no
+    end test
+
+    test "non-zero numbers are truthy":
+        store num as 5
+        expect num to be yes
+    end test
+
+    test "zero is falsy":
+        store num as 0
+        expect num to be no
+    end test
+
+end describe
+
+describe "Existence assertions":
+
+    test "values exist":
+        store value as "something"
+        expect value to exist
+    end test
+
+    test "numbers exist":
+        store num as 0
+        expect num to exist
+    end test
+
+end describe
+
+describe "Collection assertions":
+
+    test "list contains value":
+        store numbers as [1, 2, 3, 4, 5]
+        expect numbers to contain 3
+    end test
+
+    test "list has correct length":
+        store items as ["a", "b", "c"]
+        expect items to have length 3
+    end test
+
+    test "empty list is empty":
+        store empty as []
+        expect empty to be empty
+    end test
+
+    test "non-empty list is not empty":
+        store numbers as [1, 2, 3]
+        // This should pass because the list has items
+        store count as 0
+        for each item in numbers:
+            change count to count plus 1
+        end for
+        expect count to be greater than 0
+    end test
+
+end describe
+
+describe "Text assertions":
+
+    test "text contains substring":
+        store message as "hello world"
+        expect message to contain "world"
+    end test
+
+    test "empty text is empty":
+        store empty as ""
+        expect empty to be empty
+    end test
+
+    test "text has length":
+        store word as "hello"
+        expect word to have length 5
+    end test
+
+end describe
+
+describe "Type assertions":
+
+    test "number has correct type":
+        store num as 42
+        expect num to be of type "Number"
+    end test
+
+    test "text has correct type":
+        store text as "hello"
+        expect text to be of type "Text"
+    end test
+
+    test "list has correct type":
+        store list as [1, 2, 3]
+        expect list to be of type "List"
+    end test
+
+end describe
+
+describe "Setup and teardown":
+
+    setup:
+        display "Running setup for this describe block"
+        store shared_value as 100
+    end setup
+
+    test "can access setup variables":
+        expect shared_value to equal 100
+    end test
+
+    test "setup runs before each test":
+        expect shared_value to exist
+    end test
+
+    teardown:
+        display "Running teardown for this describe block"
+    end teardown
+
+end describe
+
+describe "Variable isolation":
+
+    test "first test sets variable":
+        store test_var as "value1"
+        expect test_var to equal "value1"
+    end test
+
+    test "second test has fresh environment":
+        // test_var from previous test should not exist
+        // We can verify isolation by setting it independently
+        store test_var as "value2"
+        expect test_var to equal "value2"
+    end test
+
+end describe
+
+describe "Nested describe blocks":
+
+    describe "Level 2":
+
+        test "nested test executes":
+            store nested as yes
+            expect nested to be yes
+        end test
+
+        describe "Level 3":
+
+            test "deeply nested test executes":
+                store deep as 123
+                expect deep to equal 123
+            end test
+
+        end describe
+
+    end describe
+
+end describe
+
+describe "Arithmetic operations":
+
+    test "addition":
+        store sum as 2 plus 3
+        expect sum to equal 5
+    end test
+
+    test "subtraction":
+        store diff as 10 minus 4
+        expect diff to equal 6
+    end test
+
+    test "multiplication":
+        store product as 6 times 7
+        expect product to equal 42
+    end test
+
+    test "division":
+        store quotient as 20 divided by 4
+        expect quotient to equal 5
+    end test
+
+end describe

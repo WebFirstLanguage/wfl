@@ -17,13 +17,41 @@ You can override the global config path by setting the `WFL_GLOBAL_CONFIG_PATH` 
 
 ### Local Configuration
 
-Place a `.wflcfg` file in the same directory as your WFL script. Local settings override global settings for any overlapping keys.
+WFL searches for `.wflcfg` files by walking up the directory tree from your script's location. The closest `.wflcfg` file found takes precedence over any parent or global configuration.
 
 ```
 my-project/
-  main.wfl
-  .wflcfg      # Local configuration for this project
+  .wflcfg                  # Applies to entire project
+  src/
+    module1/
+      script.wfl           # Uses my-project/.wflcfg
+    module2/
+      .wflcfg              # Overrides parent config
+      script.wfl           # Uses my-project/src/module2/.wflcfg
 ```
+
+This allows project-wide configuration with per-module overrides as needed.
+
+## Creating Configuration Files
+
+### Interactive Wizard (Recommended)
+
+Use the `--init` wizard to create a `.wflcfg` file interactively:
+
+```bash
+wfl --init              # Create in current directory
+wfl --init /path/to/dir # Create in specific directory
+```
+
+The wizard will:
+1. Prompt for all configuration options, grouped by category
+2. Show defaults in brackets `[value]` - press Enter to accept
+3. Validate input in real-time
+4. Generate a well-formatted `.wflcfg` file with comments
+
+### Manual Creation
+
+You can also create configuration files manually using the format described below.
 
 ## Configuration File Format
 

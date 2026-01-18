@@ -40,6 +40,7 @@ fn print_help() {
     println!("    --dump-env         Dump the current environment details for troubleshooting");
     println!("        --output <file>    Specify an output file for the environment dump");
     println!("    --time             Measure and display execution time");
+    println!("    --test             Run file in test mode");
     println!();
     println!("TRANSPILATION:");
     println!("    --transpile        Transpile WFL code to JavaScript");
@@ -51,6 +52,7 @@ fn print_help() {
     println!("Configuration Maintenance:");
     println!("    --configCheck      Check configuration files for issues");
     println!("    --configFix        Check and fix configuration files");
+    println!("    --init [dir]       Create .wflcfg interactively (default: current directory)");
     println!();
     println!("ENVIRONMENT VARIABLES:");
     println!("    WFL_GLOBAL_CONFIG_PATH  Override the global configuration path");
@@ -96,6 +98,7 @@ async fn main() -> io::Result<()> {
     let mut fix_diff = false;
     let mut config_check_mode = false;
     let mut config_fix_mode = false;
+    let mut init_mode = false;
     let mut step_mode = false;
     let mut edit_mode = false;
     let mut lex_dump = false;
@@ -107,6 +110,7 @@ async fn main() -> io::Result<()> {
     let mut transpile_target = TranspilerTarget::Node;
     let mut transpile_no_runtime = false;
     let mut transpile_es_modules = false;
+    let mut test_mode = false;
     let mut file_path = String::new();
 
     let mut i = 1;
@@ -160,6 +164,19 @@ async fn main() -> io::Result<()> {
                 }
                 config_fix_mode = true;
                 i += 1;
+                if i < args.len() && !args[i].starts_with("--") {
+                    file_path = args[i].clone();
+                    i += 1;
+                }
+            }
+            "--init" => {
+                if lint_mode || analyze_mode || fix_mode || config_check_mode || config_fix_mode {
+                    eprintln!("Error: --init cannot be combined with other operation flags");
+                    process::exit(2);
+                }
+                init_mode = true;
+                i += 1;
+                // Optional: accept directory path
                 if i < args.len() && !args[i].starts_with("--") {
                     file_path = args[i].clone();
                     i += 1;
@@ -326,6 +343,16 @@ async fn main() -> io::Result<()> {
                     i += 1;
                 }
             }
+            "--test" => {
+                if lint_mode || analyze_mode || fix_mode || config_check_mode || config_fix_mode {
+                    eprintln!(
+                        "Error: --test cannot be combined with --lint, --analyze, --fix, --configCheck, or --configFix"
+                    );
+                    process::exit(2);
+                }
+                test_mode = true;
+                i += 1;
+            }
             "--version" | "-v" => {
                 println!("WebFirst Language (WFL) version {}", wfl::version::VERSION);
                 return Ok(());
@@ -412,7 +439,52 @@ async fn main() -> io::Result<()> {
         }
     }
 
-    if file_path.is_empty() && !config_check_mode && !config_fix_mode {
+    // Handle --init mode
+    if init_mode {
+        use std::io::Write;
+
+        let target_dir = if !file_path.is_empty() {
+            std::path::Path::new(&file_path)
+        } else {
+            std::path::Path::new(".")
+        };
+
+        if !target_dir.is_dir() {
+            eprintln!("Error: --init requires a valid directory");
+            process::exit(2);
+        }
+
+        let config_path = target_dir.join(".wflcfg");
+
+        // Check if file exists and prompt for overwrite
+        if config_path.exists() {
+            eprint!(
+                "File {} already exists. Overwrite? (y/n): ",
+                config_path.display()
+            );
+            std::io::stdout().flush()?;
+            let mut response = String::new();
+            std::io::stdin().read_line(&mut response)?;
+            if !response.trim().to_lowercase().starts_with('y') {
+                println!("Aborted.");
+                process::exit(0);
+            }
+        }
+
+        match wfl_config::run_wizard(&config_path) {
+            Ok(()) => {
+                println!("\n✅ Configuration created: {}", config_path.display());
+                println!("You can edit this file directly or run 'wfl --init' again.");
+                process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                process::exit(2);
+            }
+        }
+    }
+
+    if file_path.is_empty() && !config_check_mode && !config_fix_mode && !init_mode {
         eprintln!("Error: No file path provided");
         process::exit(2);
     }
@@ -898,6 +970,7 @@ async fn main() -> io::Result<()> {
 
                 let mut interpreter = Interpreter::with_timeout(config.timeout_seconds);
                 interpreter.set_step_mode(step_mode); // Set step mode from CLI flag
+                interpreter.set_test_mode(test_mode); // Set test mode from CLI flag
                 interpreter.set_script_args(script_args); // Pass script arguments
                 interpreter.set_source_file(std::path::PathBuf::from(&file_path)); // Set source file for module resolution
 
@@ -947,6 +1020,43 @@ async fn main() -> io::Result<()> {
                             info!("Program executed successfully");
                         }
                         exec_trace!("Execution completed successfully. Result: {:?}", _result);
+
+                        // Handle test mode results
+                        if test_mode {
+                            let results = interpreter.get_test_results();
+
+                            println!("\n{}", "=".repeat(60));
+                            println!("Test Results");
+                            println!("{}", "=".repeat(60));
+                            println!("Total:  {}", results.total_tests);
+                            println!("Passed: {} ✓", results.passed_tests);
+                            println!("Failed: {} ✗", results.failed_tests);
+
+                            if !results.failures.is_empty() {
+                                println!("\n{}", "─".repeat(60));
+                                println!("Failures:");
+                                println!("{}", "─".repeat(60));
+
+                                for (i, failure) in results.failures.iter().enumerate() {
+                                    println!("\n{}. {}", i + 1, failure.test_name);
+                                    if !failure.describe_context.is_empty() {
+                                        println!(
+                                            "   Context: {}",
+                                            failure.describe_context.join(" > ")
+                                        );
+                                    }
+                                    println!("   {}", failure.assertion_message);
+                                    println!("   at line {}", failure.line);
+                                }
+                            }
+
+                            println!("\n{}", "=".repeat(60));
+
+                            // Exit with error code if tests failed
+                            if results.failed_tests > 0 {
+                                process::exit(1);
+                            }
+                        }
                     }
                     Err(errors) => {
                         if config.logging_enabled {

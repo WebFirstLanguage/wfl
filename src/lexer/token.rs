@@ -359,6 +359,27 @@ pub enum Token {
     KeywordMilliseconds,
     #[token("formatted")]
     KeywordFormatted,
+    // Test framework keywords
+    #[token("describe")]
+    KeywordDescribe,
+    #[token("test")]
+    KeywordTest,
+    #[token("expect")]
+    KeywordExpect,
+    #[token("setup")]
+    KeywordSetup,
+    #[token("teardown")]
+    KeywordTeardown,
+    #[token("be")]
+    KeywordBe,
+    #[token("have")]
+    KeywordHave,
+    #[token("exist")]
+    KeywordExist,
+    #[token("contain")]
+    KeywordContain,
+    #[token("empty")]
+    KeywordEmpty,
 
     #[token(":")]
     Colon,
@@ -567,6 +588,14 @@ impl Token {
                 | Token::KeywordPublic
                 | Token::KeywordPrivate
                 | Token::KeywordConstant
+                // Test framework keywords
+                | Token::KeywordDescribe
+                | Token::KeywordTest
+                | Token::KeywordExpect
+                | Token::KeywordSetup
+                | Token::KeywordTeardown
+                | Token::KeywordBe
+                | Token::KeywordEmpty
         )
     }
 
@@ -576,6 +605,10 @@ impl Token {
         matches!(
             self,
             Token::KeywordCount        // Only reserved in 'count from X to Y' context
+                // Test framework keywords that are contextual
+                | Token::KeywordHave       // Only reserved in test assertions
+                | Token::KeywordExist      // Only reserved in test assertions
+                | Token::KeywordContain    // Only reserved in test assertions
                 | Token::KeywordPattern // Only reserved in pattern matching context
                 | Token::KeywordFiles   // Only reserved in file operations context
                 | Token::KeywordExtension

@@ -14,6 +14,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `Tools/`: Helper tools (Python scripts, WFL tools).
 - `Nexus/`: Experimental WFL test programs.
 - `wfl_website/`: Example WFL web application.
+- `wfl framework/`: Full-featured MVC web framework written in WFL.
+- `wflpkg/`: Package Manager design documents.
 - `Dev diary/`: Development logs and history.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
@@ -68,13 +70,15 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `wfl`: Start interactive REPL.
 - `wfl --lint <file>`: Lint WFL code.
 - `wfl --lint --fix <file> --in-place`: Auto-fix WFL code.
-- `wfl --debug <file>`: Debug WFL execution.
+- `wfl --edit <file>`: Open the specified file in the default editor.
 - `wfl --step <file>`: Run in single-step debug mode.
 - `wfl --time <file>`: Run with execution timing.
 - `wfl --lex <file>` / `wfl --parse <file>`: Dump tokens or AST.
+- `wfl --init [dir]`: Create .wflcfg interactively (default: current directory).
 - `wfl --configCheck` / `wfl --configFix`: Check/fix configuration.
 - `wfl --dump-env`: Dump environment for troubleshooting.
 - `wfl --analyze <file>`: Run static analysis.
+- `wfl --test <file>`: Run file in test mode (executes describe/test blocks).
 
 ## Key Language Features
 - **Natural Language Syntax**: `store name as "value"`, `check if x is greater than 5`.
@@ -82,6 +86,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Async Support**: Built-in async/await using Tokio runtime.
 - **Pattern Matching**: Regex-like engine with Unicode support.
 - **Container System**: OOP with containers.
+- **Testing Framework**: Built-in testing with `describe`, `test`, and natural language assertions.
 - **Security**: WFLHASH custom crypto, secure subprocess spawning.
 
 ## Coding Style & Naming
@@ -95,9 +100,11 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 ## Testing Guidelines
 - **TDD is mandatory**: Write failing tests FIRST for any feature or bug fix.
 - **Locations**:
-  - Unit/Integration: `tests/`
-  - End-to-End: `TestPrograms/` (must pass with release build)
-- **Conventions**: feature‑oriented names (`*_test.rs`), keep perf benches under `benches/`.
+  - Rust Unit/Integration: `tests/`
+  - WFL End-to-End: `TestPrograms/` (must pass with release build)
+  - WFL Test Framework: Use `describe`/`test` blocks, run with `wfl --test <file>`
+- **Conventions**: feature‑oriented names (`*_test.rs`, `*.test.wfl`), keep perf benches under `benches/`.
+- **Testing Guide**: See `Docs/guides/testing-guide.md` for WFL testing framework documentation.
 
 ## Commit & Pull Request Guidelines
 - **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`.
@@ -110,18 +117,28 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 ## Documentation Development
 - **Location**: `Docs/` organized in 6 sections (Introduction, Getting Started, Language Basics, Advanced Features, Standard Library, Best Practices).
 - **Structure**: Follow `Docs/wfl-documentation-policy.md` and 19 principles in `Docs/wfl-foundation.md`.
+- **Reference Documentation**: Two-tiered system for keywords
+  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 178 keywords)
+  - `Docs/reference/reserved-keywords.md` - Complete technical reference (10-15 pages, classifications, edge cases)
+  - Both updated together; quick reference for speed, comprehensive for understanding
 - **Validation**: ALL code examples MUST be validated with MCP tools before adding to docs.
   - Test examples in `TestPrograms/docs_examples/` with manifest tracking in `_meta/manifest.json`.
   - Run validation: `python scripts/validate_docs_examples.py`
   - Use MCP tools: `mcp__wfl-lsp__parse_wfl`, `mcp__wfl-lsp__analyze_wfl`, `mcp__wfl-lsp__typecheck_wfl`, `mcp__wfl-lsp__lint_wfl`
 - **Critical Syntax**:
   - Conditionals use NESTED blocks: `otherwise: check if`, NOT `otherwise check if`
-  - Reserved keywords: 60+ keywords (is, file, add, current, etc.) - use underscores: `is_active`, `myfile`
+  - Reserved keywords: **178 keywords total** (52 structural, 29 contextual, 95 other, 7 literals)
+    - Always reserved: `is`, `file`, `add`, `current`, `check`, `store`, etc.
+    - Contextual (can be variables in some contexts): `count`, `list`, `pattern`, `text`, `at`, etc.
+    - Use underscores to avoid conflicts: `is_active`, `filename`, `my_list`
+    - See `Docs/reference/keyword-reference.md` (quick) and `Docs/reference/reserved-keywords.md` (complete)
   - List push syntax: `push with <list> and <value>`, NOT `push to`
   - Loop variable: `count` in count loops, NOT `the current count`
   - Typeof syntax: `typeof of value`, NOT `typeof(value)`
   - Action syntax: `define action called name with parameters x:`, NOT `action name with x:`
-- **Working Examples**: Reference `TestPrograms/basic_syntax_comprehensive.wfl`, `file_io_comprehensive.wfl`, `comprehensive_web_server_demo.wfl`, `containers_comprehensive.wfl`, `patterns_comprehensive.wfl` for validated syntax.
+- **Working Examples**:
+  - Core syntax: `TestPrograms/basic_syntax_comprehensive.wfl`, `file_io_comprehensive.wfl`, `comprehensive_web_server_demo.wfl`, `containers_comprehensive.wfl`, `patterns_comprehensive.wfl`
+  - Keyword examples: `TestPrograms/docs_examples/keyword_reference/` (11 example files with validation manifest)
 
 ## Agent‑Specific Policies (Critical Rules)
 - **Backward Compatibility**: Sacred. Never break existing WFL programs. Run all `TestPrograms/`.
@@ -148,3 +165,12 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Debug**: `RUST_LOG=trace cargo run -p wfl-lsp`.
 - **Setup**: `scripts/configure_lsp.ps1`, `scripts/install_vscode_extension.ps1`.
 - **Docs**: See `Docs/development/lsp-integration.md` for dev guides and `Docs/02-getting-started/editor-setup.md` for user setup.
+
+## Claude Code Hooks
+- **Location**: `.claude/hooks/` (hook scripts), `.claude/settings.json` (configuration).
+- **Auto-format**: Rust files are automatically formatted after Edit/Write operations via `PostToolUse` hook.
+- **Prerequisites**:
+  - **Windows PowerShell**: Default configuration (built into Windows).
+  - **PowerShell Core (pwsh)**: Optional cross-platform alternative (requires installation).
+  - **Bash**: Alternative hook available (`format-rust.sh`) for Unix/Linux/macOS/Git Bash.
+- **Docs**: See `.claude/hooks/README.md` for configuration options and troubleshooting.

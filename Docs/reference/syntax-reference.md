@@ -274,4 +274,4 @@ store x as 5  // Inline comment
 
 ---
 
-**Previous:** [← FAQ](faq.md) | **Next:** [Keyword Reference →](keyword-reference.md)
+**Previous:** [← FAQ](faq.md) | **Next:** [Keyword Reference (Quick) →](keyword-reference.md) | [Reserved Keywords (Complete) →](reserved-keywords.md)

@@ -9,6 +9,24 @@ use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
 use crate::parser::helpers::is_reserved_pattern_name;
 
+/// Check if a token is a simple character class keyword (letter, digit, whitespace)
+fn is_simple_char_class_token(token: &Token) -> bool {
+    matches!(
+        token,
+        Token::KeywordLetter | Token::KeywordDigit | Token::KeywordWhitespace
+    )
+}
+
+/// Convert a simple character class token to a CharClass
+fn token_to_char_class(token: &Token) -> Option<CharClass> {
+    match token {
+        Token::KeywordLetter => Some(CharClass::Letter),
+        Token::KeywordDigit => Some(CharClass::Digit),
+        Token::KeywordWhitespace => Some(CharClass::Whitespace),
+        _ => None,
+    }
+}
+
 pub(crate) trait PatternParser<'a>: ExprParser<'a> {
     fn parse_create_pattern_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_pattern_tokens(tokens: &[TokenWithPosition]) -> Result<PatternExpression, ParseError>;
@@ -570,18 +588,41 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                 }
             }
 
-            // Direct character classes
-            Token::KeywordLetter => {
+            // Direct character classes - check for "or" unions like "letter or digit"
+            Token::KeywordLetter | Token::KeywordDigit | Token::KeywordWhitespace => {
+                let first_class = token_to_char_class(&token.token).ok_or_else(|| {
+                    ParseError::from_token("Invalid character class token".to_string(), token)
+                })?;
                 *i += 1;
-                PatternExpression::CharacterClass(CharClass::Letter)
-            }
-            Token::KeywordDigit => {
-                *i += 1;
-                PatternExpression::CharacterClass(CharClass::Digit)
-            }
-            Token::KeywordWhitespace => {
-                *i += 1;
-                PatternExpression::CharacterClass(CharClass::Whitespace)
+
+                // Check if this is a character class union like "letter or digit"
+                let mut classes = vec![PatternExpression::CharacterClass(first_class)];
+
+                while *i + 1 < tokens.len()
+                    && tokens[*i].token == Token::KeywordOr
+                    && is_simple_char_class_token(&tokens[*i + 1].token)
+                {
+                    *i += 1; // Skip "or"
+                    let next_class = token_to_char_class(&tokens[*i].token).ok_or_else(|| {
+                        ParseError::from_token(
+                            "Invalid character class token".to_string(),
+                            &tokens[*i],
+                        )
+                    })?;
+                    *i += 1; // Skip the character class keyword
+                    classes.push(PatternExpression::CharacterClass(next_class));
+                }
+
+                if classes.len() == 1 {
+                    classes.into_iter().next().ok_or_else(|| {
+                        ParseError::from_token(
+                            "Expected at least one character class".to_string(),
+                            token,
+                        )
+                    })?
+                } else {
+                    PatternExpression::Alternative(classes)
+                }
             }
 
             // Handle plural forms of character classes
@@ -594,22 +635,58 @@ impl<'a> PatternParser<'a> for Parser<'a> {
                 PatternExpression::CharacterClass(CharClass::Digit)
             }
 
-            // Unicode patterns
+            // Unicode patterns - check for "or" unions like "unicode letter or unicode digit"
             Token::KeywordUnicode => {
                 *i += 1;
                 if *i < tokens.len() {
                     match &tokens[*i].token {
-                        Token::KeywordLetter => {
+                        Token::KeywordLetter | Token::KeywordDigit => {
+                            // Parse the first unicode class
+                            let first_class = match &tokens[*i].token {
+                                Token::KeywordLetter => PatternExpression::CharacterClass(
+                                    CharClass::UnicodeProperty("Alphabetic".to_string()),
+                                ),
+                                Token::KeywordDigit => PatternExpression::CharacterClass(
+                                    CharClass::UnicodeProperty("Numeric".to_string()),
+                                ),
+                                _ => unreachable!(),
+                            };
                             *i += 1;
-                            PatternExpression::CharacterClass(CharClass::UnicodeProperty(
-                                "Alphabetic".to_string(),
-                            ))
-                        }
-                        Token::KeywordDigit => {
-                            *i += 1;
-                            PatternExpression::CharacterClass(CharClass::UnicodeProperty(
-                                "Numeric".to_string(),
-                            ))
+
+                            // Check for "or unicode letter/digit" pattern
+                            let mut classes = vec![first_class];
+                            while *i + 2 < tokens.len()
+                                && tokens[*i].token == Token::KeywordOr
+                                && tokens[*i + 1].token == Token::KeywordUnicode
+                                && matches!(
+                                    tokens[*i + 2].token,
+                                    Token::KeywordLetter | Token::KeywordDigit
+                                )
+                            {
+                                *i += 2; // Skip "or unicode"
+                                let next_class = match &tokens[*i].token {
+                                    Token::KeywordLetter => PatternExpression::CharacterClass(
+                                        CharClass::UnicodeProperty("Alphabetic".to_string()),
+                                    ),
+                                    Token::KeywordDigit => PatternExpression::CharacterClass(
+                                        CharClass::UnicodeProperty("Numeric".to_string()),
+                                    ),
+                                    _ => break,
+                                };
+                                *i += 1; // Skip the character class keyword
+                                classes.push(next_class);
+                            }
+
+                            if classes.len() == 1 {
+                                classes.into_iter().next().ok_or_else(|| {
+                                    ParseError::from_token(
+                                        "Expected at least one unicode character class".to_string(),
+                                        token,
+                                    )
+                                })?
+                            } else {
+                                PatternExpression::Alternative(classes)
+                            }
                         }
                         Token::KeywordCategory => {
                             *i += 1;
