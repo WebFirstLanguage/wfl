@@ -2,13 +2,15 @@
 
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::transpiler::{transpile, TranspilerConfig, TranspilerTarget};
+use wfl::transpiler::{TranspilerConfig, TranspilerTarget, transpile};
 
 /// Helper function to parse WFL source code and transpile to JavaScript
 fn transpile_wfl(source: &str) -> Result<String, String> {
     let tokens = lex_wfl_with_positions(source);
     let mut parser = Parser::new(&tokens);
-    let program = parser.parse().map_err(|e| format!("Parse error: {:?}", e))?;
+    let program = parser
+        .parse()
+        .map_err(|e| format!("Parse error: {:?}", e))?;
 
     let config = TranspilerConfig {
         include_runtime: false, // Don't include runtime for tests (cleaner output)
@@ -267,7 +269,10 @@ clear items
 fn test_string_concatenation() {
     let source = r#"store greeting as "Hello, " with "World!""#;
     let js = transpile_wfl(source).unwrap();
-    assert_contains(&js, r#"let greeting = (String("Hello, ") + String("World!"));"#);
+    assert_contains(
+        &js,
+        r#"let greeting = (String("Hello, ") + String("World!"));"#,
+    );
 }
 
 #[test]
@@ -481,7 +486,10 @@ display "after"
     // The function should appear before the display calls
     let func_pos = js.find("function test()").unwrap();
     let display_before = js.find(r#"WFL.display("before")"#).unwrap();
-    assert!(func_pos < display_before, "Function should be hoisted before other statements");
+    assert!(
+        func_pos < display_before,
+        "Function should be hoisted before other statements"
+    );
 }
 
 #[test]
@@ -490,12 +498,12 @@ fn test_runtime_inclusion() {
         store x as 42
         display x
     "#;
-    
+
     // Parse the source
     let tokens = lex_wfl_with_positions(source);
     let mut parser = Parser::new(&tokens);
     let program = parser.parse().unwrap();
-    
+
     // Test with runtime included (default)
     let config = TranspilerConfig {
         include_runtime: true,
@@ -505,7 +513,7 @@ fn test_runtime_inclusion() {
     let result = transpile(&program, &config).unwrap();
     assert!(result.code.contains("// WFL Runtime Library"));
     assert!(result.code.contains("const WFL = {"));
-    
+
     // Test with runtime excluded
     let config = TranspilerConfig {
         include_runtime: false,
@@ -533,7 +541,7 @@ fn test_pattern_matching_basic() {
             display "no match"
         end if
     "#;
-    
+
     let js = transpile_wfl(source).unwrap();
     assert_contains(&js, "new WFL.Pattern");
     println!("Generated JS:\n{}", js);
@@ -547,7 +555,7 @@ fn test_async_main_function_detection() {
             display "async main"
         end action
     "#;
-    
+
     let js = transpile_wfl(source).unwrap();
     // Should detect async main and wrap in IIFE with await
     assert_contains(&js, "(async () => { await main(); })()");
@@ -560,7 +568,7 @@ fn test_wait_for_with_variable_declaration() {
         wait for store result as 42
         display result
     "#;
-    
+
     let js = transpile_wfl(source).unwrap();
     // Should generate proper await for variable declaration
     assert_contains(&js, "let result = await 42");

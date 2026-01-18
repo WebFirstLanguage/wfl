@@ -89,7 +89,10 @@ impl std::fmt::Display for TranspileError {
 impl std::error::Error for TranspileError {}
 
 /// Main entry point for transpiling WFL to JavaScript
-pub fn transpile(program: &Program, config: &TranspilerConfig) -> Result<TranspileResult, TranspileError> {
+pub fn transpile(
+    program: &Program,
+    config: &TranspilerConfig,
+) -> Result<TranspileResult, TranspileError> {
     let transpiler = JavaScriptTranspiler::new(config.clone());
     transpiler.transpile(program)
 }

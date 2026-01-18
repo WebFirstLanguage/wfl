@@ -307,7 +307,10 @@ async fn main() -> io::Result<()> {
                                     "browser" => TranspilerTarget::Browser,
                                     "universal" => TranspilerTarget::Universal,
                                     _ => {
-                                        eprintln!("Error: Unknown transpile target '{}'. Use: node, browser, or universal", args[i + 1]);
+                                        eprintln!(
+                                            "Error: Unknown transpile target '{}'. Use: node, browser, or universal",
+                                            args[i + 1]
+                                        );
                                         process::exit(2);
                                     }
                                 };
@@ -688,7 +691,10 @@ async fn main() -> io::Result<()> {
                         process::exit(0);
                     }
                     Err(e) => {
-                        eprintln!("Transpilation error at line {}, column {}: {}", e.line, e.column, e.message);
+                        eprintln!(
+                            "Transpilation error at line {}, column {}: {}",
+                            e.line, e.column, e.message
+                        );
                         process::exit(1);
                     }
                 }
