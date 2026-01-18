@@ -309,7 +309,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                             "Expected 'when', 'catch', 'otherwise', or 'end', found {:?}",
                             token.token
                         ),
-                        &token,
+                        token,
                     ));
                 }
             }

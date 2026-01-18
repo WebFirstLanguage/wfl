@@ -474,7 +474,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                     // Otherwise, this is an error - "process" without "is running" is not valid
                     Err(ParseError::from_token(
                         "Expected 'is running' after process ID".to_string(),
-                        &token,
+                        token,
                     ))
                 }
                 Token::KeywordHeader => {
@@ -496,7 +496,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                     } else {
                         return Err(ParseError::from_token(
                             "Expected header name after 'header'".to_string(),
-                            &token,
+                            token,
                         ));
                     };
 
@@ -546,7 +546,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                 let format_token = self.bump_sync().ok_or_else(|| {
                                     ParseError::from_token(
                                         "Expected format string after 'as'".to_string(),
-                                        &token,
+                                        token,
                                     )
                                 })?;
 
@@ -579,7 +579,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                         Err(ParseError::from_token(
                             "Expected 'in milliseconds' or 'formatted as' after 'current time'"
                                 .to_string(),
-                            &token,
+                            token,
                         ))
                     }
                 }
@@ -885,7 +885,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                 // We already parsed an expression after contains
                                 Err(ParseError::from_token(
                                     "Expected 'in' after expression in contains".to_string(),
-                                    &token,
+                                    token,
                                 ))
                             }
                         }
