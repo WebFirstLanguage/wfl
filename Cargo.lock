@@ -3239,7 +3239,7 @@ dependencies = [
 
 [[package]]
 name = "wfl"
-version = "26.1.41"
+version = "26.1.42"
 dependencies = [
  "bytes",
  "chrono",
