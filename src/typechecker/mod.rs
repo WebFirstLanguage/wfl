@@ -1492,13 +1492,12 @@ impl TypeChecker {
             }
             // Graceful shutdown and signal handling statements
             Statement::RegisterSignalHandlerStatement {
-                signal_type: _signal_type,
-                handler_name: _handler_name,
-                line: _line,
-                column: _column,
+                signal_type,
+                handler_name,
+                line,
+                column,
             } => {
-                // TODO: Add type checking for signal handler registration
-                // For now, just accept any signal type and handler name
+                self.validate_signal_handler_statement(signal_type, handler_name, *line, *column);
             }
             Statement::StopAcceptingConnectionsStatement {
                 server: _server,
@@ -2757,6 +2756,106 @@ impl TypeChecker {
         }
     }
 
+    fn validate_signal_handler_statement(
+        &mut self,
+        signal_type: &str,
+        handler_name: &str,
+        line: usize,
+        column: usize,
+    ) {
+        // Validate signal type
+        // List of valid signals based on common POSIX signals that are handleable
+        // SIGKILL and SIGSTOP cannot be handled, so they are excluded
+        let valid_signals = [
+            "SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT", "SIGABRT", "SIGALRM", "SIGCHLD", "SIGCONT",
+            "SIGPIPE", "SIGUSR1", "SIGUSR2", "INT", "TERM", "HUP", "QUIT", "ABRT", "ALRM", "CHLD",
+            "CONT", "PIPE", "USR1", "USR2",
+        ];
+
+        if !valid_signals.contains(&signal_type) {
+            self.type_error(
+                format!(
+                    "Invalid signal type: '{signal_type}'. Supported signals include: {}",
+                    valid_signals.join(", ")
+                ),
+                None,
+                None,
+                line,
+                column,
+            );
+        }
+
+        // Validate handler name
+        if let Some(symbol) = self.analyzer.get_symbol(handler_name) {
+            if let Some(symbol_type) = &symbol.symbol_type {
+                match symbol_type {
+                    Type::Function {
+                        parameters,
+                        return_type: _,
+                    } => {
+                        // Handler should accept 0 or 1 arguments
+                        if parameters.len() > 1 {
+                            self.type_error(
+                                format!(
+                                    "Signal handler '{handler_name}' must accept 0 or 1 arguments, but accepts {}",
+                                    parameters.len()
+                                ),
+                                None,
+                                None,
+                                line,
+                                column,
+                            );
+                        } else if parameters.len() == 1 {
+                            // If it accepts an argument, it must be a Number (the signal number)
+                            // Also allow Unknown for backward compatibility with untyped parameters
+                            let param_type = &parameters[0];
+                            if *param_type != Type::Number && *param_type != Type::Unknown {
+                                self.type_error(
+                                    format!(
+                                        "Signal handler parameter must be a Number (signal code), but got {}",
+                                        param_type
+                                    ),
+                                    Some(Type::Number),
+                                    Some(param_type.clone()),
+                                    line,
+                                    column,
+                                );
+                            }
+                        }
+                    }
+                    _ => {
+                        self.type_error(
+                            format!("'{handler_name}' is not a function"),
+                            Some(Type::Function {
+                                parameters: vec![],
+                                return_type: Box::new(Type::Nothing),
+                            }),
+                            Some(symbol_type.clone()),
+                            line,
+                            column,
+                        );
+                    }
+                }
+            } else {
+                self.type_error(
+                    format!("Cannot determine type of signal handler '{handler_name}'"),
+                    None,
+                    None,
+                    line,
+                    column,
+                );
+            }
+        } else {
+            self.type_error(
+                format!("Undefined signal handler '{handler_name}'"),
+                None,
+                None,
+                line,
+                column,
+            );
+        }
+    }
+
     #[allow(clippy::only_used_in_recursion)]
     fn check_return_statements(
         &mut self,
@@ -3161,5 +3260,202 @@ mod tests {
             "Expected error about invalid operation, got: {:?}",
             errors
         );
+    }
+
+    #[test]
+    fn test_signal_handler_type_checking() {
+        // Test case 1: Valid registration
+        let valid_program = Program {
+            statements: vec![
+                Statement::ActionDefinition {
+                    name: "handler".to_string(),
+                    parameters: vec![],
+                    body: vec![],
+                    return_type: None,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::RegisterSignalHandlerStatement {
+                    signal_type: "SIGINT".to_string(),
+                    handler_name: "handler".to_string(),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&valid_program);
+        assert!(
+            result.is_ok(),
+            "Expected valid signal registration to pass type checking"
+        );
+
+        // Test case 2: Invalid signal name (using unhandleable signal)
+        let invalid_signal = Program {
+            statements: vec![
+                Statement::ActionDefinition {
+                    name: "handler".to_string(),
+                    parameters: vec![],
+                    body: vec![],
+                    return_type: None,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::RegisterSignalHandlerStatement {
+                    signal_type: "SIGKILL".to_string(),
+                    handler_name: "handler".to_string(),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&invalid_signal);
+        assert!(
+            result.is_err(),
+            "Expected type error for unhandleable signal name (SIGKILL)"
+        );
+        let errors = result.err().unwrap();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("Invalid signal type"))
+        );
+
+        // Test case 3: Undefined handler
+        let undefined_handler = Program {
+            statements: vec![Statement::RegisterSignalHandlerStatement {
+                signal_type: "SIGINT".to_string(),
+                handler_name: "unknown_handler".to_string(),
+                line: 1,
+                column: 1,
+            }],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&undefined_handler);
+        assert!(result.is_err(), "Expected type error for undefined handler");
+        let errors = result.err().unwrap();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("Undefined signal handler"))
+        );
+
+        // Test case 4: Handler is not a function
+        let not_a_function = Program {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: "handler".to_string(),
+                    value: Expression::Literal(Literal::Integer(1), 1, 1),
+                    is_constant: false,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::RegisterSignalHandlerStatement {
+                    signal_type: "SIGINT".to_string(),
+                    handler_name: "handler".to_string(),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&not_a_function);
+        assert!(
+            result.is_err(),
+            "Expected type error when handler is not a function"
+        );
+        let errors = result.err().unwrap();
+        assert!(errors.iter().any(|e| e.message.contains("not a function")));
+
+        // Test case 5: Handler has too many parameters
+        let too_many_params = Program {
+            statements: vec![
+                Statement::ActionDefinition {
+                    name: "handler".to_string(),
+                    parameters: vec![
+                        Parameter {
+                            name: "a".to_string(),
+                            param_type: Some(Type::Text),
+                            default_value: None,
+                            line: 1,
+                            column: 1,
+                        },
+                        Parameter {
+                            name: "b".to_string(),
+                            param_type: Some(Type::Text),
+                            default_value: None,
+                            line: 1,
+                            column: 1,
+                        },
+                    ],
+                    body: vec![],
+                    return_type: None,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::RegisterSignalHandlerStatement {
+                    signal_type: "SIGINT".to_string(),
+                    handler_name: "handler".to_string(),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&too_many_params);
+        assert!(
+            result.is_err(),
+            "Expected type error when handler has too many parameters"
+        );
+        let errors = result.err().unwrap();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("must accept 0 or 1 arguments"))
+        );
+
+        // Test case 6: Handler has wrong parameter type
+        let wrong_param_type = Program {
+            statements: vec![
+                Statement::ActionDefinition {
+                    name: "handler".to_string(),
+                    parameters: vec![Parameter {
+                        name: "a".to_string(),
+                        param_type: Some(Type::Text),
+                        default_value: None,
+                        line: 1,
+                        column: 1,
+                    }],
+                    body: vec![],
+                    return_type: None,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::RegisterSignalHandlerStatement {
+                    signal_type: "SIGINT".to_string(),
+                    handler_name: "handler".to_string(),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&wrong_param_type);
+        assert!(
+            result.is_err(),
+            "Expected type error when handler has wrong parameter type"
+        );
+        let errors = result.err().unwrap();
+        assert!(errors.iter().any(|e| {
+            e.message
+                .contains("Signal handler parameter must be a Number")
+        }));
     }
 }
