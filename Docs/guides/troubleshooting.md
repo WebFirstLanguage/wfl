@@ -95,7 +95,7 @@ store is_valid as yes
 store filename as "data"
 ```
 
-**[See reserved keywords →](../03-language-basics/variables-and-types.md#reserved-keywords)**
+**[Quick keyword lookup →](../reference/keyword-reference.md)** | **[Why can't I use this keyword? →](../reference/reserved-keywords.md#contextual-keywords)**
 
 ---
 

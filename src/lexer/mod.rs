@@ -155,13 +155,19 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                     let len = bytes.len();
 
                     // Bolt Optimization: Fast path for single-line strings.
-                    // Most string literals don't contain newlines. slice.contains(char) for ASCII
-                    // chars uses memchr (SIMD-optimized), which is much faster than the manual byte loop.
-                    // If no newlines are present, we skip the loop by initializing i to len.
-                    let mut i = if !slice.contains('\n') && !slice.contains('\r') {
-                        len
+                    // Use find() to locate the first newline, which avoids double scanning the entire string
+                    // when checking for both \n and \r, and allows skipping the clean prefix in the manual loop.
+                    let first_nl = slice.find('\n');
+                    let limit = first_nl.unwrap_or(len);
+                    // Search for \r only up to the first \n (or end if no \n)
+                    let first_cr = slice[..limit].find('\r');
+
+                    let mut i = if let Some(r) = first_cr {
+                        r
+                    } else if let Some(n) = first_nl {
+                        n
                     } else {
-                        0
+                        len
                     };
 
                     while i < len {

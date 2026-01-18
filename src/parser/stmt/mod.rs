@@ -14,6 +14,7 @@ mod io;
 mod module;
 mod patterns;
 mod processes;
+mod testing;
 mod variables;
 mod web;
 
@@ -26,6 +27,7 @@ pub(crate) use io::IoParser;
 pub(crate) use module::ModuleParser;
 pub(crate) use patterns::PatternParser;
 pub(crate) use processes::ProcessParser;
+pub(crate) use testing::TestingParser;
 pub(crate) use variables::VariableParser;
 pub(crate) use web::WebParser;
 
@@ -51,6 +53,7 @@ pub(crate) trait StmtParser<'a>:
     + PatternParser<'a>
     + ContainerParser<'a>
     + ModuleParser<'a>
+    + TestingParser<'a>
 {
     /// Parses a statement by dispatching to the appropriate parser based on the current token.
     ///

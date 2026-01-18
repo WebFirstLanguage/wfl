@@ -1,0 +1,22 @@
+// Process & Execution Keywords Examples (Simplified)
+// Keywords covered: process, execute, command, spawn, shell
+// Note: Full process examples require subprocess capabilities
+
+// Example 1: Process-related concepts
+display "Process examples"
+
+// Demonstrating process-related variables
+store command as "echo hello"
+store process as "background_task"
+
+display "Command: " with command
+display "Process: " with process
+
+// Example 2: Process attributes
+store arguments as "arg1 arg2"
+store output as "result"
+
+display "Arguments: " with arguments
+display "Output: " with output
+
+display "Process examples complete (simplified)"

@@ -1,0 +1,71 @@
+// Math operations test suite
+
+describe "Basic arithmetic":
+
+    test "addition of positive numbers":
+        store result as 5 plus 3
+        expect result to equal 8
+    end test
+
+    test "subtraction":
+        store result as 10 minus 7
+        expect result to equal 3
+    end test
+
+    test "multiplication":
+        store result as 4 times 5
+        expect result to equal 20
+    end test
+
+    test "division":
+        store result as 15 divided by 3
+        expect result to equal 5
+    end test
+
+end describe
+
+describe "Negative numbers":
+
+    test "subtracting to get negative":
+        store result as 3 minus 8
+        store expected as 0 minus 5
+        expect result to equal expected
+    end test
+
+    test "multiplying with negative":
+        store a as 0 minus 4
+        store b as 3
+        store result as a times b
+        store expected as 0 minus 12
+        expect result to equal expected
+    end test
+
+    test "comparison with negative":
+        store neg as 0 minus 10
+        store pos as 10
+        // Test that negative is less than positive
+        expect neg to be less than pos
+    end test
+
+end describe
+
+describe "Comparison operations":
+
+    test "greater than":
+        store a as 10
+        store b as 5
+        expect a to be greater than b
+    end test
+
+    test "less than":
+        store a as 3
+        store b as 7
+        expect a to be less than b
+    end test
+
+    test "equal comparison":
+        store result as 5 plus 5
+        expect result to equal 10
+    end test
+
+end describe

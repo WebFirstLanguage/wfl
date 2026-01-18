@@ -1,0 +1,86 @@
+// Operations Keywords Examples
+// Keywords covered: display, call, push, pop, add, return, give back
+
+// Example 1: Display keyword
+display "Hello, World!"
+store message as "Welcome to WFL"
+display message
+
+// Example 2: Display with concatenation
+store user as "Alice"
+display "Hello, " with user
+
+// Example 3: Push to list
+create list called items:
+end list
+
+push with items and "first"
+push with items and "second"
+push with items and "third"
+
+display "Items after push:"
+for each item in items:
+    display item
+end for
+
+// Example 4: Pop from list
+store last_item as pop from items
+display "Popped: " with last_item
+
+display "Items after pop:"
+for each item in items:
+    display item
+end for
+
+// Example 5: Add to list
+create list called numbers:
+    add 10
+    add 20
+    add 30
+end list
+
+display "Numbers:"
+for each num in numbers:
+    display num
+end for
+
+// Example 6: Call action
+define action called multiply with parameters a and b:
+    store product as a times b
+    return product
+end action
+
+store result as call multiply with 6 and 7
+display "6 * 7 = " with result
+
+// Example 7: Return value from action
+define action called is_even with parameters number:
+    store remainder as number minus 10
+    check if remainder is equal to 0:
+        return yes
+    end check
+    return no
+end action
+
+store check_result as call is_even with 10
+display "Is 10 even? " with check_result
+
+// Example 8: Give back (alternative to return)
+define action called get_greeting:
+    give back "Hello from action!"
+end action
+
+store greeting as call get_greeting
+display greeting
+
+// Example 9: Multiple display statements
+display "First line"
+display "Second line"
+display "Third line"
+
+// Example 10: Display numbers and math
+store value1 as 100
+store value2 as 50
+store sum_value as value1 plus value2
+
+display "Sum: " with sum_value
