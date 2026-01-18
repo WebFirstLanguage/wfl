@@ -2582,7 +2582,6 @@ impl TypeChecker {
         }
     }
 
-    #[allow(clippy::only_used_in_recursion)]
     fn validate_signal_handler_statement(
         &mut self,
         signal_type: &str,
@@ -2634,8 +2633,9 @@ impl TypeChecker {
                             );
                         } else if parameters.len() == 1 {
                             // If it accepts an argument, it must be a Number (the signal number)
+                            // Also allow Unknown for backward compatibility with untyped parameters
                             let param_type = &parameters[0];
-                            if *param_type != Type::Number {
+                            if *param_type != Type::Number && *param_type != Type::Unknown {
                                 self.type_error(
                                     format!(
                                         "Signal handler parameter must be a Number (signal code), but got {}",
@@ -2682,12 +2682,13 @@ impl TypeChecker {
         }
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn check_return_statements(
         &mut self,
         statements: &[Statement],
         expected_type: &Type,
-        _line: usize,
-        _column: usize,
+        line: usize,
+        column: usize,
     ) {
         for statement in statements {
             match statement {
@@ -2722,9 +2723,9 @@ impl TypeChecker {
                     else_block,
                     ..
                 } => {
-                    self.check_return_statements(then_block, expected_type, _line, _column);
+                    self.check_return_statements(then_block, expected_type, line, column);
                     if let Some(else_stmts) = else_block {
-                        self.check_return_statements(else_stmts, expected_type, _line, _column);
+                        self.check_return_statements(else_stmts, expected_type, line, column);
                     }
                 }
                 Statement::SingleLineIf {
@@ -2735,15 +2736,15 @@ impl TypeChecker {
                     self.check_return_statements(
                         &[*(*then_stmt).clone()],
                         expected_type,
-                        _line,
-                        _column,
+                        line,
+                        column,
                     );
                     if let Some(else_stmt) = else_stmt {
                         self.check_return_statements(
                             &[*(*else_stmt).clone()],
                             expected_type,
-                            _line,
-                            _column,
+                            line,
+                            column,
                         );
                     }
                 }
@@ -2753,7 +2754,7 @@ impl TypeChecker {
                 | Statement::RepeatUntilLoop { body, .. }
                 | Statement::ForeverLoop { body, .. }
                 | Statement::MainLoop { body, .. } => {
-                    self.check_return_statements(body, expected_type, _line, _column);
+                    self.check_return_statements(body, expected_type, line, column);
                 }
                 _ => {}
             }
