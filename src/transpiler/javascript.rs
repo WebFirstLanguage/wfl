@@ -99,17 +99,15 @@ impl JavaScriptTranspiler {
             .iter()
             .find(|s| matches!(s, Statement::ActionDefinition { name, .. } if name == "main"));
 
-        if let Some(main_stmt) = main_action {
-            if let Statement::ActionDefinition { body, .. } = main_stmt {
-                let is_main_async = self.contains_async(body);
-                output.push_str(&self.indent());
-                output.push_str("// Entry point\n");
-                output.push_str(&self.indent());
-                if is_main_async {
-                    output.push_str("(async () => { await main(); })();\n");
-                } else {
-                    output.push_str("main();\n");
-                }
+        if let Some(Statement::ActionDefinition { body, .. }) = main_action {
+            let is_main_async = self.contains_async(body);
+            output.push_str(&self.indent());
+            output.push_str("// Entry point\n");
+            output.push_str(&self.indent());
+            if is_main_async {
+                output.push_str("(async () => { await main(); })();\n");
+            } else {
+                output.push_str("main();\n");
             }
         }
 
@@ -722,8 +720,7 @@ impl JavaScriptTranspiler {
                         // For other statement types, wrap the result in await
                         let inner_code = self.transpile_statement(inner)?;
                         let trimmed = inner_code.trim();
-                        if trimmed.ends_with(';') {
-                            let expr = &trimmed[..trimmed.len() - 1];
+                        if let Some(expr) = trimmed.strip_suffix(';') {
                             Ok(format!("{}await {};\n", self.indent(), expr.trim_start()))
                         } else {
                             Ok(format!("{}await {};\n", self.indent(), trimmed))
@@ -1244,6 +1241,155 @@ impl JavaScriptTranspiler {
                 let server_expr = self.transpile_expression(server)?;
                 Ok(format!("{}{}.close();\n", self.indent(), server_expr))
             }
+
+            // Testing statements - transpile to JavaScript test framework equivalents
+            Statement::DescribeBlock {
+                description,
+                setup,
+                teardown,
+                tests,
+                ..
+            } => {
+                let mut result = format!(
+                    "{}describe({}, function() {{\n",
+                    self.indent(),
+                    self.escape_string(description)
+                );
+                self.push_indent();
+                // Transpile setup (beforeEach)
+                if let Some(setup_stmts) = setup {
+                    result.push_str(&format!("{}beforeEach(function() {{\n", self.indent()));
+                    self.push_indent();
+                    for stmt in setup_stmts {
+                        result.push_str(&self.transpile_statement(stmt)?);
+                    }
+                    self.pop_indent();
+                    result.push_str(&format!("{}}});\n", self.indent()));
+                }
+                // Transpile teardown (afterEach)
+                if let Some(teardown_stmts) = teardown {
+                    result.push_str(&format!("{}afterEach(function() {{\n", self.indent()));
+                    self.push_indent();
+                    for stmt in teardown_stmts {
+                        result.push_str(&self.transpile_statement(stmt)?);
+                    }
+                    self.pop_indent();
+                    result.push_str(&format!("{}}});\n", self.indent()));
+                }
+                // Transpile tests
+                for stmt in tests {
+                    result.push_str(&self.transpile_statement(stmt)?);
+                }
+                self.pop_indent();
+                result.push_str(&format!("{}}});\n", self.indent()));
+                Ok(result)
+            }
+
+            Statement::TestBlock {
+                description, body, ..
+            } => {
+                let mut result = format!(
+                    "{}it({}, function() {{\n",
+                    self.indent(),
+                    self.escape_string(description)
+                );
+                self.push_indent();
+                for stmt in body {
+                    result.push_str(&self.transpile_statement(stmt)?);
+                }
+                self.pop_indent();
+                result.push_str(&format!("{}}});\n", self.indent()));
+                Ok(result)
+            }
+
+            Statement::ExpectStatement {
+                subject, assertion, ..
+            } => {
+                use crate::parser::ast::Assertion;
+                let subject_expr = self.transpile_expression(subject)?;
+                match assertion {
+                    Assertion::Equal(expected) => {
+                        let expected_expr = self.transpile_expression(expected)?;
+                        Ok(format!(
+                            "{}expect({}).toEqual({});\n",
+                            self.indent(),
+                            subject_expr,
+                            expected_expr
+                        ))
+                    }
+                    Assertion::Be(expected) => {
+                        let expected_expr = self.transpile_expression(expected)?;
+                        Ok(format!(
+                            "{}expect({}).toBe({});\n",
+                            self.indent(),
+                            subject_expr,
+                            expected_expr
+                        ))
+                    }
+                    Assertion::GreaterThan(expected) => {
+                        let expected_expr = self.transpile_expression(expected)?;
+                        Ok(format!(
+                            "{}expect({}).toBeGreaterThan({});\n",
+                            self.indent(),
+                            subject_expr,
+                            expected_expr
+                        ))
+                    }
+                    Assertion::LessThan(expected) => {
+                        let expected_expr = self.transpile_expression(expected)?;
+                        Ok(format!(
+                            "{}expect({}).toBeLessThan({});\n",
+                            self.indent(),
+                            subject_expr,
+                            expected_expr
+                        ))
+                    }
+                    Assertion::BeYes => Ok(format!(
+                        "{}expect({}).toBeTruthy();\n",
+                        self.indent(),
+                        subject_expr
+                    )),
+                    Assertion::BeNo => Ok(format!(
+                        "{}expect({}).toBeFalsy();\n",
+                        self.indent(),
+                        subject_expr
+                    )),
+                    Assertion::Exist => Ok(format!(
+                        "{}expect({}).toBeDefined();\n",
+                        self.indent(),
+                        subject_expr
+                    )),
+                    Assertion::Contain(expected) => {
+                        let expected_expr = self.transpile_expression(expected)?;
+                        Ok(format!(
+                            "{}expect({}).toContain({});\n",
+                            self.indent(),
+                            subject_expr,
+                            expected_expr
+                        ))
+                    }
+                    Assertion::BeEmpty => Ok(format!(
+                        "{}expect({}).toHaveLength(0);\n",
+                        self.indent(),
+                        subject_expr
+                    )),
+                    Assertion::HaveLength(expected) => {
+                        let expected_expr = self.transpile_expression(expected)?;
+                        Ok(format!(
+                            "{}expect({}).toHaveLength({});\n",
+                            self.indent(),
+                            subject_expr,
+                            expected_expr
+                        ))
+                    }
+                    Assertion::BeOfType(type_name) => Ok(format!(
+                        "{}expect(typeof {}).toBe({});\n",
+                        self.indent(),
+                        subject_expr,
+                        self.escape_string(type_name)
+                    )),
+                }
+            }
         }
     }
 
@@ -1556,6 +1702,7 @@ impl JavaScriptTranspiler {
     }
 
     /// Convert a WFL pattern expression to a regex string
+    #[allow(clippy::only_used_in_recursion)]
     fn pattern_expr_to_regex(&self, pattern: &PatternExpression) -> Result<String, TranspileError> {
         match pattern {
             PatternExpression::Literal(s) => Ok(regex_escape(s)),
@@ -1756,7 +1903,7 @@ impl JavaScriptTranspiler {
         let mut result = name.to_string();
 
         // Replace spaces and dashes with underscores
-        result = result.replace(' ', "_").replace('-', "_");
+        result = result.replace([' ', '-'], "_");
 
         // If starts with a digit, prefix with underscore
         if result
@@ -1799,66 +1946,6 @@ impl JavaScriptTranspiler {
             key.to_string()
         } else {
             format!("\"{}\"", self.escape_string(key))
-        }
-    }
-
-    /// Create an error with location information from a statement
-    fn error_from_stmt(&self, message: String, stmt: &Statement) -> TranspileError {
-        let (line, column) = self.get_stmt_location(stmt);
-        TranspileError {
-            message,
-            line,
-            column,
-        }
-    }
-
-    /// Create an error with location information from an expression
-    fn error_from_expr(&self, message: String, expr: &Expression) -> TranspileError {
-        let (line, column) = self.get_expr_location(expr);
-        TranspileError {
-            message,
-            line,
-            column,
-        }
-    }
-
-    /// Get location information from a statement
-    fn get_stmt_location(&self, stmt: &Statement) -> (usize, usize) {
-        match stmt {
-            Statement::VariableDeclaration { line, column, .. } => (*line, *column),
-            Statement::Assignment { line, column, .. } => (*line, *column),
-            Statement::IfStatement { line, column, .. } => (*line, *column),
-            Statement::SingleLineIf { line, column, .. } => (*line, *column),
-            Statement::ForEachLoop { line, column, .. } => (*line, *column),
-            Statement::CountLoop { line, column, .. } => (*line, *column),
-            Statement::WhileLoop { line, column, .. } => (*line, *column),
-            Statement::DisplayStatement { line, column, .. } => (*line, *column),
-            Statement::ReturnStatement { line, column, .. } => (*line, *column),
-            Statement::BreakStatement { line, column, .. } => (*line, *column),
-            Statement::ContinueStatement { line, column, .. } => (*line, *column),
-            Statement::ActionDefinition { line, column, .. } => (*line, *column),
-            Statement::WaitForStatement { line, column, .. } => (*line, *column),
-            Statement::WaitForDurationStatement { line, column, .. } => (*line, *column),
-            // Add more cases as needed, defaulting to 0,0 for now
-            _ => (0, 0),
-        }
-    }
-
-    /// Get location information from an expression
-    fn get_expr_location(&self, expr: &Expression) -> (usize, usize) {
-        match expr {
-            Expression::Literal(_, line, column) => (*line, *column),
-            Expression::Variable(_, line, column) => (*line, *column),
-            Expression::BinaryOperation { line, column, .. } => (*line, *column),
-            Expression::UnaryOperation { line, column, .. } => (*line, *column),
-            Expression::ActionCall { line, column, .. } => (*line, *column),
-            Expression::IndexAccess { line, column, .. } => (*line, *column),
-            Expression::MemberAccess { line, column, .. } => (*line, *column),
-            Expression::FunctionCall { line, column, .. } => (*line, *column),
-            Expression::Concatenation { line, column, .. } => (*line, *column),
-            Expression::PatternMatch { line, column, .. } => (*line, *column),
-            // Add more cases as needed, defaulting to 0,0 for now
-            _ => (0, 0),
         }
     }
 }
