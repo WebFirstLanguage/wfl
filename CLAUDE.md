@@ -13,10 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`, `sync-branch.sh`).
 - `Tools/`: Helper tools (Python scripts, WFL tools).
 - `Nexus/`: Experimental WFL test programs.
-- `wfl_website/`: Example WFL web application.
-- `wfl framework/`: Full-featured MVC web framework written in WFL.
 - `wflpkg/`: Package Manager design documents.
-- `Dev diary/`: Development logs and history.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
 ## Core Architecture
