@@ -50,9 +50,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "when"
 
                     // Parse error type
-                    let (error_type, error_name) = if let Some(next_token) =
-                        self.cursor.peek()
-                    {
+                    let (error_type, error_name) = if let Some(next_token) = self.cursor.peek() {
                         match &next_token.token {
                             Token::KeywordError => {
                                 self.bump_sync(); // Consume "error"

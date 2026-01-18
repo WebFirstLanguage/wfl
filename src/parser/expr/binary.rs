@@ -111,18 +111,14 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                         if let Some(or_token) = self.cursor.peek() {
                                             if matches!(&or_token.token, Token::KeywordOr) {
                                                 self.bump_sync(); // Consume "or"
-                                                if let Some(equal_token) =
-                                                    self.cursor.peek()
-                                                {
+                                                if let Some(equal_token) = self.cursor.peek() {
                                                     if matches!(
                                                         equal_token.token,
                                                         Token::KeywordEqual
                                                     ) {
                                                         self.bump_sync(); // Consume "equal"
                                                         // Optional "to"
-                                                        if let Some(to_token) =
-                                                            self.cursor.peek()
-                                                        {
+                                                        if let Some(to_token) = self.cursor.peek() {
                                                             if matches!(
                                                                 to_token.token,
                                                                 Token::KeywordTo
@@ -177,18 +173,14 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                             if matches!(&or_token.token, Token::KeywordOr) {
                                                 self.bump_sync(); // Consume "or"
 
-                                                if let Some(equal_token) =
-                                                    self.cursor.peek()
-                                                {
+                                                if let Some(equal_token) = self.cursor.peek() {
                                                     if matches!(
                                                         equal_token.token,
                                                         Token::KeywordEqual
                                                     ) {
                                                         self.bump_sync(); // Consume "equal"
 
-                                                        if let Some(to_token) =
-                                                            self.cursor.peek()
-                                                        {
+                                                        if let Some(to_token) = self.cursor.peek() {
                                                             if matches!(
                                                                 to_token.token,
                                                                 Token::KeywordTo

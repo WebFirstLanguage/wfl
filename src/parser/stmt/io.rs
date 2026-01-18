@@ -239,8 +239,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                     "Expected 'as' after 'content'",
                                 )?;
 
-                                let variable_name = if let Some(token) = self.cursor.peek()
-                                {
+                                let variable_name = if let Some(token) = self.cursor.peek() {
                                     if let Token::Identifier(name) = &token.token {
                                         self.bump_sync(); // Consume the identifier
                                         name.clone()
@@ -271,8 +270,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                                 // Handle "open url at "..." as variable" syntax
                                 self.bump_sync(); // Consume "as"
 
-                                let variable_name = if let Some(token) = self.cursor.peek()
-                                {
+                                let variable_name = if let Some(token) = self.cursor.peek() {
                                     if let Token::Identifier(name) = &token.token {
                                         self.bump_sync(); // Consume the identifier
                                         name.clone()
