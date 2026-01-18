@@ -452,11 +452,11 @@ fn test_complex_expression() {
 #[test]
 fn test_empty_list() {
     let source = r#"
-create list empty:
+create list empty_items:
 end list
 "#;
     let js = transpile_wfl(source).unwrap();
-    assert_contains(&js, "let empty = [];");
+    assert_contains(&js, "let empty_items = [];");
 }
 
 #[test]
@@ -477,14 +477,14 @@ fn test_action_hoisting() {
     // Actions should be hoisted (generated before other code)
     let source = r#"
 display "before"
-define action called test:
-    display "test"
+define action called my_action:
+    display "my_action"
 end action
 display "after"
 "#;
     let js = transpile_wfl(source).unwrap();
     // The function should appear before the display calls
-    let func_pos = js.find("function test()").unwrap();
+    let func_pos = js.find("function my_action()").unwrap();
     let display_before = js.find(r#"WFL.display("before")"#).unwrap();
     assert!(
         func_pos < display_before,
