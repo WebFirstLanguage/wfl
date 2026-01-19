@@ -5,6 +5,11 @@ pub mod command_sanitizer;
 pub mod control_flow;
 pub mod environment;
 pub mod error;
+pub mod expr;
+pub mod io_client;
+pub mod stmt;
+pub mod test_results;
+pub mod web;
 #[cfg(test)]
 mod memory_tests;
 #[cfg(test)]
@@ -12,6 +17,24 @@ mod tests;
 pub mod value;
 
 use self::control_flow::ControlFlow;
+use self::io_client::IoClient;
+use self::expr::containers::ContainerExpressionEvaluator;
+use self::expr::core::CoreExpressionEvaluator;
+use self::expr::io::IoExpressionEvaluator;
+use self::expr::patterns::PatternExpressionEvaluator;
+use self::expr::time::TimeExpressionEvaluator;
+use self::expr::web::WebExpressionEvaluator;
+use self::stmt::containers::ContainerExecutor;
+use self::stmt::control_flow::ControlFlowExecutor;
+use self::stmt::definitions::DefinitionsExecutor;
+use self::stmt::io::IoExecutor;
+use self::stmt::loops::LoopExecutor;
+use self::stmt::processes::ProcessExecutor;
+use self::stmt::testing::TestExecutor;
+use self::stmt::variables::VariableExecutor;
+use self::stmt::web::WebExecutor;
+pub use self::test_results::{TestFailure, TestResults};
+use self::web::{PendingResponseSender, ServerError, WflHttpRequest, WflHttpResponse, WflWebServer};
 
 use self::environment::Environment;
 use self::error::{ErrorKind, RuntimeError};
@@ -55,43 +78,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 
 // Type alias for complex pending response type
-type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>;
+// type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>;
 use uuid;
 use warp::Filter;
-
-// Web server data structures
-#[derive(Debug, Clone)]
-pub struct WflHttpRequest {
-    pub id: String,
-    pub method: String,
-    pub path: String,
-    pub client_ip: String,
-    pub body: String,
-    pub headers: HashMap<String, String>,
-    pub response_sender: Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct WflHttpResponse {
-    pub content: String,
-    pub status: u16,
-    pub content_type: String,
-    pub headers: HashMap<String, String>,
-}
-
-#[derive(Debug)]
-pub struct WflWebServer {
-    pub request_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflHttpRequest>>>,
-    pub request_sender: mpsc::UnboundedSender<WflHttpRequest>,
-    pub server_handle: Option<tokio::task::JoinHandle<()>>,
-}
-
-// Custom error type for warp rejections
-#[derive(Debug)]
-#[allow(dead_code)]
-pub struct ServerError(String);
-
-impl warp::reject::Reject for ServerError {}
 
 /// RAII guard that ensures module loading context is restored on scope exit.
 /// Automatically pops loading_stack and restores current_source_file when dropped.
@@ -329,815 +318,31 @@ use tokio::sync::Mutex;
 // use self::value::FutureValue;
 
 pub struct Interpreter {
-    global_env: Rc<RefCell<Environment>>,
-    current_count: RefCell<Option<f64>>,
-    in_count_loop: RefCell<bool>,
-    in_main_loop: RefCell<bool>, // Track if we're in a main loop (disables timeout)
-    started: Instant,
-    max_duration: Duration,
-    call_stack: RefCell<Vec<CallFrame>>,
+    pub(crate) global_env: Rc<RefCell<Environment>>,
+    pub(crate) current_count: RefCell<Option<f64>>,
+    pub(crate) in_count_loop: RefCell<bool>,
+    pub(crate) in_main_loop: RefCell<bool>, // Track if we're in a main loop (disables timeout)
+    pub(crate) started: Instant,
+    pub(crate) max_duration: Duration,
+    pub(crate) call_stack: RefCell<Vec<CallFrame>>,
     #[allow(dead_code)]
-    io_client: Rc<IoClient>,
-    step_mode: bool,          // Controls single-step execution mode
-    script_args: Vec<String>, // Command-line arguments passed to the script
-    web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
-    pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
+    pub(crate) io_client: Rc<IoClient>,
+    pub(crate) step_mode: bool,          // Controls single-step execution mode
+    pub(crate) script_args: Vec<String>, // Command-line arguments passed to the script
+    pub(crate) web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
+    pub(crate) pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
     #[allow(dead_code)] // Used for future security features
-    config: Arc<WflConfig>, // Configuration for security and other settings
-    current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
-    loading_stack: RefCell<Vec<PathBuf>>, // Stack of currently loading files (for circular dependency detection)
+    pub(crate) config: Arc<WflConfig>, // Configuration for security and other settings
+    pub(crate) current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
+    pub(crate) loading_stack: RefCell<Vec<PathBuf>>, // Stack of currently loading files (for circular dependency detection)
     // Test execution state
-    test_mode: RefCell<bool>,
-    test_results: RefCell<TestResults>,
-    current_describe_stack: RefCell<Vec<String>>,
-    current_test_name: RefCell<Option<String>>,
+    pub(crate) test_mode: RefCell<bool>,
+    pub(crate) test_results: RefCell<TestResults>,
+    pub(crate) current_describe_stack: RefCell<Vec<String>>,
+    pub(crate) current_test_name: RefCell<Option<String>>,
 }
 
-// Test framework data structures
-#[derive(Debug, Default, Clone)]
-pub struct TestResults {
-    pub total_tests: usize,
-    pub passed_tests: usize,
-    pub failed_tests: usize,
-    pub failures: Vec<TestFailure>,
-}
-
-#[derive(Debug, Clone)]
-pub struct TestFailure {
-    pub describe_context: Vec<String>,
-    pub test_name: String,
-    pub assertion_message: String,
-    pub line: usize,
-    pub column: usize,
-}
-
-// Process handle for managing subprocess state
-#[allow(dead_code)]
-pub struct ProcessHandle {
-    child: tokio::process::Child,
-    command: String,
-    args: Vec<String>,
-    started_at: Instant,
-    completed_at: Option<Instant>,
-    exit_code: Option<i32>,
-    stdout_buffer: Arc<tokio::sync::Mutex<bounded_buffer::BoundedBuffer>>,
-    stderr_buffer: Arc<tokio::sync::Mutex<bounded_buffer::BoundedBuffer>>,
-}
-
-#[allow(dead_code)]
-pub struct IoClient {
-    http_client: reqwest::Client,
-    file_handles: Mutex<HashMap<String, (PathBuf, tokio::fs::File)>>,
-    next_file_id: Mutex<usize>,
-    process_handles: Mutex<HashMap<String, ProcessHandle>>,
-    next_process_id: Mutex<usize>,
-    config: Arc<WflConfig>,
-}
-
-impl IoClient {
-    fn new(config: Arc<WflConfig>) -> Self {
-        Self {
-            http_client: reqwest::Client::new(),
-            file_handles: Mutex::new(HashMap::new()),
-            next_file_id: Mutex::new(1),
-            process_handles: Mutex::new(HashMap::new()),
-            next_process_id: Mutex::new(1),
-            config,
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn http_get(&self, url: &str) -> Result<String, String> {
-        match self.http_client.get(url).send().await {
-            Ok(response) => match response.text().await {
-                Ok(text) => Ok(text),
-                Err(e) => Err(format!("Failed to read response body: {e}")),
-            },
-            Err(e) => Err(format!("Failed to send HTTP GET request: {e}")),
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn http_post(&self, url: &str, data: &str) -> Result<String, String> {
-        match self
-            .http_client
-            .post(url)
-            .body(data.to_string())
-            .send()
-            .await
-        {
-            Ok(response) => match response.text().await {
-                Ok(text) => Ok(text),
-                Err(e) => Err(format!("Failed to read response body: {e}")),
-            },
-            Err(e) => Err(format!("Failed to send HTTP POST request: {e}")),
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn open_file(&self, path: &str) -> Result<String, String> {
-        let handle_id = {
-            let mut next_id = self.next_file_id.lock().await;
-            let id = format!("file{}", *next_id);
-            *next_id += 1;
-            id
-        };
-
-        let path_buf = PathBuf::from(path);
-
-        match tokio::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false) // Explicitly preserve file content on open
-            .open(path)
-            .await
-        {
-            Ok(file) => {
-                let mut file_handles = self.file_handles.lock().await;
-
-                // Check if the file is already open, but don't error - just use a new handle
-                file_handles.insert(handle_id.clone(), (path_buf, file));
-                Ok(handle_id)
-            }
-            Err(e) => Err(format!("Failed to open file {path}: {e}")),
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn open_file_with_mode(
-        &self,
-        path: &str,
-        mode: FileOpenMode,
-    ) -> Result<String, RuntimeError> {
-        let handle_id = {
-            let mut next_id = self.next_file_id.lock().await;
-            let id = format!("file{}", *next_id);
-            *next_id += 1;
-            id
-        };
-
-        let path_buf = PathBuf::from(path);
-
-        let mut options = tokio::fs::OpenOptions::new();
-        match mode {
-            FileOpenMode::Read => {
-                options.read(true).write(false).create(false);
-            }
-            FileOpenMode::Write => {
-                options.read(false).write(true).create(true).truncate(true);
-            }
-            FileOpenMode::Append => {
-                options.read(false).write(true).create(true).append(true);
-            }
-        }
-
-        match options.open(path).await {
-            Ok(file) => {
-                let mut file_handles = self.file_handles.lock().await;
-                file_handles.insert(handle_id.clone(), (path_buf, file));
-                Ok(handle_id)
-            }
-            Err(e) => {
-                let error_kind = match e.kind() {
-                    std::io::ErrorKind::NotFound => ErrorKind::FileNotFound,
-                    std::io::ErrorKind::PermissionDenied => ErrorKind::PermissionDenied,
-                    _ => ErrorKind::General,
-                };
-                Err(RuntimeError::with_kind(
-                    format!("Failed to open file {path}: {e}"),
-                    0,
-                    0,
-                    error_kind,
-                ))
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn read_file(&self, handle_id: &str) -> Result<String, String> {
-        let mut file_handles = self.file_handles.lock().await;
-
-        if !file_handles.contains_key(handle_id) {
-            drop(file_handles);
-
-            match self.open_file(handle_id).await {
-                Ok(new_handle) => {
-                    // Now read from the new handle - use Box::pin to handle recursion in async fn
-                    let future = Box::pin(self.read_file(&new_handle));
-                    let result = future.await;
-                    let _ = self.close_file(&new_handle).await;
-                    return result;
-                }
-                Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
-            }
-        }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
-        };
-
-        drop(file_handles);
-
-        let mut contents = String::new();
-        match AsyncReadExt::read_to_string(&mut file_clone, &mut contents).await {
-            Ok(_) => Ok(contents),
-            Err(e) => Err(format!("Failed to read file: {e}")),
-        }
-    }
-
-    /// Syncs file to disk with Windows-specific error handling.
-    ///
-    /// # Windows Behavior
-    /// On Windows, `sync_all()` can return spurious `PermissionDenied` errors when:
-    /// - Multiple processes/threads access the same file
-    /// - File locking or antivirus software interferes
-    /// - The filesystem has concurrent access patterns
-    ///
-    /// This is a known Windows limitation (not a real permission error). Since `flush()`
-    /// has already ensured data reaches OS buffers, it's safe to ignore PermissionDenied.
-    ///
-    /// # Error Handling
-    /// - Windows: Suppress ONLY PermissionDenied; propagate all other errors
-    /// - Unix: Propagate all errors
-    ///
-    /// # Why Other Errors Must Propagate
-    /// Errors like `StorageFull`, `IoUnavailable`, `ReadOnlyFilesystem` indicate real
-    /// I/O failures that the user must be notified about. Silently ignoring these would
-    /// cause data loss or corruption.
-    ///
-    /// # Parameters
-    /// - `file`: The file to sync
-    /// - `operation`: Description of the operation (for error messages)
-    async fn sync_file_with_windows_handling(
-        file: &mut tokio::fs::File,
-        operation: &str,
-    ) -> Result<(), String> {
-        match file.sync_all().await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                // On Windows, selectively suppress only PermissionDenied errors
-                #[cfg(windows)]
-                if e.kind() == std::io::ErrorKind::PermissionDenied {
-                    eprintln!(
-                        "Warning: Windows file sync encountered spurious PermissionDenied during {} (data already flushed)",
-                        operation
-                    );
-                    return Ok(());
-                }
-
-                // All other errors must be propagated on all platforms
-                Err(format!("Failed to sync file during {}: {e}", operation))
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn write_file(&self, handle_id: &str, content: &str) -> Result<(), String> {
-        let mut file_handles = self.file_handles.lock().await;
-
-        if !file_handles.contains_key(handle_id) {
-            drop(file_handles);
-
-            match self.open_file(handle_id).await {
-                Ok(new_handle) => {
-                    // Now write to the new handle - use Box::pin to handle recursion in async fn
-                    let future = Box::pin(self.write_file(&new_handle, content));
-                    let result = future.await;
-                    let _ = self.close_file(&new_handle).await;
-                    return result;
-                }
-                Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
-            }
-        }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
-        };
-
-        drop(file_handles);
-
-        match AsyncSeekExt::seek(&mut file_clone, std::io::SeekFrom::Start(0)).await {
-            Ok(_) => match file_clone.set_len(0).await {
-                Ok(_) => {
-                    match AsyncWriteExt::write_all(&mut file_clone, content.as_bytes()).await {
-                        Ok(_) => {
-                            // Flush the data to ensure it's written to disk
-                            match file_clone.flush().await {
-                                Ok(_) => {
-                                    // Platform-specific sync behavior
-                                    // Sync file to disk with Windows-aware error handling
-                                    Self::sync_file_with_windows_handling(&mut file_clone, "write")
-                                        .await
-                                }
-                                Err(e) => Err(format!("Failed to flush file: {e}")),
-                            }
-                        }
-                        Err(e) => Err(format!("Failed to write to file: {e}")),
-                    }
-                }
-                Err(e) => Err(format!("Failed to truncate file: {e}")),
-            },
-            Err(e) => Err(format!("Failed to seek in file: {e}")),
-        }
-    }
-
-    /// Improved file append operation - directly appends content without reading the whole file first
-    /// This is much more memory efficient, especially for large log files
-    #[allow(dead_code)]
-    async fn close_file(&self, handle_id: &str) -> Result<(), String> {
-        let mut file_handles = self.file_handles.lock().await;
-
-        if !file_handles.contains_key(handle_id) {
-            return Ok(());
-        }
-
-        // Get the file handle before removing it
-        if let Some((_, mut file)) = file_handles.remove(handle_id) {
-            // Flush the file before closing to ensure all data is written to disk
-            match file.flush().await {
-                Ok(_) => {
-                    // Sync file to disk with Windows-aware error handling
-                    Self::sync_file_with_windows_handling(&mut file, "close").await
-                }
-                Err(e) => Err(format!("Failed to flush file during close: {e}")),
-            }
-        } else {
-            Ok(())
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn append_file(&self, handle_id: &str, content: &str) -> Result<(), String> {
-        let mut file_handles = self.file_handles.lock().await;
-
-        let (_, file) = match file_handles.get_mut(handle_id) {
-            Some(entry) => entry,
-            None => return Err(format!("Invalid file handle: {handle_id}")),
-        };
-
-        match AsyncSeekExt::seek(file, std::io::SeekFrom::End(0)).await {
-            Ok(_) => match AsyncWriteExt::write_all(file, content.as_bytes()).await {
-                Ok(_) => {
-                    // Flush the data to ensure it's written to disk
-                    match file.flush().await {
-                        Ok(_) => {
-                            // Sync file to disk with Windows-aware error handling
-                            Self::sync_file_with_windows_handling(file, "append").await
-                        }
-                        Err(e) => Err(format!("Failed to flush appended data: {e}")),
-                    }
-                }
-                Err(e) => Err(format!("Failed to append to file: {e}")),
-            },
-            Err(e) => Err(format!("Failed to seek to end of file: {e}")),
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn create_directory(&self, path: &str) -> Result<(), String> {
-        match tokio::fs::create_dir_all(path).await {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!("Failed to create directory: {e}")),
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn create_file(&self, path: &str, content: &str) -> Result<(), String> {
-        match tokio::fs::write(path, content).await {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!("Failed to create file: {e}")),
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn delete_file(&self, path: &str) -> Result<(), String> {
-        match tokio::fs::remove_file(path).await {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!("Failed to delete file: {e}")),
-        }
-    }
-
-    #[allow(dead_code)]
-    async fn delete_directory(&self, path: &str) -> Result<(), String> {
-        match tokio::fs::remove_dir_all(path).await {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!("Failed to delete directory: {e}")),
-        }
-    }
-
-    // Subprocess management methods
-
-    /// Execute a command and wait for it to complete, returning (stdout, stderr, exit_code)
-    #[allow(dead_code)]
-    async fn execute_command(
-        &self,
-        command: &str,
-        args: &[&str],
-        use_shell: bool,
-        line: usize,
-        column: usize,
-    ) -> Result<(String, String, i32), String> {
-        use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
-        use tokio::process::Command;
-
-        // Determine if shell execution is needed
-        let needs_shell = use_shell
-            || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
-
-        // Security validation if shell is needed
-        if needs_shell {
-            let sanitizer = CommandSanitizer::new(Arc::clone(&self.config));
-            match sanitizer.validate_command(command)? {
-                ValidationResult::Safe => {
-                    // No shell needed after all
-                }
-                ValidationResult::RequiresShell { warnings, .. } => {
-                    // Shell is needed, show warnings if configured
-                    if self.config.warn_on_shell_execution {
-                        eprintln!("⚠️  Security Warning (line {}, column {}):", line, column);
-                        eprintln!("   Shell execution enabled for command: {}", command);
-                        for warning in warnings {
-                            eprintln!("   - {}", warning);
-                        }
-                        eprintln!("   Consider using 'with arguments' syntax for safer execution.");
-                    }
-                }
-                ValidationResult::Blocked { reason } => {
-                    return Err(format!(
-                        "Command blocked by security policy: {}\n\
-                         To allow shell execution, update the configuration in .wflcfg:\n\
-                         shell_execution_mode = \"sanitized\"  # or \"unrestricted\"\n\
-                         Or use safe execution: execute command \"program\" with arguments [\"arg1\", \"arg2\"]",
-                        reason
-                    ));
-                }
-            }
-        }
-
-        // Build the command
-        let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
-            // Shell execution path
-            #[cfg(target_os = "windows")]
-            {
-                let mut cmd = Command::new("cmd.exe");
-                cmd.args(["/C", command]);
-                cmd
-            }
-
-            #[cfg(not(target_os = "windows"))]
-            {
-                let mut cmd = Command::new("sh");
-                cmd.args(["-c", command]);
-                cmd
-            }
-        } else {
-            // Safe path: parse and execute directly
-            let (program, parsed_args) = if args.is_empty() {
-                CommandSanitizer::parse_command(command)?
-            } else {
-                (
-                    command.to_string(),
-                    args.iter().map(|s| s.to_string()).collect(),
-                )
-            };
-
-            let mut cmd = Command::new(program);
-            cmd.args(parsed_args);
-            cmd
-        };
-
-        // Execute the command
-        let output = cmd
-            .output()
-            .await
-            .map_err(|e| format!("Failed to execute command '{}': {}", command, e))?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let exit_code = output.status.code().unwrap_or(-1);
-
-        Ok((stdout, stderr, exit_code))
-    }
-
-    /// Spawn a background process and return a process ID
-    #[allow(dead_code)]
-    async fn spawn_process(
-        &self,
-        command: &str,
-        args: &[&str],
-        use_shell: bool,
-        line: usize,
-        column: usize,
-    ) -> Result<String, String> {
-        use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
-        use tokio::io::AsyncReadExt;
-        use tokio::process::Command;
-
-        // Clean up completed processes before spawning new one
-        // self.cleanup_completed_processes().await;
-
-        // Check process limit
-        {
-            let handles = self.process_handles.lock().await;
-            if handles.len() >= self.config.subprocess_config.max_concurrent_processes {
-                return Err(format!(
-                    "Process limit reached: {} processes currently running (max: {}). \
-                     Consider waiting for processes to complete or increasing max_concurrent_processes in .wflcfg",
-                    handles.len(),
-                    self.config.subprocess_config.max_concurrent_processes
-                ));
-            }
-        }
-
-        // Determine if shell execution is needed
-        let needs_shell = use_shell
-            || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
-
-        // Security validation if shell is needed
-        if needs_shell {
-            let sanitizer = CommandSanitizer::new(Arc::clone(&self.config));
-            match sanitizer.validate_command(command)? {
-                ValidationResult::Safe => {
-                    // No shell needed after all
-                }
-                ValidationResult::RequiresShell { warnings, .. } => {
-                    // Shell is needed, show warnings if configured
-                    if self.config.warn_on_shell_execution {
-                        eprintln!("⚠️  Security Warning (line {}, column {}):", line, column);
-                        eprintln!("   Shell execution enabled for command: {}", command);
-                        for warning in warnings {
-                            eprintln!("   - {}", warning);
-                        }
-                        eprintln!("   Consider using 'with arguments' syntax for safer execution.");
-                    }
-                }
-                ValidationResult::Blocked { reason } => {
-                    return Err(format!(
-                        "Command blocked by security policy: {}\n\
-                         To allow shell execution, update the configuration in .wflcfg:\n\
-                         shell_execution_mode = \"sanitized\"  # or \"unrestricted\"\n\
-                         Or use safe execution: spawn command \"program\" with arguments [\"arg1\", \"arg2\"] as proc_id",
-                        reason
-                    ));
-                }
-            }
-        }
-
-        // Build the command
-        let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
-            // Shell execution path
-            #[cfg(target_os = "windows")]
-            {
-                let mut cmd = Command::new("cmd.exe");
-                cmd.args(["/C", command]);
-                cmd
-            }
-
-            #[cfg(not(target_os = "windows"))]
-            {
-                let mut cmd = Command::new("sh");
-                cmd.args(["-c", command]);
-                cmd
-            }
-        } else {
-            // Safe path: parse and execute directly
-            let (program, parsed_args) = if args.is_empty() {
-                CommandSanitizer::parse_command(command)?
-            } else {
-                (
-                    command.to_string(),
-                    args.iter().map(|s| s.to_string()).collect(),
-                )
-            };
-
-            let mut cmd = Command::new(program);
-            cmd.args(parsed_args);
-            cmd
-        };
-
-        let mut child = cmd
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to spawn process '{}': {}", command, e))?;
-
-        // Generate process ID
-        let process_id = {
-            let mut next_id = self.next_process_id.lock().await;
-            let id = format!("proc{}", *next_id);
-            *next_id += 1;
-            id
-        };
-
-        // Create buffers for stdout and stderr with configurable size
-        let buffer_size = self.config.subprocess_config.max_buffer_size_bytes;
-        let stdout_buffer = Arc::new(tokio::sync::Mutex::new(bounded_buffer::BoundedBuffer::new(
-            buffer_size,
-        )));
-        let stderr_buffer = Arc::new(tokio::sync::Mutex::new(bounded_buffer::BoundedBuffer::new(
-            buffer_size,
-        )));
-
-        // Spawn background tasks to collect stdout and stderr
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-
-        if let Some(mut stdout) = stdout {
-            let buffer = Arc::clone(&stdout_buffer);
-            let cmd = command.to_string();
-            tokio::spawn(async move {
-                let mut buf = vec![0u8; 4096];
-                let mut warning_shown = false;
-                loop {
-                    match stdout.read(&mut buf).await {
-                        Ok(0) => break, // EOF
-                        Ok(n) => {
-                            let mut locked_buffer = buffer.lock().await;
-                            locked_buffer.push(&buf[..n]);
-
-                            // Warn once if data is being dropped
-                            if locked_buffer.stats().bytes_dropped > 0 && !warning_shown {
-                                eprintln!(
-                                    "⚠️  WARNING: Process '{}' stdout buffer overflow. \
-                                     Data is being dropped. Consider reading output more frequently.",
-                                    cmd
-                                );
-                                warning_shown = true;
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
-        }
-
-        if let Some(mut stderr) = stderr {
-            let buffer = Arc::clone(&stderr_buffer);
-            let cmd = command.to_string();
-            tokio::spawn(async move {
-                let mut buf = vec![0u8; 4096];
-                let mut warning_shown = false;
-                loop {
-                    match stderr.read(&mut buf).await {
-                        Ok(0) => break, // EOF
-                        Ok(n) => {
-                            let mut locked_buffer = buffer.lock().await;
-                            locked_buffer.push(&buf[..n]);
-
-                            // Warn once if data is being dropped
-                            if locked_buffer.stats().bytes_dropped > 0 && !warning_shown {
-                                eprintln!(
-                                    "⚠️  WARNING: Process '{}' stderr buffer overflow. \
-                                     Data is being dropped. Consider reading output more frequently.",
-                                    cmd
-                                );
-                                warning_shown = true;
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
-        }
-
-        // Store process handle
-        let handle = ProcessHandle {
-            child,
-            command: command.to_string(),
-            args: args.iter().map(|s| s.to_string()).collect(),
-            started_at: Instant::now(),
-            completed_at: None,
-            exit_code: None,
-            stdout_buffer,
-            stderr_buffer,
-        };
-
-        self.process_handles
-            .lock()
-            .await
-            .insert(process_id.clone(), handle);
-
-        Ok(process_id)
-    }
-
-    /// Clean up completed processes (lazy cleanup)
-    /// This prevents memory leaks by removing process handles for completed processes
-    #[allow(dead_code)]
-    async fn cleanup_completed_processes(&self) {
-        let mut handles = self.process_handles.lock().await;
-        handles.retain(|_id, handle| {
-            match handle.child.try_wait() {
-                Ok(Some(_exit_status)) => {
-                    // Process has completed - remove it
-                    false
-                }
-                Ok(None) => {
-                    // Process is still running - keep it
-                    true
-                }
-                Err(_) => {
-                    // Error checking status - remove it
-                    false
-                }
-            }
-        });
-    }
-
-    /// Read accumulated output from a process
-    #[allow(dead_code)]
-    async fn read_process_output(&self, process_id: &str) -> Result<String, String> {
-        // Don't cleanup here - user may want to read output from completed processes
-        let handles = self.process_handles.lock().await;
-        let handle = handles
-            .get(process_id)
-            .ok_or_else(|| format!("Invalid process ID: {}", process_id))?;
-
-        let mut buffer = handle.stdout_buffer.lock().await;
-        let output = String::from_utf8_lossy(&buffer.read_all()).to_string();
-        Ok(output)
-    }
-
-    /// Kill a running process
-    #[allow(dead_code)]
-    async fn kill_process(&self, process_id: &str) -> Result<(), String> {
-        {
-            let mut handles = self.process_handles.lock().await;
-            let handle = handles
-                .get_mut(process_id)
-                .ok_or_else(|| format!("Invalid process ID: {}", process_id))?;
-
-            handle
-                .child
-                .kill()
-                .await
-                .map_err(|e| format!("Failed to kill process: {}", e))?;
-        }
-
-        // Clean up killed and other completed processes
-        self.cleanup_completed_processes().await;
-
-        Ok(())
-    }
-
-    /// Wait for a process to complete and return its exit code
-    #[allow(dead_code)]
-    async fn wait_for_process(&self, process_id: &str) -> Result<i32, String> {
-        let mut handle = {
-            let mut handles = self.process_handles.lock().await;
-            handles
-                .remove(process_id)
-                .ok_or_else(|| format!("Invalid process ID: {}", process_id))?
-        };
-
-        let status = handle
-            .child
-            .wait()
-            .await
-            .map_err(|e| format!("Failed to wait for process: {}", e))?;
-
-        Ok(status.code().unwrap_or(-1))
-    }
-
-    /// Check if a process is still running
-    #[allow(dead_code)]
-    async fn is_process_running(&self, process_id: &str) -> bool {
-        let mut handles = self.process_handles.lock().await;
-        if let Some(handle) = handles.get_mut(process_id) {
-            matches!(handle.child.try_wait(), Ok(None))
-        } else {
-            false
-        }
-        // Note: Cleanup happens in spawn_process and kill_process
-    }
-}
-
-impl Drop for IoClient {
-    fn drop(&mut self) {
-        // Try to acquire lock without blocking (Drop can't be async)
-        if let Ok(mut handles) = self.process_handles.try_lock() {
-            let running_count = handles.len();
-
-            if running_count > 0 && self.config.subprocess_config.warn_on_orphan {
-                eprintln!(
-                    "⚠️  WARNING: {} subprocess(es) still running at interpreter shutdown",
-                    running_count
-                );
-            }
-
-            // Optionally kill all running processes on shutdown
-            if self.config.subprocess_config.kill_on_shutdown {
-                for (_id, handle) in handles.iter_mut() {
-                    let _ = handle.child.start_kill();
-                }
-            }
-
-            handles.clear();
-        }
-    }
-}
+// Process handle for managing subprocess state - removed, using one from io_client.rs
 
 impl Default for Interpreter {
     fn default() -> Self {
@@ -1667,7 +872,7 @@ impl Interpreter {
         }
     }
 
-    async fn execute_statement(
+    pub(crate) async fn execute_statement(
         &self,
         stmt: &Statement,
         env: Rc<RefCell<Environment>>,
@@ -5003,6 +4208,7 @@ impl Interpreter {
                                     describe_context: context,
                                     test_name: description.clone(),
                                     assertion_message: error_msg,
+                        duration: Duration::from_millis(0), // Placeholder
                                     line: *line,
                                     column: *column,
                                 };
@@ -5065,6 +4271,7 @@ impl Interpreter {
                         describe_context: context,
                         test_name,
                         assertion_message: message.clone(),
+                        duration: Duration::from_millis(0), // Placeholder
                         line: *line,
                         column: *column,
                     };
@@ -5093,7 +4300,7 @@ impl Interpreter {
         result
     }
 
-    async fn execute_block(
+    pub(crate) async fn execute_block(
         &self,
         statements: &[Statement],
         env: Rc<RefCell<Environment>>,
@@ -5232,7 +4439,7 @@ impl Interpreter {
         }
     }
 
-    async fn evaluate_expression(
+    pub(crate) async fn evaluate_expression(
         &self,
         expr: &Expression,
         env: Rc<RefCell<Environment>>,
@@ -5272,215 +4479,61 @@ impl Interpreter {
 
         let result = match expr {
             // Container-related expressions
-            &Expression::StaticMemberAccess {
-                ref container,
-                ref member,
+            Expression::StaticMemberAccess {
+                container,
+                member,
                 line,
                 column,
             } => {
-                // Look up the container definition
-                let container_def = match env.borrow().get(container) {
-                    Some(Value::ContainerDefinition(def)) => def.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Container '{container}' not found"),
-                            line,
-                            column,
-                        ));
-                    }
-                };
-
-                // Look up the static member
-                if let Some(value) = container_def.static_properties.get(member) {
-                    Ok(value.clone())
-                } else if let Some(method) = container_def.static_methods.get(member) {
-                    // Create a function value from the method
-                    let function = FunctionValue {
-                        name: Some(method.name.clone()),
-                        params: method.params.clone(),
-                        body: method.body.clone(),
-                        env: method.env.clone(),
-                        line: method.line,
-                        column: method.column,
-                    };
-
-                    Ok(Value::Function(Rc::new(function)))
-                } else {
-                    Err(RuntimeError::new(
-                        format!("Static member '{member}' not found in container '{container}'"),
-                        line,
-                        column,
-                    ))
-                }
+                self.evaluate_static_member_access(
+                    container,
+                    member,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
 
-            &Expression::MethodCall {
-                ref object,
-                ref method,
-                ref arguments,
+            Expression::MethodCall {
+                object,
+                method,
+                arguments,
                 line,
                 column,
             } => {
-                // Evaluate the object
                 let object_val = self.evaluate_expression(object, Rc::clone(&env)).await?;
-
-                // Clone the object value to avoid borrow issues
-                let object_val_clone = object_val.clone();
-
-                // Check if the object is a container instance
-                if let Value::ContainerInstance(instance_rc) = &object_val_clone {
-                    // Clone instance_rc for later property write-back
-                    let instance_rc_for_writeback = instance_rc.clone();
-
-                    let (container_type, property_names) = {
-                        let instance = instance_rc.borrow();
-                        let container_type = instance.container_type.clone();
-                        let prop_names: Vec<String> = instance.properties.keys().cloned().collect();
-                        (container_type, prop_names)
-                    };
-
-                    // Look up the container definition
-                    let container_def = match env.borrow().get(&container_type) {
-                        Some(Value::ContainerDefinition(def)) => def.clone(),
-                        _ => {
-                            return Err(RuntimeError::new(
-                                format!("Container '{container_type}' not found"),
-                                line,
-                                column,
-                            ));
-                        }
-                    };
-
-                    // Look up the method (with inheritance support)
-                    let mut found_method = container_def.methods.get(method).cloned();
-                    let mut current_container_name = container_type.clone();
-
-                    // If method not found, check parent containers
-                    while found_method.is_none() {
-                        if let Some(Value::ContainerDefinition(def)) =
-                            env.borrow().get(&current_container_name)
-                        {
-                            if let Some(parent_name) = &def.extends {
-                                current_container_name = parent_name.clone();
-                                if let Some(Value::ContainerDefinition(parent_def)) =
-                                    env.borrow().get(parent_name)
-                                {
-                                    found_method = parent_def.methods.get(method).cloned();
-                                } else {
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-
-                    if let Some(method_val) = found_method {
-                        // Create a function value from the method
-                        let function = FunctionValue {
-                            name: Some(method_val.name.clone()),
-                            params: method_val.params.clone(),
-                            body: method_val.body.clone(),
-                            env: method_val.env.clone(),
-                            line: method_val.line,
-                            column: method_val.column,
-                        };
-
-                        // Create a new environment for the method execution
-                        let method_env = Environment::new_child_env(&env);
-
-                        // Add 'this' to the environment
-                        let _ = method_env.borrow_mut().define("this", object_val.clone());
-
-                        // Add container properties and events as accessible variables
-                        {
-                            let instance = instance_rc.borrow();
-
-                            // Add properties
-                            for (prop_name, prop_value) in &instance.properties {
-                                let _ = method_env
-                                    .borrow_mut()
-                                    .define(prop_name, prop_value.clone());
-                            }
-
-                            // Add events from the container definition
-                            if let Some(Value::ContainerDefinition(container_def_rc)) =
-                                env.borrow().get(&instance.container_type)
-                            {
-                                let container_def = container_def_rc.clone();
-                                for (event_name, event_value) in &container_def.events {
-                                    let _ = method_env.borrow_mut().define(
-                                        event_name,
-                                        Value::ContainerEvent(Rc::new(event_value.clone())),
-                                    );
-                                }
-                            }
-                        } // Drop instance borrow here
-
-                        // Evaluate the arguments
-                        let mut arg_values = Vec::with_capacity(arguments.len());
-                        for arg in arguments {
-                            let arg_val = self
-                                .evaluate_expression(&arg.value, Rc::clone(&env))
-                                .await?;
-                            arg_values.push(arg_val);
-                        }
-
-                        // Create a modified function with the method environment
-                        let method_function = FunctionValue {
-                            name: function.name.clone(),
-                            params: function.params.clone(),
-                            body: function.body.clone(),
-                            env: Rc::downgrade(&method_env),
-                            line: function.line,
-                            column: function.column,
-                        };
-
-                        // Call the function with the method environment
-                        let result = self
-                            .call_function(&method_function, arg_values, line, column)
-                            .await?;
-
-                        // WRITE BACK MODIFIED PROPERTIES TO CONTAINER
-                        // This fixes the property mutation issue where properties modified
-                        // in container actions weren't persisting
-                        for prop_name in property_names {
-                            if let Some(updated_value) = method_env.borrow().get(&prop_name) {
-                                instance_rc_for_writeback
-                                    .borrow_mut()
-                                    .properties
-                                    .insert(prop_name, updated_value);
-                            }
-                        }
-
-                        Ok(result)
-                    } else {
-                        Err(RuntimeError::new(
-                            format!("Method '{method}' not found in container '{container_type}'"),
-                            line,
-                            column,
-                        ))
-                    }
-                } else {
-                    Err(RuntimeError::new(
-                        format!("Cannot call method '{method}' on non-container value"),
-                        line,
-                        column,
-                    ))
-                }
+                self.evaluate_method_call(
+                    &object_val,
+                    method,
+                    arguments,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
-            &Expression::AwaitExpression {
-                ref expression,
-                line: _line,
-                column: _column,
+            Expression::PropertyAccess {
+                object,
+                property,
+                line,
+                column,
             } => {
-                let value = self
-                    .evaluate_expression(expression, Rc::clone(&env))
-                    .await?;
-                Ok(value)
+                let object_val = self.evaluate_expression(object, Rc::clone(&env)).await?;
+                self.evaluate_property_access(
+                    &object_val,
+                    property,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
+            Expression::AwaitExpression {
+                expression,
+                line: _,
+                column: _,
+            } => self.evaluate_expression(expression, Rc::clone(&env)).await,
             Expression::Literal(literal, _line, _column) => match literal {
                 Literal::String(s) => Ok(Value::Text(Rc::from(s.as_str()))),
                 Literal::Integer(i) => Ok(Value::Number(*i as f64)),
@@ -5499,7 +4552,8 @@ impl Interpreter {
                     let mut list_values = Vec::new();
                     for element in elements {
                         // Use Box::pin to handle recursion in async fn
-                        let future = Box::pin(self._evaluate_expression(element, Rc::clone(&env)));
+                        let future =
+                            Box::pin(self._evaluate_expression(element, Rc::clone(&env)));
                         let value = future.await?;
                         list_values.push(value);
                     }
@@ -5574,32 +4628,15 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // Use Box::pin to handle recursion in async fn
-                let left_future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
-                let left_val = left_future.await?;
-
-                let right_val = self.evaluate_expression(right, Rc::clone(&env)).await?;
-
-                match operator {
-                    Operator::Plus => self.add(left_val, right_val, *line, *column),
-                    Operator::Minus => self.subtract(left_val, right_val, *line, *column),
-                    Operator::Multiply => self.multiply(left_val, right_val, *line, *column),
-                    Operator::Divide => self.divide(left_val, right_val, *line, *column),
-                    Operator::Modulo => self.modulo(left_val, right_val, *line, *column),
-                    Operator::Equals => Ok(Value::Bool(self.is_equal(&left_val, &right_val))),
-                    Operator::NotEquals => Ok(Value::Bool(!self.is_equal(&left_val, &right_val))),
-                    Operator::GreaterThan => self.greater_than(left_val, right_val, *line, *column),
-                    Operator::LessThan => self.less_than(left_val, right_val, *line, *column),
-                    Operator::GreaterThanOrEqual => {
-                        self.greater_than_equal(left_val, right_val, *line, *column)
-                    }
-                    Operator::LessThanOrEqual => {
-                        self.less_than_equal(left_val, right_val, *line, *column)
-                    }
-                    Operator::And => Ok(Value::Bool(left_val.is_truthy() && right_val.is_truthy())),
-                    Operator::Or => Ok(Value::Bool(left_val.is_truthy() || right_val.is_truthy())),
-                    Operator::Contains => self.contains(left_val, right_val, *line, *column),
-                }
+                self.evaluate_binary_operation(
+                    left,
+                    operator,
+                    right,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
 
             Expression::UnaryOperation {
@@ -5608,21 +4645,14 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let value = self
-                    .evaluate_expression(expression, Rc::clone(&env))
-                    .await?;
-
-                match operator {
-                    UnaryOperator::Not => Ok(Value::Bool(!value.is_truthy())),
-                    UnaryOperator::Minus => match value {
-                        Value::Number(n) => Ok(Value::Number(-n)),
-                        _ => Err(RuntimeError::new(
-                            format!("Cannot negate {}", value.type_name()),
-                            *line,
-                            *column,
-                        )),
-                    },
-                }
+                self.evaluate_unary_operation(
+                    operator,
+                    expression,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
 
             Expression::FunctionCall {
@@ -5631,53 +4661,14 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let function_val = self.evaluate_expression(function, Rc::clone(&env)).await?;
-
-                let mut arg_values = Vec::new();
-                for arg in arguments {
-                    arg_values.push(
-                        self.evaluate_expression(&arg.value, Rc::clone(&env))
-                            .await?,
-                    );
-                }
-
-                #[cfg(debug_assertions)]
-                let func_name = match &function_val {
-                    Value::Function(f) => {
-                        f.name.clone().unwrap_or_else(|| "<anonymous>".to_string())
-                    }
-                    _ => format!("{function_val:?}"),
-                };
-
-                #[cfg(debug_assertions)]
-                exec_function_call!(&func_name, &arg_values);
-
-                let result = match function_val {
-                    Value::Function(func) => {
-                        self.call_function(&func, arg_values, *line, *column).await
-                    }
-                    Value::NativeFunction(_, native_fn) => {
-                        native_fn(arg_values.clone()).map_err(|e| {
-                            RuntimeError::new(
-                                format!("Error in native function: {e}"),
-                                *line,
-                                *column,
-                            )
-                        })
-                    }
-                    _ => Err(RuntimeError::new(
-                        format!("Cannot call {}", function_val.type_name()),
-                        *line,
-                        *column,
-                    )),
-                };
-
-                #[cfg(debug_assertions)]
-                if let Ok(ref val) = result {
-                    exec_function_return!(&func_name, val);
-                }
-
-                result
+                self.evaluate_function_call(
+                    function,
+                    arguments,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
 
             Expression::ActionCall {
@@ -5686,44 +4677,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let function_val = env.borrow().get(name).ok_or_else(|| {
-                    RuntimeError::new(format!("Undefined action '{name}'"), *line, *column)
-                })?;
-
-                match function_val {
-                    Value::Function(func) => {
-                        let mut arg_values = Vec::new();
-                        for arg in arguments.iter() {
-                            arg_values.push(
-                                self.evaluate_expression(&arg.value, Rc::clone(&env))
-                                    .await?,
-                            );
-                        }
-
-                        #[cfg(debug_assertions)]
-                        let func_name = func
-                            .name
-                            .clone()
-                            .unwrap_or_else(|| "<anonymous>".to_string());
-
-                        #[cfg(debug_assertions)]
-                        exec_function_call!(&func_name, &arg_values);
-
-                        let result = self.call_function(&func, arg_values, *line, *column).await;
-
-                        #[cfg(debug_assertions)]
-                        if let Ok(ref val) = result {
-                            exec_function_return!(&func_name, val);
-                        }
-
-                        result
-                    }
-                    _ => Err(RuntimeError::new(
-                        format!("'{name}' is not callable"),
-                        *line,
-                        *column,
-                    )),
-                }
+                self.evaluate_action_call(name, arguments, *line, *column, Rc::clone(&env))
+                    .await
             }
 
             Expression::MemberAccess {
@@ -5732,27 +4687,14 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let object_val = self.evaluate_expression(object, Rc::clone(&env)).await?;
-
-                match object_val {
-                    Value::Object(obj_rc) => {
-                        let obj = obj_rc.borrow();
-                        if let Some(value) = obj.get(property) {
-                            Ok(value.clone())
-                        } else {
-                            Err(RuntimeError::new(
-                                format!("Object has no property '{property}'"),
-                                *line,
-                                *column,
-                            ))
-                        }
-                    }
-                    _ => Err(RuntimeError::new(
-                        format!("Cannot access property of {}", object_val.type_name()),
-                        *line,
-                        *column,
-                    )),
-                }
+                self.evaluate_member_access(
+                    object,
+                    property,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
 
             Expression::IndexAccess {
@@ -5761,347 +4703,101 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let collection_val = self
-                    .evaluate_expression(collection, Rc::clone(&env))
-                    .await?;
-                let index_val = self.evaluate_expression(index, Rc::clone(&env)).await?;
-
-                match (collection_val, index_val) {
-                    (Value::List(list_rc), Value::Number(idx)) => {
-                        let list = list_rc.borrow();
-                        let idx = idx as usize;
-
-                        if idx < list.len() {
-                            Ok(list[idx].clone())
-                        } else {
-                            Err(RuntimeError::new(
-                                format!(
-                                    "Index {} out of bounds for list of length {}",
-                                    idx,
-                                    list.len()
-                                ),
-                                *line,
-                                *column,
-                            ))
-                        }
-                    }
-                    (Value::Object(obj_rc), Value::Text(key)) => {
-                        let obj = obj_rc.borrow();
-                        let key_str = key.to_string();
-
-                        if let Some(value) = obj.get(&key_str) {
-                            Ok(value.clone())
-                        } else {
-                            Err(RuntimeError::new(
-                                format!("Object has no key '{key_str}'"),
-                                *line,
-                                *column,
-                            ))
-                        }
-                    }
-                    (collection, index) => Err(RuntimeError::new(
-                        format!(
-                            "Cannot index {} with {}",
-                            collection.type_name(),
-                            index.type_name()
-                        ),
-                        *line,
-                        *column,
-                    )),
-                }
+                self.evaluate_index_access(
+                    collection,
+                    index,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
 
             Expression::Concatenation {
                 left,
                 right,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
-                // Use Box::pin to handle recursion in async fn
-                let left_future = Box::pin(self.evaluate_expression(left, Rc::clone(&env)));
-                let left_val = left_future.await?;
-
-                let right_val = self.evaluate_expression(right, Rc::clone(&env)).await?;
-
-                let result = format!("{left_val}{right_val}");
-                Ok(Value::Text(Rc::from(result.as_str())))
+                self.evaluate_concatenation(left, right, *line, *column, Rc::clone(&env))
+                    .await
             }
 
             Expression::PatternMatch {
                 text,
                 pattern,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
-                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
-                let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
-
-                // Extract text string
-                let text_str = match &text_val {
-                    Value::Text(s) => s.as_ref(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            "Pattern match requires text as first argument".to_string(),
-                            *_line,
-                            *_column,
-                        ));
-                    }
-                };
-
-                // Extract compiled pattern
-                let compiled_pattern = match &pattern_val {
-                    Value::Pattern(p) => p,
-                    _ => {
-                        return Err(RuntimeError::new(
-                            "Pattern match requires pattern as second argument".to_string(),
-                            *_line,
-                            *_column,
-                        ));
-                    }
-                };
-
-                // Perform the match
-                let matches = compiled_pattern.matches(text_str);
-                Ok(Value::Bool(matches))
+                self.evaluate_pattern_match(text, pattern, *line, *column, Rc::clone(&env))
+                    .await
             }
 
             Expression::PatternFind {
                 text,
                 pattern,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
-                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
-                let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
-
-                // Extract text string
-                let text_str = match &text_val {
-                    Value::Text(s) => s.as_ref(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            "Pattern find requires text as first argument".to_string(),
-                            *_line,
-                            *_column,
-                        ));
-                    }
-                };
-
-                // Extract compiled pattern
-                let compiled_pattern = match &pattern_val {
-                    Value::Pattern(p) => p,
-                    _ => {
-                        return Err(RuntimeError::new(
-                            "Pattern find requires pattern as second argument".to_string(),
-                            *_line,
-                            *_column,
-                        ));
-                    }
-                };
-
-                // Find the first match
-                match compiled_pattern.find(text_str) {
-                    Some(match_result) => {
-                        // Return an object with match information
-                        let mut result_map = std::collections::HashMap::new();
-                        result_map.insert(
-                            "matched_text".to_string(),
-                            Value::Text(Rc::from(match_result.matched_text.as_str())),
-                        );
-                        result_map.insert(
-                            "start".to_string(),
-                            Value::Number(match_result.start as f64),
-                        );
-                        result_map
-                            .insert("end".to_string(), Value::Number(match_result.end as f64));
-
-                        // Add captures if any
-                        if !match_result.captures.is_empty() {
-                            let mut captures_map = std::collections::HashMap::new();
-                            for (name, value) in match_result.captures {
-                                captures_map.insert(name, Value::Text(Rc::from(value.as_str())));
-                            }
-                            result_map.insert(
-                                "captures".to_string(),
-                                Value::Object(Rc::new(RefCell::new(captures_map))),
-                            );
-                        }
-
-                        Ok(Value::Object(Rc::new(RefCell::new(result_map))))
-                    }
-                    None => Ok(Value::Null),
-                }
+                self.evaluate_pattern_find(text, pattern, *line, *column, Rc::clone(&env))
+                    .await
             }
 
             Expression::PatternReplace {
                 text,
                 pattern,
                 replacement,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
-                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
-                let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
-                let replacement_val = self
-                    .evaluate_expression(replacement, Rc::clone(&env))
-                    .await?;
-
-                let args = vec![text_val, pattern_val, replacement_val]; // Note: text, pattern, then replacement
-                crate::stdlib::pattern::native_pattern_replace(args, *_line, *_column)
+                self.evaluate_pattern_replace(
+                    text,
+                    pattern,
+                    replacement,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
 
             Expression::PatternSplit {
                 text,
                 pattern,
-                line: _line,
-                column: _column,
+                line,
+                column,
             } => {
-                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
-                let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
-
-                let args = vec![text_val, pattern_val];
-                crate::stdlib::pattern::native_pattern_split(args, *_line, *_column)
+                self.evaluate_pattern_split(text, pattern, *line, *column, Rc::clone(&env))
+                    .await
             }
             Expression::StringSplit {
                 text,
                 delimiter,
-                line: _line,
-                column: _column,
-            } => {
-                let text_val = self.evaluate_expression(text, Rc::clone(&env)).await?;
-                let delimiter_val = self.evaluate_expression(delimiter, Rc::clone(&env)).await?;
-
-                // Validate types
-                if !matches!(text_val, Value::Text(_)) {
-                    return Err(RuntimeError::new(
-                        format!("Cannot split {} - expected text", text_val.type_name()),
-                        *_line,
-                        *_column,
-                    ));
-                }
-                if !matches!(delimiter_val, Value::Text(_)) {
-                    return Err(RuntimeError::new(
-                        format!("Delimiter must be text - got {}", delimiter_val.type_name()),
-                        *_line,
-                        *_column,
-                    ));
-                }
-
-                let args = vec![text_val, delimiter_val];
-                crate::stdlib::text::native_string_split(args)
-            }
-            Expression::PropertyAccess {
-                object,
-                property,
                 line,
                 column,
             } => {
-                let obj_value = self.evaluate_expression(object, Rc::clone(&env)).await?;
-                match obj_value {
-                    Value::ContainerInstance(instance) => {
-                        let instance_ref = instance.borrow();
-                        if let Some(prop_value) = instance_ref.properties.get(property) {
-                            Ok(prop_value.clone())
-                        } else {
-                            Err(RuntimeError::new(
-                                format!("Property '{property}' not found"),
-                                *line,
-                                *column,
-                            ))
-                        }
-                    }
-                    _ => Err(RuntimeError::new(
-                        format!("Cannot access property '{property}' on non-container value"),
-                        *line,
-                        *column,
-                    )),
-                }
+                self.evaluate_string_split(text, delimiter, *line, *column, Rc::clone(&env))
+                    .await
             }
             Expression::FileExists { path, line, column } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                Ok(Value::Bool(tokio::fs::metadata(&*path_str).await.is_ok()))
+                self.evaluate_file_exists(path, *line, *column, Rc::clone(&env))
+                    .await
             }
             Expression::DirectoryExists { path, line, column } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for directory path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                match tokio::fs::metadata(&*path_str).await {
-                    Ok(metadata) => Ok(Value::Bool(metadata.is_dir())),
-                    Err(_) => Ok(Value::Bool(false)),
-                }
+                self.evaluate_directory_exists(path, *line, *column, Rc::clone(&env))
+                    .await
             }
             Expression::ListFiles { path, line, column } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for directory path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                match tokio::fs::read_dir(&*path_str).await {
-                    Ok(mut entries) => {
-                        let mut files = Vec::new();
-                        while let Ok(Some(entry)) = entries.next_entry().await {
-                            if let Ok(file_name) = entry.file_name().into_string() {
-                                files.push(Value::Text(file_name.into()));
-                            }
-                        }
-                        Ok(Value::List(Rc::new(RefCell::new(files))))
-                    }
-                    Err(e) => Err(RuntimeError::new(
-                        format!("Failed to list files in directory: {e}"),
-                        *line,
-                        *column,
-                    )),
-                }
+                self.evaluate_list_files(path, *line, *column, Rc::clone(&env))
+                    .await
             }
             Expression::ReadContent {
                 file_handle,
                 line,
                 column,
             } => {
-                let handle_value = self
-                    .evaluate_expression(file_handle, Rc::clone(&env))
-                    .await?;
-                let handle_str = match &handle_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {handle_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                match self.io_client.read_file(&handle_str).await {
-                    Ok(content) => Ok(Value::Text(content.into())),
-                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
-                }
+                self.evaluate_read_content(file_handle, *line, *column, Rc::clone(&env))
+                    .await
             }
             Expression::ListFilesRecursive {
                 path,
@@ -6109,68 +4805,14 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for directory path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                // Evaluate extensions if provided
-                let ext_filters = if let Some(ext_exprs) = extensions {
-                    let mut filters = Vec::new();
-                    for ext_expr in ext_exprs {
-                        let ext_value = self.evaluate_expression(ext_expr, Rc::clone(&env)).await?;
-                        match &ext_value {
-                            Value::Text(s) => filters.push(s.to_string()),
-                            Value::List(list) => {
-                                // If we get a list, extract all string values from it
-                                let list_ref = list.borrow();
-                                for item in list_ref.iter() {
-                                    match item {
-                                        Value::Text(s) => filters.push(s.to_string()),
-                                        _ => {
-                                            return Err(RuntimeError::new(
-                                                format!(
-                                                    "Expected string in extension list, got {item:?}"
-                                                ),
-                                                *line,
-                                                *column,
-                                            ));
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {
-                                return Err(RuntimeError::new(
-                                    format!(
-                                        "Expected string or list for extension, got {ext_value:?}"
-                                    ),
-                                    *line,
-                                    *column,
-                                ));
-                            }
-                        }
-                    }
-                    Some(filters)
-                } else {
-                    None
-                };
-
-                // Perform recursive directory listing
-                match self.list_files_recursive(&path_str, ext_filters).await {
-                    Ok(files) => Ok(Value::List(Rc::new(RefCell::new(files)))),
-                    Err(e) => Err(RuntimeError::new(
-                        format!("Failed to list files recursively: {e}"),
-                        *line,
-                        *column,
-                    )),
-                }
+                self.evaluate_list_files_recursive(
+                    path,
+                    extensions.as_ref(),
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
             Expression::ListFilesFiltered {
                 path,
@@ -6178,157 +4820,56 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for directory path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                // Evaluate extensions
-                let mut ext_filters = Vec::new();
-                for ext_expr in extensions {
-                    let ext_value = self.evaluate_expression(ext_expr, Rc::clone(&env)).await?;
-                    match &ext_value {
-                        Value::Text(s) => ext_filters.push(s.to_string()),
-                        Value::List(list) => {
-                            // If we get a list, extract all string values from it
-                            let list_ref = list.borrow();
-                            for item in list_ref.iter() {
-                                match item {
-                                    Value::Text(s) => ext_filters.push(s.to_string()),
-                                    _ => {
-                                        return Err(RuntimeError::new(
-                                            format!(
-                                                "Expected string in extension list, got {item:?}"
-                                            ),
-                                            *line,
-                                            *column,
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            return Err(RuntimeError::new(
-                                format!("Expected string or list for extension, got {ext_value:?}"),
-                                *line,
-                                *column,
-                            ));
-                        }
-                    }
-                }
-
-                // List files with filtering
-                match self.list_files_filtered(&path_str, ext_filters).await {
-                    Ok(files) => Ok(Value::List(Rc::new(RefCell::new(files)))),
-                    Err(e) => Err(RuntimeError::new(
-                        format!("Failed to list files with filter: {e}"),
-                        *line,
-                        *column,
-                    )),
-                }
+                self.evaluate_list_files_filtered(
+                    path,
+                    extensions,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
             Expression::HeaderAccess {
                 header_name,
-                request: _,
+                request,
                 line,
                 column,
             } => {
-                // Access the headers object from the environment
-                // Headers are stored as a global variable when wait for request is executed
-                let headers_val = match env.borrow().get("headers") {
-                    Some(val) => val.clone(),
-                    None => {
-                        return Err(RuntimeError::new(
-                            "Cannot access headers: no request in scope. Use 'wait for request comes in' first.".to_string(),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                // Get the specific header from the headers object
-                match &headers_val {
-                    Value::Object(headers_map) => match headers_map.borrow().get(header_name) {
-                        Some(header_value) => Ok(header_value.clone()),
-                        None => Ok(Value::Nothing),
-                    },
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!(
-                                "Expected headers to be an object, got {}",
-                                headers_val.type_name()
-                            ),
-                            *line,
-                            *column,
-                        ));
-                    }
-                }
+                self.evaluate_header_access(
+                    header_name,
+                    request,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
-            Expression::CurrentTimeMilliseconds { line: _, column: _ } => {
-                use std::time::{SystemTime, UNIX_EPOCH};
-                let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| {
-                    RuntimeError::new(format!("Failed to get current time: {}", e), 0, 0)
-                })?;
-                Ok(Value::Number(now.as_millis() as f64))
-            }
+            Expression::CurrentTimeMilliseconds { line, column } => self
+                .evaluate_current_time_milliseconds(*line, *column, Rc::clone(&env)),
             Expression::CurrentTimeFormatted {
                 format,
-                line: _,
-                column: _,
-            } => {
-                use chrono::{DateTime, Local};
-                let now: DateTime<Local> = Local::now();
-
-                // Convert WFL format to chrono format
-                // For now, support basic formats
-                let chrono_format = format
-                    .replace("yyyy", "%Y")
-                    .replace("MM", "%m")
-                    .replace("dd", "%d")
-                    .replace("HH", "%H")
-                    .replace("mm", "%M")
-                    .replace("ss", "%S");
-
-                let formatted = now.format(&chrono_format).to_string();
-                Ok(Value::Text(Rc::from(formatted)))
-            }
+                line,
+                column,
+            } => self.evaluate_current_time_formatted(
+                format,
+                *line,
+                *column,
+                Rc::clone(&env),
+            ),
             Expression::ProcessRunning {
                 process_id,
                 line,
                 column,
             } => {
-                // Evaluate process ID expression
-                let proc_val = self
-                    .evaluate_expression(process_id, Rc::clone(&env))
-                    .await?;
-                let proc_id = match &proc_val {
-                    Value::Text(text) => text.as_ref(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Process ID must be text, got {}", proc_val.type_name()),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                // Check if process is running
-                let is_running = self.io_client.is_process_running(proc_id).await;
-                Ok(Value::Bool(is_running))
+                self.evaluate_process_running(process_id, *line, *column, Rc::clone(&env))
+                    .await
             }
         };
         self.assert_invariants();
         result
     }
 
-    async fn call_function(
+    pub(crate) async fn call_function(
         &self,
         func: &FunctionValue,
         args: Vec<Value>,
@@ -6452,172 +4993,10 @@ impl Interpreter {
         }
     }
 
-    fn add(
-        &self,
-        left: Value,
-        right: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a + b)),
-            (Value::Text(a), Value::Text(b)) => {
-                let result = format!("{a}{b}");
-                Ok(Value::Text(Rc::from(result.as_str())))
-            }
-            (Value::Text(a), b) => {
-                let result = format!("{a}{b}");
-                Ok(Value::Text(Rc::from(result.as_str())))
-            }
-            (a, Value::Text(b)) => {
-                let result = format!("{a}{b}");
-                Ok(Value::Text(Rc::from(result.as_str())))
-            }
-            (a, b) => Err(RuntimeError::new(
-                format!("Cannot add {} and {}", a.type_name(), b.type_name()),
-                line,
-                column,
-            )),
-        }
-    }
-
-    fn subtract(
-        &self,
-        left: Value,
-        right: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a - b)),
-            (a, b) => Err(RuntimeError::new(
-                format!("Cannot subtract {} from {}", b.type_name(), a.type_name()),
-                line,
-                column,
-            )),
-        }
-    }
-
-    fn multiply(
-        &self,
-        left: Value,
-        right: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a * b)),
-            (a, b) => Err(RuntimeError::new(
-                format!("Cannot multiply {} and {}", a.type_name(), b.type_name()),
-                line,
-                column,
-            )),
-        }
-    }
-
-    fn divide(
-        &self,
-        left: Value,
-        right: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        #[cfg(feature = "dhat-ad-hoc")]
-        dhat::ad_hoc_event(1); // Track division operations for memory profiling
-
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => {
-                if b == 0.0 {
-                    Err(RuntimeError::new(
-                        "Division by zero".to_string(),
-                        line,
-                        column,
-                    ))
-                } else {
-                    // Calculate the result of the division operation
-                    let result = a / b;
-
-                    // Check if the result is valid (not NaN or infinite)
-                    if !result.is_finite() {
-                        return Err(RuntimeError::new(
-                            format!("Division resulted in invalid number: {result}"),
-                            line,
-                            column,
-                        ));
-                    }
-
-                    // Return the valid result as a Value::Number
-                    Ok(Value::Number(result))
-                }
-            }
-            (a, b) => Err(RuntimeError::new(
-                format!("Cannot divide {} by {}", a.type_name(), b.type_name()),
-                line,
-                column,
-            )),
-        }
-    }
-
-    fn modulo(
-        &self,
-        left: Value,
-        right: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        #[cfg(feature = "dhat-ad-hoc")]
-        dhat::ad_hoc_event(1); // Track modulo operations for memory profiling
-
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => {
-                if b == 0.0 {
-                    Err(RuntimeError::new(
-                        "Modulo by zero".to_string(),
-                        line,
-                        column,
-                    ))
-                } else {
-                    // Calculate the result of the modulo operation
-                    let result = a % b;
-
-                    // Check if the result is valid (not NaN or infinite)
-                    if !result.is_finite() {
-                        return Err(RuntimeError::new(
-                            format!("Modulo resulted in invalid number: {result}"),
-                            line,
-                            column,
-                        ));
-                    }
-
-                    // Return the valid result as a Value::Number
-                    Ok(Value::Number(result))
-                }
-            }
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compute modulo of {} by {}",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
-    }
-
-    fn is_equal(&self, left: &Value, right: &Value) -> bool {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => (a - b).abs() < f64::EPSILON,
-            (Value::Text(a), Value::Text(b)) => a == b,
-            (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Null, Value::Null) => true,
-            _ => false,
-        }
-    }
 
     // Helper method to create container instance with inheritance
     #[allow(clippy::only_used_in_recursion)]
-    fn create_container_instance_with_inheritance(
+    pub(crate) fn create_container_instance_with_inheritance(
         &self,
         container_type: &str,
         env: &Rc<RefCell<Environment>>,
@@ -6672,204 +5051,6 @@ impl Interpreter {
         })
     }
 
-    fn greater_than(
-        &self,
-        left: Value,
-        right: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a > b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a > b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with >",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
-    }
-
-    fn less_than(
-        &self,
-        left: Value,
-        right: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a < b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a < b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with <",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
-    }
-
-    fn greater_than_equal(
-        &self,
-        left: Value,
-        right: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a >= b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a >= b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with >=",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
-    }
-
-    fn less_than_equal(
-        &self,
-        left: Value,
-        right: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a <= b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a <= b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with <=",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
-    }
-
-    fn contains(
-        &self,
-        left: Value,
-        right: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::List(list_rc), item) => {
-                let list = list_rc.borrow();
-                for value in list.iter() {
-                    if self.is_equal(value, &item) {
-                        return Ok(Value::Bool(true));
-                    }
-                }
-                Ok(Value::Bool(false))
-            }
-            (Value::Object(obj_rc), Value::Text(key)) => {
-                let obj = obj_rc.borrow();
-                Ok(Value::Bool(obj.contains_key(&key.to_string())))
-            }
-            (Value::Text(text), Value::Text(substring)) => {
-                Ok(Value::Bool(text.contains(&*substring)))
-            }
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot check if {} contains {}",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
-    }
-
-    async fn list_files_recursive(
-        &self,
-        path: &str,
-        extensions: Option<Vec<String>>,
-    ) -> Result<Vec<Value>, std::io::Error> {
-        use tokio::fs;
-
-        let mut files = Vec::new();
-        let mut dirs_to_process = vec![path.to_string()];
-
-        while let Some(current_dir) = dirs_to_process.pop() {
-            let mut entries = fs::read_dir(&current_dir).await?;
-
-            while let Some(entry) = entries.next_entry().await? {
-                let path = entry.path();
-                let path_str = path.to_string_lossy().to_string();
-
-                if path.is_dir() {
-                    dirs_to_process.push(path_str);
-                } else if path.is_file() {
-                    // Check extension filter if provided
-                    if let Some(ref exts) = extensions {
-                        let file_ext = path
-                            .extension()
-                            .and_then(|ext| ext.to_str())
-                            .map(|ext| format!(".{ext}"));
-
-                        if let Some(ext) = file_ext
-                            && exts.iter().any(|e| e == &ext)
-                        {
-                            files.push(Value::Text(path_str.into()));
-                        }
-                    } else {
-                        files.push(Value::Text(path_str.into()));
-                    }
-                }
-            }
-        }
-
-        Ok(files)
-    }
-
-    async fn list_files_filtered(
-        &self,
-        path: &str,
-        extensions: Vec<String>,
-    ) -> Result<Vec<Value>, std::io::Error> {
-        use tokio::fs;
-
-        let mut files = Vec::new();
-        let mut entries = fs::read_dir(path).await?;
-
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-
-            if path.is_file() {
-                let path_str = path.to_string_lossy().to_string();
-
-                // Check extension filter
-                let file_ext = path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| format!(".{ext}"));
-
-                if let Some(ext) = file_ext
-                    && extensions.iter().any(|e| e == &ext)
-                {
-                    files.push(Value::Text(path_str.into()));
-                }
-            }
-        }
-
-        Ok(files)
-    }
 }
 
 #[cfg(test)]
