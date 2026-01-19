@@ -319,6 +319,8 @@ pub enum Token {
     KeywordTrigger,
     #[token("on")]
     KeywordOn,
+    #[token("secure")]
+    KeywordSecure,
     #[token("static")]
     KeywordStatic,
     #[token("public")]

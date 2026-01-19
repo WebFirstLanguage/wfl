@@ -4,7 +4,7 @@ Quick lookup for all WFL reserved keywords.
 
 **→ For complete technical details:** [Reserved Keywords (Complete) →](reserved-keywords.md)
 
-**Total:** 178 keywords and literals
+**Total:** 179 keywords and literals
 
 ---
 
@@ -186,7 +186,7 @@ Quick lookup for all WFL reserved keywords.
 
 ---
 
-## Web & Network Keywords (17)
+## Web & Network Keywords (18)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -205,6 +205,7 @@ Quick lookup for all WFL reserved keywords.
 | `request` | Web request | ✗ |
 | `respond` | Send response | ✗ |
 | `response` | Web response | ✗ |
+| `secure` | HTTPS/TLS mode | ✗ |
 | `server` | Web server | ✗ |
 | `signal` | Server signal | ✗ |
 | `status` | Response status | ✗ |

@@ -48,6 +48,119 @@ listen on port <port_number> as <server_variable>
 
 This creates a server that listens on the specified port.
 
+### Starting an HTTPS Server
+
+WFL supports secure HTTPS/TLS servers using the `secure` keyword:
+
+```wfl
+listen on secure port 443 as https_server
+```
+
+**Syntax:**
+```wfl
+listen on secure port <port_number> as <server_variable>
+```
+
+This creates an HTTPS server with TLS encryption.
+
+#### Certificate Requirements
+
+HTTPS servers require TLS certificates stored in a `.ssl` directory relative to your WFL script:
+
+```
+your_project/
+├── server.wfl
+└── .ssl/
+    ├── cert.pem    # Required: Your certificate
+    ├── key.pem     # Required: Your private key
+    └── chain.pem   # Optional: Certificate chain
+```
+
+**For development:**
+
+Generate self-signed certificates for testing:
+
+```bash
+# Using the provided script (Linux/macOS/Git Bash)
+./scripts/generate_test_certs.sh
+
+# Or PowerShell (Windows)
+.\scripts\generate_test_certs.ps1
+
+# Or manually with OpenSSL
+openssl req -x509 -newkey rsa:2048 -nodes \
+    -keyout .ssl/key.pem \
+    -out .ssl/cert.pem \
+    -days 365 \
+    -subj "/CN=localhost"
+```
+
+**For production:**
+
+Use certificates from trusted Certificate Authorities:
+- [Let's Encrypt](https://letsencrypt.org/) - Free, automated certificates
+- Commercial CAs - Digicert, GlobalSign, etc.
+
+#### Example: HTTPS Server
+
+```wfl
+// Simple HTTPS server
+listen on secure port 443 as https_server
+
+wait for request comes in on https_server as req
+respond to req with "Secure Hello from HTTPS!"
+```
+
+**Note:** Port 443 requires elevated privileges (sudo/admin) on most systems. For development, use a high port like 8443:
+
+```wfl
+listen on secure port 8443 as dev_https_server
+```
+
+#### Running HTTP and HTTPS Together
+
+You can run both HTTP and HTTPS servers simultaneously:
+
+```wfl
+// Start both HTTP and HTTPS servers
+listen on port 8080 as http_server
+listen on secure port 8443 as https_server
+
+// Handle requests from both servers
+wait for request comes in on http_server as http_req
+wait for request comes in on https_server as https_req
+
+respond to http_req with "HTTP response"
+respond to https_req with "HTTPS response"
+```
+
+#### Testing HTTPS Servers
+
+With self-signed certificates, you'll need to skip certificate validation:
+
+```bash
+# Using curl (skip certificate verification)
+curl -k https://localhost:8443
+
+# Using a browser
+# You'll see a warning about self-signed certificates
+# Click "Advanced" and "Accept Risk" to proceed
+```
+
+#### Error Messages
+
+If certificates are missing or invalid, you'll see clear error messages:
+
+```
+Failed to load TLS configuration: HTTPS certificate not found: /path/.ssl/cert.pem
+To use secure servers, place your certificate in the .ssl directory.
+```
+
+```
+Failed to load TLS configuration: HTTPS private key not found: /path/.ssl/key.pem
+To use secure servers, place your private key in the .ssl directory.
+```
+
 ### Waiting for Requests
 
 Use `wait for request` to accept incoming HTTP requests:
@@ -535,7 +648,7 @@ end check
 - **Blocking:** Server handles requests sequentially
 - **No middleware system** (yet) - Implement manually
 - **No built-in session management** - Implement yourself
-- **No HTTPS** (yet) - HTTP only for now
+- **Limited HTTPS features:** No certificate hot reload, mTLS, SNI, or HTTP/2 (yet)
 
 ### Workarounds
 
@@ -568,7 +681,8 @@ end repeat
 
 In this section, you learned:
 
-✅ **Starting servers** - `listen on port`
+✅ **Starting servers** - `listen on port` and `listen on secure port`
+✅ **HTTPS/TLS** - Secure servers with certificates
 ✅ **Accepting requests** - `wait for request`
 ✅ **Sending responses** - `respond to`
 ✅ **Routing** - Using conditionals to handle different paths

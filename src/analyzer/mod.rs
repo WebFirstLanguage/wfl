@@ -1292,6 +1292,7 @@ impl Analyzer {
             Statement::ListenStatement {
                 port,
                 server_name,
+                secure: _,
                 line,
                 column,
             } => {

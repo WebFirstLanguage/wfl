@@ -19,8 +19,21 @@ impl<'a> WebParser<'a> for Parser<'a> {
         // Expect "on"
         self.expect_token(Token::KeywordOn, "Expected 'on' after 'listen'")?;
 
+        // Check for optional "secure" keyword
+        let secure = if let Some(token) = self.cursor.peek()
+            && token.token == Token::KeywordSecure
+        {
+            self.bump_sync(); // Consume "secure"
+            true
+        } else {
+            false
+        };
+
         // Expect "port"
-        self.expect_token(Token::KeywordPort, "Expected 'port' after 'listen on'")?;
+        self.expect_token(
+            Token::KeywordPort,
+            "Expected 'port' after 'listen on [secure]'",
+        )?;
 
         // Parse port expression
         let port = self.parse_expression()?;
@@ -34,6 +47,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
         Ok(Statement::ListenStatement {
             port,
             server_name,
+            secure,
             line: listen_token.line,
             column: listen_token.column,
         })

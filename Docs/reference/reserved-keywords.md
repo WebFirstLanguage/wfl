@@ -5,8 +5,8 @@ Complete technical documentation for all WFL reserved keywords.
 **→ For quick lookup:** [Keyword Reference (Quick) →](keyword-reference.md)
 
 **Source:** WFL Compiler v26.1.x (extracted from `src/lexer/token.rs`)
-**Total:** 178 keywords and literals
-**Last Updated:** 2026-01-16
+**Total:** 179 keywords and literals
+**Last Updated:** 2026-01-19
 
 ---
 
@@ -18,7 +18,7 @@ Complete technical documentation for all WFL reserved keywords.
    - [Why Some Keywords Appear in Multiple Lists](#why-some-keywords-appear-in-multiple-lists)
 2. [Structural Keywords (52)](#structural-keywords-52)
 3. [Contextual Keywords (29)](#contextual-keywords-29)
-4. [Other Reserved Keywords (95)](#other-reserved-keywords-95)
+4. [Other Reserved Keywords (96)](#other-reserved-keywords-96)
 5. [Boolean & Null Literals (7)](#boolean--null-literals-7)
 6. [Keywords by Feature Category](#keywords-by-feature-category)
 7. [Usage Guidelines & Best Practices](#usage-guidelines--best-practices)
@@ -226,7 +226,7 @@ These keywords appear in the contextual list but also appear as structural keywo
 
 ---
 
-## Other Reserved Keywords (95)
+## Other Reserved Keywords (96)
 
 All other reserved keywords that don't fall into structural or contextual-only categories. These keywords cannot be used as variable names.
 
@@ -241,8 +241,8 @@ All other reserved keywords that don't fall into structural or contextual-only c
 
 **Note:** Some pattern keywords like `any`, `zero`, `pattern`, `text` are counted in other categories (structural or contextual).
 
-### Web & Network (17)
-`accepting`, `comes`, `connections`, `current`, `formatted`, `handler`, `header`, `listen`, `milliseconds`, `port`, `register`, `request`, `respond`, `response`, `server`, `signal`, `status`, `stop`, `timeout`
+### Web & Network (18)
+`accepting`, `comes`, `connections`, `current`, `formatted`, `handler`, `header`, `listen`, `milliseconds`, `port`, `register`, `request`, `respond`, `response`, `secure`, `server`, `signal`, `status`, `stop`, `timeout`
 
 ### Process & Execution (11)
 `arguments`, `command`, `execute`, `into`, `kill`, `output`, `process`, `running`, `shell`, `spawn`, `using`
@@ -319,8 +319,8 @@ Keywords organized by functional area for easier reference.
 ### File & I/O (18 keywords)
 `append`, `appending`, `close`, `content`, `delete`, `directory`, `exists`, `extension`, `extensions`, `file`, `files`, `found`, `open`, `permission`, `denied`, `read`, `recursively`, `write`
 
-### Web & Network (20 keywords)
-`accepting`, `comes`, `connections`, `current`, `formatted`, `handler`, `header`, `listen`, `milliseconds`, `on`, `port`, `register`, `request`, `respond`, `response`, `server`, `signal`, `status`, `stop`, `timeout`
+### Web & Network (21 keywords)
+`accepting`, `comes`, `connections`, `current`, `formatted`, `handler`, `header`, `listen`, `milliseconds`, `on`, `port`, `register`, `request`, `respond`, `response`, `secure`, `server`, `signal`, `status`, `stop`, `timeout`
 
 ### Containers & OOP (17 keywords)
 `constant`, `container`, `defaults`, `event`, `extends`, `implements`, `interface`, `must`, `new`, `on`, `parent`, `private`, `property`, `public`, `requires`, `static`, `trigger`
@@ -648,6 +648,7 @@ Complete reference table of all 178 keywords.
 | `running` | Other | Process | ❌ | `process running` |
 | `same` | Other | Comparison | ❌ | `is same as` |
 | `script` | Other | Pattern | ❌ | `unicode script` |
+| `secure` | Other | Web/Network | ❌ | `listen on secure port` |
 | `server` | Other | Web/Network | ❌ | `web server` |
 | `shell` | Other | Process | ❌ | `shell command` |
 | `signal` | Other | Web/Network | ❌ | `server signal` |

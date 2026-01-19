@@ -1,0 +1,52 @@
+// HTTPS Web Server Integration Test
+// This test validates HTTPS/TLS functionality in WFL web servers
+// Prerequisites: Test certificates must be in TestPrograms/.ssl/ directory
+// Run: scripts/generate_test_certs.sh or scripts/generate_test_certs.ps1
+
+// Test 1: Start HTTPS server with valid certificates
+store "Starting HTTPS server test..." as test_message
+print test_message
+
+// Start HTTPS server on port 8443
+listen on secure port 8443 as https_server
+store "HTTPS server started on port 8443" as server_status
+print server_status
+
+// Test 2: Verify server is running
+check if https_server contains "WebServer":
+    print "✓ HTTPS server is active"
+otherwise:
+    print "✗ HTTPS server failed to start"
+    exit with status 1
+end check
+
+// Test 3: Test concurrent HTTP and HTTPS servers
+// Start regular HTTP server alongside HTTPS
+listen on port 8080 as http_server
+print "HTTP server started on port 8080"
+
+check if http_server contains "WebServer":
+    print "✓ HTTP and HTTPS servers coexist"
+otherwise:
+    print "✗ HTTP server failed to start"
+    exit with status 1
+end check
+
+// Note: Full request/response testing requires external HTTP client
+// For manual testing:
+// 1. Generate certificates: ./scripts/generate_test_certs.sh
+// 2. Run this script: wfl TestPrograms/web_server_https_test.wfl
+// 3. Test HTTPS: curl -k https://localhost:8443/test
+// 4. Test HTTP: curl http://localhost:8080/test
+
+print "✓ All HTTPS server tests passed"
+print ""
+print "Manual testing:"
+print "  HTTPS: curl -k https://localhost:8443/test"
+print "  HTTP:  curl http://localhost:8080/test"
+print ""
+print "Press Ctrl+C to stop servers"
+
+// Keep servers running for manual testing
+// In automated tests, this would timeout or be terminated
+wait for request on http_server as req with timeout 300000

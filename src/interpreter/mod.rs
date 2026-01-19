@@ -59,6 +59,80 @@ type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHt
 use uuid;
 use warp::Filter;
 
+// TLS configuration module for HTTPS support
+mod tls_config {
+    use rustls::ServerConfig;
+    use rustls::pki_types::CertificateDer;
+    use rustls_pemfile::{certs, private_key};
+    use std::fs::File;
+    use std::io::BufReader;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    pub fn load_tls_config(ssl_dir: &Path) -> Result<Arc<ServerConfig>, String> {
+        // Check and load certificate
+        let cert_path = ssl_dir.join("cert.pem");
+        if !cert_path.exists() {
+            return Err(format!(
+                "HTTPS certificate not found: {}\nTo use secure servers, place your certificate in the .ssl directory.",
+                cert_path.display()
+            ));
+        }
+
+        let cert_file = File::open(&cert_path)
+            .map_err(|e| format!("Failed to open certificate file: {}", e))?;
+        let mut cert_reader = BufReader::new(cert_file);
+
+        let certs: Vec<CertificateDer> = certs(&mut cert_reader)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to parse certificate: {}", e))?;
+
+        if certs.is_empty() {
+            return Err("Certificate file is empty or invalid".to_string());
+        }
+
+        // Check and load private key
+        let key_path = ssl_dir.join("key.pem");
+        if !key_path.exists() {
+            return Err(format!(
+                "HTTPS private key not found: {}\nTo use secure servers, place your private key in the .ssl directory.",
+                key_path.display()
+            ));
+        }
+
+        let key_file =
+            File::open(&key_path).map_err(|e| format!("Failed to open private key file: {}", e))?;
+        let mut key_reader = BufReader::new(key_file);
+
+        let key = private_key(&mut key_reader)
+            .map_err(|e| format!("Failed to parse private key: {}", e))?
+            .ok_or_else(|| "Private key file is empty or invalid".to_string())?;
+
+        // Optionally load chain.pem if it exists
+        let chain_path = ssl_dir.join("chain.pem");
+        let mut all_certs = certs;
+        if chain_path.exists() {
+            let chain_file = File::open(&chain_path)
+                .map_err(|e| format!("Failed to open certificate chain file: {}", e))?;
+            let mut chain_reader = BufReader::new(chain_file);
+
+            let chain_certs: Vec<CertificateDer> = rustls_pemfile::certs(&mut chain_reader)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| format!("Failed to parse certificate chain: {}", e))?;
+
+            all_certs.extend(chain_certs);
+        }
+
+        // Build ServerConfig with safe defaults
+        let config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(all_certs, key)
+            .map_err(|e| format!("Invalid TLS configuration: {}", e))?;
+
+        Ok(Arc::new(config))
+    }
+}
+
 // Web server data structures
 #[derive(Debug, Clone)]
 pub struct WflHttpRequest {
@@ -3982,6 +4056,7 @@ impl Interpreter {
             Statement::ListenStatement {
                 port,
                 server_name,
+                secure,
                 line,
                 column,
             } => {
@@ -4126,45 +4201,155 @@ impl Interpreter {
                     }
                 };
 
-                // Start the server
-                let server_task = warp::serve(routes).try_bind_ephemeral((bind_addr, port_num));
-
-                match server_task {
-                    Ok((addr, server)) => {
-                        // Spawn the server in the background
-                        let server_handle = tokio::spawn(server);
-
-                        // Create WFL web server object
-                        let wfl_server = WflWebServer {
-                            request_receiver: request_receiver.clone(),
-                            request_sender: request_sender.clone(),
-                            server_handle: Some(server_handle),
-                        };
-
-                        // Store the server in the interpreter
-                        self.web_servers
-                            .borrow_mut()
-                            .insert(server_name.clone(), wfl_server);
-
-                        // Create a server value with the actual address
-                        let server_value = Value::Text(Rc::from(format!(
-                            "WebServer::{}:{}",
-                            addr.ip(),
-                            addr.port()
-                        )));
-
-                        println!("Server is listening on port {}", addr.port());
-
-                        match env.borrow_mut().define(server_name, server_value) {
-                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                // Start the server (HTTP or HTTPS)
+                if *secure {
+                    // HTTPS server with TLS
+                    // Resolve .ssl directory relative to the current source file
+                    let ssl_dir = if let Some(source_file) = &*self.current_source_file.borrow() {
+                        let source_path = std::path::Path::new(source_file);
+                        if let Some(parent) = source_path.parent() {
+                            parent.join(".ssl")
+                        } else {
+                            std::path::PathBuf::from(".ssl")
                         }
+                    } else {
+                        std::path::PathBuf::from(".ssl")
+                    };
+
+                    // Load TLS configuration
+                    let tls_config = match tls_config::load_tls_config(&ssl_dir) {
+                        Ok(config) => config,
+                        Err(e) => {
+                            return Err(RuntimeError::new(
+                                format!("Failed to load TLS configuration: {}", e),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    };
+
+                    // Create TLS acceptor
+                    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config);
+
+                    // Bind TCP listener
+                    let listener = match tokio::net::TcpListener::bind((bind_addr, port_num)).await
+                    {
+                        Ok(listener) => listener,
+                        Err(e) => {
+                            return Err(RuntimeError::new(
+                                format!("Failed to bind to {}:{}: {}", bind_addr, port_num, e),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    };
+
+                    let actual_addr = listener.local_addr().map_err(|e| {
+                        RuntimeError::new(
+                            format!("Failed to get local address: {}", e),
+                            *line,
+                            *column,
+                        )
+                    })?;
+
+                    // Create warp service
+                    let warp_service = warp::service(routes);
+
+                    // Spawn TLS accept loop
+                    let server_handle = tokio::spawn(async move {
+                        loop {
+                            match listener.accept().await {
+                                Ok((stream, _)) => {
+                                    let tls_acceptor = tls_acceptor.clone();
+                                    let warp_service = warp_service.clone();
+
+                                    tokio::spawn(async move {
+                                        match tls_acceptor.accept(stream).await {
+                                            Ok(tls_stream) => {
+                                                let _ = hyper::server::conn::Http::new()
+                                                    .serve_connection(tls_stream, warp_service)
+                                                    .await;
+                                            }
+                                            Err(e) => {
+                                                log::warn!("TLS handshake failed: {}", e);
+                                            }
+                                        }
+                                    });
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to accept connection: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+                    });
+
+                    // Create WFL web server object
+                    let wfl_server = WflWebServer {
+                        request_receiver: request_receiver.clone(),
+                        request_sender: request_sender.clone(),
+                        server_handle: Some(server_handle),
+                    };
+
+                    // Store the server in the interpreter
+                    self.web_servers
+                        .borrow_mut()
+                        .insert(server_name.clone(), wfl_server);
+
+                    // Create a server value with the actual address
+                    let server_value = Value::Text(Rc::from(format!(
+                        "WebServer::{}:{}",
+                        actual_addr.ip(),
+                        actual_addr.port()
+                    )));
+
+                    println!("Secure server is listening on port {}", actual_addr.port());
+
+                    match env.borrow_mut().define(server_name, server_value) {
+                        Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                        Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                     }
-                    Err(e) => Err(RuntimeError::new(
-                        format!("Failed to start web server on port {}: {}", port_num, e),
-                        *line,
-                        *column,
-                    )),
+                } else {
+                    // HTTP server (existing implementation)
+                    let server_task = warp::serve(routes).try_bind_ephemeral((bind_addr, port_num));
+
+                    match server_task {
+                        Ok((addr, server)) => {
+                            // Spawn the server in the background
+                            let server_handle = tokio::spawn(server);
+
+                            // Create WFL web server object
+                            let wfl_server = WflWebServer {
+                                request_receiver: request_receiver.clone(),
+                                request_sender: request_sender.clone(),
+                                server_handle: Some(server_handle),
+                            };
+
+                            // Store the server in the interpreter
+                            self.web_servers
+                                .borrow_mut()
+                                .insert(server_name.clone(), wfl_server);
+
+                            // Create a server value with the actual address
+                            let server_value = Value::Text(Rc::from(format!(
+                                "WebServer::{}:{}",
+                                addr.ip(),
+                                addr.port()
+                            )));
+
+                            println!("Server is listening on port {}", addr.port());
+
+                            match env.borrow_mut().define(server_name, server_value) {
+                                Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                                Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                            }
+                        }
+                        Err(e) => Err(RuntimeError::new(
+                            format!("Failed to start web server on port {}: {}", port_num, e),
+                            *line,
+                            *column,
+                        )),
+                    }
                 }
             }
             Statement::WaitForRequestStatement {

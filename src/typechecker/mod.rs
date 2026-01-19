@@ -1409,6 +1409,7 @@ impl TypeChecker {
             Statement::ListenStatement {
                 port,
                 server_name: _server_name,
+                secure: _,
                 line: _line,
                 column: _column,
             } => {

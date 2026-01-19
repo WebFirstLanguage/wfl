@@ -424,6 +424,7 @@ pub enum Statement {
     ListenStatement {
         port: Expression,
         server_name: String,
+        secure: bool,
         line: usize,
         column: usize,
     },
