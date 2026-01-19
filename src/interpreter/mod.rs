@@ -5136,6 +5136,33 @@ impl Interpreter {
         Ok((last_value, control_flow))
     }
 
+    // Helper to evaluate binary operations synchronously when operands are available
+    fn evaluate_binary_op_sync(
+        &self,
+        operator: &Operator,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError> {
+        match operator {
+            Operator::Plus => self.add(left, right, line, column),
+            Operator::Minus => self.subtract(left, right, line, column),
+            Operator::Multiply => self.multiply(left, right, line, column),
+            Operator::Divide => self.divide(left, right, line, column),
+            Operator::Modulo => self.modulo(left, right, line, column),
+            Operator::Equals => Ok(Value::Bool(self.is_equal(&left, &right))),
+            Operator::NotEquals => Ok(Value::Bool(!self.is_equal(&left, &right))),
+            Operator::GreaterThan => self.greater_than(left, right, line, column),
+            Operator::LessThan => self.less_than(left, right, line, column),
+            Operator::GreaterThanOrEqual => self.greater_than_equal(left, right, line, column),
+            Operator::LessThanOrEqual => self.less_than_equal(left, right, line, column),
+            Operator::And => Ok(Value::Bool(left.is_truthy() && right.is_truthy())),
+            Operator::Or => Ok(Value::Bool(left.is_truthy() || right.is_truthy())),
+            Operator::Contains => self.contains(left, right, line, column),
+        }
+    }
+
     // Helper to evaluate literals directly without Box::pin allocation
     fn evaluate_literal_direct(
         &self,
@@ -5256,6 +5283,73 @@ impl Interpreter {
                     // Fallthrough to boxed execution which handles user function calls (async)
                 }
                 Err(e) => return Err(e),
+            }
+        }
+
+        // NEW OPTIMIZATION: Handle unary operations on simple operands synchronously
+        if let Expression::UnaryOperation {
+            operator,
+            expression,
+            line,
+            column,
+        } = expr
+        {
+            let inner_val_opt = if let Expression::Literal(lit, l, c) = expression.as_ref() {
+                self.evaluate_literal_direct(lit, *l, *c)?
+            } else if let Expression::Variable(name, l, c) = expression.as_ref() {
+                self.try_evaluate_variable_sync(name, &env, *l, *c)?
+            } else {
+                None
+            };
+
+            if let Some(val) = inner_val_opt {
+                match operator {
+                    UnaryOperator::Not => return Ok(Value::Bool(!val.is_truthy())),
+                    UnaryOperator::Minus => match val {
+                        Value::Number(n) => return Ok(Value::Number(-n)),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!("Cannot negate {}", val.type_name()),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    },
+                }
+            }
+        }
+
+        // NEW OPTIMIZATION: Handle binary operations on simple operands synchronously
+        if let Expression::BinaryOperation {
+            left,
+            operator,
+            right,
+            line,
+            column,
+        } = expr
+        {
+            let left_val_opt = if let Expression::Literal(lit, l, c) = left.as_ref() {
+                self.evaluate_literal_direct(lit, *l, *c)?
+            } else if let Expression::Variable(name, l, c) = left.as_ref() {
+                self.try_evaluate_variable_sync(name, &env, *l, *c)?
+            } else {
+                None
+            };
+
+            if let Some(left_val) = left_val_opt {
+                let right_val_opt = if let Expression::Literal(lit, l, c) = right.as_ref() {
+                    self.evaluate_literal_direct(lit, *l, *c)?
+                } else if let Expression::Variable(name, l, c) = right.as_ref() {
+                    self.try_evaluate_variable_sync(name, &env, *l, *c)?
+                } else {
+                    None
+                };
+
+                if let Some(right_val) = right_val_opt {
+                    return self.evaluate_binary_op_sync(
+                        operator, left_val, right_val, *line, *column,
+                    );
+                }
             }
         }
 
