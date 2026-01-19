@@ -5242,10 +5242,10 @@ impl Interpreter {
 
         // OPTIMIZATION: Handle simple literals directly to avoid Box::pin allocation
         // This significantly improves performance for tight loops with literals
-        if let Expression::Literal(literal, line, column) = expr {
-            if let Some(value) = self.evaluate_literal_direct(literal, *line, *column)? {
-                return Ok(value);
-            }
+        if let Expression::Literal(literal, line, column) = expr
+            && let Some(value) = self.evaluate_literal_direct(literal, *line, *column)?
+        {
+            return Ok(value);
         }
 
         // OPTIMIZATION: Handle simple variable lookups directly to avoid Box::pin allocation

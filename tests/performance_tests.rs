@@ -1,8 +1,8 @@
-use wfl::interpreter::Interpreter;
-use wfl::parser::Parser;
-use wfl::lexer::lex_wfl_with_positions;
-use wfl::interpreter::value::Value;
 use std::time::Duration;
+use wfl::interpreter::Interpreter;
+use wfl::interpreter::value::Value;
+use wfl::lexer::lex_wfl_with_positions;
+use wfl::parser::Parser;
 
 async fn execute_wfl_code(code: &str) -> Result<Value, String> {
     let tokens = lex_wfl_with_positions(code);
@@ -10,7 +10,10 @@ async fn execute_wfl_code(code: &str) -> Result<Value, String> {
     let program = parser.parse().map_err(|e| format!("{:?}", e))?;
 
     let mut interpreter = Interpreter::new();
-    interpreter.interpret(&program).await.map_err(|e| format!("{:?}", e))
+    interpreter
+        .interpret(&program)
+        .await
+        .map_err(|e| format!("{:?}", e))
 }
 
 #[tokio::test]
@@ -39,7 +42,11 @@ async fn test_literal_optimization_performance() {
     // On a reasonable machine, this should be well under 1 second with optimization
     // Without optimization it might be slower, but 2s is a safe upper bound
     // The main point is to ensure it runs correctly and reasonably fast
-    assert!(elapsed < Duration::from_millis(2000), "Literal optimization not effective, took {:?}", elapsed);
+    assert!(
+        elapsed < Duration::from_millis(2000),
+        "Literal optimization not effective, took {:?}",
+        elapsed
+    );
 }
 
 #[tokio::test]
