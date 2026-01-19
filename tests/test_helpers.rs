@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Helper function to get the path to the WFL binary
 ///
@@ -70,10 +70,36 @@ pub fn get_unique_test_file_path(prefix: &str) -> PathBuf {
     ))
 }
 
+/// Helper function to clean up temporary files with retry logic
+///
+/// Attempts to remove a file with multiple retry attempts if the initial cleanup fails.
+/// This helps handle cases where the file might be temporarily locked or in use.
+fn cleanup_temp_file_with_retry(file_path: &PathBuf, max_retries: u32) {
+    for attempt in 0..=max_retries {
+        match fs::remove_file(file_path) {
+            Ok(()) => return, // Success, we're done
+            Err(e) if attempt == max_retries => {
+                eprintln!(
+                    "Error: Failed to clean up test file {:?} after {} attempts: {}",
+                    file_path,
+                    max_retries + 1,
+                    e
+                );
+                return;
+            }
+            Err(_) => {
+                // Failed, but we have more retries left
+                thread::sleep(Duration::from_millis(50)); // Brief pause before retry
+                continue;
+            }
+        }
+    }
+}
+
 /// Helper function to run a WFL program and return the output
 ///
 /// Executes the given WFL program content and returns the Command output.
-/// Automatically handles temporary file creation and cleanup.
+/// Automatically handles temporary file creation, execution with timeout, and cleanup.
 pub fn run_wfl_program(program_content: &str, test_name: &str) -> std::process::Output {
     let binary_path = get_wfl_binary_path();
     let test_file = get_unique_test_file_path(test_name);
@@ -81,21 +107,65 @@ pub fn run_wfl_program(program_content: &str, test_name: &str) -> std::process::
     // Write test program to temporary file
     fs::write(&test_file, program_content).expect("Failed to write test file");
 
-    // Execute WFL program
-    let output = Command::new(&binary_path)
-        .arg(&test_file)
-        .output()
+    // Execute WFL program with timeout
+    let output = execute_with_timeout(&binary_path, &test_file, Duration::from_secs(30))
         .expect("Failed to execute WFL binary");
 
-    // Clean up temporary file
-    if let Err(e) = fs::remove_file(&test_file) {
-        eprintln!(
-            "Warning: Failed to clean up test file {:?}: {}",
-            test_file, e
-        );
-    }
+    // Clean up temporary file with retry logic
+    cleanup_temp_file_with_retry(&test_file, 3);
 
     output
+}
+
+/// Helper function to execute a command with timeout
+///
+/// Spawns the command and waits for it to complete within the specified timeout.
+/// Returns an error if the command doesn't complete within the timeout.
+fn execute_with_timeout(
+    binary_path: &PathBuf,
+    test_file: &PathBuf,
+    timeout: Duration,
+) -> Result<std::process::Output, std::io::Error> {
+    use std::process::Stdio;
+
+    let mut child = Command::new(binary_path)
+        .arg(test_file)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()?;
+
+    // Use a simple timeout approach since we don't have external dependencies
+    let start = std::time::Instant::now();
+    let timeout_duration = timeout;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                // Process finished, collect output
+                let output = child.wait_with_output()?;
+                return Ok(output);
+            }
+            Ok(None) => {
+                // Process still running, check timeout
+                if start.elapsed() > timeout_duration {
+                    // Timeout exceeded, kill the process
+                    let _ = child.kill();
+                    let _ = child.wait(); // Clean up zombie
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        format!(
+                            "WFL program execution timed out after {:?}",
+                            timeout_duration
+                        ),
+                    ));
+                }
+                // Wait a bit before checking again
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 /// Helper function to assert WFL program execution was successful and contains expected output
