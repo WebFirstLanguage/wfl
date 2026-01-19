@@ -1,0 +1,260 @@
+// ==============================================================================
+// Basic Router Tests
+// ==============================================================================
+// Tests for core routing functionality:
+// - Route matching (exact, prefix, wildcard)
+// - HTTP method filtering
+// - Priority ordering
+// - MIME type detection
+// - Parameter extraction
+// ==============================================================================
+
+display "=== Router Basic Tests ==="
+
+// Load the router library
+load module from "../lib/router.wfl"
+
+// Test 1: Route creation and initialization
+display "Test 1: Route creation and initialization"
+create new Route as test_route:
+    initialize()
+end
+
+check if test_route.priority is equal to 50:
+    display "  ✓ Default priority is 50"
+otherwise:
+    display "  ✗ Default priority should be 50, got: " with test_route.priority
+end check
+
+check if test_route.method is equal to "*":
+    display "  ✓ Default method is *"
+otherwise:
+    display "  ✗ Default method should be *, got: " with test_route.method
+end check
+
+// Test 2: Router initialization
+display "Test 2: Router initialization"
+create new Router as test_router:
+    initialize()
+end
+
+store routes_length as length of test_router.routes
+check if routes_length is equal to 0:
+    display "  ✓ Router starts with empty routes list"
+otherwise:
+    display "  ✗ Router should start with 0 routes, got: " with routes_length
+end check
+
+// Test 3: MIME type detection
+display "Test 3: MIME type detection"
+store html_mime as call test_router.get_mime_type with "index.html"
+check if html_mime is equal to "text/html":
+    display "  ✓ HTML MIME type correct"
+otherwise:
+    display "  ✗ HTML MIME type should be text/html, got: " with html_mime
+end check
+
+store css_mime as call test_router.get_mime_type with "style.css"
+check if css_mime is equal to "text/css":
+    display "  ✓ CSS MIME type correct"
+otherwise:
+    display "  ✗ CSS MIME type should be text/css, got: " with css_mime
+end check
+
+store js_mime as call test_router.get_mime_type with "app.js"
+check if js_mime is equal to "application/javascript":
+    display "  ✓ JS MIME type correct"
+otherwise:
+    display "  ✗ JS MIME type should be application/javascript, got: " with js_mime
+end check
+
+store png_mime as call test_router.get_mime_type with "image.png"
+check if png_mime is equal to "image/png":
+    display "  ✓ PNG MIME type correct"
+otherwise:
+    display "  ✗ PNG MIME type should be image/png, got: " with png_mime
+end check
+
+store json_mime as call test_router.get_mime_type with "data.json"
+check if json_mime is equal to "application/json":
+    display "  ✓ JSON MIME type correct"
+otherwise:
+    display "  ✗ JSON MIME type should be application/json, got: " with json_mime
+end check
+
+store unknown_mime as call test_router.get_mime_type with "file.unknown"
+check if unknown_mime is equal to "application/octet-stream":
+    display "  ✓ Unknown MIME type defaults to octet-stream"
+otherwise:
+    display "  ✗ Unknown MIME type should be application/octet-stream, got: " with unknown_mime
+end check
+
+// Test 4: Adding routes
+display "Test 4: Adding routes"
+store config as {}
+store config["path"] as "/api/users"
+store config["method"] as "GET"
+store config["type"] as "module"
+store config["module"] as "routes/users.wfl"
+
+call test_router.add_route with config
+
+store routes_length as length of test_router.routes
+check if routes_length is equal to 1:
+    display "  ✓ Route added successfully"
+otherwise:
+    display "  ✗ Should have 1 route, got: " with routes_length
+end check
+
+// Test 5: Exact route matching
+display "Test 5: Exact route matching"
+store test_request as {}
+store test_request["path"] as "/api/users"
+store test_request["method"] as "GET"
+store test_request["_raw"] as {}
+
+store route_info as call test_router.handle_request with test_request
+check if route_info["matched"] is true:
+    display "  ✓ Exact route matched"
+otherwise:
+    display "  ✗ Route should have matched"
+end check
+
+// Test 6: Method filtering
+display "Test 6: Method filtering"
+store test_request as {}
+store test_request["path"] as "/api/users"
+store test_request["method"] as "POST"
+store test_request["_raw"] as {}
+
+store route_info as call test_router.handle_request with test_request
+check if route_info["matched"] is false:
+    display "  ✓ Wrong method correctly not matched"
+otherwise:
+    display "  ✗ POST should not match GET route"
+end check
+
+// Test 7: Route not found
+display "Test 7: Route not found"
+store test_request as {}
+store test_request["path"] as "/not/found"
+store test_request["method"] as "GET"
+store test_request["_raw"] as {}
+
+store route_info as call test_router.handle_request with test_request
+check if route_info["matched"] is false:
+    display "  ✓ Non-existent route correctly not matched"
+otherwise:
+    display "  ✗ Non-existent route should not match"
+end check
+
+// Test 8: Convenience method - GET
+display "Test 8: Convenience method - GET"
+create new Router as test_router2:
+    initialize()
+end
+
+call test_router2.get with "/home" and "routes/home.wfl"
+store routes_length as length of test_router2.routes
+check if routes_length is equal to 1:
+    display "  ✓ GET convenience method works"
+otherwise:
+    display "  ✗ GET method should add 1 route"
+end check
+
+// Test 9: Convenience method - POST
+display "Test 9: Convenience method - POST"
+call test_router2.post with "/submit" and "routes/submit.wfl"
+store routes_length as length of test_router2.routes
+check if routes_length is equal to 2:
+    display "  ✓ POST convenience method works"
+otherwise:
+    display "  ✗ Should have 2 routes, got: " with routes_length
+end check
+
+// Test 10: Parameter extraction
+display "Test 10: Parameter extraction"
+create new Route as param_route:
+    initialize()
+end
+
+store param_route.route_path as "/users/:id/posts/:postId"
+store param_route.has_params as true
+store param_route.pattern_type as "wildcard"
+
+store params as call param_route.extract_params with "/users/123/posts/456"
+check if params contains "id":
+    check if params["id"] is equal to "123":
+        display "  ✓ Parameter :id extracted correctly"
+    otherwise:
+        display "  ✗ Parameter :id should be 123, got: " with params["id"]
+    end check
+otherwise:
+    display "  ✗ Parameters should contain 'id'"
+end check
+
+check if params contains "postId":
+    check if params["postId"] is equal to "456":
+        display "  ✓ Parameter :postId extracted correctly"
+    otherwise:
+        display "  ✗ Parameter :postId should be 456, got: " with params["postId"]
+    end check
+otherwise:
+    display "  ✗ Parameters should contain 'postId'"
+end check
+
+// Test 11: Wildcard pattern matching
+display "Test 11: Wildcard pattern matching"
+store result as match_wildcard_pattern of "/users/*" and "/users/123"
+check if result is true:
+    display "  ✓ Wildcard pattern matches correctly"
+otherwise:
+    display "  ✗ /users/* should match /users/123"
+end check
+
+store result as match_wildcard_pattern of "/users/*/posts" and "/users/123/posts"
+check if result is true:
+    display "  ✓ Complex wildcard pattern matches"
+otherwise:
+    display "  ✗ /users/*/posts should match /users/123/posts"
+end check
+
+store result as match_wildcard_pattern of "/users/*" and "/posts/123"
+check if result is false:
+    display "  ✓ Wildcard pattern correctly rejects non-match"
+otherwise:
+    display "  ✗ /users/* should not match /posts/123"
+end check
+
+// Test 12: Priority ordering
+display "Test 12: Priority ordering"
+create new Router as priority_router:
+    initialize()
+end
+
+store config1 as {}
+store config1["path"] as "/api/*"
+store config1["type"] as "module"
+store config1["module"] as "wildcard.wfl"
+store config1["priority"] as 90
+
+call priority_router.add_route with config1
+
+store config2 as {}
+store config2["path"] as "/api/status"
+store config2["type"] as "module"
+store config2["module"] as "status.wfl"
+store config2["priority"] as 10
+
+call priority_router.add_route with config2
+
+// Check that routes are sorted by priority
+store first_route as item at 0 of priority_router.routes
+check if first_route.priority is equal to 10:
+    display "  ✓ Routes sorted by priority (higher priority first)"
+otherwise:
+    display "  ✗ First route should have priority 10, got: " with first_route.priority
+end check
+
+display ""
+display "=== Basic Router Tests Complete ==="

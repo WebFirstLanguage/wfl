@@ -1,0 +1,46 @@
+// ==============================================================================
+// Simple WFL Router Library
+// ==============================================================================
+// A simplified routing system for WFL web servers
+// Core functionality:
+// - Route requests to different .wfl module files based on path
+// - Set REQUEST_* variables for modules to access
+// - Support basic static file serving
+// ==============================================================================
+
+display "Simple Router Library Loading..."
+
+// Global route storage (using lists for simplicity)
+store ROUTER_PATHS as []
+store ROUTER_MODULES as []
+store ROUTER_METHODS as []
+
+// Add a module route
+define action called add_module_route with parameters route_path: Text and module_path: Text and http_method: Text:
+    push with ROUTER_PATHS and route_path
+    push with ROUTER_MODULES and module_path
+    push with ROUTER_METHODS and http_method
+end action
+
+// Find matching route and return module path
+define action called find_route with parameters request_path: Text and request_method: Text:
+    store route_count as length of ROUTER_PATHS
+
+    count from 0 to route_count minus 1 as idx:
+        store route_path as item at idx of ROUTER_PATHS
+        store route_method as item at idx of ROUTER_METHODS
+
+        // Check if path and method match
+        check if route_path is equal to request_path:
+            check if route_method is equal to "*" or route_method is equal to request_method:
+                store module_path as item at idx of ROUTER_MODULES
+                return module_path
+            end check
+        end check
+    end count
+
+    // No route found
+    return ""
+end action
+
+display "Simple Router Library Loaded"

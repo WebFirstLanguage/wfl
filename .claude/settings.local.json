@@ -92,7 +92,8 @@
       "Bash(gh repo view:*)",
       "Bash(pwsh:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(..targetreleasewfl.exe nexus.wfl)"
+      "Bash(..targetreleasewfl.exe nexus.wfl)",
+      "Bash(test:*)"
     ],
     "deny": [],
     "ask": []

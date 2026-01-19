@@ -1,0 +1,25 @@
+// ==============================================================================
+// API Echo Route Module
+// ==============================================================================
+// This module handles POST /api/echo requests
+// Echoes back the request body in JSON format
+// ==============================================================================
+
+// Check if body is empty
+check if REQUEST_BODY is empty:
+    store json_response as "{
+    \"error\": \"No request body provided\",
+    \"method\": \"" with REQUEST_METHOD with "\",
+    \"path\": \"" with REQUEST_PATH with "\"
+}"
+    respond to REQUEST_OBJECT with json_response and status 400 and content_type "application/json"
+otherwise:
+    // Echo the request body
+    store json_response as "{
+    \"echo\": \"" with REQUEST_BODY with "\",
+    \"method\": \"" with REQUEST_METHOD with "\",
+    \"path\": \"" with REQUEST_PATH with "\",
+    \"body_length\": " with length of REQUEST_BODY with "
+}"
+    respond to REQUEST_OBJECT with json_response and content_type "application/json"
+end check

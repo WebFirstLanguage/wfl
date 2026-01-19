@@ -1,0 +1,475 @@
+AST output for: lib/simple_router.wfl
+==============================================
+
+Program with 7 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "Simple Router Library Loading...",
+        ),
+        11,
+        9,
+    ),
+    line: 11,
+    column: 43,
+}
+
+Statement #2: VariableDeclaration {
+    name: "ROUTER_PATHS",
+    value: Literal(
+        List(
+            [],
+        ),
+        14,
+        23,
+    ),
+    is_constant: false,
+    line: 14,
+    column: 1,
+}
+
+Statement #3: VariableDeclaration {
+    name: "ROUTER_MODULES",
+    value: Literal(
+        List(
+            [],
+        ),
+        15,
+        25,
+    ),
+    is_constant: false,
+    line: 15,
+    column: 1,
+}
+
+Statement #4: VariableDeclaration {
+    name: "ROUTER_METHODS",
+    value: Literal(
+        List(
+            [],
+        ),
+        16,
+        25,
+    ),
+    is_constant: false,
+    line: 16,
+    column: 1,
+}
+
+Statement #5: ActionDefinition {
+    name: "add_module_route",
+    parameters: [
+        Parameter {
+            name: "route_path",
+            param_type: None,
+            default_value: None,
+            line: 19,
+            column: 55,
+        },
+    ],
+    body: [
+        ExpressionStatement {
+            expression: BinaryOperation {
+                left: Variable(
+                    "Text",
+                    19,
+                    67,
+                ),
+                operator: And,
+                right: Variable(
+                    "module_path",
+                    19,
+                    76,
+                ),
+                line: 19,
+                column: 72,
+            },
+            line: 19,
+            column: 89,
+        },
+        ExpressionStatement {
+            expression: BinaryOperation {
+                left: Variable(
+                    "Text",
+                    19,
+                    89,
+                ),
+                operator: And,
+                right: Variable(
+                    "http_method",
+                    19,
+                    98,
+                ),
+                line: 19,
+                column: 94,
+            },
+            line: 19,
+            column: 111,
+        },
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                19,
+                111,
+            ),
+            line: 19,
+            column: 116,
+        },
+        PushStatement {
+            list: Variable(
+                "ROUTER_PATHS",
+                20,
+                15,
+            ),
+            value: Variable(
+                "route_path",
+                20,
+                32,
+            ),
+            line: 20,
+            column: 5,
+        },
+        PushStatement {
+            list: Variable(
+                "ROUTER_MODULES",
+                21,
+                15,
+            ),
+            value: Variable(
+                "module_path",
+                21,
+                34,
+            ),
+            line: 21,
+            column: 5,
+        },
+        PushStatement {
+            list: Variable(
+                "ROUTER_METHODS",
+                22,
+                15,
+            ),
+            value: Variable(
+                "http_method",
+                22,
+                34,
+            ),
+            line: 22,
+            column: 5,
+        },
+    ],
+    return_type: None,
+    line: 23,
+    column: 11,
+}
+
+Statement #6: ActionDefinition {
+    name: "find_route",
+    parameters: [
+        Parameter {
+            name: "request_path",
+            param_type: None,
+            default_value: None,
+            line: 26,
+            column: 49,
+        },
+    ],
+    body: [
+        ExpressionStatement {
+            expression: BinaryOperation {
+                left: Variable(
+                    "Text",
+                    26,
+                    63,
+                ),
+                operator: And,
+                right: Variable(
+                    "request_method",
+                    26,
+                    72,
+                ),
+                line: 26,
+                column: 68,
+            },
+            line: 26,
+            column: 88,
+        },
+        ExpressionStatement {
+            expression: Variable(
+                "Text",
+                26,
+                88,
+            ),
+            line: 26,
+            column: 93,
+        },
+        VariableDeclaration {
+            name: "route_count",
+            value: FunctionCall {
+                function: Variable(
+                    "length",
+                    27,
+                    26,
+                ),
+                arguments: [
+                    Argument {
+                        name: None,
+                        value: Variable(
+                            "ROUTER_PATHS",
+                            27,
+                            36,
+                        ),
+                    },
+                ],
+                line: 27,
+                column: 33,
+            },
+            is_constant: false,
+            line: 27,
+            column: 5,
+        },
+        CountLoop {
+            start: Literal(
+                Integer(
+                    0,
+                ),
+                29,
+                16,
+            ),
+            end: BinaryOperation {
+                left: Variable(
+                    "route_count",
+                    29,
+                    21,
+                ),
+                operator: Minus,
+                right: Literal(
+                    Integer(
+                        1,
+                    ),
+                    29,
+                    39,
+                ),
+                line: 29,
+                column: 33,
+            },
+            step: None,
+            downward: false,
+            variable_name: Some(
+                "idx",
+            ),
+            body: [
+                VariableDeclaration {
+                    name: "route_path",
+                    value: IndexAccess {
+                        collection: Variable(
+                            "item",
+                            30,
+                            29,
+                        ),
+                        index: FunctionCall {
+                            function: Variable(
+                                "idx",
+                                30,
+                                37,
+                            ),
+                            arguments: [
+                                Argument {
+                                    name: None,
+                                    value: Variable(
+                                        "ROUTER_PATHS",
+                                        30,
+                                        44,
+                                    ),
+                                },
+                            ],
+                            line: 30,
+                            column: 41,
+                        },
+                        line: 30,
+                        column: 34,
+                    },
+                    is_constant: false,
+                    line: 30,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "route_method",
+                    value: IndexAccess {
+                        collection: Variable(
+                            "item",
+                            31,
+                            31,
+                        ),
+                        index: FunctionCall {
+                            function: Variable(
+                                "idx",
+                                31,
+                                39,
+                            ),
+                            arguments: [
+                                Argument {
+                                    name: None,
+                                    value: Variable(
+                                        "ROUTER_METHODS",
+                                        31,
+                                        46,
+                                    ),
+                                },
+                            ],
+                            line: 31,
+                            column: 43,
+                        },
+                        line: 31,
+                        column: 36,
+                    },
+                    is_constant: false,
+                    line: 31,
+                    column: 9,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: Variable(
+                            "route_path",
+                            34,
+                            18,
+                        ),
+                        operator: Equals,
+                        right: Variable(
+                            "request_path",
+                            34,
+                            41,
+                        ),
+                        line: 34,
+                        column: 29,
+                    },
+                    then_block: [
+                        IfStatement {
+                            condition: BinaryOperation {
+                                left: Variable(
+                                    "route_method",
+                                    35,
+                                    22,
+                                ),
+                                operator: Equals,
+                                right: Literal(
+                                    String(
+                                        "*",
+                                    ),
+                                    35,
+                                    47,
+                                ),
+                                line: 35,
+                                column: 35,
+                            },
+                            then_block: [
+                                ExpressionStatement {
+                                    expression: BinaryOperation {
+                                        left: Variable(
+                                            "route_method",
+                                            35,
+                                            54,
+                                        ),
+                                        operator: Equals,
+                                        right: Variable(
+                                            "request_method",
+                                            35,
+                                            79,
+                                        ),
+                                        line: 35,
+                                        column: 67,
+                                    },
+                                    line: 35,
+                                    column: 94,
+                                },
+                                VariableDeclaration {
+                                    name: "module_path",
+                                    value: IndexAccess {
+                                        collection: Variable(
+                                            "item",
+                                            36,
+                                            38,
+                                        ),
+                                        index: FunctionCall {
+                                            function: Variable(
+                                                "idx",
+                                                36,
+                                                46,
+                                            ),
+                                            arguments: [
+                                                Argument {
+                                                    name: None,
+                                                    value: Variable(
+                                                        "ROUTER_MODULES",
+                                                        36,
+                                                        53,
+                                                    ),
+                                                },
+                                            ],
+                                            line: 36,
+                                            column: 50,
+                                        },
+                                        line: 36,
+                                        column: 43,
+                                    },
+                                    is_constant: false,
+                                    line: 36,
+                                    column: 17,
+                                },
+                                ReturnStatement {
+                                    value: Some(
+                                        Variable(
+                                            "module_path",
+                                            37,
+                                            24,
+                                        ),
+                                    ),
+                                    line: 37,
+                                    column: 17,
+                                },
+                            ],
+                            else_block: None,
+                            line: 35,
+                            column: 13,
+                        },
+                    ],
+                    else_block: None,
+                    line: 34,
+                    column: 9,
+                },
+            ],
+            line: 40,
+            column: 14,
+        },
+        ReturnStatement {
+            value: Some(
+                Literal(
+                    String(
+                        "",
+                    ),
+                    43,
+                    12,
+                ),
+            ),
+            line: 43,
+            column: 5,
+        },
+    ],
+    return_type: None,
+    line: 44,
+    column: 11,
+}
+
+Statement #7: DisplayStatement {
+    value: Literal(
+        String(
+            "Simple Router Library Loaded",
+        ),
+        46,
+        9,
+    ),
+    line: 46,
+    column: 39,
+}
+

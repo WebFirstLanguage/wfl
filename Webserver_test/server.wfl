@@ -1,63 +1,137 @@
-store html_page as "<!DOCTYPE html>
-<html lang=\"en\">
-<head>
-    <meta charset=\"UTF-8\">
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-    <title>WFL Web Server - Azusa</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        .container {
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-            padding: 40px;
-            max-width: 600px;
-            text-align: center;
-        }
-        h1 { color: #333; margin-bottom: 10px; }
-        .subtitle { color: #667eea; font-weight: bold; margin-bottom: 20px; font-size: 1.1em; }
-        p { color: #666; line-height: 1.6; margin: 15px 0; }
-        .info {
-            background: #f5f5f5;
-            padding: 20px;
-            border-radius: 5px;
-            margin: 20px 0;
-            border-left: 4px solid #667eea;
-        }
-        .status { font-weight: bold; color: #28a745; }
-        .footer { color: #999; font-size: 0.9em; margin-top: 20px; }
-    </style>
-</head>
-<body>
-    <div class=\"container\">
-        <h1>Welcome to WFL Web Server</h1>
-        <div class=\"subtitle\">Powered by WebFirst Language</div>
-        <p>Hi, I'm Azusa - your WFL web server instance!</p>
-        <div class=\"info\">
-            <p>This webpage is being served by a WFL program running on your local machine.</p>
-            <p>WebFirst Language makes it easy to create powerful web servers using natural, readable syntax.</p>
-        </div>
-        <p class=\"status\">Server Status: Running ✓</p>
-        <p class=\"footer\">Served with ♥ from WFL on port 8080</p>
-    </div>
-</body>
-</html>"
+// ==============================================================================
+// Azusa - WFL Web Server with Dynamic Routing
+// ==============================================================================
+// A production-ready web server powered by WebFirst Language
+// Features:
+// - Module-based routing (separate .wfl files per route)
+// - Static file serving with automatic MIME type detection
+// - Route parameters (:id patterns)
+// - HTTP method filtering (GET, POST, PUT, DELETE)
+// - Priority-based route matching
+// ==============================================================================
 
+display "=== Azusa - WFL Web Server with Routing ==="
+display "Loading router library..."
+
+// Load the routing library
+load module from "../lib/router.wfl"
+
+display "Initializing router..."
+
+// Create and initialize the router
+create new Router as app_router:
+    initialize()
+end
+
+display "Registering routes..."
+
+// Register module routes (each route loads a separate .wfl file)
+call app_router.get with "/" and "routes/home.wfl"
+call app_router.get with "/api/status" and "routes/api_status.wfl"
+call app_router.post with "/api/echo" and "routes/api_echo.wfl"
+
+display "Starting server on port 8080..."
+
+// Start the web server
 listen on port 8080 as web_server
+
+display "=== Azusa is now running ==="
+display "Access the server at: http://localhost:8080"
+display "Press Ctrl+C to stop the server"
+display ""
 
 try:
     main loop:
         wait for request comes in on web_server as incoming_request
-        respond to incoming_request with html_page and content_type "text/html"
+
+        // Get request information
+        store request_method as method
+        store request_path as path
+        store request_body as body
+        store request_headers as headers
+        store request_client_ip as client_ip
+
+        // Build request object for router
+        store request_obj as {}
+        store request_obj["method"] as request_method
+        store request_obj["path"] as request_path
+        store request_obj["body"] as request_body
+        store request_obj["headers"] as request_headers
+        store request_obj["client_ip"] as request_client_ip
+        store request_obj["_raw"] as incoming_request
+
+        // Log the request
+        display "[" with request_method with "] " with request_path
+
+        // Handle the request using the router
+        store route_info as call app_router.handle_request with request_obj
+
+        check if route_info["matched"] is true:
+            store handler_type as route_info["handler_type"]
+
+            check if handler_type is equal to "module":
+                // Module route - set context and load module
+                store module_path as route_info["module_path"]
+                store params as route_info["params"]
+
+                // Set request context variables
+                store REQUEST_METHOD as request_method
+                store REQUEST_PATH as request_path
+                store REQUEST_BODY as request_body
+                store REQUEST_HEADERS as request_headers
+                store REQUEST_CLIENT_IP as request_client_ip
+                store REQUEST_PARAMS as params
+                store REQUEST_OBJECT as incoming_request
+
+                // Load and execute the route module
+                load module from module_path
+
+            otherwise check if handler_type is equal to "static":
+                // Static file route
+                store file_path as route_info["file_path"]
+                store mime_type as route_info["mime_type"]
+
+                check if file exists at file_path:
+                    read file at file_path into file_contents
+                    respond to incoming_request with file_contents and content_type mime_type
+                otherwise:
+                    respond to incoming_request with "404 Not Found" and status 404
+                end check
+
+            otherwise:
+                // Unknown handler type
+                respond to incoming_request with "500 Internal Server Error" and status 500
+            end check
+
+        otherwise:
+            // No route matched - 404
+            store not_found_html as "<!DOCTYPE html>
+<html>
+<head>
+    <title>404 - Not Found</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 100px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        h1 { color: #e74c3c; }
+        p { color: #666; }
+        a { color: #667eea; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>404 - Not Found</h1>
+    <p>The requested page <code>" with request_path with "</code> was not found on this server.</p>
+    <p><a href=\"/\">Return to Home</a></p>
+</body>
+</html>"
+
+            respond to incoming_request with not_found_html and status 404 and content_type "text/html"
+        end check
     end loop
 catch:
     display "Server error: " with error

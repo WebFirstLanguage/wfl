@@ -1,0 +1,247 @@
+// ==============================================================================
+// Router Static File Serving Tests
+// ==============================================================================
+// Tests for static file serving functionality:
+// - Serving individual static files
+// - Serving from directory with prefix
+// - MIME type detection and setting
+// - 404 handling for missing files
+// - Multiple file types (HTML, CSS, JSON)
+// ==============================================================================
+
+display "=== Router Static File Serving Tests ==="
+
+// Load the router library
+load module from "../lib/router.wfl"
+
+// Test 1: Static file route registration
+display "Test 1: Static file route registration"
+create new Router as static_router:
+    initialize()
+end
+
+store config as {}
+store config["path"] as "/test.html"
+store config["type"] as "static"
+store config["file"] as "test_public/test.html"
+
+call static_router.add_route with config
+
+store routes_length as length of static_router.routes
+check if routes_length is equal to 1:
+    display "  ✓ Static file route added successfully"
+otherwise:
+    display "  ✗ Should have 1 route, got: " with routes_length
+end check
+
+// Test 2: Static file matching
+display "Test 2: Static file matching"
+store test_request as {}
+store test_request["path"] as "/test.html"
+store test_request["method"] as "GET"
+store test_request["_raw"] as {}
+
+store route_info as call static_router.handle_request with test_request
+check if route_info["matched"] is true:
+    display "  ✓ Static file route matched"
+
+    check if route_info["handler_type"] is equal to "static":
+        display "  ✓ Handler type is static"
+    otherwise:
+        display "  ✗ Handler type should be static"
+    end check
+
+    check if route_info["file_path"] is equal to "test_public/test.html":
+        display "  ✓ File path correct"
+    otherwise:
+        display "  ✗ File path should be test_public/test.html"
+    end check
+
+    check if route_info["mime_type"] is equal to "text/html":
+        display "  ✓ MIME type detected correctly"
+    otherwise:
+        display "  ✗ MIME type should be text/html, got: " with route_info["mime_type"]
+    end check
+otherwise:
+    display "  ✗ Static file route should have matched"
+end check
+
+// Test 3: Directory serving
+display "Test 3: Directory serving"
+create new Router as dir_router:
+    initialize()
+end
+
+call dir_router.add_static_directory with "/static" and "test_public"
+
+// Test accessing file in directory
+store dir_request as {}
+store dir_request["path"] as "/static/test.html"
+store dir_request["method"] as "GET"
+store dir_request["_raw"] as {}
+
+store dir_info as call dir_router.handle_request with dir_request
+check if dir_info["matched"] is true:
+    display "  ✓ Directory route matched"
+
+    check if dir_info["handler_type"] is equal to "static":
+        display "  ✓ Directory route handler type is static"
+    otherwise:
+        display "  ✗ Directory route should have static handler type"
+    end check
+
+    store expected_path as "test_public/test.html"
+    check if dir_info["file_path"] is equal to expected_path:
+        display "  ✓ Directory file path resolved correctly"
+    otherwise:
+        display "  ✗ File path should be " with expected_path with ", got: " with dir_info["file_path"]
+    end check
+otherwise:
+    display "  ✗ Directory route should have matched"
+end check
+
+// Test 4: Multiple static files with different MIME types
+display "Test 4: Multiple static files with different MIME types"
+create new Router as mime_router:
+    initialize()
+end
+
+call mime_router.add_static_directory with "/public" and "test_public"
+
+// Test HTML file
+store html_req as {}
+store html_req["path"] as "/public/test.html"
+store html_req["method"] as "GET"
+store html_req["_raw"] as {}
+
+store html_info as call mime_router.handle_request with html_req
+check if html_info["mime_type"] is equal to "text/html":
+    display "  ✓ HTML file MIME type correct"
+otherwise:
+    display "  ✗ HTML MIME type should be text/html, got: " with html_info["mime_type"]
+end check
+
+// Test CSS file
+store css_req as {}
+store css_req["path"] as "/public/style.css"
+store css_req["method"] as "GET"
+store css_req["_raw"] as {}
+
+store css_info as call mime_router.handle_request with css_req
+check if css_info["mime_type"] is equal to "text/css":
+    display "  ✓ CSS file MIME type correct"
+otherwise:
+    display "  ✗ CSS MIME type should be text/css, got: " with css_info["mime_type"]
+end check
+
+// Test JSON file
+store json_req as {}
+store json_req["path"] as "/public/data.json"
+store json_req["method"] as "GET"
+store json_req["_raw"] as {}
+
+store json_info as call mime_router.handle_request with json_req
+check if json_info["mime_type"] is equal to "application/json":
+    display "  ✓ JSON file MIME type correct"
+otherwise:
+    display "  ✗ JSON MIME type should be application/json, got: " with json_info["mime_type"]
+end check
+
+// Test 5: File existence and content verification
+display "Test 5: File existence and content verification"
+
+// Verify test file exists
+check if file exists at "test_public/test.html":
+    display "  ✓ Test HTML file exists"
+
+    read file at "test_public/test.html" into html_content
+    check if html_content contains "Static Test Page":
+        display "  ✓ HTML file content readable"
+    otherwise:
+        display "  ✗ HTML file should contain expected text"
+    end check
+otherwise:
+    display "  ✗ Test HTML file should exist"
+end check
+
+// Verify CSS file exists
+check if file exists at "test_public/style.css":
+    display "  ✓ Test CSS file exists"
+
+    read file at "test_public/style.css" into css_content
+    check if css_content contains "font-family":
+        display "  ✓ CSS file content readable"
+    otherwise:
+        display "  ✗ CSS file should contain expected text"
+    end check
+otherwise:
+    display "  ✗ Test CSS file should exist"
+end check
+
+// Verify JSON file exists
+check if file exists at "test_public/data.json":
+    display "  ✓ Test JSON file exists"
+
+    read file at "test_public/data.json" into json_content
+    check if json_content contains "Test Data":
+        display "  ✓ JSON file content readable"
+    otherwise:
+        display "  ✗ JSON file should contain expected text"
+    end check
+otherwise:
+    display "  ✗ Test JSON file should exist"
+end check
+
+// Test 6: 404 for non-existent files
+display "Test 6: 404 for non-existent files"
+store missing_req as {}
+store missing_req["path"] as "/public/missing.html"
+store missing_req["method"] as "GET"
+store missing_req["_raw"] as {}
+
+store missing_info as call mime_router.handle_request with missing_req
+
+// The file path will be determined, but file won't exist
+store missing_file_path as missing_info["file_path"]
+check if file exists at missing_file_path:
+    display "  ✗ Missing file should not exist"
+otherwise:
+    display "  ✓ 404 scenario - file correctly doesn't exist"
+end check
+
+// Test 7: Priority of static routes
+display "Test 7: Priority of static routes"
+create new Router as priority_router:
+    initialize()
+end
+
+// Add directory route (should have lower priority)
+call priority_router.add_static_directory with "/files" and "test_public"
+
+// Add specific file route (should have higher priority if configured)
+store specific_config as {}
+store specific_config["path"] as "/files/special.html"
+store specific_config["type"] as "static"
+store specific_config["file"] as "test_public/test.html"
+store specific_config["priority"] as 10
+
+call priority_router.add_route with specific_config
+
+// Check route count
+store priority_routes as length of priority_router.routes
+check if priority_routes is equal to 2:
+    display "  ✓ Both static routes registered"
+
+    // Verify sorting by priority
+    store first_priority_route as item at 0 of priority_router.routes
+    check if first_priority_route.priority is equal to 10:
+        display "  ✓ Higher priority route sorted first"
+    otherwise:
+        display "  ✗ Route with priority 10 should be first"
+    end check
+otherwise:
+    display "  ✗ Should have 2 routes, got: " with priority_routes
+end check
+
+display ""
+display "=== Static File Serving Tests Complete ==="

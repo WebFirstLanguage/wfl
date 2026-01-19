@@ -1,0 +1,252 @@
+// ==============================================================================
+// Router Module Loading Tests
+// ==============================================================================
+// Tests for module loading functionality:
+// - Loading route modules
+// - REQUEST_* context variables accessible in modules
+// - Parameter passing to modules
+// - Multiple module executions
+// ==============================================================================
+
+display "=== Router Module Loading Tests ==="
+
+// Load the router library
+load module from "../lib/router.wfl"
+
+// Test 1: Basic module loading setup
+display "Test 1: Module loading setup"
+create new Router as module_router:
+    initialize()
+end
+
+store config as {}
+store config["path"] as "/test"
+store config["method"] as "GET"
+store config["type"] as "module"
+store config["module"] as "test_routes/test_module.wfl"
+
+call module_router.add_route with config
+
+store routes_length as length of module_router.routes
+check if routes_length is equal to 1:
+    display "  ✓ Module route added successfully"
+otherwise:
+    display "  ✗ Should have 1 route, got: " with routes_length
+end check
+
+// Test 2: Module execution with context
+display "Test 2: Module execution with context"
+
+// Create a mock request
+store test_request as {}
+store test_request["path"] as "/test"
+store test_request["method"] as "GET"
+store test_request["body"] as "test body"
+store test_request["headers"] as {}
+store test_request["client_ip"] as "127.0.0.1"
+store test_request["_raw"] as {}
+
+// Set up REQUEST_* variables
+store REQUEST_METHOD as "GET"
+store REQUEST_PATH as "/test"
+store REQUEST_BODY as "test body"
+store REQUEST_HEADERS as {}
+store REQUEST_CLIENT_IP as "127.0.0.1"
+store REQUEST_PARAMS as {}
+store REQUEST_OBJECT as {}
+
+// Load the test module
+load module from "test_routes/test_module.wfl"
+
+// Verify the module executed
+check if MODULE_EXECUTED is true:
+    display "  ✓ Module executed successfully"
+otherwise:
+    display "  ✗ Module should have executed"
+end check
+
+// Verify REQUEST_METHOD was accessible
+check if REQUEST_METHOD_VERIFIED is true:
+    display "  ✓ REQUEST_METHOD accessible in module"
+otherwise:
+    display "  ✗ REQUEST_METHOD should be accessible"
+end check
+
+// Verify REQUEST_PATH was accessible
+check if REQUEST_PATH_VERIFIED is true:
+    display "  ✓ REQUEST_PATH accessible in module"
+otherwise:
+    display "  ✗ REQUEST_PATH should be accessible"
+end check
+
+// Test 3: Parameter passing to modules
+display "Test 3: Parameter passing to modules"
+
+// Create router with parameterized route
+create new Router as param_router:
+    initialize()
+end
+
+store param_config as {}
+store param_config["path"] as "/users/:id/:action"
+store param_config["method"] as "GET"
+store param_config["type"] as "module"
+store param_config["module"] as "test_routes/param_test.wfl"
+
+call param_router.add_route with param_config
+
+// Create request with parameters
+store param_request as {}
+store param_request["path"] as "/users/123/edit"
+store param_request["method"] as "GET"
+store param_request["body"] as ""
+store param_request["headers"] as {}
+store param_request["client_ip"] as "127.0.0.1"
+store param_request["_raw"] as {}
+
+// Get route info (which will extract parameters)
+store route_info as call param_router.handle_request with param_request
+
+check if route_info["matched"] is true:
+    display "  ✓ Parameterized route matched"
+
+    // Set up context with extracted parameters
+    store REQUEST_METHOD as "GET"
+    store REQUEST_PATH as "/users/123/edit"
+    store REQUEST_BODY as ""
+    store REQUEST_HEADERS as {}
+    store REQUEST_CLIENT_IP as "127.0.0.1"
+    store REQUEST_PARAMS as route_info["params"]
+    store REQUEST_OBJECT as {}
+
+    // Load the parameter test module
+    load module from "test_routes/param_test.wfl"
+
+    // Verify module executed
+    check if PARAM_MODULE_EXECUTED is true:
+        display "  ✓ Parameter test module executed"
+    otherwise:
+        display "  ✗ Parameter test module should have executed"
+    end check
+
+    // Verify parameters were extracted and accessible
+    check if PARAM_ID_VERIFIED is true:
+        check if PARAM_ID is equal to "123":
+            display "  ✓ Parameter :id correctly extracted and accessible"
+        otherwise:
+            display "  ✗ Parameter :id should be 123, got: " with PARAM_ID
+        end check
+    otherwise:
+        display "  ✗ Parameter :id should be accessible"
+    end check
+
+    check if PARAM_ACTION_VERIFIED is true:
+        check if PARAM_ACTION is equal to "edit":
+            display "  ✓ Parameter :action correctly extracted and accessible"
+        otherwise:
+            display "  ✗ Parameter :action should be edit, got: " with PARAM_ACTION
+        end check
+    otherwise:
+        display "  ✗ Parameter :action should be accessible"
+    end check
+otherwise:
+    display "  ✗ Parameterized route should have matched"
+end check
+
+// Test 4: Multiple routes with different modules
+display "Test 4: Multiple routes with different modules"
+
+create new Router as multi_router:
+    initialize()
+end
+
+call multi_router.get with "/route1" and "test_routes/test_module.wfl"
+call multi_router.get with "/route2" and "test_routes/param_test.wfl"
+
+store routes_count as length of multi_router.routes
+check if routes_count is equal to 2:
+    display "  ✓ Multiple module routes registered"
+otherwise:
+    display "  ✗ Should have 2 routes, got: " with routes_count
+end check
+
+// Test matching route1
+store req1 as {}
+store req1["path"] as "/route1"
+store req1["method"] as "GET"
+store req1["_raw"] as {}
+
+store info1 as call multi_router.handle_request with req1
+check if info1["matched"] is true:
+    check if info1["module_path"] is equal to "test_routes/test_module.wfl":
+        display "  ✓ First route matches correct module"
+    otherwise:
+        display "  ✗ First route should match test_module.wfl"
+    end check
+otherwise:
+    display "  ✗ First route should match"
+end check
+
+// Test matching route2
+store req2 as {}
+store req2["path"] as "/route2"
+store req2["method"] as "GET"
+store req2["_raw"] as {}
+
+store info2 as call multi_router.handle_request with req2
+check if info2["matched"] is true:
+    check if info2["module_path"] is equal to "test_routes/param_test.wfl":
+        display "  ✓ Second route matches correct module"
+    otherwise:
+        display "  ✗ Second route should match param_test.wfl"
+    end check
+otherwise:
+    display "  ✗ Second route should match"
+end check
+
+// Test 5: Method-specific module routes
+display "Test 5: Method-specific module routes"
+
+create new Router as method_router:
+    initialize()
+end
+
+call method_router.get with "/api/data" and "test_routes/test_module.wfl"
+call method_router.post with "/api/data" and "test_routes/param_test.wfl"
+
+// Test GET request
+store get_req as {}
+store get_req["path"] as "/api/data"
+store get_req["method"] as "GET"
+store get_req["_raw"] as {}
+
+store get_info as call method_router.handle_request with get_req
+check if get_info["matched"] is true:
+    check if get_info["module_path"] is equal to "test_routes/test_module.wfl":
+        display "  ✓ GET request routes to correct module"
+    otherwise:
+        display "  ✗ GET should route to test_module.wfl"
+    end check
+otherwise:
+    display "  ✗ GET request should match"
+end check
+
+// Test POST request
+store post_req as {}
+store post_req["path"] as "/api/data"
+store post_req["method"] as "POST"
+store post_req["_raw"] as {}
+
+store post_info as call method_router.handle_request with post_req
+check if post_info["matched"] is true:
+    check if post_info["module_path"] is equal to "test_routes/param_test.wfl":
+        display "  ✓ POST request routes to correct module"
+    otherwise:
+        display "  ✗ POST should route to param_test.wfl"
+    end check
+otherwise:
+    display "  ✗ POST request should match"
+end check
+
+display ""
+display "=== Module Loading Tests Complete ==="

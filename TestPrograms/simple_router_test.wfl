@@ -1,0 +1,86 @@
+// ==============================================================================
+// Simple Router Test
+// ==============================================================================
+// Tests basic routing functionality with simplified router
+// ==============================================================================
+
+display "=== Simple Router Test ==="
+
+// Load the simple router library
+load module from "../lib/simple_router.wfl"
+
+// Test 1: Adding routes
+display "Test 1: Adding module routes"
+call add_module_route with "/" and "routes/home.wfl" and "GET"
+call add_module_route with "/api/status" and "routes/status.wfl" and "GET"
+call add_module_route with "/api/data" and "routes/data.wfl" and "POST"
+
+store route_count as length of ROUTER_PATHS
+check if route_count is equal to 3:
+    display "  ✓ Three routes added successfully"
+otherwise:
+    display "  ✗ Expected 3 routes, got: " with route_count
+end check
+
+// Test 2: Finding exact match routes
+display "Test 2: Finding exact match routes"
+store found_module as call find_route with "/" and "GET"
+check if found_module is equal to "routes/home.wfl":
+    display "  ✓ Home route found correctly"
+otherwise:
+    display "  ✗ Expected routes/home.wfl, got: " with found_module
+end check
+
+store api_module as call find_route with "/api/status" and "GET"
+check if api_module is equal to "routes/status.wfl":
+    display "  ✓ API status route found correctly"
+otherwise:
+    display "  ✗ Expected routes/status.wfl, got: " with api_module
+end check
+
+// Test 3: Method filtering
+display "Test 3: Method filtering"
+store post_module as call find_route with "/api/data" and "POST"
+check if post_module is equal to "routes/data.wfl":
+    display "  ✓ POST route found correctly"
+otherwise:
+    display "  ✗ Expected routes/data.wfl, got: " with post_module
+end check
+
+// Try to access POST route with GET method (should not match)
+store wrong_method as call find_route with "/api/data" and "GET"
+check if wrong_method is equal to "":
+    display "  ✓ Wrong method correctly returns no match"
+otherwise:
+    display "  ✗ GET on POST-only route should not match, got: " with wrong_method
+end check
+
+// Test 4: Non-existent routes
+display "Test 4: Non-existent routes"
+store not_found_route as call find_route with "/nonexistent" and "GET"
+check if not_found_route is equal to "":
+    display "  ✓ Non-existent route returns empty string"
+otherwise:
+    display "  ✗ Non-existent route should return empty, got: " with not_found_route
+end check
+
+// Test 5: Wildcard method
+display "Test 5: Wildcard method support"
+call add_module_route with "/any-method" and "routes/any.wfl" and "*"
+
+store get_any as call find_route with "/any-method" and "GET"
+check if get_any is equal to "routes/any.wfl":
+    display "  ✓ Wildcard method matches GET"
+otherwise:
+    display "  ✗ Wildcard should match GET"
+end check
+
+store post_any as call find_route with "/any-method" and "POST"
+check if post_any is equal to "routes/any.wfl":
+    display "  ✓ Wildcard method matches POST"
+otherwise:
+    display "  ✗ Wildcard should match POST"
+end check
+
+display ""
+display "=== Simple Router Test Complete ==="

@@ -1,0 +1,19 @@
+// ==============================================================================
+// API Status Route Module
+// ==============================================================================
+// This module handles GET /api/status requests
+// Returns JSON with server status information
+// ==============================================================================
+
+// Build JSON response manually
+store json_response as "{
+    \"status\": \"running\",
+    \"server\": \"Azusa\",
+    \"version\": \"1.0.0\",
+    \"method\": \"" with REQUEST_METHOD with "\",
+    \"path\": \"" with REQUEST_PATH with "\",
+    \"client_ip\": \"" with REQUEST_CLIENT_IP with "\",
+    \"timestamp\": \"2026-01-19T00:00:00Z\"
+}"
+
+respond to REQUEST_OBJECT with json_response and content_type "application/json"

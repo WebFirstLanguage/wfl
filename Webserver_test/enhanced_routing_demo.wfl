@@ -1,0 +1,158 @@
+// ==============================================================================
+// Enhanced Routing Demo - WFL Web Server
+// ==============================================================================
+// Demonstrates advanced routing patterns:
+// - Helper action for context setup (reduces repetition)
+// - Dynamic route parameters (e.g., /users/123)
+// - Static file serving
+// - Organized routing logic
+// ==============================================================================
+
+display "=== Enhanced Routing Demo ==="
+
+// Helper action to set up request context for route modules
+define action called setup_request_context with parameters req_method and req_path and req_body and req_ip and req_obj:
+    store REQUEST_METHOD as req_method
+    store REQUEST_PATH as req_path
+    store REQUEST_BODY as req_body
+    store REQUEST_CLIENT_IP as req_ip
+    store REQUEST_OBJECT as req_obj
+end action
+
+display "Starting server on port 8080..."
+listen on port 8080 as web_server
+
+display "Server running with enhanced routing"
+display "Routes available:"
+display "  GET  /                  - Home page"
+display "  GET  /api/status        - Server status (JSON)"
+display "  POST /api/echo          - Echo endpoint (JSON)"
+display "  GET  /users/:id         - User profile (dynamic parameter)"
+display "  GET  /static/*          - Static file serving"
+display ""
+
+try:
+    main loop:
+        wait for request comes in on web_server as incoming_request
+
+        // Extract request information
+        store request_method as method of incoming_request
+        store request_path as path of incoming_request
+        store request_body as body of incoming_request
+        store request_headers as headers of incoming_request
+        store request_client_ip as client_ip of incoming_request
+
+        // Log the request
+        display "[" with request_method with "] " with request_path
+
+        // === STATIC FILES ===
+        check if request_path starts with "/static/":
+            store filename_start as 8  // length of "/static/"
+            store filename as substring of request_path from filename_start to length of request_path
+            store full_path as "public/" with filename
+
+            check if file exists at full_path:
+                read file at full_path into file_contents
+
+                // Determine MIME type
+                store mime_type as "text/plain"
+                check if filename ends with ".html":
+                    store mime_type as "text/html"
+                otherwise check if filename ends with ".css":
+                    store mime_type as "text/css"
+                otherwise check if filename ends with ".js":
+                    store mime_type as "application/javascript"
+                otherwise check if filename ends with ".json":
+                    store mime_type as "application/json"
+                otherwise check if filename ends with ".png":
+                    store mime_type as "image/png"
+                otherwise check if filename ends with ".jpg":
+                    store mime_type as "image/jpeg"
+                end check
+
+                respond to incoming_request with file_contents and content_type mime_type
+                display "  → Served static file: " with filename
+            otherwise:
+                respond to incoming_request with "File not found" and status 404
+                display "  → Static file not found: " with filename
+            end check
+
+        // === DYNAMIC ROUTES (with parameters) ===
+        otherwise check if request_path starts with "/users/":
+            check if request_method is equal to "GET":
+                // Extract user ID from path
+                store user_id_start as 7  // length of "/users/"
+                store user_id as substring of request_path from user_id_start to length of request_path
+
+                // Set context including the extracted parameter
+                call setup_request_context with request_method and request_path and request_body and request_client_ip and incoming_request
+                store REQUEST_USER_ID as user_id
+
+                // Load user profile route
+                load module from "routes/user_profile.wfl"
+                display "  → Routed to user_profile.wfl (ID: " with user_id with ")"
+            otherwise:
+                respond to incoming_request with "Method not allowed" and status 405
+            end check
+
+        // === EXACT ROUTES ===
+        otherwise check if request_path is equal to "/":
+            check if request_method is equal to "GET":
+                call setup_request_context with request_method and request_path and request_body and request_client_ip and incoming_request
+                load module from "routes/home.wfl"
+                display "  → Routed to home.wfl"
+            otherwise:
+                respond to incoming_request with "Method not allowed" and status 405
+            end check
+
+        otherwise check if request_path is equal to "/api/status":
+            check if request_method is equal to "GET":
+                call setup_request_context with request_method and request_path and request_body and request_client_ip and incoming_request
+                load module from "routes/api_status.wfl"
+                display "  → Routed to api_status.wfl"
+            otherwise:
+                respond to incoming_request with "Method not allowed" and status 405
+            end check
+
+        otherwise check if request_path is equal to "/api/echo":
+            check if request_method is equal to "POST":
+                call setup_request_context with request_method and request_path and request_body and request_client_ip and incoming_request
+                load module from "routes/api_echo.wfl"
+                display "  → Routed to api_echo.wfl"
+            otherwise:
+                respond to incoming_request with "Method not allowed" and status 405
+            end check
+
+        // === 404 NOT FOUND ===
+        otherwise:
+            store not_found_html as "<!DOCTYPE html>
+<html>
+<head>
+    <title>404 - Not Found</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 100px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        h1 { color: #e74c3c; }
+        .code { background: #f5f5f5; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>404 - Not Found</h1>
+    <p>The requested page was not found.</p>
+    <div class=\"code\">" with request_method with " " with request_path with "</div>
+    <p><a href=\"/\">← Return to Home</a></p>
+</body>
+</html>"
+
+            respond to incoming_request with not_found_html and status 404 and content_type "text/html"
+            display "  → 404 Not Found"
+        end check
+    end loop
+catch:
+    display "Server error: " with error
+end try

@@ -1,0 +1,107 @@
+// ==============================================================================
+// Minimal Routing Demo - WFL Web Server
+// ==============================================================================
+// Demonstrates the core concept: loading different .wfl modules based on path
+// ==============================================================================
+
+display "=== Minimal Routing Demo ==="
+display "Starting server on port 8080..."
+
+listen on port 8080 as web_server
+
+display "Server running"
+display ""
+
+try:
+    main loop:
+        wait for request comes in on web_server as incoming_request
+
+        // Extract request information
+        store request_method as method of incoming_request
+        store request_path as path of incoming_request
+        store request_body as body of incoming_request
+        store request_headers as headers of incoming_request
+        store request_client_ip as client_ip of incoming_request
+
+        // Log the request
+        display "[" with request_method with "] " with request_path
+
+        // Simple routing logic - check path and load appropriate module
+        check if request_path is equal to "/":
+            check if request_method is equal to "GET":
+                // Set context variables for the module
+                store REQUEST_METHOD as request_method
+                store REQUEST_PATH as request_path
+                store REQUEST_BODY as request_body
+                store REQUEST_HEADERS as request_headers
+                store REQUEST_CLIENT_IP as request_client_ip
+                store REQUEST_OBJECT as incoming_request
+
+                // Load the home route module
+                load module from "routes/home.wfl"
+            otherwise:
+                respond to incoming_request with "Method not allowed" and status 405
+            end check
+
+        otherwise check if request_path is equal to "/api/status":
+            check if request_method is equal to "GET":
+                // Set context variables
+                store REQUEST_METHOD as request_method
+                store REQUEST_PATH as request_path
+                store REQUEST_BODY as request_body
+                store REQUEST_HEADERS as request_headers
+                store REQUEST_CLIENT_IP as request_client_ip
+                store REQUEST_OBJECT as incoming_request
+
+                // Load the API status route module
+                load module from "routes/api_status.wfl"
+            otherwise:
+                respond to incoming_request with "Method not allowed" and status 405
+            end check
+
+        otherwise check if request_path is equal to "/api/echo":
+            check if request_method is equal to "POST":
+                // Set context variables
+                store REQUEST_METHOD as request_method
+                store REQUEST_PATH as request_path
+                store REQUEST_BODY as request_body
+                store REQUEST_HEADERS as request_headers
+                store REQUEST_CLIENT_IP as request_client_ip
+                store REQUEST_OBJECT as incoming_request
+
+                // Load the API echo route module
+                load module from "routes/api_echo.wfl"
+            otherwise:
+                respond to incoming_request with "Method not allowed" and status 405
+            end check
+
+        otherwise:
+            // No route matched - 404
+            store not_found_html as "<!DOCTYPE html>
+<html>
+<head>
+    <title>404 - Not Found</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 100px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        h1 { color: #e74c3c; }
+    </style>
+</head>
+<body>
+    <h1>404 - Not Found</h1>
+    <p>The requested page <code>" with request_path with "</code> was not found.</p>
+    <p><a href=\"/\">Return to Home</a></p>
+</body>
+</html>"
+
+            respond to incoming_request with not_found_html and status 404 and content_type "text/html"
+        end check
+    end loop
+catch:
+    display "Server error: " with error
+end try

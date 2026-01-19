@@ -1,0 +1,93 @@
+// ==============================================================================
+// Home Route Module
+// ==============================================================================
+// This module handles GET / requests
+// Available variables from router:
+// - REQUEST_METHOD: HTTP method (GET, POST, etc.)
+// - REQUEST_PATH: Request path
+// - REQUEST_BODY: Request body content
+// - REQUEST_HEADERS: Request headers object
+// - REQUEST_CLIENT_IP: Client IP address
+// - REQUEST_PARAMS: Extracted route parameters
+// - REQUEST_OBJECT: The WFL request object for responding
+// ==============================================================================
+
+store html_content as "<!DOCTYPE html>
+<html>
+<head>
+    <title>Azusa - WFL Web Server</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+        h1 {
+            margin-top: 0;
+        }
+        .info {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .routes {
+            list-style: none;
+            padding: 0;
+        }
+        .routes li {
+            padding: 10px;
+            margin: 5px 0;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+        }
+        a {
+            color: #ffd700;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class=\"container\">
+        <h1>Welcome to Azusa</h1>
+        <p>A WFL-powered web server with dynamic routing</p>
+
+        <div class=\"info\">
+            <strong>Request Information:</strong><br>
+            Method: " with REQUEST_METHOD with "<br>
+            Path: " with REQUEST_PATH with "<br>
+            Client IP: " with REQUEST_CLIENT_IP with "
+        </div>
+
+        <h2>Available Routes:</h2>
+        <ul class=\"routes\">
+            <li><a href=\"/\">GET / - Home page (this page)</a></li>
+            <li><a href=\"/api/status\">GET /api/status - Server status (JSON)</a></li>
+            <li><a href=\"/api/echo\">POST /api/echo - Echo endpoint (JSON)</a></li>
+        </ul>
+
+        <h2>Features:</h2>
+        <ul>
+            <li>Module-based routing - Each route loads a separate .wfl file</li>
+            <li>Static file serving with automatic MIME type detection</li>
+            <li>Route parameters with :param patterns</li>
+            <li>HTTP method filtering (GET, POST, PUT, DELETE)</li>
+            <li>Priority-based route matching</li>
+        </ul>
+    </div>
+</body>
+</html>"
+
+respond to REQUEST_OBJECT with html_content and content_type "text/html"

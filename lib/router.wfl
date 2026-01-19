@@ -1,0 +1,493 @@
+// ==============================================================================
+// WFL Router Library
+// ==============================================================================
+// A comprehensive routing system for WFL web servers supporting:
+// - Module routing (load separate .wfl files per route)
+// - Static file serving with MIME type detection
+// - Route parameters (:id patterns)
+// - HTTP method filtering (GET, POST, PUT, DELETE)
+// - Directory serving with automatic file mapping
+// - Priority-based route matching
+// ==============================================================================
+
+// ==============================================================================
+// Route Container - Represents a single route configuration
+// ==============================================================================
+create container Route:
+    property route_path: Text          // "/api/users" - the URL path pattern
+    property method: Text              // "GET", "POST", "PUT", "DELETE", "*" (any method)
+    property route_type: Text          // "module", "static", "directory", "action"
+    property module_path: Text         // Path to .wfl module file for module routes
+    property file_path: Text           // Path to static file for static routes
+    property directory_path: Text      // Base directory for directory routes
+    property handler_name: Text        // Action name for action routes
+    property priority: Number          // Lower = higher priority (10=critical, 50=normal, 90=wildcard)
+    property pattern_type: Text        // "exact", "prefix", "wildcard", "pattern"
+    property has_params: Boolean       // True if route has :param segments
+
+    // Initialize route with default values
+    define action called initialize:
+        store this.route_path as ""
+        store this.method as "*"
+        store this.route_type as "module"
+        store this.module_path as ""
+        store this.file_path as ""
+        store this.directory_path as ""
+        store this.handler_name as ""
+        store this.priority as 50
+        store this.pattern_type as "exact"
+        store this.has_params as false
+    end action
+
+    // Check if this route matches the given request
+    define action called matches with parameters request_path: Text and request_method: Text:
+        // Check HTTP method match
+        check if this.method is not equal to "*":
+            check if this.method is not equal to request_method:
+                return false
+            end check
+        end check
+
+        // Match based on pattern type
+        check if this.pattern_type is equal to "exact":
+            return request_path is equal to this.route_path
+        end check
+
+        check if this.pattern_type is equal to "prefix":
+            store pattern_length as length of this.route_path
+            check if length of request_path is less than pattern_length:
+                return false
+            end check
+            store prefix as substring of request_path from 0 to pattern_length
+            return prefix is equal to this.route_path
+        end check
+
+        check if this.pattern_type is equal to "wildcard":
+            return match_wildcard_pattern of this.route_path and request_path
+        end check
+
+        // Default: exact match
+        return request_path is equal to this.route_path
+    end action
+
+    // Extract parameters from request path (for :param routes)
+    define action called extract_params with parameters request_path: Text:
+        check if this.has_params is false:
+            return {}
+        end check
+
+        store params as {}
+
+        // Split both paths by "/"
+        store pattern_parts as split text this.route_path by "/"
+        store path_parts as split text request_path by "/"
+
+        // Check if segment counts match
+        check if length of pattern_parts is not equal to length of path_parts:
+            return {}
+        end check
+
+        // Extract parameters
+        count from 0 to length of pattern_parts minus 1 as idx:
+            store pattern_segment as item at idx of pattern_parts
+            store path_segment as item at idx of path_parts
+
+            // Check if this is a parameter segment (starts with ":")
+            check if length of pattern_segment is greater than 0:
+                store first_char as substring of pattern_segment from 0 to 1
+                check if first_char is equal to ":":
+                    // Extract parameter name (remove ":")
+                    store param_name as substring of pattern_segment from 1 to length of pattern_segment
+                    // Store parameter value
+                    store params[param_name] as path_segment
+                otherwise:
+                    // Regular segment must match exactly
+                    check if pattern_segment is not equal to path_segment:
+                        return {}
+                    end check
+                end check
+            end check
+        end count
+
+        return params
+    end action
+end container
+
+// ==============================================================================
+// Router Container - Main routing system
+// ==============================================================================
+create container Router:
+    property routes: List              // List of Route objects
+    property mime_types: Object        // File extension to MIME type mapping
+    property default_handler_name: Text // Handler for 404 errors
+    property base_directory: Text      // Base directory for relative paths
+
+    // Initialize router with default configuration
+    define action called initialize:
+        store this.routes as []
+        store this.default_handler_name as ""
+        store this.base_directory as ""
+        call this.initialize_mime_types()
+    end action
+
+    // Initialize MIME type mappings
+    define action called initialize_mime_types:
+        store this.mime_types as {}
+
+        // Web content
+        store this.mime_types["html"] as "text/html"
+        store this.mime_types["htm"] as "text/html"
+        store this.mime_types["css"] as "text/css"
+        store this.mime_types["js"] as "application/javascript"
+        store this.mime_types["json"] as "application/json"
+        store this.mime_types["xml"] as "application/xml"
+        store this.mime_types["txt"] as "text/plain"
+
+        // Images
+        store this.mime_types["png"] as "image/png"
+        store this.mime_types["jpg"] as "image/jpeg"
+        store this.mime_types["jpeg"] as "image/jpeg"
+        store this.mime_types["gif"] as "image/gif"
+        store this.mime_types["svg"] as "image/svg+xml"
+        store this.mime_types["ico"] as "image/x-icon"
+        store this.mime_types["webp"] as "image/webp"
+
+        // Fonts
+        store this.mime_types["woff"] as "font/woff"
+        store this.mime_types["woff2"] as "font/woff2"
+        store this.mime_types["ttf"] as "font/ttf"
+        store this.mime_types["otf"] as "font/otf"
+
+        // Documents
+        store this.mime_types["pdf"] as "application/pdf"
+        store this.mime_types["zip"] as "application/zip"
+
+        // Media
+        store this.mime_types["mp4"] as "video/mp4"
+        store this.mime_types["mp3"] as "audio/mpeg"
+        store this.mime_types["wav"] as "audio/wav"
+    end action
+
+    // Add a new route to the router
+    define action called add_route with parameters config: Object:
+        create new Route as new_route:
+            initialize()
+        end
+
+        // Set route properties from config
+        check if config contains "path":
+            store new_route.route_path as config["path"]
+        end check
+
+        check if config contains "method":
+            store new_route.method as config["method"]
+        end check
+
+        check if config contains "type":
+            store new_route.route_type as config["type"]
+        end check
+
+        check if config contains "module":
+            store new_route.module_path as config["module"]
+        end check
+
+        check if config contains "file":
+            store new_route.file_path as config["file"]
+        end check
+
+        check if config contains "directory":
+            store new_route.directory_path as config["directory"]
+        end check
+
+        check if config contains "handler":
+            store new_route.handler_name as config["handler"]
+        end check
+
+        check if config contains "priority":
+            store new_route.priority as config["priority"]
+        end check
+
+        // Determine pattern type and if route has parameters
+        store route_path as new_route.route_path
+        check if route_path contains ":":
+            store new_route.pattern_type as "wildcard"
+            store new_route.has_params as true
+        otherwise check if route_path contains "*":
+            store new_route.pattern_type as "wildcard"
+        otherwise check if new_route.route_type is equal to "directory":
+            store new_route.pattern_type as "prefix"
+        otherwise:
+            store new_route.pattern_type as "exact"
+        end check
+
+        // Add route to list
+        push with this.routes and new_route
+
+        // Sort routes by priority
+        call this.sort_routes()
+    end action
+
+    // Sort routes by priority (bubble sort)
+    define action called sort_routes:
+        store n as length of this.routes
+        check if n is less than 2:
+            return
+        end check
+
+        count from 0 to n minus 2 as i:
+            count from 0 to n minus i minus 2 as j:
+                store route1 as item at j of this.routes
+                store route2 as item at j plus 1 of this.routes
+
+                check if route1.priority is greater than route2.priority:
+                    // Swap routes
+                    store temp as route1
+                    store this.routes[j] as route2
+                    store this.routes[j plus 1] as temp
+                end check
+            end count
+        end count
+    end action
+
+    // Add GET route (convenience method)
+    define action called get with parameters path: Text and target: Text:
+        store config as {}
+        store config["path"] as path
+        store config["method"] as "GET"
+
+        // Determine if target is module or handler
+        check if target contains ".wfl":
+            store config["type"] as "module"
+            store config["module"] as target
+        otherwise:
+            store config["type"] as "action"
+            store config["handler"] as target
+        end check
+
+        call this.add_route with config
+    end action
+
+    // Add POST route (convenience method)
+    define action called post with parameters path: Text and target: Text:
+        store config as {}
+        store config["path"] as path
+        store config["method"] as "POST"
+
+        check if target contains ".wfl":
+            store config["type"] as "module"
+            store config["module"] as target
+        otherwise:
+            store config["type"] as "action"
+            store config["handler"] as target
+        end check
+
+        call this.add_route with config
+    end action
+
+    // Add PUT route (convenience method)
+    define action called put with parameters path: Text and target: Text:
+        store config as {}
+        store config["path"] as path
+        store config["method"] as "PUT"
+
+        check if target contains ".wfl":
+            store config["type"] as "module"
+            store config["module"] as target
+        otherwise:
+            store config["type"] as "action"
+            store config["handler"] as target
+        end check
+
+        call this.add_route with config
+    end action
+
+    // Add DELETE route (convenience method)
+    define action called delete_route with parameters path: Text and target: Text:
+        store config as {}
+        store config["path"] as path
+        store config["method"] as "DELETE"
+
+        check if target contains ".wfl":
+            store config["type"] as "module"
+            store config["module"] as target
+        otherwise:
+            store config["type"] as "action"
+            store config["handler"] as target
+        end check
+
+        call this.add_route with config
+    end action
+
+    // Add static file directory
+    define action called add_static_directory with parameters prefix: Text and dir_path: Text:
+        store config as {}
+        store config["path"] as prefix
+        store config["type"] as "directory"
+        store config["directory"] as dir_path
+        store config["priority"] as 80
+
+        call this.add_route with config
+    end action
+
+    // Handle incoming request and return route info
+    define action called handle_request with parameters request: Object:
+        store request_path as request["path"]
+        store request_method as request["method"]
+
+        // Try to match against all routes
+        count from 0 to length of this.routes minus 1 as idx:
+            store route as item at idx of this.routes
+
+            store matches as call route.matches with request_path and request_method
+            check if matches is true:
+                // Build route info object
+                store route_info as {}
+                store route_info["matched"] as true
+                store route_info["handler_type"] as route.route_type
+                store route_info["route_path"] as route.route_path
+                store route_info["module_path"] as route.module_path
+                store route_info["file_path"] as route.file_path
+                store route_info["directory_path"] as route.directory_path
+                store route_info["handler_name"] as route.handler_name
+
+                // Extract parameters if route has them
+                check if route.has_params is true:
+                    store params as call route.extract_params with request_path
+                    store route_info["params"] as params
+                otherwise:
+                    store route_info["params"] as {}
+                end check
+
+                // For directory routes, determine the actual file path
+                check if route.route_type is equal to "directory":
+                    store prefix_length as length of route.route_path
+                    store relative_path as substring of request_path from prefix_length to length of request_path
+                    store full_file_path as route.directory_path with relative_path
+                    store route_info["file_path"] as full_file_path
+                    store route_info["mime_type"] as call this.get_mime_type with full_file_path
+                    store route_info["handler_type"] as "static"
+                end check
+
+                // For static file routes, get MIME type
+                check if route.route_type is equal to "static":
+                    store route_info["mime_type"] as call this.get_mime_type with route.file_path
+                end check
+
+                return route_info
+            end check
+        end count
+
+        // No route matched - return 404 info
+        store not_found_info as {}
+        store not_found_info["matched"] as false
+        store not_found_info["handler_type"] as "not_found"
+        store not_found_info["params"] as {}
+        return not_found_info
+    end action
+
+    // Get MIME type for file based on extension
+    define action called get_mime_type with parameters filepath: Text:
+        // Find last dot in filepath
+        store last_dot as -1
+        store filepath_length as length of filepath
+
+        count from 0 to filepath_length minus 1 as idx:
+            store char as substring of filepath from idx to idx plus 1
+            check if char is equal to ".":
+                store last_dot as idx
+            end check
+        end count
+
+        // No extension found
+        check if last_dot is equal to -1:
+            return "application/octet-stream"
+        end check
+
+        // Extract extension (without dot)
+        store extension as substring of filepath from last_dot plus 1 to filepath_length
+
+        // Convert to lowercase (simple approach)
+        store ext_lower as extension
+
+        // Look up MIME type
+        check if this.mime_types contains ext_lower:
+            return this.mime_types[ext_lower]
+        end check
+
+        // Default MIME type
+        return "application/octet-stream"
+    end action
+end container
+
+// ==============================================================================
+// Helper Actions (Module-level)
+// ==============================================================================
+
+// Match wildcard pattern against path
+define action called match_wildcard_pattern with parameters pattern: Text and path: Text:
+    // Split both by "/"
+    store pattern_parts as split text pattern by "/"
+    store path_parts as split text path by "/"
+
+    // Must have same number of segments unless pattern has "*" at end
+    store pattern_len as length of pattern_parts
+    store path_len as length of path_parts
+
+    check if pattern_len is not equal to path_len:
+        return false
+    end check
+
+    // Match each segment
+    count from 0 to pattern_len minus 1 as idx:
+        store pattern_seg as item at idx of pattern_parts
+        store path_seg as item at idx of path_parts
+
+        // "*" matches anything
+        check if pattern_seg is equal to "*":
+            // Continue to next segment
+        otherwise check if pattern_seg starts with ":":
+            // Parameter segment matches anything
+        otherwise check if pattern_seg is not equal to path_seg:
+            // Literal segment must match exactly
+            return false
+        end check
+    end count
+
+    return true
+end action
+
+// Serve static file to request
+define action called serve_static_file with parameters filepath: Text and request: Object and mime_type: Text:
+    // Read file contents
+    check if file exists at filepath:
+        read file at filepath into file_contents
+
+        // Get the raw request object for responding
+        store raw_request as request["_raw"]
+
+        // Respond with file contents and MIME type
+        respond to raw_request with file_contents and content_type mime_type
+    otherwise:
+        // File not found
+        store raw_request as request["_raw"]
+        respond to raw_request with "404 Not Found" and status 404
+    end check
+end action
+
+// Load and execute a module route
+define action called load_module_route with parameters module_path: Text and request: Object and params: Object:
+    // Set request context variables in current scope
+    // These will be accessible to the loaded module
+    store REQUEST_METHOD as request["method"]
+    store REQUEST_PATH as request["path"]
+    store REQUEST_BODY as request["body"]
+    store REQUEST_HEADERS as request["headers"]
+    store REQUEST_CLIENT_IP as request["client_ip"]
+    store REQUEST_PARAMS as params
+    store REQUEST_OBJECT as request["_raw"]
+
+    // Load and execute the module
+    load module from module_path
+end action
+
+display "Router library loaded successfully"

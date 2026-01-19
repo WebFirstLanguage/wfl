@@ -1,0 +1,21 @@
+// Test route module for router_module_test.wfl
+// This module should have access to REQUEST_* variables
+
+store MODULE_EXECUTED as true
+
+// Verify REQUEST_METHOD exists
+check if REQUEST_METHOD is empty:
+    store REQUEST_METHOD_VERIFIED as false
+otherwise:
+    store REQUEST_METHOD_VERIFIED as true
+end check
+
+// Verify REQUEST_PATH exists
+check if REQUEST_PATH is empty:
+    store REQUEST_PATH_VERIFIED as false
+otherwise:
+    store REQUEST_PATH_VERIFIED as true
+end check
+
+// Verify REQUEST_PARAMS exists
+store REQUEST_PARAMS_VERIFIED as true

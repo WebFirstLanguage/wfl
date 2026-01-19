@@ -1,0 +1,836 @@
+AST output for: Webserver_test/minimal_routing_demo.wfl
+==============================================
+
+Program with 6 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "=== Minimal Routing Demo ===",
+        ),
+        7,
+        9,
+    ),
+    line: 7,
+    column: 39,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "Starting server on port 8080...",
+        ),
+        8,
+        9,
+    ),
+    line: 8,
+    column: 42,
+}
+
+Statement #3: ListenStatement {
+    port: Literal(
+        Integer(
+            8080,
+        ),
+        10,
+        16,
+    ),
+    server_name: "web_server",
+    line: 10,
+    column: 1,
+}
+
+Statement #4: DisplayStatement {
+    value: Literal(
+        String(
+            "Server running",
+        ),
+        12,
+        9,
+    ),
+    line: 12,
+    column: 25,
+}
+
+Statement #5: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        13,
+        9,
+    ),
+    line: 13,
+    column: 11,
+}
+
+Statement #6: TryStatement {
+    body: [
+        MainLoop {
+            body: [
+                WaitForRequestStatement {
+                    server: Variable(
+                        "web_server",
+                        17,
+                        38,
+                    ),
+                    request_name: "incoming_request",
+                    timeout: None,
+                    line: 17,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "request_method",
+                    value: FunctionCall {
+                        function: Variable(
+                            "method",
+                            20,
+                            33,
+                        ),
+                        arguments: [
+                            Argument {
+                                name: None,
+                                value: Variable(
+                                    "incoming_request",
+                                    20,
+                                    43,
+                                ),
+                            },
+                        ],
+                        line: 20,
+                        column: 40,
+                    },
+                    is_constant: false,
+                    line: 20,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "request_path",
+                    value: FunctionCall {
+                        function: Variable(
+                            "path",
+                            21,
+                            31,
+                        ),
+                        arguments: [
+                            Argument {
+                                name: None,
+                                value: Variable(
+                                    "incoming_request",
+                                    21,
+                                    39,
+                                ),
+                            },
+                        ],
+                        line: 21,
+                        column: 36,
+                    },
+                    is_constant: false,
+                    line: 21,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "request_body",
+                    value: FunctionCall {
+                        function: Variable(
+                            "body",
+                            22,
+                            31,
+                        ),
+                        arguments: [
+                            Argument {
+                                name: None,
+                                value: Variable(
+                                    "incoming_request",
+                                    22,
+                                    39,
+                                ),
+                            },
+                        ],
+                        line: 22,
+                        column: 36,
+                    },
+                    is_constant: false,
+                    line: 22,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "request_headers",
+                    value: FunctionCall {
+                        function: Variable(
+                            "headers",
+                            23,
+                            34,
+                        ),
+                        arguments: [
+                            Argument {
+                                name: None,
+                                value: Variable(
+                                    "incoming_request",
+                                    23,
+                                    45,
+                                ),
+                            },
+                        ],
+                        line: 23,
+                        column: 42,
+                    },
+                    is_constant: false,
+                    line: 23,
+                    column: 9,
+                },
+                VariableDeclaration {
+                    name: "request_client_ip",
+                    value: FunctionCall {
+                        function: Variable(
+                            "client_ip",
+                            24,
+                            36,
+                        ),
+                        arguments: [
+                            Argument {
+                                name: None,
+                                value: Variable(
+                                    "incoming_request",
+                                    24,
+                                    49,
+                                ),
+                            },
+                        ],
+                        line: 24,
+                        column: 46,
+                    },
+                    is_constant: false,
+                    line: 24,
+                    column: 9,
+                },
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "[",
+                            ),
+                            27,
+                            17,
+                        ),
+                        right: Concatenation {
+                            left: Variable(
+                                "request_method",
+                                27,
+                                26,
+                            ),
+                            right: Concatenation {
+                                left: Literal(
+                                    String(
+                                        "] ",
+                                    ),
+                                    27,
+                                    46,
+                                ),
+                                right: Variable(
+                                    "request_path",
+                                    27,
+                                    56,
+                                ),
+                                line: 27,
+                                column: 51,
+                            },
+                            line: 27,
+                            column: 41,
+                        },
+                        line: 27,
+                        column: 21,
+                    },
+                    line: 27,
+                    column: 68,
+                },
+                IfStatement {
+                    condition: BinaryOperation {
+                        left: Variable(
+                            "request_path",
+                            30,
+                            18,
+                        ),
+                        operator: Equals,
+                        right: Literal(
+                            String(
+                                "/",
+                            ),
+                            30,
+                            43,
+                        ),
+                        line: 30,
+                        column: 31,
+                    },
+                    then_block: [
+                        IfStatement {
+                            condition: BinaryOperation {
+                                left: Variable(
+                                    "request_method",
+                                    31,
+                                    22,
+                                ),
+                                operator: Equals,
+                                right: Literal(
+                                    String(
+                                        "GET",
+                                    ),
+                                    31,
+                                    49,
+                                ),
+                                line: 31,
+                                column: 37,
+                            },
+                            then_block: [
+                                VariableDeclaration {
+                                    name: "REQUEST_METHOD",
+                                    value: Variable(
+                                        "request_method",
+                                        33,
+                                        41,
+                                    ),
+                                    is_constant: false,
+                                    line: 33,
+                                    column: 17,
+                                },
+                                VariableDeclaration {
+                                    name: "REQUEST_PATH",
+                                    value: Variable(
+                                        "request_path",
+                                        34,
+                                        39,
+                                    ),
+                                    is_constant: false,
+                                    line: 34,
+                                    column: 17,
+                                },
+                                VariableDeclaration {
+                                    name: "REQUEST_BODY",
+                                    value: Variable(
+                                        "request_body",
+                                        35,
+                                        39,
+                                    ),
+                                    is_constant: false,
+                                    line: 35,
+                                    column: 17,
+                                },
+                                VariableDeclaration {
+                                    name: "REQUEST_HEADERS",
+                                    value: Variable(
+                                        "request_headers",
+                                        36,
+                                        42,
+                                    ),
+                                    is_constant: false,
+                                    line: 36,
+                                    column: 17,
+                                },
+                                VariableDeclaration {
+                                    name: "REQUEST_CLIENT_IP",
+                                    value: Variable(
+                                        "request_client_ip",
+                                        37,
+                                        44,
+                                    ),
+                                    is_constant: false,
+                                    line: 37,
+                                    column: 17,
+                                },
+                                VariableDeclaration {
+                                    name: "REQUEST_OBJECT",
+                                    value: Variable(
+                                        "incoming_request",
+                                        38,
+                                        41,
+                                    ),
+                                    is_constant: false,
+                                    line: 38,
+                                    column: 17,
+                                },
+                                LoadModuleStatement {
+                                    path: Literal(
+                                        String(
+                                            "routes/home.wfl",
+                                        ),
+                                        41,
+                                        34,
+                                    ),
+                                    alias: None,
+                                    line: 41,
+                                    column: 17,
+                                },
+                            ],
+                            else_block: Some(
+                                [
+                                    RespondStatement {
+                                        request: Variable(
+                                            "incoming_request",
+                                            43,
+                                            28,
+                                        ),
+                                        content: Literal(
+                                            String(
+                                                "Method not allowed",
+                                            ),
+                                            43,
+                                            50,
+                                        ),
+                                        status: Some(
+                                            Literal(
+                                                Integer(
+                                                    405,
+                                                ),
+                                                43,
+                                                82,
+                                            ),
+                                        ),
+                                        content_type: None,
+                                        line: 43,
+                                        column: 17,
+                                    },
+                                ],
+                            ),
+                            line: 31,
+                            column: 13,
+                        },
+                    ],
+                    else_block: Some(
+                        [
+                            IfStatement {
+                                condition: BinaryOperation {
+                                    left: Variable(
+                                        "request_path",
+                                        46,
+                                        28,
+                                    ),
+                                    operator: Equals,
+                                    right: Literal(
+                                        String(
+                                            "/api/status",
+                                        ),
+                                        46,
+                                        53,
+                                    ),
+                                    line: 46,
+                                    column: 41,
+                                },
+                                then_block: [
+                                    IfStatement {
+                                        condition: BinaryOperation {
+                                            left: Variable(
+                                                "request_method",
+                                                47,
+                                                22,
+                                            ),
+                                            operator: Equals,
+                                            right: Literal(
+                                                String(
+                                                    "GET",
+                                                ),
+                                                47,
+                                                49,
+                                            ),
+                                            line: 47,
+                                            column: 37,
+                                        },
+                                        then_block: [
+                                            VariableDeclaration {
+                                                name: "REQUEST_METHOD",
+                                                value: Variable(
+                                                    "request_method",
+                                                    49,
+                                                    41,
+                                                ),
+                                                is_constant: false,
+                                                line: 49,
+                                                column: 17,
+                                            },
+                                            VariableDeclaration {
+                                                name: "REQUEST_PATH",
+                                                value: Variable(
+                                                    "request_path",
+                                                    50,
+                                                    39,
+                                                ),
+                                                is_constant: false,
+                                                line: 50,
+                                                column: 17,
+                                            },
+                                            VariableDeclaration {
+                                                name: "REQUEST_BODY",
+                                                value: Variable(
+                                                    "request_body",
+                                                    51,
+                                                    39,
+                                                ),
+                                                is_constant: false,
+                                                line: 51,
+                                                column: 17,
+                                            },
+                                            VariableDeclaration {
+                                                name: "REQUEST_HEADERS",
+                                                value: Variable(
+                                                    "request_headers",
+                                                    52,
+                                                    42,
+                                                ),
+                                                is_constant: false,
+                                                line: 52,
+                                                column: 17,
+                                            },
+                                            VariableDeclaration {
+                                                name: "REQUEST_CLIENT_IP",
+                                                value: Variable(
+                                                    "request_client_ip",
+                                                    53,
+                                                    44,
+                                                ),
+                                                is_constant: false,
+                                                line: 53,
+                                                column: 17,
+                                            },
+                                            VariableDeclaration {
+                                                name: "REQUEST_OBJECT",
+                                                value: Variable(
+                                                    "incoming_request",
+                                                    54,
+                                                    41,
+                                                ),
+                                                is_constant: false,
+                                                line: 54,
+                                                column: 17,
+                                            },
+                                            LoadModuleStatement {
+                                                path: Literal(
+                                                    String(
+                                                        "routes/api_status.wfl",
+                                                    ),
+                                                    57,
+                                                    34,
+                                                ),
+                                                alias: None,
+                                                line: 57,
+                                                column: 17,
+                                            },
+                                        ],
+                                        else_block: Some(
+                                            [
+                                                RespondStatement {
+                                                    request: Variable(
+                                                        "incoming_request",
+                                                        59,
+                                                        28,
+                                                    ),
+                                                    content: Literal(
+                                                        String(
+                                                            "Method not allowed",
+                                                        ),
+                                                        59,
+                                                        50,
+                                                    ),
+                                                    status: Some(
+                                                        Literal(
+                                                            Integer(
+                                                                405,
+                                                            ),
+                                                            59,
+                                                            82,
+                                                        ),
+                                                    ),
+                                                    content_type: None,
+                                                    line: 59,
+                                                    column: 17,
+                                                },
+                                            ],
+                                        ),
+                                        line: 47,
+                                        column: 13,
+                                    },
+                                ],
+                                else_block: Some(
+                                    [
+                                        IfStatement {
+                                            condition: BinaryOperation {
+                                                left: Variable(
+                                                    "request_path",
+                                                    62,
+                                                    28,
+                                                ),
+                                                operator: Equals,
+                                                right: Literal(
+                                                    String(
+                                                        "/api/echo",
+                                                    ),
+                                                    62,
+                                                    53,
+                                                ),
+                                                line: 62,
+                                                column: 41,
+                                            },
+                                            then_block: [
+                                                IfStatement {
+                                                    condition: BinaryOperation {
+                                                        left: Variable(
+                                                            "request_method",
+                                                            63,
+                                                            22,
+                                                        ),
+                                                        operator: Equals,
+                                                        right: Literal(
+                                                            String(
+                                                                "POST",
+                                                            ),
+                                                            63,
+                                                            49,
+                                                        ),
+                                                        line: 63,
+                                                        column: 37,
+                                                    },
+                                                    then_block: [
+                                                        VariableDeclaration {
+                                                            name: "REQUEST_METHOD",
+                                                            value: Variable(
+                                                                "request_method",
+                                                                65,
+                                                                41,
+                                                            ),
+                                                            is_constant: false,
+                                                            line: 65,
+                                                            column: 17,
+                                                        },
+                                                        VariableDeclaration {
+                                                            name: "REQUEST_PATH",
+                                                            value: Variable(
+                                                                "request_path",
+                                                                66,
+                                                                39,
+                                                            ),
+                                                            is_constant: false,
+                                                            line: 66,
+                                                            column: 17,
+                                                        },
+                                                        VariableDeclaration {
+                                                            name: "REQUEST_BODY",
+                                                            value: Variable(
+                                                                "request_body",
+                                                                67,
+                                                                39,
+                                                            ),
+                                                            is_constant: false,
+                                                            line: 67,
+                                                            column: 17,
+                                                        },
+                                                        VariableDeclaration {
+                                                            name: "REQUEST_HEADERS",
+                                                            value: Variable(
+                                                                "request_headers",
+                                                                68,
+                                                                42,
+                                                            ),
+                                                            is_constant: false,
+                                                            line: 68,
+                                                            column: 17,
+                                                        },
+                                                        VariableDeclaration {
+                                                            name: "REQUEST_CLIENT_IP",
+                                                            value: Variable(
+                                                                "request_client_ip",
+                                                                69,
+                                                                44,
+                                                            ),
+                                                            is_constant: false,
+                                                            line: 69,
+                                                            column: 17,
+                                                        },
+                                                        VariableDeclaration {
+                                                            name: "REQUEST_OBJECT",
+                                                            value: Variable(
+                                                                "incoming_request",
+                                                                70,
+                                                                41,
+                                                            ),
+                                                            is_constant: false,
+                                                            line: 70,
+                                                            column: 17,
+                                                        },
+                                                        LoadModuleStatement {
+                                                            path: Literal(
+                                                                String(
+                                                                    "routes/api_echo.wfl",
+                                                                ),
+                                                                73,
+                                                                34,
+                                                            ),
+                                                            alias: None,
+                                                            line: 73,
+                                                            column: 17,
+                                                        },
+                                                    ],
+                                                    else_block: Some(
+                                                        [
+                                                            RespondStatement {
+                                                                request: Variable(
+                                                                    "incoming_request",
+                                                                    75,
+                                                                    28,
+                                                                ),
+                                                                content: Literal(
+                                                                    String(
+                                                                        "Method not allowed",
+                                                                    ),
+                                                                    75,
+                                                                    50,
+                                                                ),
+                                                                status: Some(
+                                                                    Literal(
+                                                                        Integer(
+                                                                            405,
+                                                                        ),
+                                                                        75,
+                                                                        82,
+                                                                    ),
+                                                                ),
+                                                                content_type: None,
+                                                                line: 75,
+                                                                column: 17,
+                                                            },
+                                                        ],
+                                                    ),
+                                                    line: 63,
+                                                    column: 13,
+                                                },
+                                            ],
+                                            else_block: Some(
+                                                [
+                                                    VariableDeclaration {
+                                                        name: "not_found_html",
+                                                        value: Concatenation {
+                                                            left: Literal(
+                                                                String(
+                                                                    "<!DOCTYPE html>\r\n<html>\r\n<head>\r\n    <title>404 - Not Found</title>\r\n    <style>\r\n        body {\r\n            font-family: Arial, sans-serif;\r\n            max-width: 600px;\r\n            margin: 100px auto;\r\n            padding: 20px;\r\n            text-align: center;\r\n        }\r\n        h1 { color: #e74c3c; }\r\n    </style>\r\n</head>\r\n<body>\r\n    <h1>404 - Not Found</h1>\r\n    <p>The requested page <code>",
+                                                                ),
+                                                                80,
+                                                                37,
+                                                            ),
+                                                            right: Concatenation {
+                                                                left: Variable(
+                                                                    "request_path",
+                                                                    97,
+                                                                    40,
+                                                                ),
+                                                                right: Literal(
+                                                                    String(
+                                                                        "</code> was not found.</p>\r\n    <p><a href=\"/\">Return to Home</a></p>\r\n</body>\r\n</html>",
+                                                                    ),
+                                                                    97,
+                                                                    58,
+                                                                ),
+                                                                line: 97,
+                                                                column: 53,
+                                                            },
+                                                            line: 97,
+                                                            column: 35,
+                                                        },
+                                                        is_constant: false,
+                                                        line: 80,
+                                                        column: 13,
+                                                    },
+                                                    RespondStatement {
+                                                        request: Variable(
+                                                            "incoming_request",
+                                                            102,
+                                                            24,
+                                                        ),
+                                                        content: Variable(
+                                                            "not_found_html",
+                                                            102,
+                                                            46,
+                                                        ),
+                                                        status: Some(
+                                                            BinaryOperation {
+                                                                left: Literal(
+                                                                    Integer(
+                                                                        404,
+                                                                    ),
+                                                                    102,
+                                                                    72,
+                                                                ),
+                                                                operator: And,
+                                                                right: Variable(
+                                                                    "content_type",
+                                                                    102,
+                                                                    80,
+                                                                ),
+                                                                line: 102,
+                                                                column: 76,
+                                                            },
+                                                        ),
+                                                        content_type: None,
+                                                        line: 102,
+                                                        column: 13,
+                                                    },
+                                                    ExpressionStatement {
+                                                        expression: Literal(
+                                                            String(
+                                                                "text/html",
+                                                            ),
+                                                            102,
+                                                            93,
+                                                        ),
+                                                        line: 102,
+                                                        column: 104,
+                                                    },
+                                                ],
+                                            ),
+                                            line: 62,
+                                            column: 19,
+                                        },
+                                    ],
+                                ),
+                                line: 46,
+                                column: 19,
+                            },
+                        ],
+                    ),
+                    line: 30,
+                    column: 9,
+                },
+            ],
+            line: 16,
+            column: 5,
+        },
+    ],
+    when_clauses: [
+        WhenClause {
+            error_type: General,
+            error_name: "error",
+            body: [
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Literal(
+                            String(
+                                "Server error: ",
+                            ),
+                            106,
+                            13,
+                        ),
+                        right: Variable(
+                            "error",
+                            106,
+                            35,
+                        ),
+                        line: 106,
+                        column: 30,
+                    },
+                    line: 106,
+                    column: 40,
+                },
+            ],
+        },
+    ],
+    otherwise_block: None,
+    line: 15,
+    column: 1,
+}
+

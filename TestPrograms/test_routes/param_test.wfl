@@ -1,0 +1,19 @@
+// Test route module for parameter extraction
+// This module should have access to REQUEST_PARAMS with extracted parameters
+
+store PARAM_MODULE_EXECUTED as true
+
+// Check if parameters were passed
+check if REQUEST_PARAMS contains "id":
+    store PARAM_ID as REQUEST_PARAMS["id"]
+    store PARAM_ID_VERIFIED as true
+otherwise:
+    store PARAM_ID_VERIFIED as false
+end check
+
+check if REQUEST_PARAMS contains "action":
+    store PARAM_ACTION as REQUEST_PARAMS["action"]
+    store PARAM_ACTION_VERIFIED as true
+otherwise:
+    store PARAM_ACTION_VERIFIED as false
+end check

@@ -1,0 +1,91 @@
+// ==============================================================================
+// User Profile Route Module
+// ==============================================================================
+// Handles GET /users/:id requests
+// Demonstrates dynamic route parameters
+// ==============================================================================
+
+// This module has access to:
+// - REQUEST_USER_ID (extracted from URL)
+// - REQUEST_METHOD, REQUEST_PATH, REQUEST_BODY, REQUEST_HEADERS, REQUEST_CLIENT_IP
+// - REQUEST_OBJECT (for responding)
+
+store profile_html as "<!DOCTYPE html>
+<html>
+<head>
+    <title>User Profile</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+        h1 { margin-top: 0; }
+        .info {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .profile-pic {
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            margin: 20px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+        }
+        a {
+            color: #ffd700;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class=\"container\">
+        <h1>User Profile</h1>
+
+        <div class=\"profile-pic\">👤</div>
+
+        <div class=\"info\">
+            <strong>User ID:</strong> " with REQUEST_USER_ID with "<br>
+            <strong>Name:</strong> User #" with REQUEST_USER_ID with "<br>
+            <strong>Email:</strong> user" with REQUEST_USER_ID with "@example.com<br>
+            <strong>Status:</strong> Active
+        </div>
+
+        <div class=\"info\">
+            <strong>Request Information:</strong><br>
+            Method: " with REQUEST_METHOD with "<br>
+            Path: " with REQUEST_PATH with "<br>
+            Client IP: " with REQUEST_CLIENT_IP with "
+        </div>
+
+        <p><a href=\"/\">← Back to Home</a></p>
+
+        <h2>Try other user IDs:</h2>
+        <ul>
+            <li><a href=\"/users/1\">User 1</a></li>
+            <li><a href=\"/users/42\">User 42</a></li>
+            <li><a href=\"/users/999\">User 999</a></li>
+        </ul>
+    </div>
+</body>
+</html>"
+
+respond to REQUEST_OBJECT with profile_html and content_type "text/html"
