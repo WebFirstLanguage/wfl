@@ -1,31 +1,13 @@
-use std::env;
 /// Test that errors from zero-argument user-defined actions are properly propagated
 /// when the action is called without arguments (auto-call behavior).
 ///
 /// This test verifies the fix for a bug where `store res as faulty` would store
 /// the function value instead of calling it and catching errors.
-use std::fs;
-use std::process::Command;
+mod test_helpers;
+use test_helpers::*;
 
 #[test]
 fn test_zero_arg_action_error_propagation() {
-    // Get the path to the WFL binary
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    // Verify the binary exists
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-
-    if !binary_path.exists() {
-        panic!(
-            "WFL binary not found at {:?}. Run 'cargo build --release' first.",
-            binary_path
-        );
-    }
-
     // Create a test WFL program
     let test_program = r#"
 // Define a zero-argument action that raises an error
@@ -48,65 +30,13 @@ end try
 display test_passed
 "#;
 
-    // Use unique temp file to avoid race conditions when tests run in parallel
-    let temp_dir = std::env::temp_dir();
-    let test_file = temp_dir.join(format!("test_zero_arg_error_{}.wfl", std::process::id()));
-    fs::write(&test_file, test_program).expect("Failed to write test file");
-
-    // Run the WFL program
-    let output = Command::new(&binary_path)
-        .arg(&test_file)
-        .output()
-        .expect("Failed to execute WFL binary");
-
-    // Clean up
-    fs::remove_file(&test_file).ok();
-
-    // Check the output
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "WFL program failed to execute.\nStdout: {}\nStderr: {}",
-        stdout,
-        stderr
-    );
-
-    assert!(
-        stdout.contains("PASS"),
-        "Expected 'PASS' in output, but got:\nStdout: {}\nStderr: {}",
-        stdout,
-        stderr
-    );
-
-    assert!(
-        !stdout.contains("FAIL"),
-        "Found 'FAIL' in output:\nStdout: {}\nStderr: {}",
-        stdout,
-        stderr
-    );
+    // Run the WFL program and assert results
+    let output = run_wfl_program(test_program, "test_zero_arg_error");
+    assert_wfl_success_with_output(&output, &["PASS"], &["FAIL"]);
 }
 
 #[test]
 fn test_zero_arg_action_auto_call() {
-    // Get the path to the WFL binary
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    // Verify the binary exists
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-
-    if !binary_path.exists() {
-        panic!(
-            "WFL binary not found at {:?}. Run 'cargo build --release' first.",
-            binary_path
-        );
-    }
-
     // Create a test WFL program
     let test_program = r#"
 // Define a zero-argument action that returns a value
@@ -124,42 +54,7 @@ otherwise:
 end check
 "#;
 
-    // Use unique temp file to avoid race conditions when tests run in parallel
-    let temp_dir = std::env::temp_dir();
-    let test_file = temp_dir.join(format!("test_zero_arg_autocall_{}.wfl", std::process::id()));
-    fs::write(&test_file, test_program).expect("Failed to write test file");
-
-    // Run the WFL program
-    let output = Command::new(&binary_path)
-        .arg(&test_file)
-        .output()
-        .expect("Failed to execute WFL binary");
-
-    // Clean up
-    fs::remove_file(&test_file).ok();
-
-    // Check the output
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "WFL program failed to execute.\nStdout: {}\nStderr: {}",
-        stdout,
-        stderr
-    );
-
-    assert!(
-        stdout.contains("PASS"),
-        "Expected 'PASS' in output, but got:\nStdout: {}\nStderr: {}",
-        stdout,
-        stderr
-    );
-
-    assert!(
-        !stdout.contains("FAIL"),
-        "Found 'FAIL' in output:\nStdout: {}\nStderr: {}",
-        stdout,
-        stderr
-    );
+    // Run the WFL program and assert results
+    let output = run_wfl_program(test_program, "test_zero_arg_autocall");
+    assert_wfl_success_with_output(&output, &["PASS"], &["FAIL"]);
 }

@@ -5,22 +5,16 @@
 /// 2. All OTHER errors (disk full, I/O failures, etc.) are still propagated
 /// 3. Data integrity is maintained despite sync errors
 /// 4. Cross-platform behavior is consistent where appropriate
-use std::env;
 use std::fs;
-use std::process::Command;
+
+mod test_helpers;
+use test_helpers::*;
 
 #[cfg(windows)]
 #[test]
 fn test_windows_permission_denied_suppressed() {
     // On Windows, this test verifies that PermissionDenied errors from sync_all()
     // don't cause write/close/append operations to fail
-
-    let wfl_binary = "target/release/wfl.exe";
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-
-    if !binary_path.exists() {
-        panic!("WFL binary not found. Run 'cargo build --release' first.");
-    }
 
     // Create a test that writes, appends, and closes files
     // This may trigger PermissionDenied on Windows with concurrent access
@@ -49,17 +43,9 @@ delete file at "test_sync_write_{}.txt"
         pid, pid, pid
     );
 
-    // Use unique temp file to avoid race conditions when tests run in parallel
-    let temp_dir = std::env::temp_dir();
-    let test_file = temp_dir.join(format!("test_windows_sync_{}.wfl", pid));
-    fs::write(&test_file, &test_program).expect("Failed to write test file");
+    let output = run_wfl_program(&test_program, &format!("test_windows_sync_{}", pid));
 
-    let output = Command::new(&binary_path)
-        .arg(&test_file)
-        .output()
-        .expect("Failed to execute WFL");
-
-    fs::remove_file(&test_file).ok();
+    // Clean up any leftover files
     fs::remove_file(format!("test_sync_write_{}.txt", pid)).ok();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -93,15 +79,6 @@ delete file at "test_sync_write_{}.txt"
 fn test_data_integrity_after_write() {
     // Cross-platform test: Verify data is correctly written and readable
 
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(binary_path.exists(), "WFL binary not found.");
-
     let pid = std::process::id();
     let test_program = format!(
         r#"
@@ -129,47 +106,17 @@ delete file at "test_integrity_{}.txt"
         pid, pid, pid
     );
 
-    // Use unique temp file to avoid race conditions when tests run in parallel
-    let temp_dir = std::env::temp_dir();
-    let test_file = temp_dir.join(format!("test_integrity_check_{}.wfl", pid));
-    fs::write(&test_file, &test_program).unwrap();
+    let output = run_wfl_program(&test_program, &format!("test_integrity_check_{}", pid));
 
-    let output = Command::new(&binary_path)
-        .arg(&test_file)
-        .output()
-        .expect("Failed to execute WFL");
-
-    fs::remove_file(&test_file).ok();
+    // Clean up any leftover files
     fs::remove_file(format!("test_integrity_{}.txt", pid)).ok();
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "WFL failed: {}\n{}",
-        stdout,
-        stderr
-    );
-    assert!(
-        stdout.contains("PASS"),
-        "Data integrity check failed: {}",
-        stdout
-    );
+    assert_wfl_success_with_output(&output, &["PASS"], &["FAIL"]);
 }
 
 #[test]
 fn test_append_with_sync() {
     // Test that append operations work correctly with sync error handling
-
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(binary_path.exists(), "WFL binary not found.");
 
     let pid = std::process::id();
     let test_program = format!(
@@ -202,43 +149,17 @@ delete file at "test_append_sync_{}.txt"
         pid, pid, pid, pid
     );
 
-    // Use unique temp file to avoid race conditions when tests run in parallel
-    let temp_dir = std::env::temp_dir();
-    let test_file = temp_dir.join(format!("test_append_with_sync_{}.wfl", pid));
-    fs::write(&test_file, &test_program).unwrap();
+    let output = run_wfl_program(&test_program, &format!("test_append_with_sync_{}", pid));
 
-    let output = Command::new(&binary_path)
-        .arg(&test_file)
-        .output()
-        .expect("Failed to execute WFL");
-
-    fs::remove_file(&test_file).ok();
+    // Clean up any leftover files
     fs::remove_file(format!("test_append_sync_{}.txt", pid)).ok();
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "WFL failed: {}\n{}",
-        stdout,
-        stderr
-    );
-    assert!(stdout.contains("PASS"), "Append test failed: {}", stdout);
+    assert_wfl_success_with_output(&output, &["PASS"], &["FAIL"]);
 }
 
 #[test]
 fn test_multiple_write_cycles_with_sync() {
     // Test rapid write/close cycles to stress-test sync error handling
-
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(binary_path.exists(), "WFL binary not found.");
 
     let pid = std::process::id();
     let test_program = format!(
@@ -286,31 +207,10 @@ delete file at "test_multi_sync_{}.txt"
         pid, pid, pid, pid, pid, pid, pid
     );
 
-    // Use unique temp file to avoid race conditions when tests run in parallel
-    let temp_dir = std::env::temp_dir();
-    let test_file = temp_dir.join(format!("test_multi_sync_cycles_{}.wfl", pid));
-    fs::write(&test_file, &test_program).unwrap();
+    let output = run_wfl_program(&test_program, &format!("test_multi_sync_cycles_{}", pid));
 
-    let output = Command::new(&binary_path)
-        .arg(&test_file)
-        .output()
-        .expect("Failed to execute WFL");
-
-    fs::remove_file(&test_file).ok();
+    // Clean up any leftover files
     fs::remove_file(format!("test_multi_sync_{}.txt", pid)).ok();
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "WFL failed: {}\n{}",
-        stdout,
-        stderr
-    );
-    assert!(
-        stdout.contains("PASS"),
-        "Multi-cycle test failed: {}",
-        stdout
-    );
+    assert_wfl_success_with_output(&output, &["PASS"], &["FAIL"]);
 }
