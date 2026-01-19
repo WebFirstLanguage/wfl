@@ -2,29 +2,50 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Helper function to get the path to the WFL binary
 ///
 /// Returns the path to the WFL binary based on the current OS.
-/// Panics if the binary doesn't exist, prompting the user to build it.
+/// Tries release build first, then debug build as fallback.
+/// Panics if neither binary exists, prompting the user to build it.
 pub fn get_wfl_binary_path() -> PathBuf {
-    let wfl_binary = if cfg!(target_os = "windows") {
+    let current_dir = env::current_dir().unwrap();
+
+    // Try release build first
+    let release_binary = if cfg!(target_os = "windows") {
         "target/release/wfl.exe"
     } else {
         "target/release/wfl"
     };
 
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-
-    if !binary_path.exists() {
-        panic!(
-            "WFL binary not found at {:?}. Run 'cargo build --release' first.",
-            binary_path
-        );
+    let release_path = current_dir.join(release_binary);
+    if release_path.exists() {
+        return release_path;
     }
 
-    binary_path
+    // Fall back to debug build
+    let debug_binary = if cfg!(target_os = "windows") {
+        "target/debug/wfl.exe"
+    } else {
+        "target/debug/wfl"
+    };
+
+    let debug_path = current_dir.join(debug_binary);
+    if debug_path.exists() {
+        return debug_path;
+    }
+
+    // Neither exists, panic with helpful message
+    panic!(
+        "WFL binary not found at {:?} or {:?}. Run 'cargo build --release' or 'cargo build' first.",
+        release_path, debug_path
+    );
 }
+
+static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Helper function to create a unique test file path
 ///
@@ -32,7 +53,21 @@ pub fn get_wfl_binary_path() -> PathBuf {
 /// race conditions when tests run in parallel.
 pub fn get_unique_test_file_path(prefix: &str) -> PathBuf {
     let temp_dir = env::temp_dir();
-    temp_dir.join(format!("{}_{}.wfl", prefix, std::process::id()))
+    let counter = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let thread_id = thread::current().id();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+
+    temp_dir.join(format!(
+        "{}_{}_{:?}_{}_{}.wfl",
+        prefix,
+        std::process::id(),
+        thread_id,
+        timestamp,
+        counter
+    ))
 }
 
 /// Helper function to run a WFL program and return the output
@@ -53,7 +88,12 @@ pub fn run_wfl_program(program_content: &str, test_name: &str) -> std::process::
         .expect("Failed to execute WFL binary");
 
     // Clean up temporary file
-    fs::remove_file(&test_file).ok();
+    if let Err(e) = fs::remove_file(&test_file) {
+        eprintln!(
+            "Warning: Failed to clean up test file {:?}: {}",
+            test_file, e
+        );
+    }
 
     output
 }
@@ -115,9 +155,23 @@ mod tests {
             assert!(!path.to_string_lossy().ends_with(".exe"));
         }
 
-        // Verify it's an absolute path to target/release/
+        // Verify it's an absolute path to target/release/ or target/debug/
         assert!(path.is_absolute());
-        assert!(path.to_string_lossy().contains("target/release/"));
+        let has_target_release = path
+            .components()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|w| w[0].as_os_str() == "target" && w[1].as_os_str() == "release");
+        let has_target_debug = path
+            .components()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|w| w[0].as_os_str() == "target" && w[1].as_os_str() == "debug");
+        assert!(
+            has_target_release || has_target_debug,
+            "Path should contain target/release or target/debug: {:?}",
+            path
+        );
     }
 
     #[test]
@@ -125,7 +179,7 @@ mod tests {
         let path1 = get_unique_test_file_path("test_example");
         let path2 = get_unique_test_file_path("test_example");
 
-        // Both should have the same prefix but same suffix (since same process)
+        // Both should contain the prefix
         assert!(path1.to_string_lossy().contains("test_example"));
         assert!(path2.to_string_lossy().contains("test_example"));
 
@@ -137,6 +191,9 @@ mod tests {
         let pid = std::process::id().to_string();
         assert!(path1.to_string_lossy().contains(&pid));
         assert!(path2.to_string_lossy().contains(&pid));
+
+        // Paths should be different due to counter and timestamp
+        assert_ne!(path1, path2, "Paths should be unique");
     }
 
     #[test]
