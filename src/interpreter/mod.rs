@@ -5136,6 +5136,102 @@ impl Interpreter {
         Ok((last_value, control_flow))
     }
 
+    // Helper to evaluate literals directly without Box::pin allocation
+    fn evaluate_literal_direct(
+        &self,
+        literal: &Literal,
+        line: usize,
+        column: usize,
+    ) -> Result<Option<Value>, RuntimeError> {
+        match literal {
+            Literal::String(s) => Ok(Some(Value::Text(Rc::from(s.as_str())))),
+            Literal::Integer(i) => Ok(Some(Value::Number(*i as f64))),
+            Literal::Float(f) => Ok(Some(Value::Number(*f))),
+            Literal::Boolean(b) => Ok(Some(Value::Bool(*b))),
+            Literal::Nothing => Ok(Some(Value::Null)),
+            // Pattern literals might error, so we can handle them here
+            Literal::Pattern(_ir_string) => Err(RuntimeError::new(
+                "Pattern literals not yet supported in new pattern system".to_string(),
+                line,
+                column,
+            )),
+            // List requires recursion, so fall through to boxed implementation
+            Literal::List(_) => Ok(None),
+        }
+    }
+
+    // Helper for variable auto-call logic
+    fn handle_variable_auto_call(
+        &self,
+        value: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Option<Value>, RuntimeError> {
+        match &value {
+            Value::NativeFunction(func_name, native_fn) => {
+                if get_function_arity(func_name) == 0 {
+                    // Native functions are synchronous
+                    native_fn(vec![])
+                        .map(Some)
+                        .map_err(|e| RuntimeError::new(format!("{}", e), line, column))
+                } else {
+                    Ok(Some(value))
+                }
+            }
+            Value::Function(func) => {
+                if func.params.is_empty() {
+                    // User functions are async -> return None to signal fallback to async
+                    Ok(None)
+                } else {
+                    Ok(Some(value))
+                }
+            }
+            _ => Ok(Some(value)),
+        }
+    }
+
+    // Helper for fast variable lookup to avoid Box::pin allocation
+    // Returns Ok(Some(value)) if handled synchronously
+    // Returns Ok(None) if async handling (user function call) is needed
+    // Returns Err(...) if runtime error
+    fn try_evaluate_variable_sync(
+        &self,
+        name: &str,
+        env: &Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<Option<Value>, RuntimeError> {
+        // Handle special count variable inside count loops
+        if name == "count" && *self.in_count_loop.borrow() {
+            if let Some(count_value) = *self.current_count.borrow() {
+                return Ok(Some(Value::Number(count_value)));
+            }
+            return Err(RuntimeError::new(
+                "Internal error: count variable accessed in count loop but no current count set"
+                    .to_string(),
+                line,
+                column,
+            ));
+        }
+
+        // Try normal variable lookup first
+        if let Some(value) = env.borrow().get(name) {
+            self.handle_variable_auto_call(value, line, column)
+        } else if name == "count" {
+            Err(RuntimeError::new(
+                "Variable 'count' can only be used inside count loops. Use 'count from X to Y:' to create a count loop.".to_string(),
+                line,
+                column,
+            ))
+        } else {
+            Err(RuntimeError::new(
+                format!("Undefined variable '{name}'"),
+                line,
+                column,
+            ))
+        }
+    }
+
     async fn evaluate_expression(
         &self,
         expr: &Expression,
@@ -5143,6 +5239,26 @@ impl Interpreter {
     ) -> Result<Value, RuntimeError> {
         #[cfg(debug_assertions)]
         exec_trace!("Evaluating expression: {}", expr_type(expr));
+
+        // OPTIMIZATION: Handle simple literals directly to avoid Box::pin allocation
+        // This significantly improves performance for tight loops with literals
+        if let Expression::Literal(literal, line, column) = expr
+            && let Some(value) = self.evaluate_literal_direct(literal, *line, *column)?
+        {
+            return Ok(value);
+        }
+
+        // OPTIMIZATION: Handle simple variable lookups directly to avoid Box::pin allocation
+        if let Expression::Variable(name, line, column) = expr {
+            match self.try_evaluate_variable_sync(name, &env, *line, *column) {
+                Ok(Some(val)) => return Ok(val),
+                Ok(None) => {
+                    // Fallthrough to boxed execution which handles user function calls (async)
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
         Box::pin(self._evaluate_expression(expr, env)).await
     }
 
