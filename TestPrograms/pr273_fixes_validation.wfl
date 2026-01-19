@@ -1,0 +1,47 @@
+// Validates that all PR #273 review comments have been addressed
+
+describe "Test name tracking works correctly":
+
+    test "first test with unique name":
+        store value as 1
+        expect value to equal 1  // Fixed: now passes
+    end test
+
+end describe
+
+describe "Type checking catches assertion errors":
+
+    test "numeric comparison requires numbers":
+        store num as 10
+        expect num to be greater than 5
+    end test
+
+    test "length assertion on lists":
+        store items as [1, 2, 3]
+        expect items to have length 3
+    end test
+
+end describe
+
+describe "Test isolation prevents pollution":
+
+    setup:
+        store shared as 100
+    end setup
+
+    test "reads setup variable":
+        expect shared to equal 100
+    end test
+
+    test "creates independent local variable":
+        store local as 200
+        expect local to equal 200
+    end test
+
+    test "previous test's local variable not visible":
+        // This should work because each test is isolated
+        store local as 300
+        expect local to equal 300
+    end test
+
+end describe

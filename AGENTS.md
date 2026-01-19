@@ -11,10 +11,7 @@
 - `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`, `sync-branch.sh`).
 - `Tools/`: Helper tools (Python scripts, WFL tools).
 - `Nexus/`: Experimental WFL test programs.
-- `wfl_website/`: Example WFL web application.
-- `wfl framework/`: Full-featured MVC web framework written in WFL.
 - `wflpkg/`: Package Manager design documents.
-- `Dev diary/`: Development logs and history.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
 ## Core Architecture
@@ -72,9 +69,11 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `wfl --step <file>`: Run in single-step debug mode.
 - `wfl --time <file>`: Run with execution timing.
 - `wfl --lex <file>` / `wfl --parse <file>`: Dump tokens or AST.
+- `wfl --init [dir]`: Create .wflcfg interactively (default: current directory).
 - `wfl --configCheck` / `wfl --configFix`: Check/fix configuration.
 - `wfl --dump-env`: Dump environment for troubleshooting.
 - `wfl --analyze <file>`: Run static analysis.
+- `wfl --test <file>`: Run file in test mode (executes describe/test blocks).
 
 ## Key Language Features
 - **Natural Language Syntax**: `store name as "value"`, `check if x is greater than 5`.
@@ -82,6 +81,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Async Support**: Built-in async/await using Tokio runtime.
 - **Pattern Matching**: Regex-like engine with Unicode support.
 - **Container System**: OOP with containers.
+- **Testing Framework**: Built-in testing with `describe`, `test`, and natural language assertions.
 - **Security**: WFLHASH custom crypto, secure subprocess spawning.
 
 ## Coding Style & Naming
@@ -110,18 +110,28 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 ## Documentation Development
 - **Location**: `Docs/` organized in 6 sections (Introduction, Getting Started, Language Basics, Advanced Features, Standard Library, Best Practices).
 - **Structure**: Follow `Docs/wfl-documentation-policy.md` and 19 principles in `Docs/wfl-foundation.md`.
+- **Reference Documentation**: Two-tiered system for keywords
+  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 178 keywords)
+  - `Docs/reference/reserved-keywords.md` - Complete technical reference (10-15 pages, classifications, edge cases)
+  - Both updated together; quick reference for speed, comprehensive for understanding
 - **Validation**: ALL code examples MUST be validated with MCP tools before adding to docs.
   - Test examples in `TestPrograms/docs_examples/` with manifest tracking in `_meta/manifest.json`.
   - Run validation: `python scripts/validate_docs_examples.py`
   - Use MCP tools: `mcp__wfl-lsp__parse_wfl`, `mcp__wfl-lsp__analyze_wfl`, `mcp__wfl-lsp__typecheck_wfl`, `mcp__wfl-lsp__lint_wfl`
 - **Critical Syntax**:
   - Conditionals use NESTED blocks: `otherwise: check if`, NOT `otherwise check if`
-  - Reserved keywords: 60+ keywords (is, file, add, current, etc.) - use underscores: `is_active`, `myfile`
+  - Reserved keywords: **178 keywords total** (52 structural, 29 contextual, 95 other, 7 literals)
+    - Always reserved: `is`, `file`, `add`, `current`, `check`, `store`, etc.
+    - Contextual (can be variables in some contexts): `count`, `list`, `pattern`, `text`, `at`, etc.
+    - Use underscores to avoid conflicts: `is_active`, `filename`, `my_list`
+    - See `Docs/reference/keyword-reference.md` (quick) and `Docs/reference/reserved-keywords.md` (complete)
   - List push syntax: `push with <list> and <value>`, NOT `push to`
   - Loop variable: `count` in count loops, NOT `the current count`
   - Typeof syntax: `typeof of value`, NOT `typeof(value)`
   - Action syntax: `define action called name with parameters x:`, NOT `action name with x:`
-- **Working Examples**: Reference `TestPrograms/basic_syntax_comprehensive.wfl`, `file_io_comprehensive.wfl`, `comprehensive_web_server_demo.wfl`, `containers_comprehensive.wfl`, `patterns_comprehensive.wfl` for validated syntax.
+- **Working Examples**:
+  - Core syntax: `TestPrograms/basic_syntax_comprehensive.wfl`, `file_io_comprehensive.wfl`, `comprehensive_web_server_demo.wfl`, `containers_comprehensive.wfl`, `patterns_comprehensive.wfl`
+  - Keyword examples: `TestPrograms/docs_examples/keyword_reference/` (11 example files with validation manifest)
 
 ## Agent‑Specific Policies (Critical Rules)
 - **Backward Compatibility**: Sacred. Never break existing WFL programs. Run all `TestPrograms/`.

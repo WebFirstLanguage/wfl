@@ -1,5 +1,5 @@
-store test as "test"
-display test
+store test_value as "test"
+display test_value
 
 create list protocol:
  add "http"

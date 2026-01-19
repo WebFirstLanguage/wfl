@@ -20,6 +20,7 @@ pub mod parser;
 pub mod pattern;
 pub mod repl;
 pub mod stdlib;
+pub mod transpiler;
 pub mod typechecker;
 pub mod version;
 pub mod wfl_config;
@@ -57,7 +58,7 @@ pub fn init_loggers(log_path: &Path, script_dir: &Path) {
     }
 }
 
-pub use interpreter::Interpreter;
+pub use interpreter::{Interpreter, TestFailure, TestResults};
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

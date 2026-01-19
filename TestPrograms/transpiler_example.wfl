@@ -1,0 +1,76 @@
+// Example WFL program to demonstrate the JavaScript transpiler
+// Run: wfl --transpile TestPrograms/transpiler_example.wfl
+
+display "=== WFL to JavaScript Transpiler Demo ==="
+display ""
+
+// Variable declarations
+store greeting as "Hello"
+store counter as 0
+store is_active as yes
+
+// Action (function) definition
+define action called add_numbers with parameters a and b:
+    return a plus b
+end action
+
+// Action with display
+define action called greet_user with parameter name:
+    display "Welcome, " with name with "!"
+end action
+
+// Main entry point
+define action called main:
+    display "Starting program..."
+
+    // Using variables
+    display "Greeting: " with greeting
+    display "Counter: " with counter
+    display "Active: " with is_active
+
+    // Calling actions
+    store result as add_numbers with 5 and 10
+    display "5 + 10 = " with result
+
+    greet_user with "Alice"
+
+    // Conditional logic
+    check if is_active:
+        display "System is active"
+    otherwise:
+        display "System is inactive"
+    end check
+
+    // Count loop
+    display "Counting from 1 to 5:"
+    count from 1 to 5:
+        display "  Count: " with count
+    end count
+
+    // List operations
+    create list colors:
+        add "red"
+        add "green"
+        add "blue"
+    end list
+
+    display "Colors:"
+    for each color in colors:
+        display "  - " with color
+    end for
+
+    // Nested conditions
+    store score as 85
+    check if score is greater than 90:
+        display "Grade: A"
+    otherwise:
+        check if score is greater than 80:
+            display "Grade: B"
+        otherwise:
+            display "Grade: C"
+        end check
+    end check
+
+    display ""
+    display "=== Demo Complete ==="
+end action

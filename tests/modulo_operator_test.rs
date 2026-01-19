@@ -1,24 +1,11 @@
-use std::env;
 /// Test that the modulo operator (%) works correctly
 ///
 /// This test verifies the implementation of the % operator for computing remainders.
-use std::fs;
-use std::process::Command;
+mod test_helpers;
+use test_helpers::*;
 
 #[test]
 fn test_modulo_operator_basic() {
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(
-        binary_path.exists(),
-        "WFL binary not found. Run 'cargo build --release' first."
-    );
-
     let test_program = r#"
 // Test basic modulo operations
 store r1 as 5 % 2
@@ -55,42 +42,13 @@ end check
 display result
 "#;
 
-    // Use unique temp file to avoid race conditions when tests run in parallel
-    let temp_dir = std::env::temp_dir();
-    let test_file = temp_dir.join(format!("test_modulo_basic_{}.wfl", std::process::id()));
-    fs::write(&test_file, test_program).unwrap();
-
-    let output = Command::new(&binary_path)
-        .arg(&test_file)
-        .output()
-        .expect("Failed to execute WFL");
-
-    fs::remove_file(&test_file).ok();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "WFL failed: {}\n{}",
-        stdout,
-        stderr
-    );
-    assert!(stdout.contains("PASS"), "Expected PASS, got: {}", stdout);
-    assert!(!stdout.contains("FAIL"), "Found FAIL: {}", stdout);
+    // Run the WFL program and assert results
+    let output = run_wfl_program(test_program, "test_modulo_basic");
+    assert_wfl_success_with_output(&output, &["PASS"], &["FAIL"]);
 }
 
 #[test]
 fn test_modulo_with_even_odd_check() {
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(binary_path.exists(), "WFL binary not found.");
-
     let test_program = r#"
 // Test modulo for even/odd checking (like the nexus test)
 store total as 0
@@ -112,41 +70,13 @@ otherwise:
 end check
 "#;
 
-    // Use unique temp file to avoid race conditions when tests run in parallel
-    let temp_dir = std::env::temp_dir();
-    let test_file = temp_dir.join(format!("test_modulo_even_odd_{}.wfl", std::process::id()));
-    fs::write(&test_file, test_program).unwrap();
-
-    let output = Command::new(&binary_path)
-        .arg(&test_file)
-        .output()
-        .expect("Failed to execute WFL");
-
-    fs::remove_file(&test_file).ok();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "WFL failed: {}\n{}",
-        stdout,
-        stderr
-    );
-    assert!(stdout.contains("PASS"), "Expected PASS, got: {}", stdout);
+    // Run the WFL program and assert results
+    let output = run_wfl_program(test_program, "test_modulo_even_odd");
+    assert_wfl_success_with_output(&output, &["PASS"], &[]);
 }
 
 #[test]
 fn test_modulo_by_zero_error() {
-    let wfl_binary = if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    };
-
-    let binary_path = env::current_dir().unwrap().join(wfl_binary);
-    assert!(binary_path.exists(), "WFL binary not found.");
-
     let test_program = r#"
 // Test that modulo by zero raises an error
 store result as "FAIL"
@@ -161,26 +91,7 @@ end try
 display result
 "#;
 
-    // Use unique temp file to avoid race conditions when tests run in parallel
-    let temp_dir = std::env::temp_dir();
-    let test_file = temp_dir.join(format!("test_modulo_zero_{}.wfl", std::process::id()));
-    fs::write(&test_file, test_program).unwrap();
-
-    let output = Command::new(&binary_path)
-        .arg(&test_file)
-        .output()
-        .expect("Failed to execute WFL");
-
-    fs::remove_file(&test_file).ok();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "WFL failed: {}\n{}",
-        stdout,
-        stderr
-    );
-    assert!(stdout.contains("PASS"), "Expected PASS, got: {}", stdout);
+    // Run the WFL program and assert results
+    let output = run_wfl_program(test_program, "test_modulo_zero");
+    assert_wfl_success_with_output(&output, &["PASS"], &[]);
 }

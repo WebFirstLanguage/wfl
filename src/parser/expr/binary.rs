@@ -75,13 +75,13 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                 Token::KeywordIs => {
                     self.bump_sync(); // Consume "is"
 
-                    if let Some(next_token) = self.cursor.peek().cloned() {
+                    if let Some(next_token) = self.cursor.peek() {
                         match &next_token.token {
                             Token::KeywordEqual => {
                                 self.bump_sync(); // Consume "equal"
 
-                                if let Some(to_token) = self.cursor.peek().cloned() {
-                                    if matches!(to_token.token, Token::KeywordTo) {
+                                if let Some(to_token) = self.cursor.peek() {
+                                    if matches!(&to_token.token, Token::KeywordTo) {
                                         self.bump_sync(); // Consume "to"
                                         Some((Operator::Equals, 0))
                                     } else {
@@ -103,26 +103,22 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                             Token::KeywordGreater => {
                                 self.bump_sync(); // Consume "greater"
 
-                                if let Some(than_token) = self.cursor.peek().cloned() {
-                                    if matches!(than_token.token, Token::KeywordThan) {
+                                if let Some(than_token) = self.cursor.peek() {
+                                    if matches!(&than_token.token, Token::KeywordThan) {
                                         self.bump_sync(); // Consume "than"
 
                                         // Check for "or equal to" after "greater than"
-                                        if let Some(or_token) = self.cursor.peek().cloned() {
-                                            if matches!(or_token.token, Token::KeywordOr) {
+                                        if let Some(or_token) = self.cursor.peek() {
+                                            if matches!(&or_token.token, Token::KeywordOr) {
                                                 self.bump_sync(); // Consume "or"
-                                                if let Some(equal_token) =
-                                                    self.cursor.peek().cloned()
-                                                {
+                                                if let Some(equal_token) = self.cursor.peek() {
                                                     if matches!(
                                                         equal_token.token,
                                                         Token::KeywordEqual
                                                     ) {
                                                         self.bump_sync(); // Consume "equal"
                                                         // Optional "to"
-                                                        if let Some(to_token) =
-                                                            self.cursor.peek().cloned()
-                                                        {
+                                                        if let Some(to_token) = self.cursor.peek() {
                                                             if matches!(
                                                                 to_token.token,
                                                                 Token::KeywordTo
@@ -168,27 +164,23 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                             Token::KeywordLess => {
                                 self.bump_sync(); // Consume "less"
 
-                                if let Some(than_token) = self.cursor.peek().cloned() {
-                                    if matches!(than_token.token, Token::KeywordThan) {
+                                if let Some(than_token) = self.cursor.peek() {
+                                    if matches!(&than_token.token, Token::KeywordThan) {
                                         self.bump_sync(); // Consume "than"
 
                                         // Check for "or equal to" after "less than"
-                                        if let Some(or_token) = self.cursor.peek().cloned() {
-                                            if matches!(or_token.token, Token::KeywordOr) {
+                                        if let Some(or_token) = self.cursor.peek() {
+                                            if matches!(&or_token.token, Token::KeywordOr) {
                                                 self.bump_sync(); // Consume "or"
 
-                                                if let Some(equal_token) =
-                                                    self.cursor.peek().cloned()
-                                                {
+                                                if let Some(equal_token) = self.cursor.peek() {
                                                     if matches!(
                                                         equal_token.token,
                                                         Token::KeywordEqual
                                                     ) {
                                                         self.bump_sync(); // Consume "equal"
 
-                                                        if let Some(to_token) =
-                                                            self.cursor.peek().cloned()
-                                                        {
+                                                        if let Some(to_token) = self.cursor.peek() {
                                                             if matches!(
                                                                 to_token.token,
                                                                 Token::KeywordTo
@@ -278,13 +270,13 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "or"
 
                     // Handle "or equal to" as a special case
-                    if let Some(equal_token) = self.cursor.peek().cloned()
-                        && matches!(equal_token.token, Token::KeywordEqual)
+                    if let Some(equal_token) = self.cursor.peek()
+                        && matches!(&equal_token.token, Token::KeywordEqual)
                     {
                         self.bump_sync(); // Consume "equal"
 
-                        if let Some(to_token) = self.cursor.peek().cloned()
-                            && matches!(to_token.token, Token::KeywordTo)
+                        if let Some(to_token) = self.cursor.peek()
+                            && matches!(&to_token.token, Token::KeywordTo)
                         {
                             self.bump_sync(); // Consume "to"
 
@@ -325,8 +317,8 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "matches"
 
                     // Check if next token is "pattern" keyword (optional)
-                    if let Some(pattern_token) = self.cursor.peek().cloned()
-                        && matches!(pattern_token.token, Token::KeywordPattern)
+                    if let Some(pattern_token) = self.cursor.peek()
+                        && matches!(&pattern_token.token, Token::KeywordPattern)
                     {
                         self.bump_sync(); // Consume "pattern"
                     }
@@ -345,16 +337,16 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "find"
 
                     // Check if next token is "pattern" keyword (optional)
-                    if let Some(pattern_token) = self.cursor.peek().cloned()
-                        && matches!(pattern_token.token, Token::KeywordPattern)
+                    if let Some(pattern_token) = self.cursor.peek()
+                        && matches!(&pattern_token.token, Token::KeywordPattern)
                     {
                         self.bump_sync(); // Consume "pattern"
                     }
 
                     let pattern_expr = self.parse_binary_expression(precedence + 1)?;
 
-                    if let Some(in_token) = self.cursor.peek().cloned()
-                        && matches!(in_token.token, Token::KeywordIn)
+                    if let Some(in_token) = self.cursor.peek()
+                        && matches!(&in_token.token, Token::KeywordIn)
                     {
                         self.bump_sync(); // Consume "in"
 
@@ -381,23 +373,23 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "replace"
 
                     // Check if next token is "pattern" keyword (optional)
-                    if let Some(pattern_token) = self.cursor.peek().cloned()
-                        && matches!(pattern_token.token, Token::KeywordPattern)
+                    if let Some(pattern_token) = self.cursor.peek()
+                        && matches!(&pattern_token.token, Token::KeywordPattern)
                     {
                         self.bump_sync(); // Consume "pattern"
                     }
 
                     let pattern_expr = self.parse_binary_expression(precedence + 1)?;
 
-                    if let Some(with_token) = self.cursor.peek().cloned()
-                        && matches!(with_token.token, Token::KeywordWith)
+                    if let Some(with_token) = self.cursor.peek()
+                        && matches!(&with_token.token, Token::KeywordWith)
                     {
                         self.bump_sync(); // Consume "with"
 
                         let replacement_expr = self.parse_binary_expression(precedence + 1)?;
 
-                        if let Some(in_token) = self.cursor.peek().cloned()
-                            && matches!(in_token.token, Token::KeywordIn)
+                        if let Some(in_token) = self.cursor.peek()
+                            && matches!(&in_token.token, Token::KeywordIn)
                         {
                             self.bump_sync(); // Consume "in"
 
@@ -437,8 +429,8 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     let text_expr = self.parse_binary_expression(precedence + 1)?;
 
                     // Check for "by" (string split) or "on" (pattern split)
-                    if let Some(next_token) = self.cursor.peek().cloned() {
-                        match next_token.token {
+                    if let Some(next_token) = self.cursor.peek() {
+                        match &next_token.token {
                             Token::KeywordBy => {
                                 // Handle "split text by delimiter" syntax
                                 self.bump_sync(); // Consume "by"
@@ -458,8 +450,8 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                 self.bump_sync(); // Consume "on"
 
                                 // Check if next token is "pattern" keyword (optional)
-                                if let Some(pattern_token) = self.cursor.peek().cloned()
-                                    && matches!(pattern_token.token, Token::KeywordPattern)
+                                if let Some(pattern_token) = self.cursor.peek()
+                                    && matches!(&pattern_token.token, Token::KeywordPattern)
                                 {
                                     self.bump_sync(); // Consume "pattern"
                                 }
@@ -496,8 +488,8 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                 Token::KeywordContains => {
                     self.bump_sync(); // Consume "contains"
 
-                    if let Some(pattern_token) = self.cursor.peek().cloned()
-                        && matches!(pattern_token.token, Token::KeywordPattern)
+                    if let Some(pattern_token) = self.cursor.peek()
+                        && matches!(&pattern_token.token, Token::KeywordPattern)
                     {
                         self.bump_sync(); // Consume "pattern"
 
@@ -590,7 +582,7 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
         // We've already consumed Token::KeywordCall in the caller
 
         // Expect identifier for action name
-        let name = if let Some(token_pos) = self.cursor.peek().cloned() {
+        let name = if let Some(token_pos) = self.cursor.peek() {
             if let Token::Identifier(id) = &token_pos.token {
                 let name = id.clone();
                 self.bump_sync(); // Consume identifier
@@ -598,7 +590,7 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
             } else {
                 let error = ParseError::from_token(
                     "Expected action name after 'call'".to_string(),
-                    &token_pos,
+                    token_pos,
                 );
                 self.errors.push(error.clone());
                 return Err(error);
@@ -616,7 +608,7 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
 
         // Check for 'with' keyword (optional for zero-argument calls)
         if let Some(token_pos) = self.cursor.peek() {
-            if matches!(token_pos.token, Token::KeywordWith) {
+            if matches!(&token_pos.token, Token::KeywordWith) {
                 self.bump_sync(); // Consume 'with'
             } else {
                 // 'with' is optional if action takes no arguments
@@ -656,17 +648,18 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
 
         loop {
             // Check for named arguments (name: value)
-            let arg_name = if let Some(name_token) = self.cursor.peek().cloned() {
+            let arg_name = if let Some(name_token) = self.cursor.peek() {
                 if let Token::Identifier(id) = &name_token.token {
                     // Check if next token is colon (named argument syntax)
                     if self
                         .cursor
                         .peek_next()
-                        .is_some_and(|t| matches!(t.token, Token::Colon))
+                        .is_some_and(|t| matches!(&t.token, Token::Colon))
                     {
+                        let name = id.to_string();
                         self.bump_sync(); // Consume name
                         self.bump_sync(); // Consume ":"
-                        Some(id.to_string())
+                        Some(name)
                     } else {
                         None
                     }
@@ -686,8 +679,8 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                 value: arg_value,
             });
 
-            if let Some(token) = self.cursor.peek().cloned() {
-                if matches!(token.token, Token::KeywordAnd) {
+            if let Some(token) = self.cursor.peek() {
+                if matches!(&token.token, Token::KeywordAnd) {
                     self.bump_sync(); // Consume "and"
                     continue; // Continue parsing next argument
                 } else {

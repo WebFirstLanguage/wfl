@@ -158,7 +158,7 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
 
         // Check for deprecated "create new constant" syntax
         if let Some(token) = self.cursor.peek()
-            && matches!(token.token, Token::KeywordConstant)
+            && matches!(&token.token, Token::KeywordConstant)
         {
             // This is the deprecated "create new constant" syntax
             eprintln!(
@@ -356,9 +356,8 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
         if let Some(token) = self.cursor.peek()
             && token.token == Token::KeywordExtends
         {
-            self.bump_sync(); // Consume 'extends'
+            let extends_pos = self.bump_sync().unwrap(); // Consume 'extends' and keep position
 
-            let extends_token = self.cursor.peek().cloned();
             if let Some(token) = self.cursor.peek() {
                 if let Token::Identifier(id) = &token.token {
                     extends = Some(id.clone());
@@ -369,17 +368,10 @@ impl<'a> ContainerParser<'a> for Parser<'a> {
                         token,
                     ));
                 }
-            } else if let Some(ref ext_tok) = extends_token {
+            } else {
                 return Err(ParseError::from_token(
                     "Expected identifier after 'extends'".to_string(),
-                    ext_tok,
-                ));
-            } else {
-                return Err(ParseError::from_span(
-                    "Expected identifier after 'extends'".to_string(),
-                    crate::diagnostics::Span { start: 0, end: 0 },
-                    0,
-                    0,
+                    extends_pos,
                 ));
             }
         }

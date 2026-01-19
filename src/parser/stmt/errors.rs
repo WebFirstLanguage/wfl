@@ -23,7 +23,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
         self.skip_eol();
 
         let mut body = Vec::new();
-        while let Some(token) = self.cursor.peek().cloned() {
+        while let Some(token) = self.cursor.peek() {
             if matches!(
                 token.token,
                 Token::KeywordWhen
@@ -33,7 +33,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
             ) {
                 break;
             }
-            if matches!(token.token, Token::Eol) {
+            if matches!(&token.token, Token::Eol) {
                 self.bump_sync(); // Skip Eol between statements
                 continue;
             }
@@ -44,15 +44,13 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
         let mut otherwise_block = None;
 
         // Parse when clauses
-        while let Some(token) = self.cursor.peek().cloned() {
+        while let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordWhen => {
                     self.bump_sync(); // Consume "when"
 
                     // Parse error type
-                    let (error_type, error_name) = if let Some(next_token) =
-                        self.cursor.peek().cloned()
-                    {
+                    let (error_type, error_name) = if let Some(next_token) = self.cursor.peek() {
                         match &next_token.token {
                             Token::KeywordError => {
                                 self.bump_sync(); // Consume "error"
@@ -82,7 +80,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                                 self.bump_sync(); // Consume "process"
 
                                 // Check what comes next to determine error type
-                                if let Some(next) = self.cursor.peek().cloned() {
+                                if let Some(next) = self.cursor.peek() {
                                     match &next.token {
                                         Token::KeywordNot => {
                                             self.bump_sync(); // Consume "not"
@@ -94,7 +92,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                                         }
                                         Token::Identifier(id) if id == "spawn" => {
                                             self.bump_sync(); // Consume "spawn"
-                                            if let Some(failed) = self.cursor.peek().cloned() {
+                                            if let Some(failed) = self.cursor.peek() {
                                                 if let Token::Identifier(fid) = &failed.token {
                                                     if fid == "failed" {
                                                         self.bump_sync(); // Consume "failed"
@@ -106,26 +104,26 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                                                         return Err(ParseError::from_token(
                                                             "Expected 'failed' after 'spawn'"
                                                                 .to_string(),
-                                                            &failed,
+                                                            failed,
                                                         ));
                                                     }
                                                 } else {
                                                     return Err(ParseError::from_token(
                                                         "Expected 'failed' after 'spawn'"
                                                             .to_string(),
-                                                        &failed,
+                                                        failed,
                                                     ));
                                                 }
                                             } else {
                                                 return Err(ParseError::from_token(
                                                     "Expected 'failed' after 'spawn'".to_string(),
-                                                    &next,
+                                                    next,
                                                 ));
                                             }
                                         }
                                         Token::Identifier(id) if id == "kill" => {
                                             self.bump_sync(); // Consume "kill"
-                                            if let Some(failed) = self.cursor.peek().cloned() {
+                                            if let Some(failed) = self.cursor.peek() {
                                                 if let Token::Identifier(fid) = &failed.token {
                                                     if fid == "failed" {
                                                         self.bump_sync(); // Consume "failed"
@@ -137,34 +135,34 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                                                         return Err(ParseError::from_token(
                                                             "Expected 'failed' after 'kill'"
                                                                 .to_string(),
-                                                            &failed,
+                                                            failed,
                                                         ));
                                                     }
                                                 } else {
                                                     return Err(ParseError::from_token(
                                                         "Expected 'failed' after 'kill'"
                                                             .to_string(),
-                                                        &failed,
+                                                        failed,
                                                     ));
                                                 }
                                             } else {
                                                 return Err(ParseError::from_token(
                                                     "Expected 'failed' after 'kill'".to_string(),
-                                                    &next,
+                                                    next,
                                                 ));
                                             }
                                         }
                                         _ => {
                                             return Err(ParseError::from_token(
                                                 "Expected 'not found', 'spawn failed', or 'kill failed' after 'process'".to_string(),
-                                                &next,
+                                                next,
                                             ));
                                         }
                                     }
                                 } else {
                                     return Err(ParseError::from_token(
                                         "Unexpected end after 'process'".to_string(),
-                                        &next_token,
+                                        next_token,
                                     ));
                                 }
                             }
@@ -186,14 +184,14 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                                         "Expected 'error', 'file', 'permission', 'process', or 'command' after 'when', found {:?}",
                                         next_token.token
                                     ),
-                                    &next_token,
+                                    next_token,
                                 ));
                             }
                         }
                     } else {
                         return Err(ParseError::from_token(
                             "Unexpected end of input after 'when'".to_string(),
-                            &token,
+                            token,
                         ));
                     };
 
@@ -203,7 +201,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                     self.skip_eol();
 
                     let mut when_body = Vec::new();
-                    while let Some(token) = self.cursor.peek().cloned() {
+                    while let Some(token) = self.cursor.peek() {
                         if matches!(
                             token.token,
                             Token::KeywordWhen
@@ -213,7 +211,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                         ) {
                             break;
                         }
-                        if matches!(token.token, Token::Eol) {
+                        if matches!(&token.token, Token::Eol) {
                             self.bump_sync(); // Skip Eol between statements
                             continue;
                         }
@@ -231,7 +229,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
 
                     // Check for optional "with error_name" syntax
                     let error_name = if let Some(next_token) = self.cursor.peek() {
-                        if matches!(next_token.token, Token::KeywordWith) {
+                        if matches!(&next_token.token, Token::KeywordWith) {
                             self.bump_sync(); // Consume "with"
                             if let Some(name_token) = self.cursor.peek() {
                                 if let Token::Identifier(name) = &name_token.token {
@@ -257,7 +255,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                     self.skip_eol();
 
                     let mut catch_body = Vec::new();
-                    while let Some(token) = self.cursor.peek().cloned() {
+                    while let Some(token) = self.cursor.peek() {
                         if matches!(
                             token.token,
                             Token::KeywordWhen
@@ -267,7 +265,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                         ) {
                             break;
                         }
-                        if matches!(token.token, Token::Eol) {
+                        if matches!(&token.token, Token::Eol) {
                             self.bump_sync(); // Skip Eol between statements
                             continue;
                         }
@@ -289,11 +287,11 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                     self.skip_eol();
 
                     let mut otherwise_body = Vec::new();
-                    while let Some(token) = self.cursor.peek().cloned() {
-                        if matches!(token.token, Token::KeywordEnd) {
+                    while let Some(token) = self.cursor.peek() {
+                        if matches!(&token.token, Token::KeywordEnd) {
                             break;
                         }
-                        if matches!(token.token, Token::Eol) {
+                        if matches!(&token.token, Token::Eol) {
                             self.bump_sync(); // Skip Eol between statements
                             continue;
                         }
@@ -311,7 +309,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                             "Expected 'when', 'catch', 'otherwise', or 'end', found {:?}",
                             token.token
                         ),
-                        &token,
+                        token,
                     ));
                 }
             }

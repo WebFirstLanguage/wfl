@@ -1,4 +1,5 @@
 #![allow(clippy::await_holding_refcell_ref)]
+mod assertion_helpers;
 pub mod bounded_buffer;
 pub mod command_sanitizer;
 pub mod control_flow;
@@ -39,7 +40,7 @@ use crate::exec_var_declare;
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
 use crate::parser::ast::{
-    Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
+    Assertion, Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
@@ -260,6 +261,14 @@ fn stmt_type(stmt: &Statement) -> String {
             "StopAcceptingConnectionsStatement".to_string()
         }
         Statement::CloseServerStatement { .. } => "CloseServerStatement".to_string(),
+        // Test framework statements
+        Statement::DescribeBlock { description, .. } => {
+            format!("DescribeBlock '{description}'")
+        }
+        Statement::TestBlock { description, .. } => {
+            format!("TestBlock '{description}'")
+        }
+        Statement::ExpectStatement { .. } => "ExpectStatement".to_string(),
     }
 }
 
@@ -337,6 +346,29 @@ pub struct Interpreter {
     config: Arc<WflConfig>, // Configuration for security and other settings
     current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
     loading_stack: RefCell<Vec<PathBuf>>, // Stack of currently loading files (for circular dependency detection)
+    // Test execution state
+    test_mode: RefCell<bool>,
+    test_results: RefCell<TestResults>,
+    current_describe_stack: RefCell<Vec<String>>,
+    current_test_name: RefCell<Option<String>>,
+}
+
+// Test framework data structures
+#[derive(Debug, Default, Clone)]
+pub struct TestResults {
+    pub total_tests: usize,
+    pub passed_tests: usize,
+    pub failed_tests: usize,
+    pub failures: Vec<TestFailure>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TestFailure {
+    pub describe_context: Vec<String>,
+    pub test_name: String,
+    pub assertion_message: String,
+    pub line: usize,
+    pub column: usize,
 }
 
 // Process handle for managing subprocess state
@@ -1147,6 +1179,11 @@ impl Interpreter {
             config,
             current_source_file: RefCell::new(None), // No source file initially
             loading_stack: RefCell::new(Vec::new()), // Empty loading stack
+            // Test execution state
+            test_mode: RefCell::new(false),
+            test_results: RefCell::new(TestResults::default()),
+            current_describe_stack: RefCell::new(Vec::new()),
+            current_test_name: RefCell::new(None),
         }
     }
 
@@ -1168,6 +1205,16 @@ impl Interpreter {
 
     pub fn set_source_file(&mut self, path: PathBuf) {
         *self.current_source_file.borrow_mut() = Some(path);
+    }
+
+    /// Enable or disable test mode
+    pub fn set_test_mode(&self, enabled: bool) {
+        *self.test_mode.borrow_mut() = enabled;
+    }
+
+    /// Get test results after running in test mode
+    pub fn get_test_results(&self) -> TestResults {
+        self.test_results.borrow().clone()
     }
 
     /// Extract variables from the environment for module analyzer
@@ -1706,6 +1753,10 @@ impl Interpreter {
             Statement::ReadProcessOutputStatement { line, column, .. } => (*line, *column),
             Statement::KillProcessStatement { line, column, .. } => (*line, *column),
             Statement::WaitForProcessStatement { line, column, .. } => (*line, *column),
+            // Test framework statements
+            Statement::DescribeBlock { line, column, .. } => (*line, *column),
+            Statement::TestBlock { line, column, .. } => (*line, *column),
+            Statement::ExpectStatement { line, column, .. } => (*line, *column),
         };
 
         let result = match stmt {
@@ -4856,6 +4907,180 @@ impl Interpreter {
 
                 Ok((Value::Null, ControlFlow::None))
             }
+            // Test framework statements
+            Statement::DescribeBlock {
+                description,
+                setup,
+                teardown,
+                tests,
+                line,
+                column,
+            } => {
+                if !*self.test_mode.borrow() {
+                    return Err(RuntimeError::new(
+                        "describe blocks can only be used in test mode (run with --test flag)"
+                            .to_string(),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                // Push describe context
+                self.current_describe_stack
+                    .borrow_mut()
+                    .push(description.clone());
+
+                // Create describe-level environment for setup/teardown sharing
+                // This allows tests to access setup variables while remaining isolated from each other
+                let describe_env = Environment::new_child_env(&env);
+
+                // Run setup if present (runs in describe environment)
+                if let Some(setup_stmts) = setup {
+                    for stmt in setup_stmts {
+                        Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
+                    }
+                }
+
+                // Execute all tests (each gets a child of describe_env for isolation)
+                for test in tests {
+                    Box::pin(self._execute_statement(test, describe_env.clone())).await?;
+                }
+
+                // Run teardown if present (runs in describe environment)
+                if let Some(teardown_stmts) = teardown {
+                    for stmt in teardown_stmts {
+                        Box::pin(self._execute_statement(stmt, describe_env.clone())).await?;
+                    }
+                }
+
+                // Pop describe context
+                self.current_describe_stack.borrow_mut().pop();
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::TestBlock {
+                description,
+                body,
+                line,
+                column,
+            } => {
+                if !*self.test_mode.borrow() {
+                    return Err(RuntimeError::new(
+                        "test blocks can only be used in test mode (run with --test flag)"
+                            .to_string(),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                // Set current test name for failure tracking
+                *self.current_test_name.borrow_mut() = Some(description.clone());
+
+                // Increment test count
+                self.test_results.borrow_mut().total_tests += 1;
+
+                // Create isolated environment for test (child of describe env)
+                // Using isolated mode prevents tests from mutating setup variables,
+                // ensuring each test gets a fresh copy for true isolation
+                let test_env = Environment::new_isolated_child_env(&env);
+
+                // Execute test body and catch assertion failures
+                let mut test_passed = true;
+
+                for stmt in body {
+                    match Box::pin(self._execute_statement(stmt, test_env.clone())).await {
+                        Ok(_) => {}
+                        Err(e) => {
+                            test_passed = false;
+
+                            // Only record failure if not already recorded by expect statement
+                            // Check if this is an assertion failure (which has already been recorded)
+                            let error_msg = e.to_string();
+                            if !error_msg.starts_with("Assertion failed:") {
+                                // This is a non-assertion error (e.g., runtime error in test code)
+                                let context = self.current_describe_stack.borrow().clone();
+                                let failure = TestFailure {
+                                    describe_context: context,
+                                    test_name: description.clone(),
+                                    assertion_message: error_msg,
+                                    line: *line,
+                                    column: *column,
+                                };
+                                self.test_results.borrow_mut().failures.push(failure);
+                            }
+
+                            // Don't propagate the error - continue running other tests
+                            break;
+                        }
+                    }
+                }
+
+                if test_passed {
+                    self.test_results.borrow_mut().passed_tests += 1;
+                }
+
+                // Clear current test name
+                *self.current_test_name.borrow_mut() = None;
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::ExpectStatement {
+                subject,
+                assertion,
+                line,
+                column,
+            } => {
+                if !*self.test_mode.borrow() {
+                    return Err(RuntimeError::new(
+                        "expect statements can only be used in test mode (run with --test flag)"
+                            .to_string(),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                // Evaluate subject expression
+                let subject_value = self.evaluate_expression(subject, env.clone()).await?;
+
+                // Check assertion
+                let (passed, expected_value) = self
+                    .check_assertion(&subject_value, assertion, env.clone())
+                    .await?;
+
+                if !passed {
+                    // Record failure with proper test name tracking
+                    let message = self.create_assertion_message_with_values(
+                        assertion,
+                        &subject_value,
+                        expected_value.as_ref(),
+                    );
+                    let context = self.current_describe_stack.borrow().clone();
+                    let test_name = self
+                        .current_test_name
+                        .borrow()
+                        .clone()
+                        .unwrap_or_else(|| "unknown test".to_string());
+
+                    let failure = TestFailure {
+                        describe_context: context,
+                        test_name,
+                        assertion_message: message.clone(),
+                        line: *line,
+                        column: *column,
+                    };
+
+                    self.test_results.borrow_mut().failures.push(failure);
+                    self.test_results.borrow_mut().failed_tests += 1;
+
+                    return Err(RuntimeError::new(
+                        format!("Assertion failed: {message}"),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                Ok((Value::Null, ControlFlow::None))
+            }
         };
 
         if self.step_mode {
@@ -4911,6 +5136,102 @@ impl Interpreter {
         Ok((last_value, control_flow))
     }
 
+    // Helper to evaluate literals directly without Box::pin allocation
+    fn evaluate_literal_direct(
+        &self,
+        literal: &Literal,
+        line: usize,
+        column: usize,
+    ) -> Result<Option<Value>, RuntimeError> {
+        match literal {
+            Literal::String(s) => Ok(Some(Value::Text(Rc::from(s.as_str())))),
+            Literal::Integer(i) => Ok(Some(Value::Number(*i as f64))),
+            Literal::Float(f) => Ok(Some(Value::Number(*f))),
+            Literal::Boolean(b) => Ok(Some(Value::Bool(*b))),
+            Literal::Nothing => Ok(Some(Value::Null)),
+            // Pattern literals might error, so we can handle them here
+            Literal::Pattern(_ir_string) => Err(RuntimeError::new(
+                "Pattern literals not yet supported in new pattern system".to_string(),
+                line,
+                column,
+            )),
+            // List requires recursion, so fall through to boxed implementation
+            Literal::List(_) => Ok(None),
+        }
+    }
+
+    // Helper for variable auto-call logic
+    fn handle_variable_auto_call(
+        &self,
+        value: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Option<Value>, RuntimeError> {
+        match &value {
+            Value::NativeFunction(func_name, native_fn) => {
+                if get_function_arity(func_name) == 0 {
+                    // Native functions are synchronous
+                    native_fn(vec![])
+                        .map(Some)
+                        .map_err(|e| RuntimeError::new(format!("{}", e), line, column))
+                } else {
+                    Ok(Some(value))
+                }
+            }
+            Value::Function(func) => {
+                if func.params.is_empty() {
+                    // User functions are async -> return None to signal fallback to async
+                    Ok(None)
+                } else {
+                    Ok(Some(value))
+                }
+            }
+            _ => Ok(Some(value)),
+        }
+    }
+
+    // Helper for fast variable lookup to avoid Box::pin allocation
+    // Returns Ok(Some(value)) if handled synchronously
+    // Returns Ok(None) if async handling (user function call) is needed
+    // Returns Err(...) if runtime error
+    fn try_evaluate_variable_sync(
+        &self,
+        name: &str,
+        env: &Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<Option<Value>, RuntimeError> {
+        // Handle special count variable inside count loops
+        if name == "count" && *self.in_count_loop.borrow() {
+            if let Some(count_value) = *self.current_count.borrow() {
+                return Ok(Some(Value::Number(count_value)));
+            }
+            return Err(RuntimeError::new(
+                "Internal error: count variable accessed in count loop but no current count set"
+                    .to_string(),
+                line,
+                column,
+            ));
+        }
+
+        // Try normal variable lookup first
+        if let Some(value) = env.borrow().get(name) {
+            self.handle_variable_auto_call(value, line, column)
+        } else if name == "count" {
+            Err(RuntimeError::new(
+                "Variable 'count' can only be used inside count loops. Use 'count from X to Y:' to create a count loop.".to_string(),
+                line,
+                column,
+            ))
+        } else {
+            Err(RuntimeError::new(
+                format!("Undefined variable '{name}'"),
+                line,
+                column,
+            ))
+        }
+    }
+
     async fn evaluate_expression(
         &self,
         expr: &Expression,
@@ -4918,6 +5239,26 @@ impl Interpreter {
     ) -> Result<Value, RuntimeError> {
         #[cfg(debug_assertions)]
         exec_trace!("Evaluating expression: {}", expr_type(expr));
+
+        // OPTIMIZATION: Handle simple literals directly to avoid Box::pin allocation
+        // This significantly improves performance for tight loops with literals
+        if let Expression::Literal(literal, line, column) = expr
+            && let Some(value) = self.evaluate_literal_direct(literal, *line, *column)?
+        {
+            return Ok(value);
+        }
+
+        // OPTIMIZATION: Handle simple variable lookups directly to avoid Box::pin allocation
+        if let Expression::Variable(name, line, column) = expr {
+            match self.try_evaluate_variable_sync(name, &env, *line, *column) {
+                Ok(Some(val)) => return Ok(val),
+                Ok(None) => {
+                    // Fallthrough to boxed execution which handles user function calls (async)
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
         Box::pin(self._evaluate_expression(expr, env)).await
     }
 

@@ -13,18 +13,18 @@ pub(crate) trait VariableParser<'a>: ExprParser<'a> {
 impl<'a> VariableParser<'a> for Parser<'a> {
     fn parse_variable_declaration(&mut self) -> Result<Statement, ParseError> {
         let token_pos = self.bump_sync().unwrap();
-        let is_store = matches!(token_pos.token, Token::KeywordStore);
+        let is_store = matches!(&token_pos.token, Token::KeywordStore);
         let _keyword = if is_store { "store" } else { "create" };
 
         // Check for "store new constant" syntax
         let mut is_constant = false;
         if is_store
             && let Some(next_token) = self.cursor.peek()
-            && matches!(next_token.token, Token::KeywordNew)
+            && matches!(&next_token.token, Token::KeywordNew)
         {
             self.bump_sync(); // Consume "new"
             if let Some(const_token) = self.cursor.peek() {
-                if matches!(const_token.token, Token::KeywordConstant) {
+                if matches!(&const_token.token, Token::KeywordConstant) {
                     self.bump_sync(); // Consume "constant"
                     is_constant = true;
                 } else {
@@ -79,14 +79,14 @@ impl<'a> VariableParser<'a> for Parser<'a> {
             });
         }
 
-        if let Some(token) = self.cursor.peek().cloned() {
-            if !matches!(token.token, Token::KeywordAs) {
+        if let Some(token) = self.cursor.peek() {
+            if !matches!(&token.token, Token::KeywordAs) {
                 return Err(ParseError::from_token(
                     format!(
                         "Expected 'as' after variable name '{}', but found {:?}",
                         name, token.token
                     ),
-                    &token,
+                    token,
                 ));
             }
         } else {
@@ -115,7 +115,7 @@ impl<'a> VariableParser<'a> for Parser<'a> {
         let mut name = String::new();
         let mut has_identifier = false;
 
-        while let Some(token) = self.cursor.peek().cloned() {
+        while let Some(token) = self.cursor.peek() {
             if let Token::Identifier(id) = &token.token {
                 has_identifier = true;
                 if !name.is_empty() {
@@ -133,12 +133,12 @@ impl<'a> VariableParser<'a> for Parser<'a> {
                             "Expected 'to' after identifier(s), but found {:?}",
                             token.token
                         ),
-                        &token,
+                        token,
                     ));
                 } else {
                     return Err(ParseError::from_token(
                         format!("Expected identifier or 'to', found {:?}", token.token),
-                        &token,
+                        token,
                     ));
                 }
             }

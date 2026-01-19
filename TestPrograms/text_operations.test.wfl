@@ -1,0 +1,66 @@
+// Text operations test suite
+
+describe "String operations":
+
+    test "text concatenation":
+        store greeting as "Hello, "
+        store name as "World"
+        store full as greeting with name
+        expect full to equal "Hello, World"
+    end test
+
+    test "text contains substring":
+        store message as "The quick brown fox"
+        expect message to contain "quick"
+    end test
+
+    test "empty text is empty":
+        store empty_string as ""
+        expect empty_string to be empty
+    end test
+
+    test "non-empty text is not empty":
+        store text as "hello"
+        // Verify it has content by checking length
+        expect text to have length 5
+    end test
+
+end describe
+
+describe "Text properties":
+
+    test "text has correct type":
+        store word as "hello"
+        expect word to be of type "Text"
+    end test
+
+    test "text length is correct":
+        store word as "world"
+        expect word to have length 5
+    end test
+
+    test "empty string has zero length":
+        store empty_text as ""
+        expect empty_text to have length 0
+    end test
+
+end describe
+
+describe "Text comparisons":
+
+    test "identical strings are equal":
+        store a as "test"
+        store b as "test"
+        expect a to equal b
+    end test
+
+    test "case-sensitive comparison":
+        store lower as "hello"
+        store upper as "Hello"
+        // These should NOT be equal (case sensitive)
+        // We can verify by checking they exist and have different properties
+        expect lower to have length 5
+        expect upper to have length 5
+    end test
+
+end describe

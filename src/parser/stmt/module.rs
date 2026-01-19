@@ -31,7 +31,7 @@ impl<'a> ModuleParser<'a> for Parser<'a> {
 
         // V1: Reject unsupported alias syntax with helpful error
         if let Some(next_token) = self.cursor.peek()
-            && matches!(next_token.token, Token::KeywordAs)
+            && matches!(&next_token.token, Token::KeywordAs)
         {
             return Err(ParseError::from_token(
                 "Module aliases are not yet supported. Use: load module from \"path\"".to_string(),

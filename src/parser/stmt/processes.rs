@@ -25,7 +25,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
 
         // Check for optional "with arguments"
         let arguments = if let Some(token) = self.cursor.peek()
-            && matches!(token.token, Token::KeywordWith)
+            && matches!(&token.token, Token::KeywordWith)
         {
             self.bump_sync(); // Consume "with"
             self.expect_token(Token::KeywordArguments, "Expected 'arguments' after 'with'")?;
@@ -36,7 +36,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
 
         // Check for optional "using shell"
         let use_shell = if let Some(token) = self.cursor.peek()
-            && matches!(token.token, Token::KeywordUsing)
+            && matches!(&token.token, Token::KeywordUsing)
         {
             self.bump_sync(); // Consume "using"
             self.expect_token(Token::KeywordShell, "Expected 'shell' after 'using'")?;
@@ -47,7 +47,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
 
         // Check for optional "as variable"
         let variable_name = if let Some(token) = self.cursor.peek()
-            && matches!(token.token, Token::KeywordAs)
+            && matches!(&token.token, Token::KeywordAs)
         {
             self.bump_sync(); // Consume "as"
             let var_token = self.bump_sync().ok_or_else(|| {
@@ -84,7 +84,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
 
         // Check for optional "with arguments"
         let arguments = if let Some(token) = self.cursor.peek()
-            && matches!(token.token, Token::KeywordWith)
+            && matches!(&token.token, Token::KeywordWith)
         {
             self.bump_sync(); // Consume "with"
             self.expect_token(Token::KeywordArguments, "Expected 'arguments' after 'with'")?;
@@ -95,7 +95,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
 
         // Check for optional "using shell"
         let use_shell = if let Some(token) = self.cursor.peek()
-            && matches!(token.token, Token::KeywordUsing)
+            && matches!(&token.token, Token::KeywordUsing)
         {
             self.bump_sync(); // Consume "using"
             self.expect_token(Token::KeywordShell, "Expected 'shell' after 'using'")?;
@@ -216,7 +216,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
 
                     // Expect "to" and "complete"
                     if let Some(token) = self.cursor.peek() {
-                        if matches!(token.token, Token::KeywordTo) {
+                        if matches!(&token.token, Token::KeywordTo) {
                             self.bump_sync(); // Consume "to"
                         } else {
                             return Err(ParseError::from_token(
@@ -246,7 +246,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
 
                     // Check for optional "as variable_name"
                     let variable_name = if let Some(token) = self.cursor.peek() {
-                        if matches!(token.token, Token::KeywordAs) {
+                        if matches!(&token.token, Token::KeywordAs) {
                             self.bump_sync(); // Consume "as"
                             Some(self.parse_variable_name_simple()?)
                         } else {
@@ -296,7 +296,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
 
                     // Check for optional timeout
                     let timeout = if let Some(token) = self.cursor.peek() {
-                        if matches!(token.token, Token::KeywordWith) {
+                        if matches!(&token.token, Token::KeywordWith) {
                             self.bump_sync(); // Consume "with"
                             self.expect_token(
                                 Token::KeywordTimeout,
@@ -374,8 +374,8 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
 
         if let Some(token) = self.cursor.peek() {
             // Check for "content" keyword
-            if matches!(token.token, Token::KeywordContent)
-                || matches!(token.token, Token::Identifier(ref id) if id == "content")
+            if matches!(&token.token, Token::KeywordContent)
+                || matches!(&token.token, Token::Identifier(id) if id == "content")
             {
                 self.bump_sync(); // Consume "content"
 

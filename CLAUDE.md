@@ -13,10 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`, `sync-branch.sh`).
 - `Tools/`: Helper tools (Python scripts, WFL tools).
 - `Nexus/`: Experimental WFL test programs.
-- `wfl_website/`: Example WFL web application.
-- `wfl framework/`: Full-featured MVC web framework written in WFL.
 - `wflpkg/`: Package Manager design documents.
-- `Dev diary/`: Development logs and history.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
 ## Core Architecture
@@ -78,6 +75,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - `wfl --configCheck` / `wfl --configFix`: Check/fix configuration.
 - `wfl --dump-env`: Dump environment for troubleshooting.
 - `wfl --analyze <file>`: Run static analysis.
+- `wfl --test <file>`: Run file in test mode (executes describe/test blocks).
 
 ## Key Language Features
 - **Natural Language Syntax**: `store name as "value"`, `check if x is greater than 5`.
@@ -85,6 +83,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Async Support**: Built-in async/await using Tokio runtime.
 - **Pattern Matching**: Regex-like engine with Unicode support.
 - **Container System**: OOP with containers.
+- **Testing Framework**: Built-in testing with `describe`, `test`, and natural language assertions.
 - **Security**: WFLHASH custom crypto, secure subprocess spawning.
 
 ## Coding Style & Naming
@@ -98,9 +97,11 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 ## Testing Guidelines
 - **TDD is mandatory**: Write failing tests FIRST for any feature or bug fix.
 - **Locations**:
-  - Unit/Integration: `tests/`
-  - End-to-End: `TestPrograms/` (must pass with release build)
-- **Conventions**: feature‑oriented names (`*_test.rs`), keep perf benches under `benches/`.
+  - Rust Unit/Integration: `tests/`
+  - WFL End-to-End: `TestPrograms/` (must pass with release build)
+  - WFL Test Framework: Use `describe`/`test` blocks, run with `wfl --test <file>`
+- **Conventions**: feature‑oriented names (`*_test.rs`, `*.test.wfl`), keep perf benches under `benches/`.
+- **Testing Guide**: See `Docs/guides/testing-guide.md` for WFL testing framework documentation.
 
 ## Commit & Pull Request Guidelines
 - **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`.

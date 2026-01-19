@@ -68,11 +68,11 @@ impl<'a> ActionParser<'a> for Parser<'a> {
         exec_trace!("Action name parsed: {}", name);
         let mut parameters = Vec::with_capacity(4);
 
-        if let Some(token) = self.cursor.peek().cloned()
-            && (matches!(token.token, Token::KeywordNeeds)
-                || matches!(token.token, Token::KeywordWith))
+        if let Some(token) = self.cursor.peek()
+            && (matches!(&token.token, Token::KeywordNeeds)
+                || matches!(&token.token, Token::KeywordWith))
         {
-            let _keyword = if matches!(token.token, Token::KeywordNeeds) {
+            let _keyword = if matches!(&token.token, Token::KeywordNeeds) {
                 "needs"
             } else {
                 "with"
@@ -82,29 +82,30 @@ impl<'a> ActionParser<'a> for Parser<'a> {
 
             // Skip optional "parameters" keyword for readability
             if let Some(token) = self.cursor.peek()
-                && matches!(token.token, Token::KeywordParameters)
+                && matches!(&token.token, Token::KeywordParameters)
             {
                 self.bump_sync(); // Consume "parameters"
                 exec_trace!("Skipped 'parameters' keyword");
             }
 
-            while let Some(token) = self.cursor.peek().cloned() {
+            while let Some(token) = self.cursor.peek() {
                 exec_trace!("Checking token for parameter: {:?}", token.token);
                 let (param_name, param_line, param_column) =
                     if let Token::Identifier(id) = &token.token {
                         exec_trace!("Found parameter: {}", id);
                         let line = token.line;
                         let column = token.column;
+                        let name = id.clone();
                         self.bump_sync();
 
-                        (id.clone(), line, column)
+                        (name, line, column)
                     } else {
                         exec_trace!("Not an identifier, breaking parameter parsing");
                         break;
                     };
 
                 let param_type = if let Some(token) = self.cursor.peek() {
-                    if matches!(token.token, Token::KeywordAs) {
+                    if matches!(&token.token, Token::KeywordAs) {
                         self.bump_sync(); // Consume "as"
 
                         if let Some(type_token) = self.cursor.peek() {
@@ -169,11 +170,15 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                     column: param_column,
                 });
 
-                if let Some(token) = self.cursor.peek().cloned() {
-                    if matches!(token.token, Token::KeywordAnd)
-                        || matches!(token.token, Token::Identifier(ref id) if id.to_lowercase() == "and")
-                    {
+                if let Some(token) = self.cursor.peek() {
+                    if matches!(&token.token, Token::KeywordAnd) {
                         self.bump_sync(); // Consume "and"
+                    } else if let Token::Identifier(ref id) = token.token {
+                        if id.to_lowercase() == "and" {
+                            self.bump_sync(); // Consume "and"
+                        } else {
+                            break;
+                        }
                     } else {
                         break;
                     }
@@ -230,14 +235,14 @@ impl<'a> ActionParser<'a> for Parser<'a> {
         };
 
         // Check for KeywordAnd that might be mistakenly present after the last parameter
-        if let Some(token) = self.cursor.peek().cloned()
+        if let Some(token) = self.cursor.peek()
             && let Token::Identifier(id) = &token.token
             && id == "and"
         {
             // Report trailing "and" as an error
             self.errors.push(ParseError::from_token(
                 "Unexpected trailing 'and' in action parameter list".to_string(),
-                &token,
+                token,
             ));
             self.bump_sync(); // Consume the extra "and"
         }
@@ -249,11 +254,11 @@ impl<'a> ActionParser<'a> for Parser<'a> {
 
         let mut body = Vec::with_capacity(10);
 
-        while let Some(token) = self.cursor.peek().cloned() {
-            if matches!(token.token, Token::KeywordEnd) {
+        while let Some(token) = self.cursor.peek() {
+            if matches!(&token.token, Token::KeywordEnd) {
                 break;
             }
-            if matches!(token.token, Token::Eol) {
+            if matches!(&token.token, Token::Eol) {
                 self.bump_sync(); // Skip Eol between statements
                 continue;
             }
@@ -267,11 +272,11 @@ impl<'a> ActionParser<'a> for Parser<'a> {
         let start_pos = self.cursor.pos();
 
         if let Some(token) = self.cursor.peek() {
-            if matches!(token.token, Token::KeywordEnd) {
+            if matches!(&token.token, Token::KeywordEnd) {
                 self.bump_sync(); // Consume "end"
 
                 if let Some(token) = self.cursor.peek() {
-                    if matches!(token.token, Token::KeywordAction) {
+                    if matches!(&token.token, Token::KeywordAction) {
                         self.bump_sync(); // Consume "action"
                     } else {
                         let err_token = token.clone();
@@ -363,22 +368,22 @@ impl<'a> ActionParser<'a> for Parser<'a> {
         let mut parameters = Vec::new();
 
         // Check for parameters
-        if let Some(token) = self.cursor.peek().cloned()
-            && matches!(token.token, Token::KeywordNeeds)
+        if let Some(token) = self.cursor.peek()
+            && matches!(&token.token, Token::KeywordNeeds)
         {
             self.bump_sync(); // Consume "needs"
             parameters = self.parse_parameter_list()?;
         }
 
         // Parse return type if present (after parameters or action name)
-        let return_type = if let Some(token) = self.cursor.peek().cloned()
-            && matches!(token.token, Token::Colon)
+        let return_type = if let Some(token) = self.cursor.peek()
+            && matches!(&token.token, Token::Colon)
         {
             self.bump_sync(); // Consume ':'
 
             // Check if the next token is actually a type identifier
             // If it's not, this colon just marks the start of the action body (no return type)
-            if let Some(type_token) = self.cursor.peek().cloned() {
+            if let Some(type_token) = self.cursor.peek() {
                 if let Token::Identifier(type_name) = &type_token.token {
                     // Check if this identifier is a valid type name
                     let is_type = matches!(
@@ -387,14 +392,15 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                     ) || type_name.chars().next().is_some_and(|c| c.is_uppercase());
 
                     if is_type {
+                        let name_str = type_name.clone();
                         self.bump_sync(); // Consume type name
-                        Some(match type_name.as_str() {
+                        Some(match name_str.as_str() {
                             "Text" => Type::Text,
                             "Number" => Type::Number,
                             "Boolean" => Type::Boolean,
                             "Nothing" => Type::Nothing,
                             "Pattern" => Type::Pattern,
-                            _ => Type::Custom(type_name.clone()),
+                            _ => Type::Custom(name_str),
                         })
                     } else {
                         // This identifier is not a type, so no return type specified
@@ -424,7 +430,7 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume 'end'
                     break;
                 }
-                if matches!(token.token, Token::Eol) {
+                if matches!(&token.token, Token::Eol) {
                     self.bump_sync(); // Skip Eol between statements
                     continue;
                 }
@@ -526,12 +532,12 @@ impl<'a> ActionParser<'a> for Parser<'a> {
     fn parse_return_statement(&mut self) -> Result<Statement, ParseError> {
         let return_token = self.bump_sync().unwrap(); // Consume "give" or "return"
 
-        if matches!(return_token.token, Token::KeywordGive) {
+        if matches!(&return_token.token, Token::KeywordGive) {
             self.expect_token(Token::KeywordBack, "Expected 'back' after 'give'")?;
         }
 
-        let value = if let Some(token) = self.cursor.peek().cloned() {
-            if matches!(token.token, Token::NothingLiteral) {
+        let value = if let Some(token) = self.cursor.peek() {
+            if matches!(&token.token, Token::NothingLiteral) {
                 self.bump_sync(); // Consume "nothing"
                 None
             } else {
@@ -552,7 +558,7 @@ impl<'a> ActionParser<'a> for Parser<'a> {
         let exit_token = self.bump_sync().unwrap(); // Consume "exit"
 
         // Check for "loop" after "exit"
-        if let Some(token) = self.cursor.peek().cloned()
+        if let Some(token) = self.cursor.peek()
             && let Token::Identifier(id) = &token.token
             && id.to_lowercase() == "loop"
         {
