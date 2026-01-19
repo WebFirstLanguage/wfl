@@ -48,7 +48,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
         let condition = self.parse_expression()?;
 
         if let Some(token) = self.cursor.peek()
-            && matches!(token.token, Token::Colon)
+            && matches!(&token.token, Token::Colon)
         {
             self.bump_sync(); // Consume the colon if present
         }
@@ -58,7 +58,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
         let mut then_block = Vec::with_capacity(8);
 
-        while let Some(token) = self.cursor.peek().cloned() {
+        while let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordOtherwise | Token::KeywordEnd => {
                     break;
@@ -76,14 +76,14 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
         // Handle the "otherwise" clause (else block)
         let else_block = if let Some(token) = self.cursor.peek() {
-            if matches!(token.token, Token::KeywordOtherwise) {
+            if matches!(&token.token, Token::KeywordOtherwise) {
                 self.bump_sync(); // Consume "otherwise"
 
                 // Check for "otherwise check if" (else-if chain pattern)
                 // This allows: otherwise check if condition:
                 // Instead of requiring: otherwise: check if condition:
                 if let Some(token) = self.cursor.peek()
-                    && matches!(token.token, Token::KeywordCheck)
+                    && matches!(&token.token, Token::KeywordCheck)
                 {
                     // This is an else-if chain - parse the nested if without consuming its end
                     let nested_if = self.parse_if_statement_chained()?;
@@ -91,7 +91,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                 } else {
                     // Standard else block with colon
                     if let Some(token) = self.cursor.peek()
-                        && matches!(token.token, Token::Colon)
+                        && matches!(&token.token, Token::Colon)
                     {
                         self.bump_sync(); // Consume the colon if present
                     }
@@ -101,11 +101,11 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
                     let mut else_stmts = Vec::with_capacity(8);
 
-                    while let Some(token) = self.cursor.peek().cloned() {
-                        if matches!(token.token, Token::KeywordEnd) {
+                    while let Some(token) = self.cursor.peek() {
+                        if matches!(&token.token, Token::KeywordEnd) {
                             break;
                         }
-                        if matches!(token.token, Token::Eol) {
+                        if matches!(&token.token, Token::Eol) {
                             self.bump_sync(); // Skip Eol between statements
                             continue;
                         }
@@ -127,12 +127,12 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
         // Handle the "end check" part
         if let Some(token) = self.cursor.peek() {
-            if matches!(token.token, Token::KeywordEnd) {
+            if matches!(&token.token, Token::KeywordEnd) {
                 self.bump_sync(); // Consume "end"
 
                 // Look for the "check" after "end"
                 if let Some(next_token) = self.cursor.peek() {
-                    if matches!(next_token.token, Token::KeywordCheck) {
+                    if matches!(&next_token.token, Token::KeywordCheck) {
                         self.bump_sync(); // Consume "check"
                     } else {
                         return Err(ParseError::from_token(
@@ -181,7 +181,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
         let condition = self.parse_expression()?;
 
         if let Some(token) = self.cursor.peek()
-            && matches!(token.token, Token::Colon)
+            && matches!(&token.token, Token::Colon)
         {
             self.bump_sync(); // Consume the colon if present
         }
@@ -191,7 +191,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
         let mut then_block = Vec::with_capacity(8);
 
-        while let Some(token) = self.cursor.peek().cloned() {
+        while let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordOtherwise | Token::KeywordEnd => {
                     break;
@@ -209,12 +209,12 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
         // Handle the "otherwise" clause (else block) - can also chain
         let else_block = if let Some(token) = self.cursor.peek() {
-            if matches!(token.token, Token::KeywordOtherwise) {
+            if matches!(&token.token, Token::KeywordOtherwise) {
                 self.bump_sync(); // Consume "otherwise"
 
                 // Check for "otherwise check if" (continue else-if chain)
                 if let Some(token) = self.cursor.peek()
-                    && matches!(token.token, Token::KeywordCheck)
+                    && matches!(&token.token, Token::KeywordCheck)
                 {
                     // Continue the chain - recursively parse next else-if
                     let nested_if = self.parse_if_statement_chained()?;
@@ -222,7 +222,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                 } else {
                     // Standard else block with colon
                     if let Some(token) = self.cursor.peek()
-                        && matches!(token.token, Token::Colon)
+                        && matches!(&token.token, Token::Colon)
                     {
                         self.bump_sync(); // Consume the colon if present
                     }
@@ -232,11 +232,11 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
                     let mut else_stmts = Vec::with_capacity(8);
 
-                    while let Some(token) = self.cursor.peek().cloned() {
-                        if matches!(token.token, Token::KeywordEnd) {
+                    while let Some(token) = self.cursor.peek() {
+                        if matches!(&token.token, Token::KeywordEnd) {
                             break;
                         }
-                        if matches!(token.token, Token::Eol) {
+                        if matches!(&token.token, Token::Eol) {
                             self.bump_sync(); // Skip Eol between statements
                             continue;
                         }
@@ -315,7 +315,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
         // Handle else block
         let else_block = if let Some(token) = self.cursor.peek() {
-            if matches!(token.token, Token::KeywordOtherwise) {
+            if matches!(&token.token, Token::KeywordOtherwise) {
                 self.bump_sync(); // Consume "otherwise"
 
                 let mut else_stmts = Vec::new();
@@ -411,7 +411,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
         self.expect_token(Token::KeywordIn, "Expected 'in' after item name")?;
 
         let reversed = if let Some(token) = self.cursor.peek() {
-            if matches!(token.token, Token::KeywordReversed) {
+            if matches!(&token.token, Token::KeywordReversed) {
                 self.bump_sync(); // Consume "reversed"
                 true
             } else {
@@ -424,7 +424,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
         let collection = self.parse_expression()?;
 
         if let Some(token) = self.cursor.peek()
-            && matches!(token.token, Token::Colon)
+            && matches!(&token.token, Token::Colon)
         {
             self.bump_sync(); // Consume the colon if present
         }
@@ -434,11 +434,11 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
         let mut body = Vec::with_capacity(10);
 
-        while let Some(token) = self.cursor.peek().cloned() {
-            if matches!(token.token, Token::KeywordEnd) {
+        while let Some(token) = self.cursor.peek() {
+            if matches!(&token.token, Token::KeywordEnd) {
                 break;
             }
-            if matches!(token.token, Token::Eol) {
+            if matches!(&token.token, Token::Eol) {
                 self.bump_sync(); // Skip Eol between statements
                 continue;
             }
@@ -489,7 +489,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "down"
                     self.expect_token(Token::KeywordTo, "Expected 'to' after 'down'")?;
                     true
-                } else if matches!(token.token, Token::KeywordTo) {
+                } else if matches!(&token.token, Token::KeywordTo) {
                     self.bump_sync(); // Consume "to"
                     false
                 } else {
@@ -498,7 +498,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                         token,
                     ));
                 }
-            } else if matches!(token.token, Token::KeywordTo) {
+            } else if matches!(&token.token, Token::KeywordTo) {
                 self.bump_sync(); // Consume "to"
                 false
             } else {
@@ -517,7 +517,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
         let end = self.parse_expression()?;
 
         let step = if let Some(token) = self.cursor.peek() {
-            if matches!(token.token, Token::KeywordBy) {
+            if matches!(&token.token, Token::KeywordBy) {
                 self.bump_sync(); // Consume "by"
                 Some(self.parse_expression()?)
             } else {
@@ -529,7 +529,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
         // Parse optional "as <variable_name>" clause
         let variable_name = if let Some(token) = self.cursor.peek() {
-            if matches!(token.token, Token::KeywordAs) {
+            if matches!(&token.token, Token::KeywordAs) {
                 self.bump_sync(); // Consume "as"
 
                 // Expect an identifier for the variable name
@@ -561,7 +561,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
         };
 
         if let Some(token) = self.cursor.peek()
-            && matches!(token.token, Token::Colon)
+            && matches!(&token.token, Token::Colon)
         {
             self.bump_sync(); // Consume the colon if present
         }
@@ -572,10 +572,10 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
         let mut body = Vec::with_capacity(10);
 
         while let Some(token) = self.cursor.peek().cloned() {
-            if matches!(token.token, Token::KeywordEnd) {
+            if matches!(&token.token, Token::KeywordEnd) {
                 break;
             }
-            if matches!(token.token, Token::Eol) {
+            if matches!(&token.token, Token::Eol) {
                 self.bump_sync(); // Skip Eol between statements
                 continue;
             }
@@ -624,12 +624,12 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
         self.skip_eol();
 
         let mut body = Vec::new();
-        while let Some(token) = self.cursor.peek().cloned() {
-            if matches!(token.token, Token::KeywordEnd) {
+        while let Some(token) = self.cursor.peek() {
+            if matches!(&token.token, Token::KeywordEnd) {
                 break;
             }
             // Skip Eol tokens between statements
-            if matches!(token.token, Token::Eol) {
+            if matches!(&token.token, Token::Eol) {
                 self.bump_sync(); // Skip Eol between statements
                 continue;
             }
@@ -652,13 +652,13 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
     {
         let repeat_token = self.bump_sync().unwrap(); // Consume "repeat"
 
-        if let Some(token) = self.cursor.peek().cloned() {
-            match token.token {
+        if let Some(token) = self.cursor.peek() {
+            match &token.token {
                 Token::KeywordWhile => {
                     self.bump_sync(); // Consume "while"
                     let condition = self.parse_expression()?;
                     if let Some(token) = self.cursor.peek()
-                        && matches!(token.token, Token::Colon)
+                        && matches!(&token.token, Token::Colon)
                     {
                         self.bump_sync(); // Consume the colon if present
                     }
@@ -667,11 +667,11 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                     self.skip_eol();
 
                     let mut body = Vec::new();
-                    while let Some(token) = self.cursor.peek().cloned() {
-                        if matches!(token.token, Token::KeywordEnd) {
+                    while let Some(token) = self.cursor.peek() {
+                        if matches!(&token.token, Token::KeywordEnd) {
                             break;
                         }
-                        if matches!(token.token, Token::Eol) {
+                        if matches!(&token.token, Token::Eol) {
                             self.bump_sync(); // Skip Eol between statements
                             continue;
                         }
@@ -692,7 +692,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "until"
                     let condition = self.parse_expression()?;
                     if let Some(token) = self.cursor.peek()
-                        && matches!(token.token, Token::Colon)
+                        && matches!(&token.token, Token::Colon)
                     {
                         self.bump_sync(); // Consume the colon if present
                     }
@@ -702,10 +702,10 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
                     let mut body = Vec::new();
                     while let Some(token) = self.cursor.peek().cloned() {
-                        if matches!(token.token, Token::KeywordEnd) {
+                        if matches!(&token.token, Token::KeywordEnd) {
                             break;
                         }
-                        if matches!(token.token, Token::Eol) {
+                        if matches!(&token.token, Token::Eol) {
                             self.bump_sync(); // Skip Eol between statements
                             continue;
                         }
@@ -731,10 +731,10 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
                     let mut body = Vec::new();
                     while let Some(token) = self.cursor.peek().cloned() {
-                        if matches!(token.token, Token::KeywordEnd) {
+                        if matches!(&token.token, Token::KeywordEnd) {
                             break;
                         }
-                        if matches!(token.token, Token::Eol) {
+                        if matches!(&token.token, Token::Eol) {
                             self.bump_sync(); // Skip Eol between statements
                             continue;
                         }
@@ -757,8 +757,8 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                     self.skip_eol();
 
                     let mut body = Vec::new();
-                    while let Some(token) = self.cursor.peek().cloned() {
-                        if matches!(token.token, Token::KeywordUntil) {
+                    while let Some(token) = self.cursor.peek() {
+                        if matches!(&token.token, Token::KeywordUntil) {
                             break;
                         }
                         body.push(self.parse_statement()?);
@@ -779,7 +779,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                         "Expected 'while', 'until', 'forever', or ':' after 'repeat', found {:?}",
                         token.token
                     ),
-                    &token,
+                    token,
                 )),
             }
         } else {
