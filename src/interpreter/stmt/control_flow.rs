@@ -1,14 +1,14 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::interpreter::Interpreter;
-use crate::parser::ast::{Expression, Statement};
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
+use crate::parser::ast::{Expression, Statement};
 
 pub trait ControlFlowExecutor {
     async fn execute_if(

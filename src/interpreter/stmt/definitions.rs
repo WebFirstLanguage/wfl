@@ -1,11 +1,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::{ContainerEventValue, FunctionValue, Value};
-use crate::interpreter::Interpreter;
 use crate::parser::ast::{Parameter, PatternExpression, Statement, Type};
 
 pub trait DefinitionsExecutor {
@@ -101,13 +101,17 @@ impl DefinitionsExecutor for Interpreter {
         let env_borrow = env.borrow();
         match CompiledPattern::compile_with_env(pattern, &env_borrow) {
             Ok(compiled) => {
-                 let pattern_val = Value::Pattern(Rc::new(compiled));
-                 match env.borrow_mut().define(name, pattern_val) {
+                let pattern_val = Value::Pattern(Rc::new(compiled));
+                match env.borrow_mut().define(name, pattern_val) {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
                     Err(msg) => Err(RuntimeError::new(msg, line, column)),
                 }
             }
-            Err(e) => Err(RuntimeError::new(format!("Failed to compile pattern: {}", e), line, column))
+            Err(e) => Err(RuntimeError::new(
+                format!("Failed to compile pattern: {}", e),
+                line,
+                column,
+            )),
         }
     }
 
@@ -122,7 +126,8 @@ impl DefinitionsExecutor for Interpreter {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         // Reuse function logic
-        self.execute_function_definition(name, parameters, body, return_type, line, column, env).await
+        self.execute_function_definition(name, parameters, body, return_type, line, column, env)
+            .await
     }
 
     async fn execute_event_definition(

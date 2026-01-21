@@ -1,11 +1,11 @@
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::path::PathBuf;
+use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::interpreter::Interpreter;
 use crate::parser::ast::{Expression, Literal};
 
 pub trait IoExpressionEvaluator {
@@ -182,7 +182,9 @@ impl IoExpressionEvaluator for Interpreter {
         column: usize,
         env: Rc<RefCell<Environment>>,
     ) -> Result<Value, RuntimeError> {
-        let handle_val = self.evaluate_expression(file_handle, Rc::clone(&env)).await?;
+        let handle_val = self
+            .evaluate_expression(file_handle, Rc::clone(&env))
+            .await?;
         let handle_str = match &handle_val {
             Value::Text(s) => s.as_ref(),
             _ => {
@@ -254,7 +256,14 @@ impl IoExpressionEvaluator for Interpreter {
         }
 
         let files = self
-            .list_files_recursive_helper(&path_str, if ext_strings.is_empty() { None } else { Some(&ext_strings) })
+            .list_files_recursive_helper(
+                &path_str,
+                if ext_strings.is_empty() {
+                    None
+                } else {
+                    Some(&ext_strings)
+                },
+            )
             .await
             .map_err(|e| RuntimeError::new(e, line, column))?;
 
@@ -274,7 +283,7 @@ impl IoExpressionEvaluator for Interpreter {
         column: usize,
         env: Rc<RefCell<Environment>>,
     ) -> Result<Value, RuntimeError> {
-         let path_val = self.evaluate_expression(path, Rc::clone(&env)).await?;
+        let path_val = self.evaluate_expression(path, Rc::clone(&env)).await?;
         let path_str = match &path_val {
             Value::Text(s) => s.as_ref().to_string(),
             _ => {
@@ -302,11 +311,11 @@ impl IoExpressionEvaluator for Interpreter {
                     if let Ok(file_name) = entry.file_name().into_string() {
                         let path = std::path::Path::new(&file_name);
                         if let Some(ext) = path.extension() {
-                             if let Some(ext_str) = ext.to_str() {
-                                 if ext_strings.iter().any(|e| e == ext_str) {
-                                     files.push(Value::Text(Rc::from(file_name)));
-                                 }
-                             }
+                            if let Some(ext_str) = ext.to_str() {
+                                if ext_strings.iter().any(|e| e == ext_str) {
+                                    files.push(Value::Text(Rc::from(file_name)));
+                                }
+                            }
                         }
                     }
                 }
@@ -334,7 +343,9 @@ impl IoExpressionEvaluator for Interpreter {
         column: usize,
         env: Rc<RefCell<Environment>>,
     ) -> Result<Value, RuntimeError> {
-        let pid_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+        let pid_val = self
+            .evaluate_expression(process_id, Rc::clone(&env))
+            .await?;
         let pid_str = match &pid_val {
             Value::Text(s) => s.as_ref(),
             _ => {
@@ -346,7 +357,9 @@ impl IoExpressionEvaluator for Interpreter {
             }
         };
 
-        Ok(Value::Bool(self.io_client.is_process_running(pid_str).await))
+        Ok(Value::Bool(
+            self.io_client.is_process_running(pid_str).await,
+        ))
     }
 }
 
@@ -361,26 +374,30 @@ impl Interpreter {
         let mut dirs = vec![PathBuf::from(root_path)];
 
         while let Some(current_dir) = dirs.pop() {
-             match tokio::fs::read_dir(&current_dir).await {
+            match tokio::fs::read_dir(&current_dir).await {
                 Ok(mut entries) => {
                     while let Ok(Some(entry)) = entries.next_entry().await {
                         let entry_path = entry.path();
                         if entry_path.is_dir() {
                             dirs.push(entry_path);
                         } else if let Some(exts) = extensions {
-                             if let Some(ext) = entry_path.extension() {
-                                 if let Some(ext_str) = ext.to_str() {
-                                     if exts.iter().any(|e| e == ext_str) {
-                                         if let Ok(rel_path) = entry_path.strip_prefix(std::path::Path::new(root_path)) {
-                                              files.push(rel_path.to_string_lossy().into_owned());
-                                         } else {
-                                              files.push(entry_path.to_string_lossy().into_owned());
-                                         }
-                                     }
-                                 }
-                             }
+                            if let Some(ext) = entry_path.extension() {
+                                if let Some(ext_str) = ext.to_str() {
+                                    if exts.iter().any(|e| e == ext_str) {
+                                        if let Ok(rel_path) =
+                                            entry_path.strip_prefix(std::path::Path::new(root_path))
+                                        {
+                                            files.push(rel_path.to_string_lossy().into_owned());
+                                        } else {
+                                            files.push(entry_path.to_string_lossy().into_owned());
+                                        }
+                                    }
+                                }
+                            }
                         } else {
-                            if let Ok(rel_path) = entry_path.strip_prefix(std::path::Path::new(root_path)) {
+                            if let Ok(rel_path) =
+                                entry_path.strip_prefix(std::path::Path::new(root_path))
+                            {
                                 files.push(rel_path.to_string_lossy().into_owned());
                             } else {
                                 files.push(entry_path.to_string_lossy().into_owned());

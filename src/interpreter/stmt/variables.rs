@@ -1,14 +1,19 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::interpreter::Interpreter;
 use crate::parser::ast::Expression;
 
+/// Evaluator for variable-related statements.
 pub trait VariableExecutor {
+    /// Executes a variable declaration statement.
+    ///
+    /// Handles `is_constant` flag to create immutable variables.
+    /// Supports special case empty list initialization `[]`.
     async fn execute_variable_declaration(
         &self,
         name: &str,
@@ -19,6 +24,10 @@ pub trait VariableExecutor {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError>;
 
+    /// Executes a variable assignment statement.
+    ///
+    /// Updates the value of an existing variable in the environment.
+    /// Returns error if variable is not defined or is a constant.
     async fn execute_assignment(
         &self,
         name: &str,

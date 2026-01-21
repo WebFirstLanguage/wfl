@@ -22,7 +22,7 @@ pub fn get_wfl_binary_path() -> PathBuf {
     };
 
     let release_path = current_dir.join(release_binary);
-    if release_path.exists() {
+    if release_path.exists() && release_path.is_file() {
         return release_path;
     }
 
@@ -34,7 +34,7 @@ pub fn get_wfl_binary_path() -> PathBuf {
     };
 
     let debug_path = current_dir.join(debug_binary);
-    if debug_path.exists() {
+    if debug_path.exists() && debug_path.is_file() {
         return debug_path;
     }
 
@@ -133,7 +133,9 @@ fn execute_with_timeout(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
-        .spawn()?;
+        .spawn().map_err(|e| {
+            std::io::Error::new(e.kind(), format!("Failed to spawn process {:?}: {}", binary_path, e))
+        })?;
 
     // Use a simple timeout approach since we don't have external dependencies
     let start = std::time::Instant::now();

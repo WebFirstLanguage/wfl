@@ -1,11 +1,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::{ErrorKind, RuntimeError};
 use crate::interpreter::value::Value;
-use crate::interpreter::Interpreter;
 use crate::parser::ast::{Expression, FileOpenMode, Literal, WriteMode};
 
 pub trait IoExecutor {

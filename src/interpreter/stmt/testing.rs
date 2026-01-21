@@ -1,12 +1,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::{ErrorKind, RuntimeError};
 use crate::interpreter::test_results::TestResult;
 use crate::interpreter::value::Value;
-use crate::interpreter::Interpreter;
 use crate::parser::ast::{Assertion, Expression, Statement};
 
 pub trait TestExecutor {
@@ -139,25 +139,22 @@ impl TestExecutor for Interpreter {
         column: usize,
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError> {
-        let subject_val = self
-            .evaluate_expression(subject, Rc::clone(&env))
-            .await?;
+        let subject_val = self.evaluate_expression(subject, Rc::clone(&env)).await?;
 
         let result = match assertion {
             Assertion::Equal(expected) | Assertion::Be(expected) => {
-                let expected_val = self
-                    .evaluate_expression(expected, Rc::clone(&env))
-                    .await?;
+                let expected_val = self.evaluate_expression(expected, Rc::clone(&env)).await?;
                 if subject_val == expected_val {
                     Ok(())
                 } else {
-                    Err(format!("Expected {:?}, but got {:?}", expected_val, subject_val))
+                    Err(format!(
+                        "Expected {:?}, but got {:?}",
+                        expected_val, subject_val
+                    ))
                 }
             }
             Assertion::GreaterThan(expected) => {
-                let expected_val = self
-                    .evaluate_expression(expected, Rc::clone(&env))
-                    .await?;
+                let expected_val = self.evaluate_expression(expected, Rc::clone(&env)).await?;
                 match (&subject_val, &expected_val) {
                     (Value::Number(a), Value::Number(b)) => {
                         if a > b {
@@ -170,9 +167,7 @@ impl TestExecutor for Interpreter {
                 }
             }
             Assertion::LessThan(expected) => {
-                let expected_val = self
-                    .evaluate_expression(expected, Rc::clone(&env))
-                    .await?;
+                let expected_val = self.evaluate_expression(expected, Rc::clone(&env)).await?;
                 match (&subject_val, &expected_val) {
                     (Value::Number(a), Value::Number(b)) => {
                         if a < b {
@@ -203,9 +198,7 @@ impl TestExecutor for Interpreter {
                 _ => Ok(()),
             },
             Assertion::Contain(expected) => {
-                let expected_val = self
-                    .evaluate_expression(expected, Rc::clone(&env))
-                    .await?;
+                let expected_val = self.evaluate_expression(expected, Rc::clone(&env)).await?;
                 match &subject_val {
                     Value::List(list) => {
                         let list = list.borrow();
@@ -249,9 +242,7 @@ impl TestExecutor for Interpreter {
                 _ => Err("BeEmpty requires list or text".to_string()),
             },
             Assertion::HaveLength(expected) => {
-                let expected_val = self
-                    .evaluate_expression(expected, Rc::clone(&env))
-                    .await?;
+                let expected_val = self.evaluate_expression(expected, Rc::clone(&env)).await?;
                 let length = match &subject_val {
                     Value::List(list) => list.borrow().len(),
                     Value::Text(text) => text.len(),

@@ -2,11 +2,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::{ErrorKind, RuntimeError};
 use crate::interpreter::value::Value;
-use crate::interpreter::Interpreter;
 use crate::parser::ast::Expression;
 
 pub trait ProcessExecutor {
@@ -241,7 +241,9 @@ impl ProcessExecutor for Interpreter {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         // Evaluate process ID expression
-        let proc_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+        let proc_val = self
+            .evaluate_expression(process_id, Rc::clone(&env))
+            .await?;
         let proc_id = match &proc_val {
             Value::Text(text) => text.as_ref(),
             _ => {
@@ -283,7 +285,9 @@ impl ProcessExecutor for Interpreter {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         // Evaluate process ID expression
-        let proc_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+        let proc_val = self
+            .evaluate_expression(process_id, Rc::clone(&env))
+            .await?;
         let proc_id = match &proc_val {
             Value::Text(text) => text.as_ref(),
             _ => {
@@ -317,7 +321,9 @@ impl ProcessExecutor for Interpreter {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         // Evaluate process ID expression
-        let proc_val = self.evaluate_expression(process_id, Rc::clone(&env)).await?;
+        let proc_val = self
+            .evaluate_expression(process_id, Rc::clone(&env))
+            .await?;
         let proc_id = match &proc_val {
             Value::Text(text) => text.as_ref(),
             _ => {

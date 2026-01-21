@@ -7,12 +7,12 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use warp::Filter;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::{ErrorKind, RuntimeError};
 use crate::interpreter::value::Value;
 use crate::interpreter::web::{ServerError, WflHttpRequest, WflHttpResponse, WflWebServer};
-use crate::interpreter::Interpreter;
 use crate::parser::ast::Expression;
 
 pub trait WebExecutor {
@@ -191,9 +191,8 @@ impl WebExecutor for Interpreter {
                         // Wait for response
                         match response_receiver.await {
                             Ok(response) => {
-                                let status_code =
-                                    warp::http::StatusCode::from_u16(response.status)
-                                        .unwrap_or(warp::http::StatusCode::OK);
+                                let status_code = warp::http::StatusCode::from_u16(response.status)
+                                    .unwrap_or(warp::http::StatusCode::OK);
 
                                 // Convert content to bytes for accurate Content-Length calculation
                                 // HTTP Content-Length must match exact byte count of body
@@ -390,10 +389,7 @@ impl WebExecutor for Interpreter {
                     }
                     Err(_) => {
                         return Err(RuntimeError::new(
-                            format!(
-                                "Timeout waiting for request ({} ms)",
-                                duration.as_millis()
-                            ),
+                            format!("Timeout waiting for request ({} ms)", duration.as_millis()),
                             line,
                             column,
                         ));

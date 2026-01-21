@@ -1,13 +1,14 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::interpreter::Interpreter;
 use crate::parser::ast::{Argument, Expression, Literal, Operator, UnaryOperator};
 
 pub trait CoreExpressionEvaluator {
+    #[inline]
     async fn evaluate_binary_operation(
         &self,
         left: &Expression,
@@ -18,6 +19,7 @@ pub trait CoreExpressionEvaluator {
         env: Rc<RefCell<Environment>>,
     ) -> Result<Value, RuntimeError>;
 
+    #[inline]
     async fn evaluate_unary_operation(
         &self,
         operator: &UnaryOperator,
@@ -73,17 +75,77 @@ pub trait CoreExpressionEvaluator {
     ) -> Result<Value, RuntimeError>;
 
     // Helpers
-    fn add(&self, left: Value, right: Value, line: usize, column: usize) -> Result<Value, RuntimeError>;
-    fn subtract(&self, left: Value, right: Value, line: usize, column: usize) -> Result<Value, RuntimeError>;
-    fn multiply(&self, left: Value, right: Value, line: usize, column: usize) -> Result<Value, RuntimeError>;
-    fn divide(&self, left: Value, right: Value, line: usize, column: usize) -> Result<Value, RuntimeError>;
-    fn modulo(&self, left: Value, right: Value, line: usize, column: usize) -> Result<Value, RuntimeError>;
+    fn add(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>;
+    fn subtract(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>;
+    fn multiply(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>;
+    fn divide(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>;
+    fn modulo(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>;
     fn is_equal(&self, left: &Value, right: &Value) -> bool;
-    fn greater_than(&self, left: Value, right: Value, line: usize, column: usize) -> Result<Value, RuntimeError>;
-    fn less_than(&self, left: Value, right: Value, line: usize, column: usize) -> Result<Value, RuntimeError>;
-    fn greater_than_equal(&self, left: Value, right: Value, line: usize, column: usize) -> Result<Value, RuntimeError>;
-    fn less_than_equal(&self, left: Value, right: Value, line: usize, column: usize) -> Result<Value, RuntimeError>;
-    fn contains(&self, left: Value, right: Value, line: usize, column: usize) -> Result<Value, RuntimeError>;
+    fn greater_than(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>;
+    fn less_than(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>;
+    fn greater_than_equal(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>;
+    fn less_than_equal(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>;
+    fn contains(
+        &self,
+        left: Value,
+        right: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>;
 }
 
 impl CoreExpressionEvaluator for Interpreter {
@@ -112,9 +174,7 @@ impl CoreExpressionEvaluator for Interpreter {
             Operator::GreaterThanOrEqual => {
                 self.greater_than_equal(left_val, right_val, line, column)
             }
-            Operator::LessThanOrEqual => {
-                self.less_than_equal(left_val, right_val, line, column)
-            }
+            Operator::LessThanOrEqual => self.less_than_equal(left_val, right_val, line, column),
             Operator::And => Ok(Value::Bool(left_val.is_truthy() && right_val.is_truthy())),
             Operator::Or => Ok(Value::Bool(left_val.is_truthy() || right_val.is_truthy())),
             Operator::Contains => self.contains(left_val, right_val, line, column),
@@ -129,7 +189,9 @@ impl CoreExpressionEvaluator for Interpreter {
         column: usize,
         env: Rc<RefCell<Environment>>,
     ) -> Result<Value, RuntimeError> {
-        let value = self.evaluate_expression(expression, Rc::clone(&env)).await?;
+        let value = self
+            .evaluate_expression(expression, Rc::clone(&env))
+            .await?;
 
         match operator {
             UnaryOperator::Not => Ok(Value::Bool(!value.is_truthy())),
@@ -163,18 +225,10 @@ impl CoreExpressionEvaluator for Interpreter {
         }
 
         match function_val {
-            Value::Function(func) => {
-                self.call_function(&func, arg_values, line, column).await
-            }
-            Value::NativeFunction(_, native_fn) => {
-                native_fn(arg_values.clone()).map_err(|e| {
-                    RuntimeError::new(
-                        format!("Error in native function: {e}"),
-                        line,
-                        column,
-                    )
-                })
-            }
+            Value::Function(func) => self.call_function(&func, arg_values, line, column).await,
+            Value::NativeFunction(_, native_fn) => native_fn(arg_values.clone()).map_err(|e| {
+                RuntimeError::new(format!("Error in native function: {e}"), line, column)
+            }),
             _ => Err(RuntimeError::new(
                 format!("Cannot call {}", function_val.type_name()),
                 line,
@@ -191,9 +245,10 @@ impl CoreExpressionEvaluator for Interpreter {
         column: usize,
         env: Rc<RefCell<Environment>>,
     ) -> Result<Value, RuntimeError> {
-        let function_val = env.borrow().get(name).ok_or_else(|| {
-            RuntimeError::new(format!("Undefined action '{name}'"), line, column)
-        })?;
+        let function_val = env
+            .borrow()
+            .get(name)
+            .ok_or_else(|| RuntimeError::new(format!("Undefined action '{name}'"), line, column))?;
 
         match function_val {
             Value::Function(func) => {

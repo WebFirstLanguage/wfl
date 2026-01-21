@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::interpreter::Interpreter;
 use crate::parser::ast::Expression;
 
 pub trait WebExpressionEvaluator {
@@ -43,7 +43,7 @@ impl WebExpressionEvaluator for Interpreter {
                     return Ok(val.clone());
                 } else {
                     // Try lowercase
-                     if let Some(val) = headers.get(&header_name.to_lowercase()) {
+                    if let Some(val) = headers.get(&header_name.to_lowercase()) {
                         return Ok(val.clone());
                     }
                     return Ok(Value::Null); // Header not found returns null/nothing

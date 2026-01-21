@@ -1,11 +1,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::interpreter::Interpreter;
 use crate::parser::ast::{Expression, Statement};
 
 pub trait LoopExecutor {
@@ -267,10 +267,7 @@ impl LoopExecutor for Interpreter {
                         }
                         ControlFlow::Return(val) => {
                             #[cfg(debug_assertions)]
-                            crate::exec_trace!(
-                                "Returning from foreach loop with value: {:?}",
-                                val
-                            );
+                            crate::exec_trace!("Returning from foreach loop with value: {:?}", val);
                             return Ok((val.clone(), ControlFlow::Return(val)));
                         }
                         ControlFlow::None => {}
@@ -310,10 +307,7 @@ impl LoopExecutor for Interpreter {
                         }
                         ControlFlow::Return(val) => {
                             #[cfg(debug_assertions)]
-                            crate::exec_trace!(
-                                "Returning from foreach loop with value: {:?}",
-                                val
-                            );
+                            crate::exec_trace!("Returning from foreach loop with value: {:?}", val);
                             return Ok((val.clone(), ControlFlow::Return(val)));
                         }
                         ControlFlow::None => {}

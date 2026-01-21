@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
@@ -9,7 +10,6 @@ use crate::interpreter::value::{
     self, ActionSignature, ContainerDefinitionValue, ContainerEventValue, ContainerInstanceValue,
     ContainerMethodValue, EventHandler, FunctionValue, InterfaceDefinitionValue, Value,
 };
-use crate::interpreter::Interpreter;
 use crate::parser::ast::{
     ActionSignature as AstActionSignature, Argument, EventDefinition, Expression,
     PropertyDefinition, PropertyInitializer, Statement,
@@ -272,12 +272,8 @@ impl ContainerExecutor for Interpreter {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         // Create container instance with inheritance support
-        let mut instance = self.create_container_instance_with_inheritance(
-            container_type,
-            &env,
-            line,
-            column,
-        )?;
+        let mut instance =
+            self.create_container_instance_with_inheritance(container_type, &env, line, column)?;
 
         // Process property initializers (override inherited properties)
         for initializer in property_initializers {
@@ -530,9 +526,7 @@ impl ContainerExecutor for Interpreter {
                 Ok((Value::Null, ControlFlow::None))
             } else {
                 Err(RuntimeError::new(
-                    format!(
-                        "Event '{event_name}' not found in container '{container_type}'"
-                    ),
+                    format!("Event '{event_name}' not found in container '{container_type}'"),
                     line,
                     column,
                 ))
@@ -559,8 +553,7 @@ impl ContainerExecutor for Interpreter {
             Some(val) => val.clone(),
             None => {
                 return Err(RuntimeError::new(
-                    "Parent method call can only be used inside a container method"
-                        .to_string(),
+                    "Parent method call can only be used inside a container method".to_string(),
                     line,
                     column,
                 ));

@@ -2,10 +2,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::interpreter::Interpreter;
 
 pub trait TimeExpressionEvaluator {
     fn evaluate_current_time_milliseconds(

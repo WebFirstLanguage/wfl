@@ -19,13 +19,8 @@ pub struct TestFailure {
 }
 
 pub enum TestResult {
-    Pass {
-        name: String,
-        duration: Duration,
-    },
-    Fail {
-        failure: TestFailure,
-    },
+    Pass { name: String, duration: Duration },
+    Fail { failure: TestFailure },
 }
 
 impl TestResult {

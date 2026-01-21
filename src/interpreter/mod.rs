@@ -7,34 +7,37 @@ pub mod environment;
 pub mod error;
 pub mod expr;
 pub mod io_client;
-pub mod stmt;
-pub mod test_results;
-pub mod web;
 #[cfg(test)]
 mod memory_tests;
+pub mod stmt;
+pub mod test_results;
 #[cfg(test)]
 mod tests;
 pub mod value;
+pub mod web;
 
 use self::control_flow::ControlFlow;
-use self::io_client::IoClient;
+#[allow(unused_imports)]
 use self::expr::containers::ContainerExpressionEvaluator;
 use self::expr::core::CoreExpressionEvaluator;
 use self::expr::io::IoExpressionEvaluator;
 use self::expr::patterns::PatternExpressionEvaluator;
 use self::expr::time::TimeExpressionEvaluator;
 use self::expr::web::WebExpressionEvaluator;
-use self::stmt::containers::ContainerExecutor;
-use self::stmt::control_flow::ControlFlowExecutor;
-use self::stmt::definitions::DefinitionsExecutor;
-use self::stmt::io::IoExecutor;
-use self::stmt::loops::LoopExecutor;
-use self::stmt::processes::ProcessExecutor;
-use self::stmt::testing::TestExecutor;
-use self::stmt::variables::VariableExecutor;
-use self::stmt::web::WebExecutor;
+use self::io_client::IoClient;
+pub(crate) use self::stmt::containers::ContainerExecutor;
+pub(crate) use self::stmt::control_flow::ControlFlowExecutor;
+pub(crate) use self::stmt::definitions::DefinitionsExecutor;
+pub(crate) use self::stmt::io::IoExecutor;
+pub(crate) use self::stmt::loops::LoopExecutor;
+pub(crate) use self::stmt::processes::ProcessExecutor;
+pub(crate) use self::stmt::testing::TestExecutor;
+pub(crate) use self::stmt::variables::VariableExecutor;
+pub(crate) use self::stmt::web::WebExecutor;
 pub use self::test_results::{TestFailure, TestResults};
-use self::web::{PendingResponseSender, ServerError, WflHttpRequest, WflHttpResponse, WflWebServer};
+use self::web::{
+    PendingResponseSender, ServerError, WflHttpRequest, WflHttpResponse, WflWebServer,
+};
 
 use self::environment::Environment;
 use self::error::{ErrorKind, RuntimeError};
@@ -51,10 +54,6 @@ use crate::exec_block_enter;
 use crate::exec_block_exit;
 #[cfg(debug_assertions)]
 use crate::exec_control_flow;
-#[cfg(debug_assertions)]
-use crate::exec_function_call;
-#[cfg(debug_assertions)]
-use crate::exec_function_return;
 use crate::exec_trace;
 #[cfg(debug_assertions)]
 use crate::exec_var_assign;
@@ -62,9 +61,7 @@ use crate::exec_var_assign;
 use crate::exec_var_declare;
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
-use crate::parser::ast::{
-    Assertion, Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
-};
+use crate::parser::ast::{Assertion, Expression, FileOpenMode, Literal, Program, Statement};
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
 use std::cell::RefCell;
@@ -311,10 +308,6 @@ fn expr_type(expr: &Expression) -> String {
     }
 }
 
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncSeekExt;
-use tokio::io::AsyncWriteExt;
-use tokio::sync::Mutex;
 // use self::value::FutureValue;
 
 pub struct Interpreter {
@@ -327,7 +320,7 @@ pub struct Interpreter {
     pub(crate) call_stack: RefCell<Vec<CallFrame>>,
     #[allow(dead_code)]
     pub(crate) io_client: Rc<IoClient>,
-    pub(crate) step_mode: bool,          // Controls single-step execution mode
+    pub(crate) step_mode: bool, // Controls single-step execution mode
     pub(crate) script_args: Vec<String>, // Command-line arguments passed to the script
     pub(crate) web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
     pub(crate) pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
@@ -4208,7 +4201,7 @@ impl Interpreter {
                                     describe_context: context,
                                     test_name: description.clone(),
                                     assertion_message: error_msg,
-                        duration: Duration::from_millis(0), // Placeholder
+                                    duration: Duration::from_millis(0), // Placeholder
                                     line: *line,
                                     column: *column,
                                 };
@@ -4552,8 +4545,7 @@ impl Interpreter {
                     let mut list_values = Vec::new();
                     for element in elements {
                         // Use Box::pin to handle recursion in async fn
-                        let future =
-                            Box::pin(self._evaluate_expression(element, Rc::clone(&env)));
+                        let future = Box::pin(self._evaluate_expression(element, Rc::clone(&env)));
                         let value = future.await?;
                         list_values.push(value);
                     }
@@ -4645,14 +4637,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                self.evaluate_unary_operation(
-                    operator,
-                    expression,
-                    *line,
-                    *column,
-                    Rc::clone(&env),
-                )
-                .await
+                self.evaluate_unary_operation(operator, expression, *line, *column, Rc::clone(&env))
+                    .await
             }
 
             Expression::FunctionCall {
@@ -4661,14 +4647,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                self.evaluate_function_call(
-                    function,
-                    arguments,
-                    *line,
-                    *column,
-                    Rc::clone(&env),
-                )
-                .await
+                self.evaluate_function_call(function, arguments, *line, *column, Rc::clone(&env))
+                    .await
             }
 
             Expression::ActionCall {
@@ -4687,14 +4667,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                self.evaluate_member_access(
-                    object,
-                    property,
-                    *line,
-                    *column,
-                    Rc::clone(&env),
-                )
-                .await
+                self.evaluate_member_access(object, property, *line, *column, Rc::clone(&env))
+                    .await
             }
 
             Expression::IndexAccess {
@@ -4703,14 +4677,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                self.evaluate_index_access(
-                    collection,
-                    index,
-                    *line,
-                    *column,
-                    Rc::clone(&env),
-                )
-                .await
+                self.evaluate_index_access(collection, index, *line, *column, Rc::clone(&env))
+                    .await
             }
 
             Expression::Concatenation {
@@ -4820,14 +4788,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                self.evaluate_list_files_filtered(
-                    path,
-                    extensions,
-                    *line,
-                    *column,
-                    Rc::clone(&env),
-                )
-                .await
+                self.evaluate_list_files_filtered(path, extensions, *line, *column, Rc::clone(&env))
+                    .await
             }
             Expression::HeaderAccess {
                 header_name,
@@ -4835,27 +4797,17 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                self.evaluate_header_access(
-                    header_name,
-                    request,
-                    *line,
-                    *column,
-                    Rc::clone(&env),
-                )
-                .await
+                self.evaluate_header_access(header_name, request, *line, *column, Rc::clone(&env))
+                    .await
             }
-            Expression::CurrentTimeMilliseconds { line, column } => self
-                .evaluate_current_time_milliseconds(*line, *column, Rc::clone(&env)),
+            Expression::CurrentTimeMilliseconds { line, column } => {
+                self.evaluate_current_time_milliseconds(*line, *column, Rc::clone(&env))
+            }
             Expression::CurrentTimeFormatted {
                 format,
                 line,
                 column,
-            } => self.evaluate_current_time_formatted(
-                format,
-                *line,
-                *column,
-                Rc::clone(&env),
-            ),
+            } => self.evaluate_current_time_formatted(format, *line, *column, Rc::clone(&env)),
             Expression::ProcessRunning {
                 process_id,
                 line,
@@ -4993,7 +4945,6 @@ impl Interpreter {
         }
     }
 
-
     // Helper method to create container instance with inheritance
     #[allow(clippy::only_used_in_recursion)]
     pub(crate) fn create_container_instance_with_inheritance(
@@ -5050,7 +5001,6 @@ impl Interpreter {
             column,
         })
     }
-
 }
 
 #[cfg(test)]

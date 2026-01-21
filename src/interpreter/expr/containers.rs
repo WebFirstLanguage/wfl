@@ -2,10 +2,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use crate::interpreter::Interpreter;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::{FunctionValue, Value};
-use crate::interpreter::Interpreter;
 use crate::parser::ast::Argument;
 
 pub trait ContainerExpressionEvaluator {
@@ -149,7 +149,9 @@ impl ContainerExpressionEvaluator for Interpreter {
                     // Evaluate the arguments
                     let mut arg_values = Vec::with_capacity(arguments.len());
                     for arg in arguments {
-                        let arg_val = self.evaluate_expression(&arg.value, Rc::clone(&env)).await?;
+                        let arg_val = self
+                            .evaluate_expression(&arg.value, Rc::clone(&env))
+                            .await?;
                         arg_values.push(arg_val);
                     }
 
@@ -158,9 +160,7 @@ impl ContainerExpressionEvaluator for Interpreter {
                         .await
                 } else {
                     Err(RuntimeError::new(
-                        format!(
-                            "Method '{method}' not found in container '{container_type}'"
-                        ),
+                        format!("Method '{method}' not found in container '{container_type}'"),
                         line,
                         column,
                     ))
@@ -191,10 +191,7 @@ impl ContainerExpressionEvaluator for Interpreter {
                     "get" => {
                         if arguments.len() != 1 {
                             return Err(RuntimeError::new(
-                                format!(
-                                    "Method 'get' expects 1 argument, got {}",
-                                    arguments.len()
-                                ),
+                                format!("Method 'get' expects 1 argument, got {}", arguments.len()),
                                 line,
                                 column,
                             ));
@@ -361,24 +358,43 @@ impl ContainerExpressionEvaluator for Interpreter {
                     "substring" => {
                         // substring(start, length) or substring(start)
                         if arguments.len() < 1 || arguments.len() > 2 {
-                             return Err(RuntimeError::new(
-                                format!("Method 'substring' expects 1 or 2 arguments, got {}", arguments.len()),
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Method 'substring' expects 1 or 2 arguments, got {}",
+                                    arguments.len()
+                                ),
                                 line,
-                                column
+                                column,
                             ));
                         }
 
-                        let start_val = self.evaluate_expression(&arguments[0].value, Rc::clone(&env)).await?;
+                        let start_val = self
+                            .evaluate_expression(&arguments[0].value, Rc::clone(&env))
+                            .await?;
                         let start = match start_val {
                             Value::Number(n) => n as usize,
-                            _ => return Err(RuntimeError::new("Start index must be a number".to_string(), line, column)),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    "Start index must be a number".to_string(),
+                                    line,
+                                    column,
+                                ));
+                            }
                         };
 
                         let len = if arguments.len() == 2 {
-                            let len_val = self.evaluate_expression(&arguments[1].value, Rc::clone(&env)).await?;
+                            let len_val = self
+                                .evaluate_expression(&arguments[1].value, Rc::clone(&env))
+                                .await?;
                             match len_val {
                                 Value::Number(n) => Some(n as usize),
-                                _ => return Err(RuntimeError::new("Length must be a number".to_string(), line, column)),
+                                _ => {
+                                    return Err(RuntimeError::new(
+                                        "Length must be a number".to_string(),
+                                        line,
+                                        column,
+                                    ));
+                                }
                             }
                         } else {
                             None
@@ -430,9 +446,7 @@ impl ContainerExpressionEvaluator for Interpreter {
                     Ok(val.clone())
                 } else {
                     Err(RuntimeError::new(
-                        format!(
-                            "Property '{property}' not found in container instance"
-                        ),
+                        format!("Property '{property}' not found in container instance"),
                         line,
                         column,
                     ))
@@ -446,28 +460,27 @@ impl ContainerExpressionEvaluator for Interpreter {
                     Ok(Value::Null) // Return Null for missing properties on maps/objects
                 }
             }
-            Value::List(list_rc) => {
-                match property {
-                     "length" | "size" | "count" => Ok(Value::Number(list_rc.borrow().len() as f64)),
-                     _ => Err(RuntimeError::new(
-                        format!("Property '{property}' not found on list"),
-                        line,
-                        column,
-                    )),
-                }
-            }
-            Value::Text(text) => {
-                 match property {
-                     "length" | "size" | "count" => Ok(Value::Number(text.len() as f64)),
-                     _ => Err(RuntimeError::new(
-                        format!("Property '{property}' not found on string"),
-                        line,
-                        column,
-                    )),
-                }
-            }
+            Value::List(list_rc) => match property {
+                "length" | "size" | "count" => Ok(Value::Number(list_rc.borrow().len() as f64)),
+                _ => Err(RuntimeError::new(
+                    format!("Property '{property}' not found on list"),
+                    line,
+                    column,
+                )),
+            },
+            Value::Text(text) => match property {
+                "length" | "size" | "count" => Ok(Value::Number(text.len() as f64)),
+                _ => Err(RuntimeError::new(
+                    format!("Property '{property}' not found on string"),
+                    line,
+                    column,
+                )),
+            },
             _ => Err(RuntimeError::new(
-                format!("Cannot access property '{property}' on {}", object.type_name()),
+                format!(
+                    "Cannot access property '{property}' on {}",
+                    object.type_name()
+                ),
                 line,
                 column,
             )),
