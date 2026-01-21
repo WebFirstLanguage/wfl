@@ -5346,9 +5346,8 @@ impl Interpreter {
                 };
 
                 if let Some(right_val) = right_val_opt {
-                    return self.evaluate_binary_op_sync(
-                        operator, left_val, right_val, *line, *column,
-                    );
+                    return self
+                        .evaluate_binary_op_sync(operator, left_val, right_val, *line, *column);
                 }
             }
         }
