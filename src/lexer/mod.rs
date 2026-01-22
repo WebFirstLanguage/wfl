@@ -15,7 +15,11 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
     // Bolt: We no longer normalize line endings globally to avoid allocation.
     // Token::Newline now matches \r\n, \n, and \r.
     let mut lexer = Token::lexer(input);
-    let mut tokens = Vec::new();
+    // Estimate token count to avoid reallocations.
+    // Heuristic: Average token length + whitespace ~ 10 bytes.
+    // This reduces reallocations significantly for large inputs.
+    let estimated_tokens = input.len() / 10;
+    let mut tokens = Vec::with_capacity(estimated_tokens);
     let mut current_id: Option<String> = None;
 
     while let Some(token_result) = lexer.next() {
@@ -101,7 +105,11 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
     // Bolt: We no longer normalize line endings globally to avoid allocation.
     // Token::Newline now matches \r\n, \n, and \r.
     let mut lexer = Token::lexer(input);
-    let mut tokens = Vec::new();
+    // Estimate token count to avoid reallocations.
+    // Heuristic: Average token length + whitespace ~ 10 bytes.
+    // This reduces reallocations significantly for large inputs.
+    let estimated_tokens = input.len() / 10;
+    let mut tokens = Vec::with_capacity(estimated_tokens);
     let mut current_id: Option<String> = None;
     let mut current_id_start_line = 0;
     let mut current_id_start_column = 0;
