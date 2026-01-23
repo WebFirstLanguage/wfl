@@ -415,8 +415,11 @@ pub enum Token {
     RightBrace,
 
     #[regex("(?:yes|no|true|false)", |lex| {
-        let text = lex.slice().to_ascii_lowercase();
-        text == "yes" || text == "true"
+        let s = lex.slice();
+        // Check first byte to determine truthiness (y/t = true, n/f = false).
+        // The regex ensures input is one of yes, no, true, false (lowercase).
+        // We include uppercase check to match intent of original code, though regex currently enforces lowercase.
+        matches!(s.as_bytes()[0], b'y' | b'Y' | b't' | b'T')
     })]
     BooleanLiteral(bool),
 
