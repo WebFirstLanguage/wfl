@@ -10,6 +10,7 @@ use crate::interpreter::value::Value;
 use crate::logging::IndentGuard;
 use crate::parser::ast::{Expression, Statement};
 
+#[allow(async_fn_in_trait)]
 pub trait ControlFlowExecutor {
     async fn execute_if(
         &self,

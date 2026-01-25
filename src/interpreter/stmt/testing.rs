@@ -4,12 +4,14 @@ use std::rc::Rc;
 use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
-use crate::interpreter::error::{ErrorKind, RuntimeError};
+use crate::interpreter::error::RuntimeError;
 use crate::interpreter::test_results::TestResult;
 use crate::interpreter::value::Value;
 use crate::parser::ast::{Assertion, Expression, Statement};
 
+#[allow(async_fn_in_trait)]
 pub trait TestExecutor {
+    #[allow(clippy::too_many_arguments)]
     async fn execute_describe_block(
         &self,
         description: &str,
@@ -47,8 +49,8 @@ impl TestExecutor for Interpreter {
         setup: Option<&[Statement]>,
         teardown: Option<&[Statement]>,
         tests: &[Statement],
-        line: usize,
-        column: usize,
+        _line: usize,
+        _column: usize,
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         // Create a new environment for this block

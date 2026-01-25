@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::interpreter::Interpreter;
@@ -8,6 +7,7 @@ use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::{FunctionValue, Value};
 use crate::parser::ast::Argument;
 
+#[allow(async_fn_in_trait)]
 pub trait ContainerExpressionEvaluator {
     async fn evaluate_static_member_access(
         &self,
@@ -357,7 +357,7 @@ impl ContainerExpressionEvaluator for Interpreter {
                     "trim" => Ok(Value::Text(Rc::from(text.trim()))),
                     "substring" => {
                         // substring(start, length) or substring(start)
-                        if arguments.len() < 1 || arguments.len() > 2 {
+                        if arguments.is_empty() || arguments.len() > 2 {
                             return Err(RuntimeError::new(
                                 format!(
                                     "Method 'substring' expects 1 or 2 arguments, got {}",

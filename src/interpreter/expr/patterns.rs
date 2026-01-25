@@ -4,11 +4,11 @@ use std::rc::Rc;
 
 use crate::interpreter::Interpreter;
 use crate::interpreter::environment::Environment;
-use crate::interpreter::error::{ErrorKind, RuntimeError};
+use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use crate::parser::ast::Expression;
-use crate::pattern::CompiledPattern;
 
+#[allow(async_fn_in_trait)]
 pub trait PatternExpressionEvaluator {
     async fn evaluate_pattern_match(
         &self,

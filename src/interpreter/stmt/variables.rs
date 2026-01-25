@@ -9,6 +9,7 @@ use crate::interpreter::value::Value;
 use crate::parser::ast::Expression;
 
 /// Evaluator for variable-related statements.
+#[allow(async_fn_in_trait)]
 pub trait VariableExecutor {
     /// Executes a variable declaration statement.
     ///

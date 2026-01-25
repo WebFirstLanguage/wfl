@@ -25,15 +25,6 @@ use self::expr::patterns::PatternExpressionEvaluator;
 use self::expr::time::TimeExpressionEvaluator;
 use self::expr::web::WebExpressionEvaluator;
 use self::io_client::IoClient;
-pub(crate) use self::stmt::containers::ContainerExecutor;
-pub(crate) use self::stmt::control_flow::ControlFlowExecutor;
-pub(crate) use self::stmt::definitions::DefinitionsExecutor;
-pub(crate) use self::stmt::io::IoExecutor;
-pub(crate) use self::stmt::loops::LoopExecutor;
-pub(crate) use self::stmt::processes::ProcessExecutor;
-pub(crate) use self::stmt::testing::TestExecutor;
-pub(crate) use self::stmt::variables::VariableExecutor;
-pub(crate) use self::stmt::web::WebExecutor;
 pub use self::test_results::{TestFailure, TestResults};
 use self::web::{
     PendingResponseSender, ServerError, WflHttpRequest, WflHttpResponse, WflWebServer,
@@ -61,7 +52,7 @@ use crate::exec_var_assign;
 use crate::exec_var_declare;
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
-use crate::parser::ast::{Assertion, Expression, FileOpenMode, Literal, Program, Statement};
+use crate::parser::ast::{Assertion, Expression, Literal, Program, Statement};
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
 use std::cell::RefCell;

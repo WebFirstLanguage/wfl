@@ -7,15 +7,17 @@ use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::{
-    self, ActionSignature, ContainerDefinitionValue, ContainerEventValue, ContainerInstanceValue,
-    ContainerMethodValue, EventHandler, FunctionValue, InterfaceDefinitionValue, Value,
+    self, ActionSignature, ContainerDefinitionValue, ContainerEventValue, ContainerMethodValue,
+    EventHandler, FunctionValue, InterfaceDefinitionValue, Value,
 };
 use crate::parser::ast::{
     ActionSignature as AstActionSignature, Argument, EventDefinition, Expression,
     PropertyDefinition, PropertyInitializer, Statement,
 };
 
+#[allow(async_fn_in_trait)]
 pub trait ContainerExecutor {
+    #[allow(clippy::too_many_arguments)]
     async fn execute_container_definition(
         &self,
         name: &str,
@@ -29,6 +31,7 @@ pub trait ContainerExecutor {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_container_instantiation(
         &self,
         container_type: &str,
@@ -313,7 +316,7 @@ impl ContainerExecutor for Interpreter {
             // Check if the container has an "initialize" method
             if let Some(init_method) = container_def.methods.get("initialize") {
                 // Create a function value from the initialize method
-                let init_function = FunctionValue {
+                let _init_function = FunctionValue {
                     name: Some("initialize".to_string()),
                     params: init_method.params.clone(),
                     body: init_method.body.clone(),

@@ -8,7 +8,9 @@ use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::{ContainerEventValue, FunctionValue, Value};
 use crate::parser::ast::{Parameter, PatternExpression, Statement, Type};
 
+#[allow(async_fn_in_trait)]
 pub trait DefinitionsExecutor {
+    #[allow(clippy::too_many_arguments)]
     async fn execute_function_definition(
         &self,
         name: &str,
@@ -29,6 +31,7 @@ pub trait DefinitionsExecutor {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_action_definition(
         &self,
         name: &str,
@@ -56,7 +59,7 @@ impl DefinitionsExecutor for Interpreter {
         name: &str,
         parameters: &[Parameter],
         body: &[Statement],
-        return_type: Option<&Type>,
+        _return_type: Option<&Type>,
         line: usize,
         column: usize,
         env: Rc<RefCell<Environment>>,

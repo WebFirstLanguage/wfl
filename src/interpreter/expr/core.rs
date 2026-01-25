@@ -5,10 +5,10 @@ use crate::interpreter::Interpreter;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::parser::ast::{Argument, Expression, Literal, Operator, UnaryOperator};
+use crate::parser::ast::{Argument, Expression, Operator, UnaryOperator};
 
+#[allow(async_fn_in_trait)]
 pub trait CoreExpressionEvaluator {
-    #[inline]
     async fn evaluate_binary_operation(
         &self,
         left: &Expression,
@@ -19,7 +19,6 @@ pub trait CoreExpressionEvaluator {
         env: Rc<RefCell<Environment>>,
     ) -> Result<Value, RuntimeError>;
 
-    #[inline]
     async fn evaluate_unary_operation(
         &self,
         operator: &UnaryOperator,

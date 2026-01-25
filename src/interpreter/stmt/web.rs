@@ -10,11 +10,12 @@ use warp::Filter;
 use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
-use crate::interpreter::error::{ErrorKind, RuntimeError};
+use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use crate::interpreter::web::{ServerError, WflHttpRequest, WflHttpResponse, WflWebServer};
 use crate::parser::ast::Expression;
 
+#[allow(async_fn_in_trait)]
 pub trait WebExecutor {
     async fn execute_listen(
         &self,
@@ -35,6 +36,7 @@ pub trait WebExecutor {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_respond(
         &self,
         request: &Expression,

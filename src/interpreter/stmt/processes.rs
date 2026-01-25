@@ -9,7 +9,9 @@ use crate::interpreter::error::{ErrorKind, RuntimeError};
 use crate::interpreter::value::Value;
 use crate::parser::ast::Expression;
 
+#[allow(async_fn_in_trait)]
 pub trait ProcessExecutor {
+    #[allow(clippy::too_many_arguments)]
     async fn execute_command(
         &self,
         command: &Expression,
@@ -21,6 +23,7 @@ pub trait ProcessExecutor {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_spawn_process(
         &self,
         command: &Expression,

@@ -8,7 +8,9 @@ use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use crate::parser::ast::{Expression, Statement};
 
+#[allow(async_fn_in_trait)]
 pub trait LoopExecutor {
+    #[allow(clippy::too_many_arguments)]
     async fn execute_count_loop(
         &self,
         start: &Expression,
@@ -22,6 +24,7 @@ pub trait LoopExecutor {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_foreach_loop(
         &self,
         item_name: &str,

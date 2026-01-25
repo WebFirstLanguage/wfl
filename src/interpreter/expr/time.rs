@@ -7,6 +7,7 @@ use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 
+#[allow(async_fn_in_trait)]
 pub trait TimeExpressionEvaluator {
     fn evaluate_current_time_milliseconds(
         &self,

@@ -4,10 +4,11 @@ use std::rc::Rc;
 use crate::interpreter::Interpreter;
 use crate::interpreter::control_flow::ControlFlow;
 use crate::interpreter::environment::Environment;
-use crate::interpreter::error::{ErrorKind, RuntimeError};
+use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use crate::parser::ast::{Expression, FileOpenMode, Literal, WriteMode};
 
+#[allow(async_fn_in_trait)]
 pub trait IoExecutor {
     async fn execute_open_file(
         &self,

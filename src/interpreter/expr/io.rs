@@ -8,6 +8,7 @@ use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use crate::parser::ast::{Expression, Literal};
 
+#[allow(async_fn_in_trait)]
 pub trait IoExpressionEvaluator {
     async fn evaluate_file_exists(
         &self,
@@ -310,12 +311,11 @@ impl IoExpressionEvaluator for Interpreter {
                 while let Ok(Some(entry)) = entries.next_entry().await {
                     if let Ok(file_name) = entry.file_name().into_string() {
                         let path = std::path::Path::new(&file_name);
-                        if let Some(ext) = path.extension() {
-                            if let Some(ext_str) = ext.to_str() {
-                                if ext_strings.iter().any(|e| e == ext_str) {
-                                    files.push(Value::Text(Rc::from(file_name)));
-                                }
-                            }
+                        if let Some(ext) = path.extension()
+                            && let Some(ext_str) = ext.to_str()
+                            && ext_strings.iter().any(|e| e == ext_str)
+                        {
+                            files.push(Value::Text(Rc::from(file_name)));
                         }
                     }
                 }
@@ -381,27 +381,24 @@ impl Interpreter {
                         if entry_path.is_dir() {
                             dirs.push(entry_path);
                         } else if let Some(exts) = extensions {
-                            if let Some(ext) = entry_path.extension() {
-                                if let Some(ext_str) = ext.to_str() {
-                                    if exts.iter().any(|e| e == ext_str) {
-                                        if let Ok(rel_path) =
-                                            entry_path.strip_prefix(std::path::Path::new(root_path))
-                                        {
-                                            files.push(rel_path.to_string_lossy().into_owned());
-                                        } else {
-                                            files.push(entry_path.to_string_lossy().into_owned());
-                                        }
-                                    }
+                            if let Some(ext) = entry_path.extension()
+                                && let Some(ext_str) = ext.to_str()
+                                && exts.iter().any(|e| e == ext_str)
+                            {
+                                if let Ok(rel_path) =
+                                    entry_path.strip_prefix(std::path::Path::new(root_path))
+                                {
+                                    files.push(rel_path.to_string_lossy().into_owned());
+                                } else {
+                                    files.push(entry_path.to_string_lossy().into_owned());
                                 }
                             }
+                        } else if let Ok(rel_path) =
+                            entry_path.strip_prefix(std::path::Path::new(root_path))
+                        {
+                            files.push(rel_path.to_string_lossy().into_owned());
                         } else {
-                            if let Ok(rel_path) =
-                                entry_path.strip_prefix(std::path::Path::new(root_path))
-                            {
-                                files.push(rel_path.to_string_lossy().into_owned());
-                            } else {
-                                files.push(entry_path.to_string_lossy().into_owned());
-                            }
+                            files.push(entry_path.to_string_lossy().into_owned());
                         }
                     }
                 }

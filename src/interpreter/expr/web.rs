@@ -7,6 +7,7 @@ use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use crate::parser::ast::Expression;
 
+#[allow(async_fn_in_trait)]
 pub trait WebExpressionEvaluator {
     async fn evaluate_header_access(
         &self,
