@@ -9,3 +9,7 @@
 ## 2026-01-17 - [Optimized Lexer Position Tracking for Strings]
 **Learning:** Using `str::contains` twice (once for `\n`, once for `\r`) to check for newlines scans the entire string twice. For strings with newlines at the end, this is inefficient compared to `find`.
 **Action:** Use `find` to locate the first occurrence of a delimiter, then use the index to limit the search for other delimiters. This avoids redundant scanning of the prefix and allows jumping directly to the interesting part of the string.
+
+## 2026-01-20 - [Optimize Substring with Zero-Copy Slicing]
+**Learning:** `chars().skip(n).take(m).collect::<String>()` is inefficient because it iterates, allocates an intermediate `String`, and re-encodes UTF-8. Using `char_indices()` to find byte boundaries and slicing `&str` allows `Rc::from` to copy bytes directly, avoiding intermediate allocation and UTF-8 overhead.
+**Action:** Prefer `char_indices` + slicing over `chars().collect()` when extracting substrings. Also, check for "full string" requests (`start=0` and `length>=len`) to avoid allocation entirely by cloning the `Rc`.
