@@ -12,6 +12,7 @@
 - `Tools/`: Helper tools (Python scripts, WFL tools).
 - `Nexus/`: Experimental WFL test programs.
 - `wflpkg/`: Package Manager design documents.
+- `wix/`: Windows Installer (MSI) configuration.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
 ## Core Architecture
