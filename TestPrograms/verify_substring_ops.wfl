@@ -1,0 +1,60 @@
+describe "Substring Optimization Tests":
+
+    test "Full string copy (Optimization 1)":
+        store s as "Hello World"
+        // 100 > length 11. Should return clone.
+        store full as substring of s and 0 and 100
+        expect full to equal "Hello World"
+    end test
+
+    test "Full string exact length":
+        store s as "Hello World"
+        store full_exact as substring of s and 0 and 11
+        expect full_exact to equal "Hello World"
+    end test
+
+    test "Normal substring (Optimization 2)":
+        store s as "Hello World"
+        store sub as substring of s and 6 and 5
+        expect sub to equal "World"
+    end test
+
+    test "Empty substring":
+        store s as "Hello World"
+        store empty_str as substring of s and 0 and 0
+        expect empty_str to equal ""
+    end test
+
+    test "Unicode substring":
+        store u as "Héllo 🦀"
+        // H (0), é (1), l (2), l (3), o (4), space (5), 🦀 (6)
+
+        store sub_u as substring of u and 1 and 1
+        expect sub_u to equal "é"
+
+        store sub_crab as substring of u and 6 and 1
+        expect sub_crab to equal "🦀"
+    end test
+
+    test "Unicode single char full string (missed opt fix)":
+        store e as "é"
+        // char length 1, byte length 2.
+        // Old check: 1 >= 2 (False) -> missed opt
+        // New check: start_byte=0, end_byte=2 == len -> hits opt
+        store sub_e as substring of e and 0 and 1
+        expect sub_e to equal "é"
+    end test
+
+    test "Out of bounds start":
+        store s as "Hello World"
+        store oob as substring of s and 50 and 5
+        expect oob to equal ""
+    end test
+
+    test "Length exceeds remaining":
+        store s as "Hello World"
+        store suffix as substring of s and 6 and 100
+        expect suffix to equal "World"
+    end test
+
+end describe
