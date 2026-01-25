@@ -9,3 +9,7 @@
 ## 2026-01-17 - [Optimized Lexer Position Tracking for Strings]
 **Learning:** Using `str::contains` twice (once for `\n`, once for `\r`) to check for newlines scans the entire string twice. For strings with newlines at the end, this is inefficient compared to `find`.
 **Action:** Use `find` to locate the first occurrence of a delimiter, then use the index to limit the search for other delimiters. This avoids redundant scanning of the prefix and allows jumping directly to the interesting part of the string.
+
+## 2025-05-18 - [Token Vector Pre-allocation Heuristic]
+**Learning:** WFL code token density varies significantly (strings vs code). `input.len() / 10` provides a good balance for `Vec` pre-allocation, improving lexing of dense code (no strings) by ~23% while keeping string-heavy code performance stable. Denser heuristics (e.g. `/5`) caused regressions, likely due to memory pressure from over-allocation.
+**Action:** When pre-allocating vectors based on input size, conservative heuristics (under-estimating) are often safer than aggressive ones (over-estimating), especially when element size is large.
