@@ -16,12 +16,12 @@ define action called log_message needs message_text:
 end action
 
 // Log the start of the test suite
-log_message with "Starting Nexus WFL Integration Test Suite..."
+log_message of "Starting Nexus WFL Integration Test Suite..."
 
 ///////////////////////////////////////////////////////////////////////////
 // 2. Variable Assignment & Arithmetic Tests
 ///////////////////////////////////////////////////////////////////////////
-log_message with "Starting Arithmetic Tests..."
+log_message of "Starting Arithmetic Tests..."
 
 store a as 6
 store b as 2
@@ -29,33 +29,33 @@ store b as 2
 // Test addition
 store add_result as a plus b        // 6 + 2 = 8
 check if add_result is equal to 8:
-    log_message with "Addition test: PASS"
+    log_message of "Addition test: PASS"
 otherwise:
-    log_message with "Addition test: FAIL (expected 8, got " with add_result with ")"
+    log_message of "Addition test: FAIL (expected 8, got " with add_result with ")"
 end check
 
 // Test subtraction
 store sub_result as a minus b       // 6 - 2 = 4
 check if sub_result is equal to 4:
-    log_message with "Subtraction test: PASS"
+    log_message of "Subtraction test: PASS"
 otherwise:
-    log_message with "Subtraction test: FAIL (expected 4, got " with sub_result with ")"
+    log_message of "Subtraction test: FAIL (expected 4, got " with sub_result with ")"
 end check
 
 // Test multiplication
 store mul_result as a times b       // 6 * 2 = 12
 check if mul_result is equal to 12:
-    log_message with "Multiplication test: PASS"
+    log_message of "Multiplication test: PASS"
 otherwise:
-    log_message with "Multiplication test: FAIL (expected 12, got " with mul_result with ")"
+    log_message of "Multiplication test: FAIL (expected 12, got " with mul_result with ")"
 end check
 
 // Test division (non-zero)
 store div_result as a divided by b  // 6 / 2 = 3
 check if div_result is equal to 3:
-    log_message with "Division test: PASS"
+    log_message of "Division test: PASS"
 otherwise:
-    log_message with "Division test: FAIL (expected 3, got " with div_result with ")"
+    log_message of "Division test: FAIL (expected 3, got " with div_result with ")"
 end check
 
 // Test floating-point division accuracy (5/2 = 2.5)
@@ -64,17 +64,17 @@ store y as 2
 store frac_result as x divided by y    // 5 / 2 = 2.5
 // Check by multiplying result by 2 to see if we get back 5
 check if (frac_result times 2) is equal to x:
-    log_message with "Fractional division test: PASS"
+    log_message of "Fractional division test: PASS"
 otherwise:
-    log_message with "Fractional division test: FAIL (expected 2.5, got " with frac_result with ")"
+    log_message of "Fractional division test: FAIL (expected 2.5, got " with frac_result with ")"
 end check
 
-log_message with "Arithmetic Tests completed."
+log_message of "Arithmetic Tests completed."
 
 ///////////////////////////////////////////////////////////////////////////
 // 3. Control Flow (If/Else) Tests
 ///////////////////////////////////////////////////////////////////////////
-log_message with "Starting Control Flow (If/Else) Tests..."
+log_message of "Starting Control Flow (If/Else) Tests..."
 
 store m_test as 10
 store n_test as 5
@@ -86,9 +86,9 @@ otherwise:
     store result1 as "no"
 end check
 check if result1 is equal to "yes":
-    log_message with "If condition TRUE branch test: PASS"
+    log_message of "If condition TRUE branch test: PASS"
 otherwise:
-    log_message with "If condition TRUE branch test: FAIL (expected yes, got " with result1 with ")"
+    log_message of "If condition TRUE branch test: FAIL (expected yes, got " with result1 with ")"
 end check
 
 // Test if-else (false condition)
@@ -98,9 +98,9 @@ otherwise:
     store result2 as "no"
 end check
 check if result2 is equal to "no":
-    log_message with "If condition FALSE branch test: PASS"
+    log_message of "If condition FALSE branch test: PASS"
 otherwise:
-    log_message with "If condition FALSE branch test: FAIL (expected no, got " with result2 with ")"
+    log_message of "If condition FALSE branch test: FAIL (expected no, got " with result2 with ")"
 end check
 
 // Test if (no else branch)
@@ -109,9 +109,9 @@ check if m_test is greater than n_test:
     change result3 to "yes"
 end check
 check if result3 is equal to "yes":
-    log_message with "If (no else) true-case test: PASS"
+    log_message of "If (no else) true-case test: PASS"
 otherwise:
-    log_message with "If (no else) true-case test: FAIL"
+    log_message of "If (no else) true-case test: FAIL"
 end check
 
 // Test check if/otherwise (conditional assignment)
@@ -122,17 +122,17 @@ otherwise:
     change result4 to "no"
 end check
 check if result4 is equal to "no":
-    log_message with "Conditional assignment test: PASS"
+    log_message of "Conditional assignment test: PASS"
 otherwise:
-    log_message with "Conditional assignment test: FAIL (expected no, got " with result4 with ")"
+    log_message of "Conditional assignment test: FAIL (expected no, got " with result4 with ")"
 end check
 
-log_message with "Control Flow (If/Else) Tests completed."
+log_message of "Control Flow (If/Else) Tests completed."
 
 ///////////////////////////////////////////////////////////////////////////
 // 4. Loop Tests (Count, For-Each, While, Repeat/Until, Forever, Break/Continue)
 ///////////////////////////////////////////////////////////////////////////
-log_message with "Starting Loop Tests..."
+log_message of "Starting Loop Tests..."
 
 // 4.1 Count Loop test
 store sum_count as 0
@@ -141,16 +141,17 @@ count from 1 to 5:
 end count
 // Expected sum_count = 1+2+3+4+5 = 15
 check if sum_count is equal to 15:
-    log_message with "Count loop test (1 to 5 sum): PASS"
+    log_message of "Count loop test (1 to 5 sum): PASS"
 otherwise:
-    log_message with "Count loop test (expected 15, got " with sum_count with "): FAIL"
+    log_message of "Count loop test (expected 15, got " with sum_count with "): FAIL"
 end check
 
 // 4.2 For-Each Loop test
-store numbers as []
-push with numbers and 1
-push with numbers and 2
-push with numbers and 3
+create list numbers:
+    add 1
+    add 2
+    add 3
+end list
 
 store sum_for_each as 0
 for each num in numbers:
@@ -158,9 +159,9 @@ for each num in numbers:
 end for
 // Expected sum_for_each = 1+2+3 = 6
 check if sum_for_each is equal to 6:
-    log_message with "For-each loop test (sum of [1,2,3]): PASS"
+    log_message of "For-each loop test (sum of [1,2,3]): PASS"
 otherwise:
-    log_message with "For-each loop test (expected 6, got " with sum_for_each with "): FAIL"
+    log_message of "For-each loop test (expected 6, got " with sum_for_each with "): FAIL"
 end check
 
 // 4.3 While Loop test
@@ -172,9 +173,9 @@ repeat while count1 is less than or equal to 5:
 end repeat
 // Expected sum_while = 15 (same as 1+...+5)
 check if sum_while is equal to 15:
-    log_message with "While loop test (1 to 5 sum): PASS"
+    log_message of "While loop test (1 to 5 sum): PASS"
 otherwise:
-    log_message with "While loop test (expected 15, got " with sum_while with "): FAIL"
+    log_message of "While loop test (expected 15, got " with sum_while with "): FAIL"
 end check
 
 // 4.4 Continue (Skip) in loop test – sum of odd numbers 1..5
@@ -190,9 +191,9 @@ repeat while count2 is less than 5:
 end repeat
 // This loop adds only odd numbers 1+3+5 = 9
 check if total_odds is equal to 9:
-    log_message with "Loop continue/skip test (sum of odds 1-5): PASS"
+    log_message of "Loop continue/skip test (sum of odds 1-5): PASS"
 otherwise:
-    log_message with "Loop continue/skip test (expected 9, got " with total_odds with "): FAIL"
+    log_message of "Loop continue/skip test (expected 9, got " with total_odds with "): FAIL"
 end check
 
 // 4.5 Repeat-Until Loop test (do-while equivalent)
@@ -204,9 +205,9 @@ repeat until count3 is greater than 5:
 end repeat
 // Loop executes until count3 > 5, so it runs for count3=1..5, sum_repeat = 15
 check if sum_repeat is equal to 15:
-    log_message with "Repeat-until loop test (1 to 5 sum): PASS"
+    log_message of "Repeat-until loop test (1 to 5 sum): PASS"
 otherwise:
-    log_message with "Repeat-until loop test (expected 15, got " with sum_repeat with "): FAIL"
+    log_message of "Repeat-until loop test (expected 15, got " with sum_repeat with "): FAIL"
 end check
 
 // 4.6 Forever Loop test (infinite loop with break)
@@ -218,9 +219,9 @@ repeat forever:
     end check
 end repeat
 check if k is equal to 5:
-    log_message with "Forever loop with break test: PASS"
+    log_message of "Forever loop with break test: PASS"
 otherwise:
-    log_message with "Forever loop with break test: FAIL (k = " with k with ")"
+    log_message of "Forever loop with break test: FAIL (k = " with k with ")"
 end check
 
 // 4.7 Nested Loop Break vs Exit test
@@ -240,9 +241,9 @@ repeat while outer_i is less than or equal to 3:
 end repeat
 // After using 'break', outer loop should still complete all 3 iterations
 check if break_outer_counter is equal to 3:
-    log_message with "Nested loop 'break' test: PASS"
+    log_message of "Nested loop 'break' test: PASS"
 otherwise:
-    log_message with "Nested loop 'break' test: FAIL (outer iterations = " with break_outer_counter with ")"
+    log_message of "Nested loop 'break' test: FAIL (outer iterations = " with break_outer_counter with ")"
 end check
 
 // Note: Using explicit counters with repeat while to avoid variable redefinition issues
@@ -262,17 +263,17 @@ repeat while outer_j is less than or equal to 3:
 end repeat
 // 'exit loop' breaks out of ALL loops, so exit_outer_counter should remain 0
 check if exit_outer_counter is equal to 0:
-    log_message with "Nested loop 'exit' test: PASS"
+    log_message of "Nested loop 'exit' test: PASS"
 otherwise:
-    log_message with "Nested loop 'exit' test: FAIL (outer iterations = " with exit_outer_counter with ")"
+    log_message of "Nested loop 'exit' test: FAIL (outer iterations = " with exit_outer_counter with ")"
 end check
 
-log_message with "Loop Tests completed."
+log_message of "Loop Tests completed."
 
 ///////////////////////////////////////////////////////////////////////////
 // 5. Action (Function) Definition and Call Tests
 ///////////////////////////////////////////////////////////////////////////
-log_message with "Starting Action/Function Tests..."
+log_message of "Starting Action/Function Tests..."
 
 // Define actions to test various features
 
@@ -297,8 +298,8 @@ define action called factorial needs n:
     check if n is equal to 0:
         give back 1
     otherwise:
-        // Recursive call (with explicit parentheses for correct precedence)
-        give back n times (factorial with (n minus 1))
+        // Recursive call using 'of' syntax for proper argument parsing
+        give back n times (factorial of (n minus 1))
     end check
 end action
 
@@ -315,27 +316,27 @@ end action
 greet    // Should display greeting message to console
 
 // Test square action
-store sq_result as square with 4    // 4^2 = 16
+store sq_result as square of 4    // 4^2 = 16
 check if sq_result is equal to 16:
-    log_message with "Action test (square 4 -> 16): PASS"
+    log_message of "Action test (square 4 -> 16): PASS"
 otherwise:
-    log_message with "Action test (square) FAIL (expected 16, got " with sq_result with ")"
+    log_message of "Action test (square) FAIL (expected 16, got " with sq_result with ")"
 end check
 
 // Test sum_numbers action
-store add_result2 as sum_numbers with 10 and 15   // 10 + 15 = 25
+store add_result2 as sum_numbers of 10 and 15   // 10 + 15 = 25
 check if add_result2 is equal to 25:
-    log_message with "Action test (sum_numbers 10+15 -> 25): PASS"
+    log_message of "Action test (sum_numbers 10+15 -> 25): PASS"
 otherwise:
-    log_message with "Action test (sum_numbers) FAIL (expected 25, got " with add_result2 with ")"
+    log_message of "Action test (sum_numbers) FAIL (expected 25, got " with add_result2 with ")"
 end check
 
 // Test recursive factorial action
-store fact_result as factorial with 5    // 5! = 120
+store fact_result as factorial of 5    // 5! = 120
 check if fact_result is equal to 120:
-    log_message with "Action test (factorial 5 -> 120): PASS"
+    log_message of "Action test (factorial 5 -> 120): PASS"
 otherwise:
-    log_message with "Action test (factorial) FAIL (expected 120, got " with fact_result with ")"
+    log_message of "Action test (factorial) FAIL (expected 120, got " with fact_result with ")"
 end check
 
 // Test error handling with faulty action
@@ -343,19 +344,19 @@ try:
     // Call the faulty action that will raise an error
     store res as faulty
     // If no error (unexpected), log as fail:
-    log_message with "Error handling test: FAIL (no error from faulty action)"
+    log_message of "Error handling test: FAIL (no error from faulty action)"
 catch:
     // Caught the expected error from division by zero
     display "Caught expected error from faulty action"
-    log_message with "Error handling test: PASS (caught division by zero error)"
+    log_message of "Error handling test: PASS (caught division by zero error)"
 end try
 
-log_message with "Action/Function Tests completed."
+log_message of "Action/Function Tests completed."
 
 ///////////////////////////////////////////////////////////////////////////
 // 6. Pattern Matching Tests
 ///////////////////////////////////////////////////////////////////////////
-log_message with "Starting Pattern Matching Tests..."
+log_message of "Starting Pattern Matching Tests..."
 
 // Create a pattern to match exactly three digits
 create pattern three_digits:
@@ -365,17 +366,17 @@ end pattern
 // Test a string that contains three digits in a row
 store text1 as "abc123xyz"
 check if text1 matches three_digits:
-    log_message with "Pattern test (\"abc123xyz\" matches 3 digits): PASS"
+    log_message of "Pattern test (\"abc123xyz\" matches 3 digits): PASS"
 otherwise:
-    log_message with "Pattern test (\"abc123xyz\" should match 3 digits): FAIL"
+    log_message of "Pattern test (\"abc123xyz\" should match 3 digits): FAIL"
 end check
 
 // Test a string that does not contain three consecutive digits
 store text2 as "abc45xyz"
 check if text2 matches three_digits:
-    log_message with "Pattern test (\"abc45xyz\" should NOT match 3 digits): FAIL"
+    log_message of "Pattern test (\"abc45xyz\" should NOT match 3 digits): FAIL"
 otherwise:
-    log_message with "Pattern test (\"abc45xyz\" no 3-digit match): PASS"
+    log_message of "Pattern test (\"abc45xyz\" no 3-digit match): PASS"
 end check
 
 // Create a pattern for simple word matching
@@ -386,17 +387,17 @@ end pattern
 // Test valid word
 store word1 as "hello"
 check if word1 matches word_pattern:
-    log_message with "Pattern test (word matching): PASS"
+    log_message of "Pattern test (word matching): PASS"
 otherwise:
-    log_message with "Pattern test (word matching): FAIL"
+    log_message of "Pattern test (word matching): FAIL"
 end check
 
 // Test non-word (should fail)
 store word2 as "123"
 check if word2 matches word_pattern:
-    log_message with "Pattern test (non-word should fail): FAIL"
+    log_message of "Pattern test (non-word should fail): FAIL"
 otherwise:
-    log_message with "Pattern test (non-word correctly rejected): PASS"
+    log_message of "Pattern test (non-word correctly rejected): PASS"
 end check
 
 // Create a pattern with quantifiers
@@ -407,25 +408,25 @@ end pattern
 // Test number with 3 digits (should pass)
 store num1 as "123"
 check if num1 matches between_pattern:
-    log_message with "Pattern test (2-5 digits, testing 3): PASS"
+    log_message of "Pattern test (2-5 digits, testing 3): PASS"
 otherwise:
-    log_message with "Pattern test (2-5 digits, testing 3): FAIL"
+    log_message of "Pattern test (2-5 digits, testing 3): FAIL"
 end check
 
 // Test number with 1 digit (should fail)
 store num2 as "1"
 check if num2 matches between_pattern:
-    log_message with "Pattern test (1 digit should fail 2-5 range): FAIL"
+    log_message of "Pattern test (1 digit should fail 2-5 range): FAIL"
 otherwise:
-    log_message with "Pattern test (1 digit correctly rejected): PASS"
+    log_message of "Pattern test (1 digit correctly rejected): PASS"
 end check
 
-log_message with "Pattern Matching Tests completed."
+log_message of "Pattern Matching Tests completed."
 
 ///////////////////////////////////////////////////////////////////////////
 // 6. Asynchronous I/O and Concurrency Tests (formerly section 7)
 ///////////////////////////////////////////////////////////////////////////
-log_message with "Starting Async I/O and Concurrency Tests..."
+log_message of "Starting Async I/O and Concurrency Tests..."
 
 // Prepare two files with known content
 open file at "temp1.txt" for writing as file1
@@ -454,12 +455,12 @@ end count
 
 // Verify that both file contents were read correctly
 check if (content1 is equal to "FileOneContent") and (content2 is equal to "FileTwoContent"):
-    log_message with "Concurrent file read test: PASS (content1 & content2 OK)"
+    log_message of "Concurrent file read test: PASS (content1 & content2 OK)"
 otherwise:
-    log_message with "Concurrent file read test: FAIL (content1=" with content1 with ", content2=" with content2 with ")"
+    log_message of "Concurrent file read test: FAIL (content1=" with content1 with ", content2=" with content2 with ")"
 end check
 
-log_message with "Async I/O and Concurrency Tests completed."
+log_message of "Async I/O and Concurrency Tests completed."
 
 ///////////////////////////////////////////////////////////////////////////
 // End of tests: Finalize
@@ -470,8 +471,8 @@ delete file at "temp1.txt"
 delete file at "temp2.txt"
 
 // Final log message before closing
-log_message with "All tests completed."
-log_message with "Temporary files cleaned up."
+log_message of "All tests completed."
+log_message of "Temporary files cleaned up."
 
 // Close the log file
 close file logHandle
