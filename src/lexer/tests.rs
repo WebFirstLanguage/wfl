@@ -582,3 +582,34 @@ fn test_keyword_in_context_vs_identifier() {
         "Should have standalone 'content' as keyword"
     );
 }
+
+#[test]
+fn test_boolean_literal_values() {
+    use crate::lexer::lex_wfl_with_positions;
+
+    let test_cases = [
+        ("yes", true),
+        ("no", false),
+        ("true", true),
+        ("false", false),
+        ("YES", true),
+        ("NO", false),
+        ("True", true),
+        ("False", false),
+        ("YeS", true),
+    ];
+
+    for (input, expected) in test_cases {
+        let tokens = lex_wfl_with_positions(input);
+        assert!(!tokens.is_empty(), "Failed to lex input: {}", input);
+
+        match &tokens[0].token {
+            Token::BooleanLiteral(val) => {
+                assert_eq!(*val, expected, "Failed for input: {}", input);
+            }
+            other => {
+                panic!("Expected BooleanLiteral for input '{}', got {:?}", input, other);
+            }
+        }
+    }
+}
