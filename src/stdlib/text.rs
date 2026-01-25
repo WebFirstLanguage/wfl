@@ -155,12 +155,6 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
         return Ok(Value::Text(Rc::from("")));
     }
 
-    // Optimization: If start is 0 and length >= byte length, it definitely covers the whole string.
-    // This avoids iteration and allocation by just incrementing the refcount.
-    if start == 0 && length >= text.len() {
-        return Ok(Value::Text(Rc::clone(&text)));
-    }
-
     // Optimization: Avoid intermediate String and Vec<char> allocations
     // by utilizing char_indices to find byte offsets and slicing directly.
     let mut indices = text.char_indices();
@@ -186,6 +180,14 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
             .map(|(i, c)| i + c.len_utf8())
             .unwrap_or(text.len()),
     };
+
+    // Optimization: If the substring covers the entire string, return a clone
+    // of the original Rc<str> to avoid allocation.
+    // This handles cases like substring("é", 0, 1) where char length (1) < byte length (2),
+    // which a simple "length >= text.len()" check would miss.
+    if start_byte == 0 && end_byte == text.len() {
+        return Ok(Value::Text(Rc::clone(&text)));
+    }
 
     Ok(Value::Text(Rc::from(&text[start_byte..end_byte])))
 }

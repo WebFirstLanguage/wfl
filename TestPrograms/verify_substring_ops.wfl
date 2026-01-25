@@ -36,6 +36,15 @@ describe "Substring Optimization Tests":
         expect sub_crab to equal "🦀"
     end test
 
+    test "Unicode single char full string (missed opt fix)":
+        store e as "é"
+        // char length 1, byte length 2.
+        // Old check: 1 >= 2 (False) -> missed opt
+        // New check: start_byte=0, end_byte=2 == len -> hits opt
+        store sub_e as substring of e and 0 and 1
+        expect sub_e to equal "é"
+    end test
+
     test "Out of bounds start":
         store s as "Hello World"
         store oob as substring of s and 50 and 5
