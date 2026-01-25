@@ -1,0 +1,13 @@
+// Test multi-parameter action syntax
+
+define action called add_numbers with parameters a and b:
+    give back a plus b
+end action
+
+// Try calling with 'of' instead of 'with'
+store result as add_numbers of 10 and 20
+display "Result: " with result
+
+// Try calling with 'with' using parentheses for each arg
+store result2 as add_numbers with (10) and (20)
+display "Result2: " with result2
