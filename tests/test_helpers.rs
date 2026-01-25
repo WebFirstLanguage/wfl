@@ -133,8 +133,12 @@ fn execute_with_timeout(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
-        .spawn().map_err(|e| {
-            std::io::Error::new(e.kind(), format!("Failed to spawn process {:?}: {}", binary_path, e))
+        .spawn()
+        .map_err(|e| {
+            std::io::Error::new(
+                e.kind(),
+                format!("Failed to spawn process {:?}: {}", binary_path, e),
+            )
         })?;
 
     // Use a simple timeout approach since we don't have external dependencies
