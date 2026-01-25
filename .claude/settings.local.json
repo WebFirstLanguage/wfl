@@ -90,9 +90,7 @@
       "Bash(gh issue view:*)",
       "Bash(gh api:*)",
       "Bash(gh repo view:*)",
-      "Bash(pwsh:*)",
-      "mcp__ide__getDiagnostics",
-      "Bash(..targetreleasewfl.exe nexus.wfl)"
+      "Bash(pwsh:*)"
     ],
     "deny": [],
     "ask": []

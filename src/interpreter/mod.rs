@@ -5136,6 +5136,27 @@ impl Interpreter {
         Ok((last_value, control_flow))
     }
 
+    // Helper to evaluate unary operations synchronously
+    fn evaluate_unary_op_sync(
+        &self,
+        operator: &UnaryOperator,
+        value: Value,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError> {
+        match operator {
+            UnaryOperator::Not => Ok(Value::Bool(!value.is_truthy())),
+            UnaryOperator::Minus => match value {
+                Value::Number(n) => Ok(Value::Number(-n)),
+                _ => Err(RuntimeError::new(
+                    format!("Cannot negate {}", value.type_name()),
+                    line,
+                    column,
+                )),
+            },
+        }
+    }
+
     // Helper to evaluate binary operations synchronously when operands are available
     fn evaluate_binary_op_sync(
         &self,
@@ -5157,9 +5178,65 @@ impl Interpreter {
             Operator::LessThan => self.less_than(left, right, line, column),
             Operator::GreaterThanOrEqual => self.greater_than_equal(left, right, line, column),
             Operator::LessThanOrEqual => self.less_than_equal(left, right, line, column),
-            Operator::And => Ok(Value::Bool(left.is_truthy() && right.is_truthy())),
-            Operator::Or => Ok(Value::Bool(left.is_truthy() || right.is_truthy())),
+            // Logical operators (And, Or) are excluded here to preserve short-circuiting behavior.
+            // They are handled by the standard async evaluation path.
+            Operator::And | Operator::Or => Err(RuntimeError::new(
+                "Logical operators must be handled by main evaluator for short-circuiting"
+                    .to_string(),
+                line,
+                column,
+            )),
             Operator::Contains => self.contains(left, right, line, column),
+        }
+    }
+
+    // Helper to try evaluating simple expressions (Literal, Variable) synchronously.
+    //
+    // WARNING: This method MUST NOT execute side effects (like calling functions) unless we are
+    // absolutely certain the result will be used.
+    //
+    // For Variables:
+    // - If the variable holds a simple value (Number, Text, etc.), return it.
+    // - If the variable holds a Function or NativeFunction, return None to defer to the main async evaluator.
+    //   This prevents double-evaluation of side-effecting functions (e.g. `random`, `time`) if
+    //   the other operand forces a fallback to async.
+    fn try_evaluate_simple_expr_sync(
+        &self,
+        expr: &Expression,
+        env: &Rc<RefCell<Environment>>,
+    ) -> Result<Option<Value>, RuntimeError> {
+        if let Expression::Literal(lit, l, c) = expr {
+            self.evaluate_literal_direct(lit, *l, *c)
+        } else if let Expression::Variable(name, l, c) = expr {
+            // Check if variable exists
+            if let Some(value) = env.borrow().get(name) {
+                // Only return if it's a simple value, NOT a function that might have side effects
+                match value {
+                    Value::Function(_) | Value::NativeFunction(_, _) => Ok(None),
+                    _ => Ok(Some(value)),
+                }
+            } else if name == "count" {
+                // Handle special 'count' variable in loops - this is safe as it's just a number lookup
+                if *self.in_count_loop.borrow() {
+                    if let Some(count_value) = *self.current_count.borrow() {
+                        Ok(Some(Value::Number(count_value)))
+                    } else {
+                        Err(RuntimeError::new(
+                            "Internal error: count variable accessed in count loop but no current count set".to_string(),
+                            *l,
+                            *c,
+                        ))
+                    }
+                } else {
+                    // Fall back to main evaluator for error handling
+                    Ok(None)
+                }
+            } else {
+                // Variable not found - fall back to main evaluator for proper error handling
+                Ok(None)
+            }
+        } else {
+            Ok(None)
         }
     }
 
@@ -5188,6 +5265,7 @@ impl Interpreter {
     }
 
     // Helper for variable auto-call logic
+    #[allow(dead_code)]
     fn handle_variable_auto_call(
         &self,
         value: Value,
@@ -5221,6 +5299,7 @@ impl Interpreter {
     // Returns Ok(Some(value)) if handled synchronously
     // Returns Ok(None) if async handling (user function call) is needed
     // Returns Err(...) if runtime error
+    #[allow(dead_code)]
     fn try_evaluate_variable_sync(
         &self,
         name: &str,
@@ -5267,23 +5346,10 @@ impl Interpreter {
         #[cfg(debug_assertions)]
         exec_trace!("Evaluating expression: {}", expr_type(expr));
 
-        // OPTIMIZATION: Handle simple literals directly to avoid Box::pin allocation
-        // This significantly improves performance for tight loops with literals
-        if let Expression::Literal(literal, line, column) = expr
-            && let Some(value) = self.evaluate_literal_direct(literal, *line, *column)?
-        {
+        // OPTIMIZATION: Handle simple expressions directly to avoid Box::pin allocation
+        // This includes literals, variables, and operations on them
+        if let Some(value) = self.try_evaluate_simple_expr_sync(expr, &env)? {
             return Ok(value);
-        }
-
-        // OPTIMIZATION: Handle simple variable lookups directly to avoid Box::pin allocation
-        if let Expression::Variable(name, line, column) = expr {
-            match self.try_evaluate_variable_sync(name, &env, *line, *column) {
-                Ok(Some(val)) => return Ok(val),
-                Ok(None) => {
-                    // Fallthrough to boxed execution which handles user function calls (async)
-                }
-                Err(e) => return Err(e),
-            }
         }
 
         // NEW OPTIMIZATION: Handle unary operations on simple operands synchronously
@@ -5294,28 +5360,8 @@ impl Interpreter {
             column,
         } = expr
         {
-            let inner_val_opt = if let Expression::Literal(lit, l, c) = expression.as_ref() {
-                self.evaluate_literal_direct(lit, *l, *c)?
-            } else if let Expression::Variable(name, l, c) = expression.as_ref() {
-                self.try_evaluate_variable_sync(name, &env, *l, *c)?
-            } else {
-                None
-            };
-
-            if let Some(val) = inner_val_opt {
-                match operator {
-                    UnaryOperator::Not => return Ok(Value::Bool(!val.is_truthy())),
-                    UnaryOperator::Minus => match val {
-                        Value::Number(n) => return Ok(Value::Number(-n)),
-                        _ => {
-                            return Err(RuntimeError::new(
-                                format!("Cannot negate {}", val.type_name()),
-                                *line,
-                                *column,
-                            ));
-                        }
-                    },
-                }
+            if let Some(val) = self.try_evaluate_simple_expr_sync(expression, &env)? {
+                return self.evaluate_unary_op_sync(operator, val, *line, *column);
             }
         }
 
@@ -5328,24 +5374,8 @@ impl Interpreter {
             column,
         } = expr
         {
-            let left_val_opt = if let Expression::Literal(lit, l, c) = left.as_ref() {
-                self.evaluate_literal_direct(lit, *l, *c)?
-            } else if let Expression::Variable(name, l, c) = left.as_ref() {
-                self.try_evaluate_variable_sync(name, &env, *l, *c)?
-            } else {
-                None
-            };
-
-            if let Some(left_val) = left_val_opt {
-                let right_val_opt = if let Expression::Literal(lit, l, c) = right.as_ref() {
-                    self.evaluate_literal_direct(lit, *l, *c)?
-                } else if let Expression::Variable(name, l, c) = right.as_ref() {
-                    self.try_evaluate_variable_sync(name, &env, *l, *c)?
-                } else {
-                    None
-                };
-
-                if let Some(right_val) = right_val_opt {
+            if let Some(left_val) = self.try_evaluate_simple_expr_sync(left, &env)? {
+                if let Some(right_val) = self.try_evaluate_simple_expr_sync(right, &env)? {
                     return self
                         .evaluate_binary_op_sync(operator, left_val, right_val, *line, *column);
                 }

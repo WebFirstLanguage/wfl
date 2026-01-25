@@ -1,6 +1,3 @@
-store var1 as "ke5crz@hamplex.com"
-store var2 as "ke5crz"
-
 create pattern email:
     one or more letter or digit
     followed by "@"
@@ -9,13 +6,7 @@ create pattern email:
     followed by 2 to 4 letter
 end pattern
 
-check if var1 matches email:
-    display "Valid email!"
-otherwise
-    display "Not valid"
-end check
-
-check if var2 matches email:
+check if "user@example.com" matches email:
     display "Valid email!"
 otherwise
     display "Not valid"

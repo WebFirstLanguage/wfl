@@ -12,7 +12,6 @@
 - `Tools/`: Helper tools (Python scripts, WFL tools).
 - `Nexus/`: Experimental WFL test programs.
 - `wflpkg/`: Package Manager design documents.
-- `wix/`: Windows Installer (MSI) configuration.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
 ## Core Architecture
@@ -96,11 +95,9 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 ## Testing Guidelines
 - **TDD is mandatory**: Write failing tests FIRST for any feature or bug fix.
 - **Locations**:
-  - Rust Unit/Integration: `tests/`
-  - WFL End-to-End: `TestPrograms/` (must pass with release build)
-  - WFL Test Framework: Use `describe`/`test` blocks, run with `wfl --test <file>`
-- **Conventions**: feature‑oriented names (`*_test.rs`, `*.test.wfl`), keep perf benches under `benches/`.
-- **Testing Guide**: See `Docs/guides/testing-guide.md` for WFL testing framework documentation.
+  - Unit/Integration: `tests/`
+  - End-to-End: `TestPrograms/` (must pass with release build)
+- **Conventions**: feature‑oriented names (`*_test.rs`), keep perf benches under `benches/`.
 
 ## Commit & Pull Request Guidelines
 - **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`.
