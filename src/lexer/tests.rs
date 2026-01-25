@@ -608,7 +608,10 @@ fn test_boolean_literal_values() {
                 assert_eq!(*val, expected, "Failed for input: {}", input);
             }
             other => {
-                panic!("Expected BooleanLiteral for input '{}', got {:?}", input, other);
+                panic!(
+                    "Expected BooleanLiteral for input '{}', got {:?}",
+                    input, other
+                );
             }
         }
     }
