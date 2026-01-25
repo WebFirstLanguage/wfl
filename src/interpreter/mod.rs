@@ -5160,6 +5160,120 @@ impl Interpreter {
         }
     }
 
+    // OPTIMIZATION: Try to evaluate expression synchronously to avoid Box::pin allocation
+    fn try_evaluate_expression_sync(
+        &self,
+        expr: &Expression,
+        env: &Rc<RefCell<Environment>>,
+    ) -> Result<Option<Value>, RuntimeError> {
+        match expr {
+            Expression::Literal(literal, l, c) => self.evaluate_literal_direct(literal, *l, *c),
+            Expression::Variable(name, l, c) => {
+                self.try_evaluate_variable_sync(name, env, *l, *c)
+            }
+            Expression::BinaryOperation {
+                left,
+                operator,
+                right,
+                line,
+                column,
+            } => {
+                if let Some(left_val) = self.try_evaluate_expression_sync(left, env)? {
+                    if let Some(right_val) = self.try_evaluate_expression_sync(right, env)? {
+                        match operator {
+                            Operator::Plus => {
+                                self.add(left_val, right_val, *line, *column).map(Some)
+                            }
+                            Operator::Minus => {
+                                self.subtract(left_val, right_val, *line, *column).map(Some)
+                            }
+                            Operator::Multiply => {
+                                self.multiply(left_val, right_val, *line, *column).map(Some)
+                            }
+                            Operator::Divide => {
+                                self.divide(left_val, right_val, *line, *column).map(Some)
+                            }
+                            Operator::Modulo => {
+                                self.modulo(left_val, right_val, *line, *column).map(Some)
+                            }
+                            Operator::Equals => Ok(Some(Value::Bool(
+                                self.is_equal(&left_val, &right_val),
+                            ))),
+                            Operator::NotEquals => Ok(Some(Value::Bool(
+                                !self.is_equal(&left_val, &right_val),
+                            ))),
+                            Operator::GreaterThan => {
+                                self.greater_than(left_val, right_val, *line, *column).map(Some)
+                            }
+                            Operator::LessThan => {
+                                self.less_than(left_val, right_val, *line, *column).map(Some)
+                            }
+                            Operator::GreaterThanOrEqual => self
+                                .greater_than_equal(left_val, right_val, *line, *column)
+                                .map(Some),
+                            Operator::LessThanOrEqual => self
+                                .less_than_equal(left_val, right_val, *line, *column)
+                                .map(Some),
+                            Operator::And => Ok(Some(Value::Bool(
+                                left_val.is_truthy() && right_val.is_truthy(),
+                            ))),
+                            Operator::Or => Ok(Some(Value::Bool(
+                                left_val.is_truthy() || right_val.is_truthy(),
+                            ))),
+                            Operator::Contains => {
+                                self.contains(left_val, right_val, *line, *column).map(Some)
+                            }
+                        }
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            Expression::UnaryOperation {
+                operator,
+                expression,
+                line,
+                column,
+            } => {
+                if let Some(val) = self.try_evaluate_expression_sync(expression, env)? {
+                    match operator {
+                        UnaryOperator::Not => Ok(Some(Value::Bool(!val.is_truthy()))),
+                        UnaryOperator::Minus => match val {
+                            Value::Number(n) => Ok(Some(Value::Number(-n))),
+                            _ => Err(RuntimeError::new(
+                                format!("Cannot negate {}", val.type_name()),
+                                *line,
+                                *column,
+                            )),
+                        },
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            Expression::Concatenation {
+                left,
+                right,
+                line: _line,
+                column: _column,
+            } => {
+                if let Some(left_val) = self.try_evaluate_expression_sync(left, env)? {
+                    if let Some(right_val) = self.try_evaluate_expression_sync(right, env)? {
+                        let result = format!("{left_val}{right_val}");
+                        Ok(Some(Value::Text(Rc::from(result.as_str()))))
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            _ => Ok(None),
+        }
+    }
+
     // Helper for variable auto-call logic
     fn handle_variable_auto_call(
         &self,
@@ -5240,23 +5354,10 @@ impl Interpreter {
         #[cfg(debug_assertions)]
         exec_trace!("Evaluating expression: {}", expr_type(expr));
 
-        // OPTIMIZATION: Handle simple literals directly to avoid Box::pin allocation
-        // This significantly improves performance for tight loops with literals
-        if let Expression::Literal(literal, line, column) = expr
-            && let Some(value) = self.evaluate_literal_direct(literal, *line, *column)?
-        {
-            return Ok(value);
-        }
-
-        // OPTIMIZATION: Handle simple variable lookups directly to avoid Box::pin allocation
-        if let Expression::Variable(name, line, column) = expr {
-            match self.try_evaluate_variable_sync(name, &env, *line, *column) {
-                Ok(Some(val)) => return Ok(val),
-                Ok(None) => {
-                    // Fallthrough to boxed execution which handles user function calls (async)
-                }
-                Err(e) => return Err(e),
-            }
+        // OPTIMIZATION: Try to evaluate synchronously first to avoid Box::pin allocation
+        // This handles Literals, Variables, and simple Binary/Unary operations recursively
+        if let Some(val) = self.try_evaluate_expression_sync(expr, &env)? {
+            return Ok(val);
         }
 
         Box::pin(self._evaluate_expression(expr, env)).await
