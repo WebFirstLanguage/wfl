@@ -5,10 +5,11 @@
 - `crates/`: Internal crates (e.g., `wfl_core`).
 - `tests/`: Rust integration/unit tests (e.g., `file_io_*`, `crypto_test.rs`).
 - `TestPrograms/`: End‑to‑end WFL programs that must all pass.
+- `examples/`: Example WFL programs (e.g., `leak_demo.wfl`, `bad.wfl`).
 - `wfl-lsp/`: Language Server workspace member.
 - `vscode-extension/`: VS Code extension integration.
 - `Docs/`: Complete user documentation (organized in 6 sections plus guides/reference). See `Docs/README.md`.
-- `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`, `sync-branch.sh`).
+- `scripts/`: Utilities (`run_integration_tests.ps1|.sh`, `configure_lsp.ps1`, `sync-branch.sh`, `bump_version.py`, `update_security_doc.ps1`).
 - `Tools/`: Helper tools (Python scripts, WFL tools).
 - `Nexus/`: Experimental WFL test programs.
 - `wflpkg/`: Package Manager design documents.
@@ -145,7 +146,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 
 ## Technical Requirements
 - **Rust Edition**: 2024 (Min: 1.75+, Dev: 1.91.1+)
-- **Versioning**: YY.MM.BUILD (e.g., 26.1.22). Major version always < 256 (Windows MSI compatibility).
+- **Versioning**: YY.MM.BUILD (e.g., 26.1.50). Major version always < 256 (Windows MSI compatibility).
 - **Key Dependencies**:
   - `logos`: Lexer
   - `tokio`: Async runtime
