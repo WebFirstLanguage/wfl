@@ -415,8 +415,8 @@ pub enum Token {
     RightBrace,
 
     #[regex("(?:yes|no|true|false)", |lex| {
-        let text = lex.slice().to_ascii_lowercase();
-        text == "yes" || text == "true"
+        let s = lex.slice();
+        s == "yes" || s == "true"
     })]
     BooleanLiteral(bool),
 
