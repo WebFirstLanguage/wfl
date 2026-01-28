@@ -38,5 +38,19 @@ fn benchmark_lexer_no_strings(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, benchmark_lexer_strings, benchmark_lexer_no_strings);
+fn benchmark_lexer_booleans(c: &mut Criterion) {
+    // Generate input with many boolean literals
+    let mut input = String::with_capacity(1024 * 1024);
+    for _ in 0..10000 {
+        input.push_str("true false yes no ");
+    }
+
+    c.bench_function("benchmark_lexer_booleans", |b| {
+        b.iter(|| {
+            black_box(lex_wfl_with_positions(&input));
+        })
+    });
+}
+
+criterion_group!(benches, benchmark_lexer_strings, benchmark_lexer_no_strings, benchmark_lexer_booleans);
 criterion_main!(benches);
