@@ -5200,16 +5200,16 @@ impl Interpreter {
             Expression::Literal(..) => true,
             Expression::Variable(name, ..) => {
                 if let Some(val) = env.borrow().get(name) {
-                    match val {
-                        // Primitives are safe to evaluate (no side effects)
+                    // Primitives are safe to evaluate (no side effects)
+                    // Functions might have side effects or be async
+                    matches!(
+                        val,
                         Value::Number(_)
-                        | Value::Text(_)
-                        | Value::Bool(_)
-                        | Value::Null
-                        | Value::Nothing => true,
-                        // Functions might have side effects or be async
-                        _ => false,
-                    }
+                            | Value::Text(_)
+                            | Value::Bool(_)
+                            | Value::Null
+                            | Value::Nothing
+                    )
                 } else {
                     // Undefined variable will cause error, let async path handle it
                     false
