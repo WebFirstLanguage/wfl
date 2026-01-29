@@ -5168,9 +5168,7 @@ impl Interpreter {
     ) -> Result<Option<Value>, RuntimeError> {
         match expr {
             Expression::Literal(literal, l, c) => self.evaluate_literal_direct(literal, *l, *c),
-            Expression::Variable(name, l, c) => {
-                self.try_evaluate_variable_sync(name, env, *l, *c)
-            }
+            Expression::Variable(name, l, c) => self.try_evaluate_variable_sync(name, env, *l, *c),
             Expression::BinaryOperation {
                 left,
                 operator,
@@ -5196,18 +5194,18 @@ impl Interpreter {
                             Operator::Modulo => {
                                 self.modulo(left_val, right_val, *line, *column).map(Some)
                             }
-                            Operator::Equals => Ok(Some(Value::Bool(
-                                self.is_equal(&left_val, &right_val),
-                            ))),
-                            Operator::NotEquals => Ok(Some(Value::Bool(
-                                !self.is_equal(&left_val, &right_val),
-                            ))),
-                            Operator::GreaterThan => {
-                                self.greater_than(left_val, right_val, *line, *column).map(Some)
+                            Operator::Equals => {
+                                Ok(Some(Value::Bool(self.is_equal(&left_val, &right_val))))
                             }
-                            Operator::LessThan => {
-                                self.less_than(left_val, right_val, *line, *column).map(Some)
+                            Operator::NotEquals => {
+                                Ok(Some(Value::Bool(!self.is_equal(&left_val, &right_val))))
                             }
+                            Operator::GreaterThan => self
+                                .greater_than(left_val, right_val, *line, *column)
+                                .map(Some),
+                            Operator::LessThan => self
+                                .less_than(left_val, right_val, *line, *column)
+                                .map(Some),
                             Operator::GreaterThanOrEqual => self
                                 .greater_than_equal(left_val, right_val, *line, *column)
                                 .map(Some),
