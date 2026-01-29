@@ -3,7 +3,7 @@
 [package]
 name = "WFL"
 manufacturer = "Logbie LLC"
-version = "26.1.49.0" # Updated by bump_version.py
+version = "26.1.51.0" # Updated by bump_version.py
 description = "WebFirst Language"
 license = "LICENSE"
 

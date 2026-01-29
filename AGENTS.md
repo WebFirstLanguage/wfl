@@ -4,6 +4,8 @@
 - `src/`: Core compiler/runtime (`main.rs`, `lib.rs`, `repl.rs`, `builtins.rs`).
 - `crates/`: Internal crates (e.g., `wfl_core`).
 - `tests/`: Rust integration/unit tests (e.g., `file_io_*`, `crypto_test.rs`).
+- `benches/`: Performance benchmarks (Criterion).
+- `examples/`: Example WFL programs and demos.
 - `TestPrograms/`: End‑to‑end WFL programs that must all pass.
 - `wfl-lsp/`: Language Server workspace member.
 - `vscode-extension/`: VS Code extension integration.
@@ -12,6 +14,7 @@
 - `Tools/`: Helper tools (Python scripts, WFL tools).
 - `Nexus/`: Experimental WFL test programs.
 - `wflpkg/`: Package Manager design documents.
+- `wix/`: Windows Installer (MSI) configuration.
 - `.cursor/rules/`: Cursor IDE rules and guidelines (`wfl-rules.mdc`).
 
 ## Core Architecture
