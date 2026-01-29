@@ -10,6 +10,20 @@ pub mod mcp_server;
 
 pub use core::WflLanguageCore;
 
+/// Converts UTF-16 column position to UTF-8 byte offset
+/// LSP Position.character uses UTF-16 code units, but Rust strings use UTF-8 bytes
+fn byte_offset_for_utf16_col(s: &str, utf16_col: u32) -> usize {
+    let mut utf16_pos = 0usize;
+    for (byte_idx, ch) in s.char_indices() {
+        if utf16_pos >= utf16_col as usize {
+            return byte_idx;
+        }
+        // Count UTF-16 code units (BMP=1, non-BMP=2)
+        utf16_pos += if (ch as u32) < 0x10000 { 1 } else { 2 };
+    }
+    s.len()
+}
+
 #[derive(Debug)]
 pub struct WflLanguageServer {
     client: Client,
@@ -359,8 +373,8 @@ impl WflLanguageServer {
         }
 
         let current_line = lines[position.line as usize];
-        let line_prefix =
-            &current_line[..position.character.min(current_line.len() as u32) as usize];
+        let end = byte_offset_for_utf16_col(current_line, position.character);
+        let line_prefix = &current_line[..end];
 
         // Context-aware completions based on what comes before the cursor
         if line_prefix.trim_end().ends_with("if") || line_prefix.contains("if ") {
@@ -488,14 +502,17 @@ impl WflLanguageServer {
         }
 
         let line = lines[position.line as usize];
-        let char_pos = position.character as usize;
+        let byte_pos = byte_offset_for_utf16_col(line, position.character);
 
-        if char_pos >= line.len() {
+        if byte_pos >= line.len() {
             return None;
         }
 
         // Find word boundaries around the cursor position
         let chars: Vec<char> = line.chars().collect();
+
+        // Convert byte position to character index
+        let char_pos = line[..byte_pos].chars().count();
 
         // Find start of word
         let mut start = char_pos;
@@ -633,7 +650,8 @@ impl WflLanguageServer {
         }
 
         let line = lines[position.line as usize];
-        let char_pos = position.character as usize;
+        let byte_pos = byte_offset_for_utf16_col(line, position.character);
+        let char_pos = line[..byte_pos].chars().count();
 
         // Look for multi-word stdlib functions around the cursor
         let stdlib_functions = [
@@ -914,5 +932,46 @@ impl LanguageServer for WflLanguageServer {
         } else {
             Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_byte_offset_for_utf16_col_ascii() {
+        let s = "hello world";
+        assert_eq!(byte_offset_for_utf16_col(s, 0), 0);
+        assert_eq!(byte_offset_for_utf16_col(s, 5), 5);
+        assert_eq!(byte_offset_for_utf16_col(s, 11), 11);
+        assert_eq!(byte_offset_for_utf16_col(s, 15), 11); // Beyond end
+    }
+
+    #[test]
+    fn test_byte_offset_for_utf16_col_non_ascii() {
+        let s = "hello 世界"; // "hello " is 6 bytes, "世" is 3 bytes, "界" is 3 bytes
+        assert_eq!(byte_offset_for_utf16_col(s, 0), 0);
+        assert_eq!(byte_offset_for_utf16_col(s, 6), 6); // At start of "世"
+        assert_eq!(byte_offset_for_utf16_col(s, 7), 9); // At start of "界" (世 is 1 UTF-16 code unit)
+        assert_eq!(byte_offset_for_utf16_col(s, 8), 12); // At end
+    }
+
+    #[test]
+    fn test_byte_offset_for_utf16_col_emoji() {
+        let s = "hi 🦀 rust"; // "hi " is 3 bytes, "🦀" is 4 bytes (2 UTF-16 code units), " rust" is 5 bytes
+        assert_eq!(byte_offset_for_utf16_col(s, 0), 0);
+        assert_eq!(byte_offset_for_utf16_col(s, 3), 3); // At start of crab emoji
+        assert_eq!(byte_offset_for_utf16_col(s, 5), 7); // After crab emoji (it uses 2 UTF-16 code units)
+        assert_eq!(byte_offset_for_utf16_col(s, 10), 12); // At end
+    }
+
+    #[test]
+    fn test_byte_offset_for_utf16_col_surrogate_pairs() {
+        let s = "test 𝕏 end"; // "test " is 5 bytes, "𝕏" is 4 bytes (2 UTF-16 code units), " end" is 4 bytes
+        assert_eq!(byte_offset_for_utf16_col(s, 0), 0);
+        assert_eq!(byte_offset_for_utf16_col(s, 5), 5); // At start of "𝕏"
+        assert_eq!(byte_offset_for_utf16_col(s, 7), 9); // After "𝕏" (it uses 2 UTF-16 code units)
+        assert_eq!(byte_offset_for_utf16_col(s, 11), 13); // At end
     }
 }

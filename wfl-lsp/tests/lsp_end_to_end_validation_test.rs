@@ -13,6 +13,20 @@ use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::typechecker::TypeChecker;
 
+/// Converts UTF-16 column position to UTF-8 byte offset
+/// LSP Position.character uses UTF-16 code units, but Rust strings use UTF-8 bytes
+fn byte_offset_for_utf16_col(s: &str, utf16_col: u32) -> usize {
+    let mut utf16_pos = 0usize;
+    for (byte_idx, ch) in s.char_indices() {
+        if utf16_pos >= utf16_col as usize {
+            return byte_idx;
+        }
+        // Count UTF-16 code units (BMP=1, non-BMP=2)
+        utf16_pos += if (ch as u32) < 0x10000 { 1 } else { 2 };
+    }
+    s.len()
+}
+
 // Helper function to load WFL test programs
 fn load_test_program(filename: &str) -> Result<String, std::io::Error> {
     let path = Path::new("../TestPrograms").join(filename);
@@ -162,11 +176,14 @@ fn simulate_hover_request(document_text: &str, position: Position) -> bool {
     }
 
     let line = lines[position.line as usize];
-    let char_pos = position.character as usize;
+    let byte_pos = byte_offset_for_utf16_col(line, position.character);
 
-    if char_pos >= line.len() {
+    if byte_pos >= line.len() {
         return false;
     }
+
+    // Convert byte position to character index for further processing
+    let char_pos = line[..byte_pos].chars().count();
 
     // If there's a word at the position, we can likely provide hover info
     let chars: Vec<char> = line.chars().collect();
