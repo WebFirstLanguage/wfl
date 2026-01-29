@@ -5251,18 +5251,12 @@ impl Interpreter {
                 match operator {
                     Operator::Plus => self.add(left_val, right_val, *line, *column).map(Some),
                     Operator::Minus => self.subtract(left_val, right_val, *line, *column).map(Some),
-                    Operator::Multiply => self
-                        .multiply(left_val, right_val, *line, *column)
-                        .map(Some),
-                    Operator::Divide => self
-                        .divide(left_val, right_val, *line, *column)
-                        .map(Some),
-                    Operator::Modulo => self
-                        .modulo(left_val, right_val, *line, *column)
-                        .map(Some),
-                    Operator::Equals => {
-                        Ok(Some(Value::Bool(self.is_equal(&left_val, &right_val))))
+                    Operator::Multiply => {
+                        self.multiply(left_val, right_val, *line, *column).map(Some)
                     }
+                    Operator::Divide => self.divide(left_val, right_val, *line, *column).map(Some),
+                    Operator::Modulo => self.modulo(left_val, right_val, *line, *column).map(Some),
+                    Operator::Equals => Ok(Some(Value::Bool(self.is_equal(&left_val, &right_val)))),
                     Operator::NotEquals => {
                         Ok(Some(Value::Bool(!self.is_equal(&left_val, &right_val))))
                     }
@@ -5284,9 +5278,9 @@ impl Interpreter {
                     Operator::Or => Ok(Some(Value::Bool(
                         left_val.is_truthy() || right_val.is_truthy(),
                     ))),
-                    Operator::Contains => self
-                        .contains(left_val, right_val, *line, *column)
-                        .map(Some),
+                    Operator::Contains => {
+                        self.contains(left_val, right_val, *line, *column).map(Some)
+                    }
                 }
             }
             _ => Ok(None),
