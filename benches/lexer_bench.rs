@@ -52,5 +52,10 @@ fn benchmark_lexer_booleans(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, benchmark_lexer_strings, benchmark_lexer_no_strings, benchmark_lexer_booleans);
+criterion_group!(
+    benches,
+    benchmark_lexer_strings,
+    benchmark_lexer_no_strings,
+    benchmark_lexer_booleans
+);
 criterion_main!(benches);
