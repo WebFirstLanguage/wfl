@@ -5190,6 +5190,42 @@ impl Interpreter {
         }
     }
 
+    // Check if an expression can be safely evaluated synchronously without side effects
+    fn can_evaluate_expression_sync(
+        &self,
+        expr: &Expression,
+        env: &Rc<RefCell<Environment>>,
+    ) -> bool {
+        match expr {
+            Expression::Literal(..) => true,
+            Expression::Variable(name, ..) => {
+                if let Some(val) = env.borrow().get(name) {
+                    match val {
+                        // Primitives are safe to evaluate (no side effects)
+                        Value::Number(_)
+                        | Value::Text(_)
+                        | Value::Bool(_)
+                        | Value::Null
+                        | Value::Nothing => true,
+                        // Functions might have side effects or be async
+                        _ => false,
+                    }
+                } else {
+                    // Undefined variable will cause error, let async path handle it
+                    false
+                }
+            }
+            Expression::BinaryOperation { left, right, .. } => {
+                self.can_evaluate_expression_sync(left, env)
+                    && self.can_evaluate_expression_sync(right, env)
+            }
+            Expression::UnaryOperation { expression, .. } => {
+                self.can_evaluate_expression_sync(expression, env)
+            }
+            _ => false,
+        }
+    }
+
     // Helper for fast expression evaluation to avoid Box::pin allocation
     // Returns Ok(Some(value)) if handled synchronously
     // Returns Ok(None) if async handling (user function call) is needed
@@ -5213,6 +5249,15 @@ impl Interpreter {
                 line,
                 column,
             } => {
+                // IMPORTANT: Check if BOTH operands are safe to evaluate synchronously BEFORE evaluating either.
+                // If we evaluate left and then find right needs async, we would drop the left result
+                // and re-evaluate it in the async path. If left has side effects, this causes double execution.
+                if !self.can_evaluate_expression_sync(left, env)
+                    || !self.can_evaluate_expression_sync(right, env)
+                {
+                    return Ok(None);
+                }
+
                 let left_val = match self.try_evaluate_expression_sync(left, env)? {
                     Some(val) => val,
                     None => return Ok(None),
@@ -5225,9 +5270,9 @@ impl Interpreter {
                 match operator {
                     Operator::Plus => self.add(left_val, right_val, *line, *column).map(Some),
                     Operator::Minus => self.subtract(left_val, right_val, *line, *column).map(Some),
-                    Operator::Multiply => self
-                        .multiply(left_val, right_val, *line, *column)
-                        .map(Some),
+                    Operator::Multiply => {
+                        self.multiply(left_val, right_val, *line, *column).map(Some)
+                    }
                     Operator::Divide => self.divide(left_val, right_val, *line, *column).map(Some),
                     Operator::Modulo => self.modulo(left_val, right_val, *line, *column).map(Some),
                     Operator::Equals => Ok(Some(Value::Bool(self.is_equal(&left_val, &right_val)))),
@@ -5246,15 +5291,15 @@ impl Interpreter {
                     Operator::LessThanOrEqual => self
                         .less_than_equal(left_val, right_val, *line, *column)
                         .map(Some),
-                    Operator::Contains => self
-                        .contains(left_val, right_val, *line, *column)
-                        .map(Some),
-                    Operator::And => {
-                        Ok(Some(Value::Bool(left_val.is_truthy() && right_val.is_truthy())))
+                    Operator::Contains => {
+                        self.contains(left_val, right_val, *line, *column).map(Some)
                     }
-                    Operator::Or => {
-                        Ok(Some(Value::Bool(left_val.is_truthy() || right_val.is_truthy())))
-                    }
+                    Operator::And => Ok(Some(Value::Bool(
+                        left_val.is_truthy() && right_val.is_truthy(),
+                    ))),
+                    Operator::Or => Ok(Some(Value::Bool(
+                        left_val.is_truthy() || right_val.is_truthy(),
+                    ))),
                 }
             }
             Expression::UnaryOperation {
