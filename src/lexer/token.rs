@@ -414,12 +414,9 @@ pub enum Token {
     #[token("}")]
     RightBrace,
 
-    #[regex("(?i:yes|no|true|false)", |lex| {
-        let s = lex.slice();
-        // Check first byte to determine truthiness (y/t = true, n/f = false).
-        // The regex ensures input is one of yes, no, true, false (case-insensitive).
-        debug_assert!(!s.is_empty(), "regex should ensure non-empty input");
-        matches!(s.as_bytes()[0], b'y' | b'Y' | b't' | b'T')
+    #[regex("(?:yes|no|true|false)", |lex| {
+        let text = lex.slice().to_ascii_lowercase();
+        text == "yes" || text == "true"
     })]
     BooleanLiteral(bool),
 

@@ -5178,14 +5178,10 @@ impl Interpreter {
             Operator::LessThan => self.less_than(left, right, line, column),
             Operator::GreaterThanOrEqual => self.greater_than_equal(left, right, line, column),
             Operator::LessThanOrEqual => self.less_than_equal(left, right, line, column),
-            // Logical operators (And, Or) are excluded here to preserve short-circuiting behavior.
-            // They are handled by the standard async evaluation path.
-            Operator::And | Operator::Or => Err(RuntimeError::new(
-                "Logical operators must be handled by main evaluator for short-circuiting"
-                    .to_string(),
-                line,
-                column,
-            )),
+            // Logical operators (And, Or) can be handled here because operands are already evaluated
+            // (simple expressions with no side effects)
+            Operator::And => Ok(Value::Bool(left.is_truthy() && right.is_truthy())),
+            Operator::Or => Ok(Value::Bool(left.is_truthy() || right.is_truthy())),
             Operator::Contains => self.contains(left, right, line, column),
         }
     }
@@ -5208,32 +5204,27 @@ impl Interpreter {
         if let Expression::Literal(lit, l, c) = expr {
             self.evaluate_literal_direct(lit, *l, *c)
         } else if let Expression::Variable(name, l, c) = expr {
-            // IMPORTANT: Handle special 'count' variable FIRST, before environment lookup.
-            // This matches the behavior in _evaluate_expression and ensures that in nested
-            // count loops, we always use self.current_count (which is the innermost loop's count)
-            // rather than finding a 'count' variable from an outer loop's environment.
+            // Handle special 'count' variable in loops FIRST - this is safe as it's just a number lookup
+            // This priority is important for nested loops where 'count' needs to resolve to the innermost loop value
             if name == "count" && *self.in_count_loop.borrow() {
                 if let Some(count_value) = *self.current_count.borrow() {
                     return Ok(Some(Value::Number(count_value)));
+                } else {
+                    return Err(RuntimeError::new(
+                        "Internal error: count variable accessed in count loop but no current count set".to_string(),
+                        *l,
+                        *c,
+                    ));
                 }
-                // If we're in a count loop but don't have a current count, this is an error
-                return Err(RuntimeError::new(
-                    "Internal error: count variable accessed in count loop but no current count set".to_string(),
-                    *l,
-                    *c,
-                ));
             }
 
-            // Check if variable exists in environment
+            // Check if variable exists
             if let Some(value) = env.borrow().get(name) {
                 // Only return if it's a simple value, NOT a function that might have side effects
                 match value {
                     Value::Function(_) | Value::NativeFunction(_, _) => Ok(None),
                     _ => Ok(Some(value)),
                 }
-            } else if name == "count" {
-                // 'count' not in a count loop - fall back to main evaluator for error handling
-                Ok(None)
             } else {
                 // Variable not found - fall back to main evaluator for proper error handling
                 Ok(None)
@@ -5368,7 +5359,6 @@ impl Interpreter {
         }
 
         // NEW OPTIMIZATION: Handle binary operations on simple operands synchronously
-        // NOTE: Logical operators (And, Or) are excluded to preserve short-circuiting behavior
         if let Expression::BinaryOperation {
             left,
             operator,
@@ -5376,7 +5366,6 @@ impl Interpreter {
             line,
             column,
         } = expr
-            && !matches!(operator, Operator::And | Operator::Or)
             && let Some(left_val) = self.try_evaluate_simple_expr_sync(left, &env)?
             && let Some(right_val) = self.try_evaluate_simple_expr_sync(right, &env)?
         {
