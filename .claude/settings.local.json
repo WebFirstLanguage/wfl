@@ -92,7 +92,9 @@
       "Bash(gh repo view:*)",
       "Bash(pwsh:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(..targetreleasewfl.exe nexus.wfl)"
+      "Bash(..targetreleasewfl.exe nexus.wfl)",
+      "Bash(gh pr view:*)",
+      "Bash(git merge:*)"
     ],
     "deny": [],
     "ask": []

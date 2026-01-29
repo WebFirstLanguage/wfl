@@ -5283,6 +5283,28 @@ impl Interpreter {
                     }
                 }
             }
+            Expression::Concatenation {
+                left,
+                right,
+                line: _line,
+                column: _column,
+            } => {
+                // Evaluate left side
+                let left_val = match self.try_evaluate_simple_expr_sync(left, env)? {
+                    Some(v) => v,
+                    None => return Ok(None),
+                };
+
+                // Evaluate right side
+                let right_val = match self.try_evaluate_simple_expr_sync(right, env)? {
+                    Some(v) => v,
+                    None => return Ok(None),
+                };
+
+                // Concatenate
+                let result = format!("{left_val}{right_val}");
+                Ok(Some(Value::Text(Rc::from(result.as_str()))))
+            }
             _ => Ok(None),
         }
     }
