@@ -5208,7 +5208,23 @@ impl Interpreter {
         if let Expression::Literal(lit, l, c) = expr {
             self.evaluate_literal_direct(lit, *l, *c)
         } else if let Expression::Variable(name, l, c) = expr {
-            // Check if variable exists
+            // IMPORTANT: Handle special 'count' variable FIRST, before environment lookup.
+            // This matches the behavior in _evaluate_expression and ensures that in nested
+            // count loops, we always use self.current_count (which is the innermost loop's count)
+            // rather than finding a 'count' variable from an outer loop's environment.
+            if name == "count" && *self.in_count_loop.borrow() {
+                if let Some(count_value) = *self.current_count.borrow() {
+                    return Ok(Some(Value::Number(count_value)));
+                }
+                // If we're in a count loop but don't have a current count, this is an error
+                return Err(RuntimeError::new(
+                    "Internal error: count variable accessed in count loop but no current count set".to_string(),
+                    *l,
+                    *c,
+                ));
+            }
+
+            // Check if variable exists in environment
             if let Some(value) = env.borrow().get(name) {
                 // Only return if it's a simple value, NOT a function that might have side effects
                 match value {
@@ -5216,21 +5232,8 @@ impl Interpreter {
                     _ => Ok(Some(value)),
                 }
             } else if name == "count" {
-                // Handle special 'count' variable in loops - this is safe as it's just a number lookup
-                if *self.in_count_loop.borrow() {
-                    if let Some(count_value) = *self.current_count.borrow() {
-                        Ok(Some(Value::Number(count_value)))
-                    } else {
-                        Err(RuntimeError::new(
-                            "Internal error: count variable accessed in count loop but no current count set".to_string(),
-                            *l,
-                            *c,
-                        ))
-                    }
-                } else {
-                    // Fall back to main evaluator for error handling
-                    Ok(None)
-                }
+                // 'count' not in a count loop - fall back to main evaluator for error handling
+                Ok(None)
             } else {
                 // Variable not found - fall back to main evaluator for proper error handling
                 Ok(None)
