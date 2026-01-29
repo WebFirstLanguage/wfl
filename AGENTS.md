@@ -4,6 +4,8 @@
 - `src/`: Core compiler/runtime (`main.rs`, `lib.rs`, `repl.rs`, `builtins.rs`).
 - `crates/`: Internal crates (e.g., `wfl_core`).
 - `tests/`: Rust integration/unit tests (e.g., `file_io_*`, `crypto_test.rs`).
+- `benches/`: Performance benchmarks (Criterion).
+- `examples/`: Example WFL programs and demos.
 - `TestPrograms/`: End‑to‑end WFL programs that must all pass.
 - `wfl-lsp/`: Language Server workspace member.
 - `vscode-extension/`: VS Code extension integration.
