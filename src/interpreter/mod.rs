@@ -5359,10 +5359,9 @@ impl Interpreter {
             line,
             column,
         } = expr
+            && let Some(val) = self.try_evaluate_simple_expr_sync(expression, &env)?
         {
-            if let Some(val) = self.try_evaluate_simple_expr_sync(expression, &env)? {
-                return self.evaluate_unary_op_sync(operator, val, *line, *column);
-            }
+            return self.evaluate_unary_op_sync(operator, val, *line, *column);
         }
 
         // NEW OPTIMIZATION: Handle binary operations on simple operands synchronously
@@ -5373,13 +5372,10 @@ impl Interpreter {
             line,
             column,
         } = expr
+            && let Some(left_val) = self.try_evaluate_simple_expr_sync(left, &env)?
+            && let Some(right_val) = self.try_evaluate_simple_expr_sync(right, &env)?
         {
-            if let Some(left_val) = self.try_evaluate_simple_expr_sync(left, &env)? {
-                if let Some(right_val) = self.try_evaluate_simple_expr_sync(right, &env)? {
-                    return self
-                        .evaluate_binary_op_sync(operator, left_val, right_val, *line, *column);
-                }
-            }
+            return self.evaluate_binary_op_sync(operator, left_val, right_val, *line, *column);
         }
 
         Box::pin(self._evaluate_expression(expr, env)).await
