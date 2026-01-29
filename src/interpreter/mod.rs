@@ -5368,6 +5368,7 @@ impl Interpreter {
         }
 
         // NEW OPTIMIZATION: Handle binary operations on simple operands synchronously
+        // NOTE: Logical operators (And, Or) are excluded to preserve short-circuiting behavior
         if let Expression::BinaryOperation {
             left,
             operator,
@@ -5375,6 +5376,7 @@ impl Interpreter {
             line,
             column,
         } = expr
+            && !matches!(operator, Operator::And | Operator::Or)
             && let Some(left_val) = self.try_evaluate_simple_expr_sync(left, &env)?
             && let Some(right_val) = self.try_evaluate_simple_expr_sync(right, &env)?
         {
