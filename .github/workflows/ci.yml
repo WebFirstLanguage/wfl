@@ -21,6 +21,18 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  check-docs-sync:
+    name: Check Docs Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Check AGENTS.md sync
+        run: python scripts/sync_agents_md.py --check
+
   clippy-and-test:
     name: Build, Test, Clippy
     runs-on: ubuntu-latest
@@ -108,7 +120,7 @@ jobs:
   bump-version:
     name: Bump Version
     runs-on: ubuntu-latest
-    needs: [fmt, clippy-and-test, integration-tests]
+    needs: [fmt, check-docs-sync, clippy-and-test, integration-tests]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
