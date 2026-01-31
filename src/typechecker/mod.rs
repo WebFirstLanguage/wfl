@@ -1408,7 +1408,7 @@ impl TypeChecker {
             }
             Statement::ListenStatement {
                 port,
-                server_name,
+                server_name: _,
                 line: _line,
                 column: _column,
             } => {
@@ -1425,11 +1425,6 @@ impl TypeChecker {
                         *_column,
                     );
                 }
-
-                // Register server variable with Custom("Server") type
-                if let Some(symbol) = self.analyzer.get_symbol_mut(server_name) {
-                    symbol.symbol_type = Some(Type::Custom("Server".to_string()));
-                }
             }
             Statement::WaitForRequestStatement {
                 server,
@@ -1440,11 +1435,12 @@ impl TypeChecker {
             } => {
                 let server_type = self.infer_expression_type(server);
                 if server_type != Type::Custom("Server".to_string())
+                    && server_type != Type::Text
                     && server_type != Type::Unknown
                     && server_type != Type::Error
                 {
                     self.type_error(
-                        "Expected a Server object".to_string(),
+                        "Expected a Server object or text server name".to_string(),
                         Some(Type::Custom("Server".to_string())),
                         Some(server_type),
                         *_line,
@@ -1538,11 +1534,12 @@ impl TypeChecker {
             } => {
                 let server_type = self.infer_expression_type(server);
                 if server_type != Type::Custom("Server".to_string())
+                    && server_type != Type::Text
                     && server_type != Type::Unknown
                     && server_type != Type::Error
                 {
                     self.type_error(
-                        "Expected a Server object".to_string(),
+                        "Expected a Server object or text server name".to_string(),
                         Some(Type::Custom("Server".to_string())),
                         Some(server_type),
                         *_line,
@@ -1557,11 +1554,12 @@ impl TypeChecker {
             } => {
                 let server_type = self.infer_expression_type(server);
                 if server_type != Type::Custom("Server".to_string())
+                    && server_type != Type::Text
                     && server_type != Type::Unknown
                     && server_type != Type::Error
                 {
                     self.type_error(
-                        "Expected a Server object".to_string(),
+                        "Expected a Server object or text server name".to_string(),
                         Some(Type::Custom("Server".to_string())),
                         Some(server_type),
                         *_line,
