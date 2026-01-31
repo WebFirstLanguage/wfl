@@ -319,11 +319,11 @@ impl Analyzer {
 
     /// Create an analyzer with parent scope variables
     /// Parent variables are added as read-only (immutable) to prevent modification warnings
-    pub fn with_parent_variables(parent_vars: HashMap<String, Type>) -> Self {
+    pub fn with_parent_variables(parent_vars: HashMap<String, (Type, bool)>) -> Self {
         let mut analyzer = Self::new();
 
         // Add parent variables as read-only symbols
-        for (name, var_type) in parent_vars {
+        for (name, (var_type, _is_mutable)) in parent_vars {
             let symbol = Symbol {
                 name: name.clone(),
                 kind: SymbolKind::Variable { mutable: false }, // Read-only!
@@ -337,15 +337,17 @@ impl Analyzer {
         analyzer
     }
 
-    /// Create an analyzer with parent variables that can be modified (used for includes)
-    pub fn with_parent_variables_mutable(parent_vars: HashMap<String, Type>) -> Self {
+    /// Create an analyzer with parent variables preserving their mutability (used for includes)
+    pub fn with_parent_variables_mutable(parent_vars: HashMap<String, (Type, bool)>) -> Self {
         let mut analyzer = Self::new();
 
-        // Add parent variables as mutable symbols so included files can modify them
-        for (name, var_type) in parent_vars {
+        // Add parent variables preserving their mutability from parent scope
+        for (name, (var_type, is_mutable)) in parent_vars {
             let symbol = Symbol {
                 name: name.clone(),
-                kind: SymbolKind::Variable { mutable: true }, // Mutable for includes
+                kind: SymbolKind::Variable {
+                    mutable: is_mutable,
+                }, // Preserve mutability
                 symbol_type: Some(var_type),
                 line: 0,
                 column: 0,

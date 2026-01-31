@@ -1228,16 +1228,18 @@ impl Interpreter {
     }
 
     /// Extract variables from the environment for module analyzer
-    /// Returns a HashMap of variable names to inferred types
+    /// Returns a HashMap of variable names to (inferred type, is_mutable)
     fn extract_parent_variables(
         env: &Rc<RefCell<Environment>>,
-    ) -> HashMap<String, crate::parser::ast::Type> {
+    ) -> HashMap<String, (crate::parser::ast::Type, bool)> {
         let mut vars = HashMap::new();
         let env_borrowed = env.borrow();
 
         for (name, value) in &env_borrowed.values {
             let inferred_type = Self::infer_type_from_value(value);
-            vars.insert(name.clone(), inferred_type);
+            // Check if this variable is a constant (immutable)
+            let is_mutable = !env_borrowed.constants.contains(name);
+            vars.insert(name.clone(), (inferred_type, is_mutable));
         }
 
         // Also extract from parent scopes
@@ -1247,8 +1249,8 @@ impl Interpreter {
             drop(env_borrowed); // Release borrow before recursive call
             let parent_vars = Self::extract_parent_variables(&parent_rc);
             // Parent variables are added first, can be shadowed by current scope
-            for (name, ty) in parent_vars {
-                vars.entry(name).or_insert(ty);
+            for (name, (ty, is_mut)) in parent_vars {
+                vars.entry(name).or_insert((ty, is_mut));
             }
         }
 
