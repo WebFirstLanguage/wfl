@@ -69,7 +69,6 @@ display PARENT_CONSTANT
 }
 
 #[tokio::test]
-#[ignore] // TODO: Include functionality not fully working with temp directories
 async fn test_include_allows_modifying_parent_mutable_variables() {
     // Test that mutable variables from parent scope CAN be modified in included files
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
