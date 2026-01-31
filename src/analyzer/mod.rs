@@ -337,6 +337,25 @@ impl Analyzer {
         analyzer
     }
 
+    /// Create an analyzer with parent variables that can be modified (used for includes)
+    pub fn with_parent_variables_mutable(parent_vars: HashMap<String, Type>) -> Self {
+        let mut analyzer = Self::new();
+
+        // Add parent variables as mutable symbols so included files can modify them
+        for (name, var_type) in parent_vars {
+            let symbol = Symbol {
+                name: name.clone(),
+                kind: SymbolKind::Variable { mutable: true }, // Mutable for includes
+                symbol_type: Some(var_type),
+                line: 0,
+                column: 0,
+            };
+            let _ = analyzer.current_scope.define(symbol);
+        }
+
+        analyzer
+    }
+
     pub fn is_builtin_function(name: &str) -> bool {
         crate::builtins::is_builtin_function(name)
     }

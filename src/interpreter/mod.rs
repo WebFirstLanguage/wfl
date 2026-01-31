@@ -2964,7 +2964,7 @@ impl Interpreter {
                 use crate::analyzer::Analyzer;
 
                 let parent_vars = Self::extract_parent_variables(&env);
-                let mut analyzer = Analyzer::with_parent_variables(parent_vars);
+                let mut analyzer = Analyzer::with_parent_variables_mutable(parent_vars);
                 if let Err(errors) = analyzer.analyze(&program) {
                     let first_error = errors.first();
                     let (error_line, error_column) =
