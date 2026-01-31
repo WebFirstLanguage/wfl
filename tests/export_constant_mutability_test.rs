@@ -46,8 +46,8 @@ export constant mutable_var
 fn test_export_immutable_variable_as_constant_succeeds() {
     // Test that immutable variables can be exported as constants
     let code = r#"
-store new constant VERSION as "1.0.0"
-export constant VERSION
+store new constant my_version as "1.0.0"
+export constant my_version
 "#;
 
     let tokens = lex_wfl_with_positions(code);
