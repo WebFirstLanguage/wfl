@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut stdin = child.stdin.take().expect("Failed to open stdin");
     let stdout = child.stdout.take().expect("Failed to open stdout");
-    let reader = BufReader::new(stdout);
+    let mut reader = BufReader::new(stdout);
 
     // Helper function to send request and read response
     let mut send_request = |request: Value| -> Result<Value, Box<dyn std::error::Error>> {

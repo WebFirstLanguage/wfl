@@ -12,6 +12,7 @@ use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::typechecker::TypeChecker;
+use wfl_lsp::byte_offset_for_utf16_col;
 
 // Helper function to load WFL test programs
 fn load_test_program(filename: &str) -> Result<String, std::io::Error> {
@@ -162,11 +163,14 @@ fn simulate_hover_request(document_text: &str, position: Position) -> bool {
     }
 
     let line = lines[position.line as usize];
-    let char_pos = position.character as usize;
+    let byte_pos = byte_offset_for_utf16_col(line, position.character);
 
-    if char_pos >= line.len() {
+    if byte_pos >= line.len() {
         return false;
     }
+
+    // Convert byte position to character index for further processing
+    let char_pos = line[..byte_pos].chars().count();
 
     // If there's a word at the position, we can likely provide hover info
     let chars: Vec<char> = line.chars().collect();

@@ -2,9 +2,9 @@
 // These tests validate that the completion methods work correctly
 
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, Position};
-use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::{Parser, ast::Program};
+use wfl_lsp::byte_offset_for_utf16_col;
 
 // Helper function to create a mock WflLanguageServer for testing completion methods
 struct MockCompletionServer;
@@ -104,8 +104,8 @@ impl MockCompletionServer {
         }
 
         let current_line = lines[position.line as usize];
-        let line_prefix =
-            &current_line[..position.character.min(current_line.len() as u32) as usize];
+        let end = byte_offset_for_utf16_col(current_line, position.character);
+        let line_prefix = &current_line[..end];
 
         if line_prefix.trim_end().ends_with("if") || line_prefix.contains("if ") {
             items.push(CompletionItem {
