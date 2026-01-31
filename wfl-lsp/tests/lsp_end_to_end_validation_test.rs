@@ -12,20 +12,7 @@ use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::typechecker::TypeChecker;
-
-/// Converts UTF-16 column position to UTF-8 byte offset
-/// LSP Position.character uses UTF-16 code units, but Rust strings use UTF-8 bytes
-fn byte_offset_for_utf16_col(s: &str, utf16_col: u32) -> usize {
-    let mut utf16_pos = 0usize;
-    for (byte_idx, ch) in s.char_indices() {
-        if utf16_pos >= utf16_col as usize {
-            return byte_idx;
-        }
-        // Count UTF-16 code units (BMP=1, non-BMP=2)
-        utf16_pos += if (ch as u32) < 0x10000 { 1 } else { 2 };
-    }
-    s.len()
-}
+use wfl_lsp::byte_offset_for_utf16_col;
 
 // Helper function to load WFL test programs
 fn load_test_program(filename: &str) -> Result<String, std::io::Error> {

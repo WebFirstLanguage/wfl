@@ -12,7 +12,7 @@ pub use core::WflLanguageCore;
 
 /// Converts UTF-16 column position to UTF-8 byte offset
 /// LSP Position.character uses UTF-16 code units, but Rust strings use UTF-8 bytes
-fn byte_offset_for_utf16_col(s: &str, utf16_col: u32) -> usize {
+pub fn byte_offset_for_utf16_col(s: &str, utf16_col: u32) -> usize {
     let mut utf16_pos = 0usize;
     for (byte_idx, ch) in s.char_indices() {
         if utf16_pos >= utf16_col as usize {
