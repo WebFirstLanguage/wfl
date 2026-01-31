@@ -651,7 +651,6 @@ impl WflLanguageServer {
 
         let line = lines[position.line as usize];
         let byte_pos = byte_offset_for_utf16_col(line, position.character);
-        let char_pos = line[..byte_pos].chars().count();
 
         // Look for multi-word stdlib functions around the cursor
         let stdlib_functions = [
@@ -762,7 +761,7 @@ impl WflLanguageServer {
                 // Check if cursor is within the function name
                 if let Some(func_pos) = line.find(func_name) {
                     let func_end = func_pos + func_name.len();
-                    if char_pos >= func_pos && char_pos <= func_end {
+                    if byte_pos >= func_pos && byte_pos <= func_end {
                         return Some(SymbolInfo::StdlibFunction {
                             name: func_name.to_string(),
                             description: description.to_string(),
