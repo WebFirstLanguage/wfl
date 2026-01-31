@@ -1717,7 +1717,7 @@ impl TypeChecker {
                     crate::parser::ast::ExportType::Action => {
                         // Check if action exists as a symbol in the current scope
                         if let Some(symbol) = self.analyzer.get_symbol(name) {
-                            match symbol.kind {
+                            match &symbol.kind {
                                 crate::analyzer::SymbolKind::Function { .. } => {
                                     // Action exists - export is valid
                                 }
@@ -1747,10 +1747,10 @@ impl TypeChecker {
                     crate::parser::ast::ExportType::Constant => {
                         // Check if variable exists as a symbol in the current scope
                         if let Some(symbol) = self.analyzer.get_symbol(name) {
-                            match symbol.kind {
+                            match &symbol.kind {
                                 crate::analyzer::SymbolKind::Variable { mutable } => {
                                     // Only immutable variables can be exported as constants
-                                    if mutable {
+                                    if *mutable {
                                         self.type_error(
                                             format!(
                                                 "'{}' is mutable and cannot be exported as constant",
