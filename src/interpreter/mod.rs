@@ -3068,8 +3068,8 @@ impl Interpreter {
 
                 match export_type {
                     ExportType::Container => {
-                        // Check if container definition exists
-                        if let Some(value) = env.borrow().get(name) {
+                        // Check if container definition exists in local scope only
+                        if let Some(value) = env.borrow().get_local(name) {
                             if matches!(value, Value::ContainerDefinition(_)) {
                                 // Container exists - export is valid
                                 // In future versions, this would add to export registry
@@ -3082,16 +3082,28 @@ impl Interpreter {
                                 ))
                             }
                         } else {
-                            Err(RuntimeError::new(
-                                format!("Container '{}' not found in current scope", name),
-                                *line,
-                                *column,
-                            ))
+                            // Check if it exists in parent scope to provide better error message
+                            if env.borrow().get(name).is_some() {
+                                Err(RuntimeError::new(
+                                    format!(
+                                        "Container '{}' is only defined in parent scope and cannot be exported",
+                                        name
+                                    ),
+                                    *line,
+                                    *column,
+                                ))
+                            } else {
+                                Err(RuntimeError::new(
+                                    format!("Container '{}' not found in current scope", name),
+                                    *line,
+                                    *column,
+                                ))
+                            }
                         }
                     }
                     ExportType::Action => {
-                        // Check if action definition exists
-                        if let Some(value) = env.borrow().get(name) {
+                        // Check if action definition exists in local scope only
+                        if let Some(value) = env.borrow().get_local(name) {
                             if matches!(value, Value::Function(_)) {
                                 Ok((Value::Null, ControlFlow::None))
                             } else {
@@ -3102,16 +3114,28 @@ impl Interpreter {
                                 ))
                             }
                         } else {
-                            Err(RuntimeError::new(
-                                format!("Action '{}' not found in current scope", name),
-                                *line,
-                                *column,
-                            ))
+                            // Check if it exists in parent scope to provide better error message
+                            if env.borrow().get(name).is_some() {
+                                Err(RuntimeError::new(
+                                    format!(
+                                        "Action '{}' is only defined in parent scope and cannot be exported",
+                                        name
+                                    ),
+                                    *line,
+                                    *column,
+                                ))
+                            } else {
+                                Err(RuntimeError::new(
+                                    format!("Action '{}' not found in current scope", name),
+                                    *line,
+                                    *column,
+                                ))
+                            }
                         }
                     }
                     ExportType::Constant => {
-                        // Check if the variable exists and is actually a constant
-                        if let Some(_value) = env.borrow().get(name) {
+                        // Check if the variable exists in local scope and is actually a constant
+                        if let Some(_value) = env.borrow().get_local(name) {
                             if env.borrow().is_constant(name) {
                                 Ok((Value::Null, ControlFlow::None))
                             } else {
@@ -3125,11 +3149,23 @@ impl Interpreter {
                                 ))
                             }
                         } else {
-                            Err(RuntimeError::new(
-                                format!("Constant '{}' not found in current scope", name),
-                                *line,
-                                *column,
-                            ))
+                            // Check if it exists in parent scope to provide better error message
+                            if env.borrow().get(name).is_some() {
+                                Err(RuntimeError::new(
+                                    format!(
+                                        "Constant '{}' is only defined in parent scope and cannot be exported",
+                                        name
+                                    ),
+                                    *line,
+                                    *column,
+                                ))
+                            } else {
+                                Err(RuntimeError::new(
+                                    format!("Constant '{}' not found in current scope", name),
+                                    *line,
+                                    *column,
+                                ))
+                            }
                         }
                     }
                 }
