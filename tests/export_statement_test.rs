@@ -45,13 +45,12 @@ export container Person
 
     match result {
         Ok(_) => {
-            assert!(true, "Export container statement should parse and execute");
+            // Export container statement should parse and execute
         }
         Err(e) => {
-            println!("Execution error: {:?}", e);
-            assert!(
-                false,
-                "Export container statement should execute without error"
+            panic!(
+                "Export container statement should execute without error: {:?}",
+                e
             );
         }
     }
@@ -96,13 +95,12 @@ export action helper
 
     match result {
         Ok(_) => {
-            assert!(true, "Export action statement should parse and execute");
+            // Export action statement should parse and execute
         }
         Err(e) => {
-            println!("Execution error: {:?}", e);
-            assert!(
-                false,
-                "Export action statement should execute without error"
+            panic!(
+                "Export action statement should execute without error: {:?}",
+                e
             );
         }
     }
@@ -147,13 +145,12 @@ export constant MAX_SIZE
 
     match result {
         Ok(_) => {
-            assert!(true, "Export constant statement should parse and execute");
+            // Export constant statement should parse and execute
         }
         Err(e) => {
-            println!("Execution error: {:?}", e);
-            assert!(
-                false,
-                "Export constant statement should execute without error"
+            panic!(
+                "Export constant statement should execute without error: {:?}",
+                e
             );
         }
     }
@@ -195,15 +192,10 @@ export constant MISSING_CONSTANT
 
     match result {
         Ok(_) => {
-            assert!(false, "Exporting non-existent items should produce error");
+            panic!("Exporting non-existent items should produce error");
         }
-        Err(e) => {
+        Err(_e) => {
             // Should fail with appropriate error message after implementation
-            assert!(
-                true,
-                "Export of non-existent items should fail with error: {:?}",
-                e
-            );
         }
     }
 
@@ -253,7 +245,6 @@ export action utility
     match result {
         Ok(_) => {
             // Export statements should succeed when they come after definitions
-            assert!(true, "Export statements should work when after definitions");
         }
         Err(e) => {
             panic!(

@@ -50,16 +50,12 @@ display alice.name
     match result {
         Ok(_) => {
             // Success - include statement worked and container was exposed
-            assert!(true);
         }
         Err(e) => {
             // Expected failure before implementation
             println!("Expected error before include implementation: {:?}", e);
             // This assertion will fail initially, driving TDD implementation
-            assert!(
-                false,
-                "Include statement should expose container to parent scope"
-            );
+            panic!("Include statement should expose container to parent scope");
         }
     }
 
@@ -120,14 +116,10 @@ display utility_value
     match result {
         Ok(_) => {
             // Include should succeed and expose shared definitions
-            assert!(true);
         }
         Err(_) => {
             // Will fail initially before include is implemented
-            assert!(
-                false,
-                "Include should expose shared definitions to parent scope"
-            );
+            panic!("Include should expose shared definitions to parent scope");
         }
     }
 
@@ -145,10 +137,7 @@ display utility_value
 
     match load_result {
         Ok(_) => {
-            assert!(
-                false,
-                "Load module should NOT expose utility_value to parent"
-            );
+            panic!("Load module should NOT expose utility_value to parent");
         }
         Err(e) => {
             // This should fail because utility_value is not accessible from parent
@@ -202,14 +191,10 @@ display new_var
     match result {
         Ok(_) => {
             // Include should succeed and modify parent scope
-            assert!(true);
         }
         Err(_) => {
             // Will fail initially before include is implemented
-            assert!(
-                false,
-                "Include should execute in parent scope and allow variable access"
-            );
+            panic!("Include should execute in parent scope and allow variable access");
         }
     }
 
@@ -257,11 +242,10 @@ display nested_utility
     match result {
         Ok(_) => {
             // Include should succeed with nested path
-            assert!(true);
         }
         Err(_) => {
             // Will fail initially before include is implemented
-            assert!(false, "Include should handle nested paths like load module");
+            panic!("Include should handle nested paths like load module");
         }
     }
 
