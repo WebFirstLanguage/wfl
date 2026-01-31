@@ -4452,7 +4452,9 @@ impl Interpreter {
 
                 // Evaluate headers (optional)
                 let headers_map = if let Some(headers_expr) = headers {
-                    let headers_val = self.evaluate_expression(headers_expr, Rc::clone(&env)).await?;
+                    let headers_val = self
+                        .evaluate_expression(headers_expr, Rc::clone(&env))
+                        .await?;
                     match headers_val {
                         Value::Object(obj_rc) => {
                             let mut map = HashMap::new();

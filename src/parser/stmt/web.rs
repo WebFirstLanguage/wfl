@@ -88,7 +88,10 @@ impl<'a> WebParser<'a> for Parser<'a> {
 
                         content_type = Some(self.parse_expression()?);
                         continue;
-                    } else if matches!(next_token.token, Token::KeywordHeaders | Token::KeywordHeader) {
+                    } else if matches!(
+                        next_token.token,
+                        Token::KeywordHeaders | Token::KeywordHeader
+                    ) {
                         self.bump_sync(); // Consume "and"
                         self.bump_sync(); // Consume "headers" or "header"
                         headers = Some(self.parse_expression()?);
