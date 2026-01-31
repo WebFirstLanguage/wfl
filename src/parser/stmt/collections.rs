@@ -239,6 +239,11 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume the identifier
                     name
                 }
+                t if t.is_contextual_keyword() => {
+                    let name = self.get_token_text(t);
+                    self.bump_sync(); // Consume the keyword
+                    name
+                }
                 _ => {
                     return Err(ParseError::from_token(
                         format!("Expected identifier for map name, found {:?}", token.token),
@@ -256,6 +261,9 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
         // Expect colon
         self.expect_token(Token::Colon, "Expected ':' after map name")?;
 
+        // Skip any Eol tokens after the colon
+        self.skip_eol();
+
         // Parse map entries
         let mut entries = Vec::new();
 
@@ -266,7 +274,23 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
                     self.expect_token(Token::KeywordMap, "Expected 'map' after 'end'")?;
                     break;
                 }
+                Token::Eol => {
+                    self.bump_sync(); // Skip Eol between items
+                    continue;
+                }
                 Token::Identifier(key) => {
+                    let key = key.clone();
+                    self.bump_sync(); // Consume the key
+
+                    // Expect "is"
+                    self.expect_token(Token::KeywordIs, "Expected 'is' after map key")?;
+
+                    // Parse the value expression
+                    let value = self.parse_expression()?;
+
+                    entries.push((key, value));
+                }
+                Token::StringLiteral(key) => {
                     let key = key.clone();
                     self.bump_sync(); // Consume the key
 
@@ -281,7 +305,7 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
                 _ => {
                     return Err(ParseError::from_token(
                         format!(
-                            "Expected map key (identifier) or 'end map', found {:?}",
+                            "Expected map key (identifier or string) or 'end map', found {:?}",
                             token.token
                         ),
                         token,

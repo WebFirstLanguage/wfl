@@ -196,6 +196,7 @@ impl<'a> Parser<'a> {
             Token::KeywordAny => "any".to_string(),
             Token::KeywordMust => "must".to_string(),
             Token::KeywordDefaults => "defaults".to_string(),
+            Token::KeywordHeaders => "headers".to_string(),
             _ => format!("{:?}", token),
         }
     }

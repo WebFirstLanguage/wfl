@@ -54,11 +54,12 @@ impl<'a> WebParser<'a> for Parser<'a> {
         // Parse content expression (use primary to avoid consuming "and")
         let content = self.parse_primary_expression()?;
 
-        // Optional status and content_type
+        // Optional status, content_type, and headers
         let mut status = None;
         let mut content_type = None;
+        let mut headers = None;
 
-        // Check for optional "and" clauses (status and/or content_type)
+        // Check for optional "and" clauses (status and/or content_type and/or headers)
         loop {
             if let Some(token) = self.cursor.peek()
                 && token.token == Token::KeywordAnd
@@ -87,6 +88,11 @@ impl<'a> WebParser<'a> for Parser<'a> {
 
                         content_type = Some(self.parse_expression()?);
                         continue;
+                    } else if matches!(next_token.token, Token::KeywordHeaders | Token::KeywordHeader) {
+                        self.bump_sync(); // Consume "and"
+                        self.bump_sync(); // Consume "headers" or "header"
+                        headers = Some(self.parse_expression()?);
+                        continue;
                     }
                 }
             }
@@ -98,6 +104,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
             content,
             status,
             content_type,
+            headers,
             line: respond_token.line,
             column: respond_token.column,
         })
