@@ -47,6 +47,7 @@ display PARENT_CONSTANT
 
     // Execute - this should fail because we're trying to modify a constant
     let mut interpreter = Interpreter::new();
+    interpreter.set_source_file(main_file.clone());
     let result = interpreter.interpret(&ast).await;
 
     match result {
@@ -109,6 +110,7 @@ display parent_var
 
     // Execute - this should succeed because mutable variables can be modified
     let mut interpreter = Interpreter::new();
+    interpreter.set_source_file(main_file.clone());
     let result = interpreter.interpret(&ast).await;
 
     assert!(

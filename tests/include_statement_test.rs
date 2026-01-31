@@ -43,6 +43,7 @@ display alice.name
         .unwrap_or_else(|e| panic!("Parse failed: {:?}", e));
 
     let mut interpreter = Interpreter::new();
+    interpreter.set_source_file(main_file.clone());
     let result = interpreter.interpret(&ast).await;
 
     // This test will fail initially (before include is implemented)
@@ -111,6 +112,7 @@ display utility_value
         .unwrap_or_else(|e| panic!("Parse failed: {:?}", e));
 
     let mut interpreter = Interpreter::new();
+    interpreter.set_source_file(include_main.clone());
     let result = interpreter.interpret(&ast).await;
 
     match result {
@@ -133,6 +135,7 @@ display utility_value
         .unwrap_or_else(|e| panic!("Parse failed: {:?}", e));
 
     let mut load_interpreter = Interpreter::new();
+    load_interpreter.set_source_file(load_main.clone());
     let load_result = load_interpreter.interpret(&load_ast).await;
 
     match load_result {
@@ -186,6 +189,7 @@ display new_var
         .unwrap_or_else(|e| panic!("Parse failed: {:?}", e));
 
     let mut interpreter = Interpreter::new();
+    interpreter.set_source_file(main_file.clone());
     let result = interpreter.interpret(&ast).await;
 
     match result {
@@ -237,6 +241,7 @@ display nested_utility
         .unwrap_or_else(|e| panic!("Parse failed: {:?}", e));
 
     let mut interpreter = Interpreter::new();
+    interpreter.set_source_file(main_file.clone());
     let result = interpreter.interpret(&ast).await;
 
     match result {
