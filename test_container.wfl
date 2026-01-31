@@ -1,0 +1,6 @@
+create container Person:
+    property name: Text
+    property age: Number
+end
+
+export container Person

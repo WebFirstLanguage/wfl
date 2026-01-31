@@ -1,0 +1,35 @@
+# Test to verify the fixes for module system issues
+
+# Test 1: Return statement in included files (should now work)
+define action called utility_function with parameters:
+    display "This function uses return"
+    return 42
+end action
+
+# Test 2: Constants for export testing  
+store new constant API_VERSION as "2.0.1"
+
+# Test 3: Variable for export testing
+store api_endpoint as "https://api.example.com"
+
+# Test 4: Container for export testing
+create container TestItem:
+    property name: Text
+end
+
+# Test 5: Export statements
+export action utility_function
+export constant API_VERSION
+export container TestItem
+
+display "Test file loaded successfully with return handling"
+
+# Use a return statement at the top level to test return handling
+check if API_VERSION is equal to "2.0.1":
+    display "Version check passed"
+    return 0
+otherwise:
+    display "Version check failed"
+end check
+
+display "This should not be displayed due to return"

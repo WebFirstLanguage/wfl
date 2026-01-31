@@ -224,6 +224,8 @@ impl<'a> Parser<'a> {
                 | Token::KeywordClose
                 | Token::KeywordWait
                 | Token::KeywordLoad
+                | Token::KeywordInclude
+                | Token::KeywordExport
                 | Token::KeywordGive
                 | Token::KeywordReturn
         )
