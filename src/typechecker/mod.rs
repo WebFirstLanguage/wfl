@@ -1441,6 +1441,7 @@ impl TypeChecker {
                 content,
                 status,
                 content_type,
+                headers,
                 line: _line,
                 column: _column,
             } => {
@@ -1487,6 +1488,34 @@ impl TypeChecker {
                             *_line,
                             *_column,
                         );
+                    }
+                }
+
+                // Check headers if provided (should be a map)
+                if let Some(headers_expr) = headers {
+                    let headers_type = self.infer_expression_type(headers_expr);
+                    match headers_type {
+                        Type::Map(key_type, _value_type) => {
+                            if !matches!(*key_type, Type::Text | Type::Unknown) {
+                                self.type_error(
+                                    format!("Headers keys must be text, got {key_type}"),
+                                    Some(Type::Text),
+                                    Some(*key_type),
+                                    *_line,
+                                    *_column,
+                                );
+                            }
+                        }
+                        Type::Unknown | Type::Error => {}
+                        _ => {
+                            self.type_error(
+                                format!("Headers must be a map, got {headers_type}"),
+                                Some(Type::Map(Box::new(Type::Text), Box::new(Type::Any))),
+                                Some(headers_type),
+                                *_line,
+                                *_column,
+                            );
+                        }
                     }
                 }
             }

@@ -353,6 +353,8 @@ pub enum Token {
     KeywordTimeout,
     #[token("header")]
     KeywordHeader,
+    #[token("headers")]
+    KeywordHeaders,
     #[token("current")]
     KeywordCurrent,
     #[token("milliseconds")]
@@ -626,6 +628,7 @@ impl Token {
                 | Token::KeywordRead    // Context-sensitive
                 | Token::KeywordPush    // Context-sensitive
                 | Token::KeywordSkip    // Context-sensitive
+                | Token::KeywordHeaders // Context-sensitive
                 | Token::KeywordGive
                 | Token::KeywordBack
                 | Token::KeywordCalled
