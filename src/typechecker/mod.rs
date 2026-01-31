@@ -1671,6 +1671,17 @@ impl TypeChecker {
                     }
                 }
             }
+
+            Statement::IncludeStatement { path, .. } => {
+                // Type check the path expression
+                self.infer_expression_type(path);
+                // Include statements execute in parent scope but don't need special type checking
+            }
+
+            Statement::ExportStatement { .. } => {
+                // Export statements are validated at runtime
+                // Type checking here would require deeper integration
+            }
         }
     }
 

@@ -1,0 +1,8 @@
+include from "test_container.wfl"
+
+create new Person as alice:
+    name is "Alice"
+    age is 30
+end
+
+display alice.name

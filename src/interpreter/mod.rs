@@ -179,6 +179,14 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::LoadModuleStatement { path, .. } => {
             format!("LoadModuleStatement from '{:?}'", path)
         }
+        Statement::IncludeStatement { path, .. } => {
+            format!("IncludeStatement from '{:?}'", path)
+        }
+        Statement::ExportStatement {
+            export_type, name, ..
+        } => {
+            format!("ExportStatement {:?} {}", export_type, name)
+        }
         Statement::ExecuteCommandStatement { variable_name, .. } => {
             if let Some(var) = variable_name {
                 format!("ExecuteCommandStatement '{var}'")
@@ -1720,6 +1728,8 @@ impl Interpreter {
             Statement::DeleteFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteDirectoryStatement { line, column, .. } => (*line, *column),
             Statement::LoadModuleStatement { line, column, .. } => (*line, *column),
+            Statement::IncludeStatement { line, column, .. } => (*line, *column),
+            Statement::ExportStatement { line, column, .. } => (*line, *column),
             Statement::WaitForStatement { line, column, .. } => (*line, *column),
             Statement::WaitForDurationStatement { line, column, .. } => (*line, *column),
             Statement::TryStatement { line, column, .. } => (*line, *column),
@@ -2878,6 +2888,226 @@ impl Interpreter {
                             ))
                         } else {
                             Err(e)
+                        }
+                    }
+                }
+            }
+
+            Statement::IncludeStatement {
+                path, line, column, ..
+            } => {
+                // Include statement is like LoadModule but executes in parent scope instead of isolated child
+
+                // 1. Evaluate path expression to string
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_str: String = match &path_value {
+                    Value::Text(s) => s.to_string(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Include path must be a string, got {path_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // 2. Resolve absolute path
+                let resolved_path = self.resolve_module_path(&path_str, *line, *column).await?;
+
+                // 3. Check circular dependencies
+                self.check_circular_dependency(&resolved_path, *line, *column)?;
+
+                // 4. Read file content
+                let content = tokio::fs::read_to_string(&resolved_path)
+                    .await
+                    .map_err(|e| {
+                        RuntimeError::new(
+                            format!("Cannot include file '{}': {}", path_str, e),
+                            *line,
+                            *column,
+                        )
+                    })?;
+
+                // 5. Parse included file
+                use crate::lexer::lex_wfl_with_positions;
+                use crate::parser::Parser;
+
+                let tokens = lex_wfl_with_positions(&content);
+                let mut parser = Parser::new(&tokens);
+                let program = parser.parse().map_err(|errors| {
+                    let first_error = errors.first();
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
+                    RuntimeError::new(
+                        format!(
+                            "Parse error in included file '{}': {}",
+                            resolved_path.display(),
+                            first_error.map(|e| e.message.as_str()).unwrap_or("unknown")
+                        ),
+                        error_line,
+                        error_column,
+                    )
+                })?;
+
+                // 6. Analyze semantics
+                use crate::analyzer::Analyzer;
+
+                let parent_vars = Self::extract_parent_variables(&env);
+                let mut analyzer = Analyzer::with_parent_variables(parent_vars);
+                if let Err(errors) = analyzer.analyze(&program) {
+                    let first_error = errors.first();
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Semantic error in included file '{}': {}",
+                            resolved_path.display(),
+                            first_error.map(|e| e.to_string()).unwrap_or_default()
+                        ),
+                        error_line,
+                        error_column,
+                    ));
+                }
+
+                // 7. Type check
+                use crate::typechecker::TypeChecker;
+
+                let mut tc = TypeChecker::with_analyzer(analyzer);
+                if let Err(type_errors) = tc.check_types(&program) {
+                    let first_error = type_errors.first();
+                    let (error_line, error_column) =
+                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Type error in included file '{}': {}",
+                            resolved_path.display(),
+                            first_error.map(|e| e.to_string()).unwrap_or_default()
+                        ),
+                        error_line,
+                        error_column,
+                    ));
+                }
+
+                // 8. Create guard for context tracking
+                let previous_source = self.current_source_file.borrow().clone();
+                let _guard = ModuleLoadGuard::new(self, resolved_path.clone(), previous_source);
+
+                // 9. Execute included file in PARENT scope (key difference from load module)
+                // This allows containers/variables to be exposed to parent
+                let result = self
+                    .execute_block(&program.statements, Rc::clone(&env))
+                    .await;
+
+                // 10. Handle result
+                match result {
+                    Ok((_, ControlFlow::None)) => Ok((Value::Null, ControlFlow::None)),
+                    Ok((_, ControlFlow::Return(_))) => Err(RuntimeError::new(
+                        "Cannot use 'return' in included file scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Break)) => Err(RuntimeError::new(
+                        "Cannot use 'break' in included file scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Continue)) => Err(RuntimeError::new(
+                        "Cannot use 'continue' in included file scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Ok((_, ControlFlow::Exit)) => Err(RuntimeError::new(
+                        "Cannot use 'exit' in included file scope".to_string(),
+                        *line,
+                        *column,
+                    )),
+                    Err(e) => {
+                        let chain = _guard.get_chain();
+                        if chain.len() > 1 {
+                            Err(RuntimeError::with_kind(
+                                format!(
+                                    "Error in include chain {}: {}",
+                                    chain.join(" → "),
+                                    e.message
+                                ),
+                                e.line,
+                                e.column,
+                                e.kind,
+                            ))
+                        } else {
+                            Err(e)
+                        }
+                    }
+                }
+            }
+
+            Statement::ExportStatement {
+                export_type,
+                name,
+                line,
+                column,
+                ..
+            } => {
+                // Export statement validates that the named item exists in current scope
+                // In V1, this is a foundation for future module namespace system
+
+                use crate::parser::ast::ExportType;
+
+                match export_type {
+                    ExportType::Container => {
+                        // Check if container definition exists
+                        if let Some(value) = env.borrow().get(name) {
+                            if matches!(value, Value::ContainerDefinition(_)) {
+                                // Container exists - export is valid
+                                // In future versions, this would add to export registry
+                                Ok((Value::Null, ControlFlow::None))
+                            } else {
+                                Err(RuntimeError::new(
+                                    format!("'{}' is not a container definition", name),
+                                    *line,
+                                    *column,
+                                ))
+                            }
+                        } else {
+                            Err(RuntimeError::new(
+                                format!("Container '{}' not found in current scope", name),
+                                *line,
+                                *column,
+                            ))
+                        }
+                    }
+                    ExportType::Action => {
+                        // Check if action definition exists
+                        if let Some(value) = env.borrow().get(name) {
+                            if matches!(value, Value::Function(_)) {
+                                Ok((Value::Null, ControlFlow::None))
+                            } else {
+                                Err(RuntimeError::new(
+                                    format!("'{}' is not an action definition", name),
+                                    *line,
+                                    *column,
+                                ))
+                            }
+                        } else {
+                            Err(RuntimeError::new(
+                                format!("Action '{}' not found in current scope", name),
+                                *line,
+                                *column,
+                            ))
+                        }
+                    }
+                    ExportType::Constant => {
+                        // Check if constant exists
+                        if let Some(_value) = env.borrow().get(name) {
+                            // For constants, we could validate it's actually a constant
+                            // For now, just verify it exists
+                            Ok((Value::Null, ControlFlow::None))
+                        } else {
+                            Err(RuntimeError::new(
+                                format!("Constant '{}' not found in current scope", name),
+                                *line,
+                                *column,
+                            ))
                         }
                     }
                 }
