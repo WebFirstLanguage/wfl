@@ -1408,7 +1408,7 @@ impl TypeChecker {
             }
             Statement::ListenStatement {
                 port,
-                server_name: _server_name,
+                server_name,
                 line: _line,
                 column: _column,
             } => {
@@ -1425,16 +1425,48 @@ impl TypeChecker {
                         *_column,
                     );
                 }
+
+                // Register server variable with Custom("Server") type
+                if let Some(symbol) = self.analyzer.get_symbol_mut(server_name) {
+                    symbol.symbol_type = Some(Type::Custom("Server".to_string()));
+                }
             }
             Statement::WaitForRequestStatement {
-                server: _server,
+                server,
                 request_name: _request_name,
-                timeout: _timeout,
+                timeout,
                 line: _line,
                 column: _column,
             } => {
-                // TODO: Add type checking for server expression
-                // For now, just accept any type
+                let server_type = self.infer_expression_type(server);
+                if server_type != Type::Custom("Server".to_string())
+                    && server_type != Type::Unknown
+                    && server_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected a Server object".to_string(),
+                        Some(Type::Custom("Server".to_string())),
+                        Some(server_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+
+                if let Some(timeout_expr) = timeout {
+                    let timeout_type = self.infer_expression_type(timeout_expr);
+                    if timeout_type != Type::Number
+                        && timeout_type != Type::Unknown
+                        && timeout_type != Type::Error
+                    {
+                        self.type_error(
+                            "Timeout must be a number".to_string(),
+                            Some(Type::Number),
+                            Some(timeout_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
             }
             Statement::RespondStatement {
                 request: _request,
@@ -1500,20 +1532,42 @@ impl TypeChecker {
                 self.validate_signal_handler_statement(signal_type, handler_name, *line, *column);
             }
             Statement::StopAcceptingConnectionsStatement {
-                server: _server,
+                server,
                 line: _line,
                 column: _column,
             } => {
-                // TODO: Add type checking for server expression
-                // For now, just accept any type
+                let server_type = self.infer_expression_type(server);
+                if server_type != Type::Custom("Server".to_string())
+                    && server_type != Type::Unknown
+                    && server_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected a Server object".to_string(),
+                        Some(Type::Custom("Server".to_string())),
+                        Some(server_type),
+                        *_line,
+                        *_column,
+                    );
+                }
             }
             Statement::CloseServerStatement {
-                server: _server,
+                server,
                 line: _line,
                 column: _column,
             } => {
-                // TODO: Add type checking for server expression
-                // For now, just accept any type
+                let server_type = self.infer_expression_type(server);
+                if server_type != Type::Custom("Server".to_string())
+                    && server_type != Type::Unknown
+                    && server_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected a Server object".to_string(),
+                        Some(Type::Custom("Server".to_string())),
+                        Some(server_type),
+                        *_line,
+                        *_column,
+                    );
+                }
             }
             // Test framework statements
             Statement::DescribeBlock {
