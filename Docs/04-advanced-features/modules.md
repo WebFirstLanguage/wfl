@@ -510,9 +510,9 @@ end try
 
 ## Limitations
 
-## Export Statement (V2 Foundation)
+## Export Statement
 
-WFL now includes an `export` statement that validates the existence of items for future module namespaces:
+WFL includes an `export` statement that documents and validates module interfaces:
 
 ```wfl
 # Define items in a module
@@ -527,13 +527,18 @@ end
 
 store constant VERSION as "1.0.0"
 
-# Export specific items for future namespace features
+# Document which items are intended for external use
 export container Person
 export action greet
 export constant VERSION
 ```
 
-The export statement currently validates that the named item exists in the current scope. In future versions, this will enable selective module exposure.
+**Current Benefits:**
+- **Documentation**: Makes module interface explicit and clear
+- **Validation**: Ensures exported items actually exist at compile/lint time
+- **Best Practices**: Encourages conscious design of module interfaces
+
+**Future Enhancements:** The export statement establishes the foundation for selective module exposure and namespace control in future WFL versions.
 
 ### Current Limitations (V2)
 

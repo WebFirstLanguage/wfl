@@ -3001,11 +3001,11 @@ impl Interpreter {
                 // 10. Handle result
                 match result {
                     Ok((_, ControlFlow::None)) => Ok((Value::Null, ControlFlow::None)),
-                    Ok((_, ControlFlow::Return(_))) => Err(RuntimeError::new(
-                        "Cannot use 'return' in included file scope".to_string(),
-                        *line,
-                        *column,
-                    )),
+                    Ok((val, ControlFlow::Return(_))) => {
+                        // Return statements in included files are allowed and simply return the value
+                        // This enables utility functions in included files to use return statements
+                        Ok((val, ControlFlow::None))
+                    }
                     Ok((_, ControlFlow::Break)) => Err(RuntimeError::new(
                         "Cannot use 'break' in included file scope".to_string(),
                         *line,
@@ -3097,11 +3097,20 @@ impl Interpreter {
                         }
                     }
                     ExportType::Constant => {
-                        // Check if constant exists
+                        // Check if the variable exists and is actually a constant
                         if let Some(_value) = env.borrow().get(name) {
-                            // For constants, we could validate it's actually a constant
-                            // For now, just verify it exists
-                            Ok((Value::Null, ControlFlow::None))
+                            if env.borrow().is_constant(name) {
+                                Ok((Value::Null, ControlFlow::None))
+                            } else {
+                                Err(RuntimeError::new(
+                                    format!(
+                                        "Variable '{}' is not a constant and cannot be exported as one",
+                                        name
+                                    ),
+                                    *line,
+                                    *column,
+                                ))
+                            }
                         } else {
                             Err(RuntimeError::new(
                                 format!("Constant '{}' not found in current scope", name),
