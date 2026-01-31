@@ -1748,8 +1748,21 @@ impl TypeChecker {
                         // Check if variable exists as a symbol in the current scope
                         if let Some(symbol) = self.analyzer.get_symbol(name) {
                             match symbol.kind {
-                                crate::analyzer::SymbolKind::Variable { .. } => {
-                                    // Variable exists, runtime will verify it's actually a constant
+                                crate::analyzer::SymbolKind::Variable { mutable } => {
+                                    // Only immutable variables can be exported as constants
+                                    if mutable {
+                                        self.type_error(
+                                            format!(
+                                                "'{}' is mutable and cannot be exported as constant",
+                                                name
+                                            ),
+                                            None,
+                                            None,
+                                            *line,
+                                            *column,
+                                        );
+                                    }
+                                    // Otherwise, immutable variable is valid for constant export
                                 }
                                 _ => {
                                     self.type_error(
