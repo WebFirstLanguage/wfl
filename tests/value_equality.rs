@@ -1,17 +1,29 @@
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::collections::HashMap;
+use std::rc::Rc;
 use wfl::interpreter::value::Value;
 use wfl::stdlib::list::native_contains;
 
 #[test]
 fn test_list_equality() {
-    let list1 = Value::List(Rc::new(RefCell::new(vec![Value::Number(1.0), Value::Number(2.0)])));
-    let list2 = Value::List(Rc::new(RefCell::new(vec![Value::Number(1.0), Value::Number(2.0)])));
-    let list3 = Value::List(Rc::new(RefCell::new(vec![Value::Number(1.0), Value::Number(3.0)])));
+    let list1 = Value::List(Rc::new(RefCell::new(vec![
+        Value::Number(1.0),
+        Value::Number(2.0),
+    ])));
+    let list2 = Value::List(Rc::new(RefCell::new(vec![
+        Value::Number(1.0),
+        Value::Number(2.0),
+    ])));
+    let list3 = Value::List(Rc::new(RefCell::new(vec![
+        Value::Number(1.0),
+        Value::Number(3.0),
+    ])));
 
     assert_eq!(list1, list2, "Lists with same content should be equal");
-    assert_ne!(list1, list3, "Lists with different content should not be equal");
+    assert_ne!(
+        list1, list3,
+        "Lists with different content should not be equal"
+    );
 }
 
 #[test]
@@ -29,7 +41,10 @@ fn test_object_equality() {
     let obj3 = Value::Object(Rc::new(RefCell::new(map3)));
 
     assert_eq!(obj1, obj2, "Objects with same content should be equal");
-    assert_ne!(obj1, obj3, "Objects with different content should not be equal");
+    assert_ne!(
+        obj1, obj3,
+        "Objects with different content should not be equal"
+    );
 }
 
 #[test]
@@ -41,7 +56,10 @@ fn test_nested_equality() {
     let list1 = Value::List(Rc::new(RefCell::new(vec![inner1])));
     let list2 = Value::List(Rc::new(RefCell::new(vec![inner2])));
 
-    assert_eq!(list1, list2, "Nested lists with same content should be equal");
+    assert_eq!(
+        list1, list2,
+        "Nested lists with same content should be equal"
+    );
 }
 
 #[test]
@@ -69,5 +87,9 @@ fn test_native_contains() {
 
     let args3 = vec![list_obj.clone(), obj2];
     let result3 = native_contains(args3).unwrap();
-    assert_eq!(result3, Value::Bool(true), "Should find structurally equal object");
+    assert_eq!(
+        result3,
+        Value::Bool(true),
+        "Should find structurally equal object"
+    );
 }

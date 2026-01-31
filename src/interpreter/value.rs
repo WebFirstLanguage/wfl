@@ -401,8 +401,7 @@ impl PartialEq for Value {
                 if a.len() != b.len() {
                     return false;
                 }
-                a.iter()
-                    .all(|(k, v)| b.get(k).map_or(false, |bv| v == bv))
+                a.iter().all(|(k, v)| b.get(k).map_or(false, |bv| v == bv))
             }
 
             (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
