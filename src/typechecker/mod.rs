@@ -3474,23 +3474,28 @@ mod tests {
     fn test_close_server_type_check() {
         // Test case: Close server with a number (should fail type checking but currently passes)
         let program = Program {
-            statements: vec![
-                Statement::CloseServerStatement {
-                    server: Expression::Literal(Literal::Integer(123), 1, 14),
-                    line: 1,
-                    column: 1,
-                },
-            ],
+            statements: vec![Statement::CloseServerStatement {
+                server: Expression::Literal(Literal::Integer(123), 1, 14),
+                line: 1,
+                column: 1,
+            }],
         };
 
         let mut type_checker = TypeChecker::new();
         let result = type_checker.check_types(&program);
 
         // This assertion verifies the FIX
-        assert!(result.is_err(), "Expected type checking to FAIL for numeric server argument");
+        assert!(
+            result.is_err(),
+            "Expected type checking to FAIL for numeric server argument"
+        );
 
         let errors = result.err().unwrap();
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("Expected string for server handle"));
+        assert!(
+            errors[0]
+                .message
+                .contains("Expected string for server handle")
+        );
     }
 }
