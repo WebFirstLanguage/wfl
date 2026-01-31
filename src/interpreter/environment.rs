@@ -114,16 +114,20 @@ impl Environment {
 
     pub fn is_constant(&self, name: &str) -> bool {
         if self.constants.contains(name) {
-            true
-        } else if let Some(parent_weak) = &self.parent {
-            if let Some(parent) = parent_weak.upgrade() {
-                parent.borrow().is_constant(name)
-            } else {
-                false
-            }
-        } else {
-            false
+            return true;
         }
+
+        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+
+        while let Some(parent_rc) = current_parent {
+            let parent = parent_rc.borrow();
+            if parent.constants.contains(name) {
+                return true;
+            }
+            current_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+        }
+
+        false
     }
 
     pub fn assign(&mut self, name: &str, value: Value) -> Result<(), String> {
@@ -132,49 +136,84 @@ impl Environment {
             return Err(format!("Cannot modify constant '{name}'"));
         }
 
+        // Check current scope
         if self.values.contains_key(name) {
             self.values.insert(name.to_string(), value);
-            Ok(())
-        } else if let Some(parent_weak) = &self.parent {
-            if let Some(parent) = parent_weak.upgrade() {
-                // If isolated, cannot modify parent scope variables
-                if self.isolated {
-                    Err(format!(
-                        "Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."
-                    ))
-                } else {
-                    parent.borrow_mut().assign(name, value)
-                }
-            } else {
-                Err("Parent environment no longer exists".to_string())
-            }
-        } else {
-            Err(format!("Undefined variable '{name}'"))
+            return Ok(());
         }
+
+        // Iteratively check parent scopes
+        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut is_isolated_context = self.isolated;
+
+        while let Some(parent_rc) = current_parent {
+            let mut parent = parent_rc.borrow_mut();
+
+            if parent.constants.contains(name) {
+                return Err(format!("Cannot modify constant '{name}'"));
+            }
+
+            if parent.values.contains_key(name) {
+                // If we are in an isolated context (or passed through one), we cannot modify parent variable
+                if is_isolated_context {
+                    return Err(format!(
+                        "Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."
+                    ));
+                }
+
+                parent.values.insert(name.to_string(), value);
+                return Ok(());
+            }
+
+            if parent.isolated {
+                is_isolated_context = true;
+            }
+
+            // Move to next parent
+            let next_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+            drop(parent); // Release borrow
+            current_parent = next_parent;
+        }
+
+        Err(format!("Undefined variable '{name}'"))
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {
+        // Check local scope first
         if let Some(value) = self.values.get(name) {
-            // If isolated, deep clone the value to prevent mutations from affecting parent
-            if self.isolated {
-                Some(value.deep_clone())
-            } else {
-                Some(value.clone())
-            }
-        } else if let Some(parent_weak) = &self.parent {
-            if let Some(parent) = parent_weak.upgrade() {
-                let parent_value = parent.borrow().get(name);
-                // If isolated and we got a value from parent, deep clone it
-                if self.isolated {
-                    parent_value.map(|v| v.deep_clone())
-                } else {
-                    parent_value
-                }
-            } else {
-                None
-            }
-        } else {
-            None
+            // Local values are returned as shallow clones.
+            // Note: We do NOT deep clone local values even if self.isolated is true.
+            // Isolation ensures we don't mutate PARENT variables, but local variables
+            // in a module should be fully mutable by the module itself.
+            return Some(value.clone());
         }
+
+        // Iteratively check parent scopes
+        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut crossed_isolation_boundary = self.isolated;
+
+        while let Some(parent_rc) = current_parent {
+            let parent = parent_rc.borrow();
+
+            if let Some(value) = parent.values.get(name) {
+                // If we crossed an isolation boundary, deep clone the value
+                return if crossed_isolation_boundary {
+                    Some(value.deep_clone())
+                } else {
+                    Some(value.clone())
+                };
+            }
+
+            // If this parent is isolated, it means it's isolated from ITS parent.
+            // So any lookup further up the chain will cross an isolation boundary.
+            if parent.isolated {
+                crossed_isolation_boundary = true;
+            }
+
+            // Move to next parent
+            current_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+        }
+
+        None
     }
 }
