@@ -104,20 +104,30 @@ fn test_cyclic_list_equality() {
     let list2 = Value::List(list2_rc.clone());
     list2_rc.borrow_mut().push(list2.clone());
 
-    assert_eq!(list1, list2, "Cyclic lists should be equal and not stack overflow");
+    assert_eq!(
+        list1, list2,
+        "Cyclic lists should be equal and not stack overflow"
+    );
 }
 
 #[test]
 fn test_cyclic_object_equality() {
     let obj1_rc = Rc::new(RefCell::new(HashMap::new()));
     let obj1 = Value::Object(obj1_rc.clone());
-    obj1_rc.borrow_mut().insert("self".to_string(), obj1.clone());
+    obj1_rc
+        .borrow_mut()
+        .insert("self".to_string(), obj1.clone());
 
     let obj2_rc = Rc::new(RefCell::new(HashMap::new()));
     let obj2 = Value::Object(obj2_rc.clone());
-    obj2_rc.borrow_mut().insert("self".to_string(), obj2.clone());
+    obj2_rc
+        .borrow_mut()
+        .insert("self".to_string(), obj2.clone());
 
-    assert_eq!(obj1, obj2, "Cyclic objects should be equal and not stack overflow");
+    assert_eq!(
+        obj1, obj2,
+        "Cyclic objects should be equal and not stack overflow"
+    );
 }
 
 #[test]
@@ -133,7 +143,10 @@ fn test_comparison_with_borrowed_value() {
 
     // Should return false (or not panic) when comparing a borrowed value
     // because we can't inspect its contents safely
-    assert_ne!(list1, list2, "Comparison with borrowed value should not be equal");
+    assert_ne!(
+        list1, list2,
+        "Comparison with borrowed value should not be equal"
+    );
 }
 
 #[test]
@@ -165,7 +178,7 @@ fn test_container_parent_comparison() {
         column: 0,
     }));
 
-     // Create Child 2 with Parent 2
+    // Create Child 2 with Parent 2
     let child2 = Value::ContainerInstance(Rc::new(RefCell::new(ContainerInstanceValue {
         container_type: "Child".to_string(),
         properties: HashMap::new(),
@@ -192,6 +205,12 @@ fn test_container_parent_comparison() {
         column: 0,
     })));
 
-    assert_eq!(child1, child2, "Containers with identical parents should be equal");
-    assert_ne!(child1, child3, "Containers with different parents should not be equal");
+    assert_eq!(
+        child1, child2,
+        "Containers with identical parents should be equal"
+    );
+    assert_ne!(
+        child1, child3,
+        "Containers with different parents should not be equal"
+    );
 }
