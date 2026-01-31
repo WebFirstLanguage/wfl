@@ -44,7 +44,7 @@ use crate::parser::ast::{
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::net::IpAddr;
@@ -341,6 +341,7 @@ pub struct Interpreter {
     current_count: RefCell<Option<f64>>,
     in_count_loop: RefCell<bool>,
     in_main_loop: RefCell<bool>, // Track if we're in a main loop (disables timeout)
+    op_count: Cell<usize>,       // Instruction counter for optimized timeout checks
     started: Instant,
     max_duration: Duration,
     call_stack: RefCell<Vec<CallFrame>>,
@@ -1176,6 +1177,7 @@ impl Interpreter {
             current_count: RefCell::new(None),
             in_count_loop: RefCell::new(false),
             in_main_loop: RefCell::new(false),
+            op_count: Cell::new(0),
             started: Instant::now(),
             max_duration: Duration::from_secs(config.timeout_seconds),
             call_stack: RefCell::new(Vec::new()),
@@ -1424,6 +1426,15 @@ impl Interpreter {
     fn check_time(&self) -> Result<(), RuntimeError> {
         // Skip timeout check if we're in a main loop
         if *self.in_main_loop.borrow() {
+            return Ok(());
+        }
+
+        // Optimization: Only check system time every 1024 operations
+        // This avoids expensive syscalls/hardware clock reads in tight loops
+        let count = self.op_count.get();
+        self.op_count.set(count.wrapping_add(1));
+
+        if count & 1023 != 0 {
             return Ok(());
         }
 
