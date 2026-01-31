@@ -1,18 +1,16 @@
 use std::fs;
 use std::path::Path;
+use tempfile::TempDir;
 use wfl::interpreter::Interpreter;
 use wfl::lexer::lex_wfl;
 use wfl::parser::parse_wfl;
 
 #[test]
 fn test_include_statement_exposes_container_to_parent() {
-    // Create temporary test files
-    let container_file = "test_container.wfl";
-    let main_file = "test_main.wfl";
-
-    // Clean up any existing files
-    let _ = fs::remove_file(container_file);
-    let _ = fs::remove_file(main_file);
+    // Create temporary directory for test isolation
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let container_file = temp_dir.path().join("test_container.wfl");
+    let main_file = temp_dir.path().join("test_main.wfl");
 
     // Create container definition file
     let container_content = r#"
@@ -21,7 +19,7 @@ create container Person:
     property age: Number
 end
 "#;
-    fs::write(container_file, container_content).expect("Failed to write container file");
+    fs::write(&container_file, container_content).expect("Failed to write container file");
 
     // Create main file that includes container and uses it
     let main_content = r#"
@@ -34,13 +32,13 @@ end
 
 display alice.name
 "#;
-    fs::write(main_file, main_content).expect("Failed to write main file");
+    fs::write(&main_file, main_content).expect("Failed to write main file");
 
     // Try to run the program - this should work after include is implemented
-    let source = fs::read_to_string(main_file).expect("Failed to read main file");
+    let source = fs::read_to_string(&main_file).expect("Failed to read main file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, Path::new(main_file)) {
+    match parse_wfl(&tokens, &main_file) {
         Ok(ast) => {
             let mut interpreter = Interpreter::new();
             let result = interpreter.interpret(&ast);
@@ -73,22 +71,17 @@ display alice.name
         }
     }
 
-    // Clean up test files
-    let _ = fs::remove_file(container_file);
-    let _ = fs::remove_file(main_file);
+    // Temp directory is automatically cleaned up when dropped
 }
 
 #[test]
 fn test_include_vs_load_module_behavior() {
     // This test demonstrates the difference between include and load module
-    let shared_file = "test_shared.wfl";
-    let include_main = "test_include_main.wfl";
-    let load_main = "test_load_main.wfl";
-
-    // Clean up any existing files
-    let _ = fs::remove_file(shared_file);
-    let _ = fs::remove_file(include_main);
-    let _ = fs::remove_file(load_main);
+    // Create temporary directory for test isolation
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let shared_file = temp_dir.path().join("test_shared.wfl");
+    let include_main = temp_dir.path().join("test_include_main.wfl");
+    let load_main = temp_dir.path().join("test_load_main.wfl");
 
     // Create shared functionality
     let shared_content = r#"
@@ -98,7 +91,7 @@ create container SharedContainer:
     property data: Text
 end
 "#;
-    fs::write(shared_file, shared_content).expect("Failed to write shared file");
+    fs::write(&shared_file, shared_content).expect("Failed to write shared file");
 
     // Test include behavior (should expose variables/containers)
     let include_content = r#"
@@ -109,7 +102,7 @@ create new SharedContainer as instance:
     data is "test"
 end
 "#;
-    fs::write(include_main, include_content).expect("Failed to write include main");
+    fs::write(&include_main, include_content).expect("Failed to write include main");
 
     // Test load module behavior (should NOT expose variables/containers)
     let load_content = r#"
@@ -117,13 +110,13 @@ load module from "test_shared.wfl"
 
 display utility_value
 "#;
-    fs::write(load_main, load_content).expect("Failed to write load main");
+    fs::write(&load_main, load_content).expect("Failed to write load main");
 
     // Test include behavior
-    let include_source = fs::read_to_string(include_main).expect("Failed to read include main");
+    let include_source = fs::read_to_string(&include_main).expect("Failed to read include main");
     let include_tokens = lex_wfl(&include_source);
 
-    match parse_wfl(&include_tokens, Path::new(include_main)) {
+    match parse_wfl(&include_tokens, &include_main) {
         Ok(ast) => {
             let mut interpreter = Interpreter::new();
             let result = interpreter.interpret(&ast);
@@ -148,10 +141,10 @@ display utility_value
     }
 
     // Test load module behavior (should work but not expose variables)
-    let load_source = fs::read_to_string(load_main).expect("Failed to read load main");
+    let load_source = fs::read_to_string(&load_main).expect("Failed to read load main");
     let load_tokens = lex_wfl(&load_source);
 
-    match parse_wfl(&load_tokens, Path::new(load_main)) {
+    match parse_wfl(&load_tokens, &load_main) {
         Ok(ast) => {
             let mut interpreter = Interpreter::new();
             let result = interpreter.interpret(&ast);
@@ -178,28 +171,23 @@ display utility_value
         }
     }
 
-    // Clean up test files
-    let _ = fs::remove_file(shared_file);
-    let _ = fs::remove_file(include_main);
-    let _ = fs::remove_file(load_main);
+    // Temp directory is automatically cleaned up when dropped
 }
 
 #[test]
 fn test_include_statement_executes_in_parent_scope() {
     // Test that include executes code in parent scope, not isolated child
-    let module_file = "test_parent_scope.wfl";
-    let main_file = "test_parent_main.wfl";
-
-    // Clean up any existing files
-    let _ = fs::remove_file(module_file);
-    let _ = fs::remove_file(main_file);
+    // Create temporary directory for test isolation
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let module_file = temp_dir.path().join("test_parent_scope.wfl");
+    let main_file = temp_dir.path().join("test_parent_main.wfl");
 
     // Create module that modifies a parent variable
     let module_content = r#"
 change parent_var to "modified by include"
 store new_var as "created by include"
 "#;
-    fs::write(module_file, module_content).expect("Failed to write module file");
+    fs::write(&module_file, module_content).expect("Failed to write module file");
 
     // Create main file with parent variable and include
     let main_content = r#"
@@ -210,13 +198,13 @@ include from "test_parent_scope.wfl"
 display parent_var
 display new_var
 "#;
-    fs::write(main_file, main_content).expect("Failed to write main file");
+    fs::write(&main_file, main_content).expect("Failed to write main file");
 
     // Test execution
-    let source = fs::read_to_string(main_file).expect("Failed to read main file");
+    let source = fs::read_to_string(&main_file).expect("Failed to read main file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, Path::new(main_file)) {
+    match parse_wfl(&tokens, &main_file) {
         Ok(ast) => {
             let mut interpreter = Interpreter::new();
             let result = interpreter.interpret(&ast);
@@ -240,29 +228,25 @@ display new_var
         }
     }
 
-    // Clean up test files
-    let _ = fs::remove_file(module_file);
-    let _ = fs::remove_file(main_file);
+    // Temp directory is automatically cleaned up when dropped
 }
 
 #[test]
 fn test_include_statement_path_resolution() {
     // Test that include follows same path resolution as load module
-    let nested_dir = "test_nested";
-    let nested_file = "test_nested/utility.wfl";
-    let main_file = "test_path_main.wfl";
-
-    // Clean up any existing files/directories
-    let _ = fs::remove_dir_all(nested_dir);
-    let _ = fs::remove_file(main_file);
+    // Create temporary directory for test isolation
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let nested_dir = temp_dir.path().join("test_nested");
+    let nested_file = nested_dir.join("utility.wfl");
+    let main_file = temp_dir.path().join("test_path_main.wfl");
 
     // Create nested directory and file
-    fs::create_dir_all(nested_dir).expect("Failed to create nested directory");
+    fs::create_dir_all(&nested_dir).expect("Failed to create nested directory");
 
     let utility_content = r#"
 store nested_utility as "from nested directory"
 "#;
-    fs::write(nested_file, utility_content).expect("Failed to write nested file");
+    fs::write(&nested_file, utility_content).expect("Failed to write nested file");
 
     // Create main file that includes from nested directory
     let main_content = r#"
@@ -270,13 +254,13 @@ include from "test_nested/utility.wfl"
 
 display nested_utility
 "#;
-    fs::write(main_file, main_content).expect("Failed to write main file");
+    fs::write(&main_file, main_content).expect("Failed to write main file");
 
     // Test execution
-    let source = fs::read_to_string(main_file).expect("Failed to read main file");
+    let source = fs::read_to_string(&main_file).expect("Failed to read main file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, Path::new(main_file)) {
+    match parse_wfl(&tokens, &main_file) {
         Ok(ast) => {
             let mut interpreter = Interpreter::new();
             let result = interpreter.interpret(&ast);
@@ -297,7 +281,5 @@ display nested_utility
         }
     }
 
-    // Clean up test files
-    let _ = fs::remove_dir_all(nested_dir);
-    let _ = fs::remove_file(main_file);
+    // Temp directory is automatically cleaned up when dropped
 }
