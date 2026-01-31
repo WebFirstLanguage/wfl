@@ -35,31 +35,21 @@ export container Person
     let source = fs::read_to_string(test_file_path).expect("Failed to read test file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, test_file_path) {
-        Ok(ast) => {
-            // Should succeed after export syntax is implemented
-            let mut interpreter = Interpreter::new();
-            let result = interpreter.interpret(&ast);
+    let ast = parse_wfl(&tokens, test_file_path).unwrap_or_else(|e| panic!("Parse failed: {}", e));
 
-            match result {
-                Ok(_) => {
-                    assert!(true, "Export container statement should parse and execute");
-                }
-                Err(e) => {
-                    println!("Execution error: {}", e);
-                    assert!(
-                        false,
-                        "Export container statement should execute without error"
-                    );
-                }
-            }
+    // Should succeed after export syntax is implemented
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&ast);
+
+    match result {
+        Ok(_) => {
+            assert!(true, "Export container statement should parse and execute");
         }
         Err(e) => {
-            println!("Parse error: {}", e);
-            // Expected failure before export keyword is added
+            println!("Execution error: {}", e);
             assert!(
-                e.to_string().contains("export"),
-                "Parse should fail due to missing export keyword"
+                false,
+                "Export container statement should execute without error"
             );
         }
     }
@@ -93,31 +83,21 @@ export action helper
     let source = fs::read_to_string(test_file_path).expect("Failed to read test file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, test_file_path) {
-        Ok(ast) => {
-            // Should succeed after export syntax is implemented
-            let mut interpreter = Interpreter::new();
-            let result = interpreter.interpret(&ast);
+    let ast = parse_wfl(&tokens, test_file_path).unwrap_or_else(|e| panic!("Parse failed: {}", e));
 
-            match result {
-                Ok(_) => {
-                    assert!(true, "Export action statement should parse and execute");
-                }
-                Err(e) => {
-                    println!("Execution error: {}", e);
-                    assert!(
-                        false,
-                        "Export action statement should execute without error"
-                    );
-                }
-            }
+    // Should succeed after export syntax is implemented
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&ast);
+
+    match result {
+        Ok(_) => {
+            assert!(true, "Export action statement should parse and execute");
         }
         Err(e) => {
-            println!("Parse error: {}", e);
-            // Expected failure before export keyword is added
+            println!("Execution error: {}", e);
             assert!(
-                e.to_string().contains("export"),
-                "Parse should fail due to missing export keyword"
+                false,
+                "Export action statement should execute without error"
             );
         }
     }
@@ -151,31 +131,21 @@ export constant MAX_SIZE
     let source = fs::read_to_string(test_file_path).expect("Failed to read test file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, test_file_path) {
-        Ok(ast) => {
-            // Should succeed after export syntax is implemented
-            let mut interpreter = Interpreter::new();
-            let result = interpreter.interpret(&ast);
+    let ast = parse_wfl(&tokens, test_file_path).unwrap_or_else(|e| panic!("Parse failed: {}", e));
 
-            match result {
-                Ok(_) => {
-                    assert!(true, "Export constant statement should parse and execute");
-                }
-                Err(e) => {
-                    println!("Execution error: {}", e);
-                    assert!(
-                        false,
-                        "Export constant statement should execute without error"
-                    );
-                }
-            }
+    // Should succeed after export syntax is implemented
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&ast);
+
+    match result {
+        Ok(_) => {
+            assert!(true, "Export constant statement should parse and execute");
         }
         Err(e) => {
-            println!("Parse error: {}", e);
-            // Expected failure before export keyword is added
+            println!("Execution error: {}", e);
             assert!(
-                e.to_string().contains("export"),
-                "Parse should fail due to missing export keyword"
+                false,
+                "Export constant statement should execute without error"
             );
         }
     }
@@ -207,27 +177,22 @@ export constant MISSING_CONSTANT
     let source = fs::read_to_string(test_file_path).expect("Failed to read test file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, test_file_path) {
-        Ok(ast) => {
-            let mut interpreter = Interpreter::new();
-            let result = interpreter.interpret(&ast);
+    let ast = parse_wfl(&tokens, test_file_path).unwrap_or_else(|e| panic!("Parse failed: {}", e));
 
-            match result {
-                Ok(_) => {
-                    assert!(false, "Exporting non-existent items should produce error");
-                }
-                Err(e) => {
-                    // Should fail with appropriate error message after implementation
-                    assert!(
-                        true,
-                        "Export of non-existent items should fail with error: {}",
-                        e
-                    );
-                }
-            }
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&ast);
+
+    match result {
+        Ok(_) => {
+            assert!(false, "Exporting non-existent items should produce error");
         }
-        Err(_) => {
-            // Expected parse failure before export keyword is added
+        Err(e) => {
+            // Should fail with appropriate error message after implementation
+            assert!(
+                true,
+                "Export of non-existent items should fail with error: {}",
+                e
+            );
         }
     }
 
@@ -266,25 +231,20 @@ export action utility
     let source = fs::read_to_string(test_file_path).expect("Failed to read test file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, test_file_path) {
-        Ok(ast) => {
-            let mut interpreter = Interpreter::new();
-            let result = interpreter.interpret(&ast);
+    let ast = parse_wfl(&tokens, test_file_path).unwrap_or_else(|e| panic!("Parse failed: {}", e));
 
-            match result {
-                Ok(_) => {
-                    // Forward declaration should work (or be validated at different phase)
-                    assert!(true, "Export statements should work regardless of order");
-                }
-                Err(e) => {
-                    println!("Order-dependent error: {}", e);
-                    // May require forward declaration handling or validation at end
-                    assert!(false, "Export statement order should be flexible");
-                }
-            }
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&ast);
+
+    match result {
+        Ok(_) => {
+            // Forward declaration should work (or be validated at different phase)
+            assert!(true, "Export statements should work regardless of order");
         }
-        Err(_) => {
-            // Expected parse failure before export keyword is added
+        Err(e) => {
+            println!("Order-dependent error: {}", e);
+            // May require forward declaration handling or validation at end
+            assert!(false, "Export statement order should be flexible");
         }
     }
 
