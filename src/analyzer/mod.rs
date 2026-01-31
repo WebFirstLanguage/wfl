@@ -1302,7 +1302,7 @@ impl Analyzer {
                 let server_symbol = Symbol {
                     name: server_name.clone(),
                     kind: SymbolKind::Variable { mutable: false },
-                    symbol_type: Some(Type::Text), // Server is represented as text
+                    symbol_type: Some(Type::Custom("Server".to_string())), // Server is represented as a custom Server type
                     line: *line,
                     column: *column,
                 };
