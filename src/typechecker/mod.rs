@@ -1408,7 +1408,7 @@ impl TypeChecker {
             }
             Statement::ListenStatement {
                 port,
-                server_name: _,
+                server_name: _server_name,
                 line: _line,
                 column: _column,
             } => {
@@ -1440,7 +1440,7 @@ impl TypeChecker {
                     && server_type != Type::Error
                 {
                     self.type_error(
-                        "Expected a Server object or text server name".to_string(),
+                        "Expected a Server object or server name (text)".to_string(),
                         Some(Type::Custom("Server".to_string())),
                         Some(server_type),
                         *_line,
@@ -1539,7 +1539,7 @@ impl TypeChecker {
                     && server_type != Type::Error
                 {
                     self.type_error(
-                        "Expected a Server object or text server name".to_string(),
+                        "Expected a Server object or server name (text)".to_string(),
                         Some(Type::Custom("Server".to_string())),
                         Some(server_type),
                         *_line,
@@ -1559,7 +1559,7 @@ impl TypeChecker {
                     && server_type != Type::Error
                 {
                     self.type_error(
-                        "Expected a Server object or text server name".to_string(),
+                        "Expected a Server object or server name (text)".to_string(),
                         Some(Type::Custom("Server".to_string())),
                         Some(server_type),
                         *_line,

@@ -21,7 +21,3 @@
 ## 2026-01-24 - [Avoid Async Box Allocation for Simple Expressions]
 **Learning:** `evaluate_expression` was wrapping every call in `Box::pin` for async recursion, even for simple arithmetic operations like `1 + 2`. This caused significant overhead in tight loops.
 **Action:** Implemented `try_evaluate_expression_sync` to recursively evaluate simple expressions (Literals, Variables, Binary/Unary ops) synchronously, bypassing `Box::pin` allocation. This yielded a ~30% performance improvement in arithmetic-heavy loops.
-
-## 2026-02-05 - [Batch Interpreter Timeout Checks]
-**Learning:** Checking `Instant::elapsed()` on every instruction creates significant overhead (15-20%) in tight loops due to syscalls/hardware clock reads.
-**Action:** Implemented a batched check using a simple instruction counter (`op_count & 1023 == 0`), only checking the system clock every 1024 operations. This maintains safety (timeouts are still enforced, just with slightly coarser granularity) while significantly reducing per-instruction overhead.
