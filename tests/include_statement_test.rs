@@ -38,35 +38,25 @@ display alice.name
     let source = fs::read_to_string(&main_file).expect("Failed to read main file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, &main_file) {
-        Ok(ast) => {
-            let mut interpreter = Interpreter::new();
-            let result = interpreter.interpret(&ast);
+    let ast = parse_wfl(&tokens, &main_file).unwrap_or_else(|e| panic!("Parse failed: {}", e));
 
-            // This test will fail initially (before include is implemented)
-            // After implementation, it should succeed
-            match result {
-                Ok(_) => {
-                    // Success - include statement worked and container was exposed
-                    assert!(true);
-                }
-                Err(e) => {
-                    // Expected failure before implementation
-                    println!("Expected error before include implementation: {}", e);
-                    // This assertion will fail initially, driving TDD implementation
-                    assert!(
-                        false,
-                        "Include statement should expose container to parent scope"
-                    );
-                }
-            }
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&ast);
+
+    // This test will fail initially (before include is implemented)
+    // After implementation, it should succeed
+    match result {
+        Ok(_) => {
+            // Success - include statement worked and container was exposed
+            assert!(true);
         }
         Err(e) => {
-            println!("Parse error: {}", e);
-            // Parse should fail initially due to missing include syntax
+            // Expected failure before implementation
+            println!("Expected error before include implementation: {}", e);
+            // This assertion will fail initially, driving TDD implementation
             assert!(
-                e.to_string().contains("include"),
-                "Parse should fail due to missing include keyword"
+                false,
+                "Include statement should expose container to parent scope"
             );
         }
     }
@@ -116,27 +106,23 @@ display utility_value
     let include_source = fs::read_to_string(&include_main).expect("Failed to read include main");
     let include_tokens = lex_wfl(&include_source);
 
-    match parse_wfl(&include_tokens, &include_main) {
-        Ok(ast) => {
-            let mut interpreter = Interpreter::new();
-            let result = interpreter.interpret(&ast);
+    let ast =
+        parse_wfl(&include_tokens, &include_main).unwrap_or_else(|e| panic!("Parse failed: {}", e));
 
-            match result {
-                Ok(_) => {
-                    // Include should succeed and expose shared definitions
-                    assert!(true);
-                }
-                Err(_) => {
-                    // Will fail initially before include is implemented
-                    assert!(
-                        false,
-                        "Include should expose shared definitions to parent scope"
-                    );
-                }
-            }
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&ast);
+
+    match result {
+        Ok(_) => {
+            // Include should succeed and expose shared definitions
+            assert!(true);
         }
         Err(_) => {
-            // Expected parse failure before include keyword is added
+            // Will fail initially before include is implemented
+            assert!(
+                false,
+                "Include should expose shared definitions to parent scope"
+            );
         }
     }
 
@@ -144,30 +130,22 @@ display utility_value
     let load_source = fs::read_to_string(&load_main).expect("Failed to read load main");
     let load_tokens = lex_wfl(&load_source);
 
-    match parse_wfl(&load_tokens, &load_main) {
-        Ok(ast) => {
-            let mut interpreter = Interpreter::new();
-            let result = interpreter.interpret(&ast);
+    let load_ast =
+        parse_wfl(&load_tokens, &load_main).unwrap_or_else(|e| panic!("Parse failed: {}", e));
 
-            match result {
-                Ok(_) => {
-                    assert!(
-                        false,
-                        "Load module should NOT expose utility_value to parent"
-                    );
-                }
-                Err(e) => {
-                    // This should fail because utility_value is not accessible from parent
-                    assert!(
-                        e.to_string().contains("utility_value")
-                            || e.to_string().contains("not found")
-                    );
-                }
-            }
+    let mut load_interpreter = Interpreter::new();
+    let load_result = load_interpreter.interpret(&load_ast);
+
+    match load_result {
+        Ok(_) => {
+            assert!(
+                false,
+                "Load module should NOT expose utility_value to parent"
+            );
         }
-        Err(_) => {
-            // Parse error is unexpected for load module (should already exist)
-            assert!(false, "Load module syntax should already exist");
+        Err(e) => {
+            // This should fail because utility_value is not accessible from parent
+            assert!(e.to_string().contains("utility_value") || e.to_string().contains("not found"));
         }
     }
 
@@ -204,27 +182,22 @@ display new_var
     let source = fs::read_to_string(&main_file).expect("Failed to read main file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, &main_file) {
-        Ok(ast) => {
-            let mut interpreter = Interpreter::new();
-            let result = interpreter.interpret(&ast);
+    let ast = parse_wfl(&tokens, &main_file).unwrap_or_else(|e| panic!("Parse failed: {}", e));
 
-            match result {
-                Ok(_) => {
-                    // Include should succeed and modify parent scope
-                    assert!(true);
-                }
-                Err(_) => {
-                    // Will fail initially before include is implemented
-                    assert!(
-                        false,
-                        "Include should execute in parent scope and allow variable access"
-                    );
-                }
-            }
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&ast);
+
+    match result {
+        Ok(_) => {
+            // Include should succeed and modify parent scope
+            assert!(true);
         }
         Err(_) => {
-            // Expected parse failure before include keyword is added
+            // Will fail initially before include is implemented
+            assert!(
+                false,
+                "Include should execute in parent scope and allow variable access"
+            );
         }
     }
 
@@ -260,24 +233,19 @@ display nested_utility
     let source = fs::read_to_string(&main_file).expect("Failed to read main file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, &main_file) {
-        Ok(ast) => {
-            let mut interpreter = Interpreter::new();
-            let result = interpreter.interpret(&ast);
+    let ast = parse_wfl(&tokens, &main_file).unwrap_or_else(|e| panic!("Parse failed: {}", e));
 
-            match result {
-                Ok(_) => {
-                    // Include should succeed with nested path
-                    assert!(true);
-                }
-                Err(_) => {
-                    // Will fail initially before include is implemented
-                    assert!(false, "Include should handle nested paths like load module");
-                }
-            }
+    let mut interpreter = Interpreter::new();
+    let result = interpreter.interpret(&ast);
+
+    match result {
+        Ok(_) => {
+            // Include should succeed with nested path
+            assert!(true);
         }
         Err(_) => {
-            // Expected parse failure before include keyword is added
+            // Will fail initially before include is implemented
+            assert!(false, "Include should handle nested paths like load module");
         }
     }
 
