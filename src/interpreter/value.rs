@@ -379,11 +379,55 @@ impl PartialEq for Value {
             (Value::DateTime(a), Value::DateTime(b)) => a == b,
             (Value::Null, Value::Null) => true,
             (Value::Nothing, Value::Nothing) => true,
-            (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => a.name == b.name,
-            (Value::ContainerInstance(a), Value::ContainerInstance(b)) => {
+
+            (Value::List(a), Value::List(b)) => {
+                if Rc::ptr_eq(a, b) {
+                    return true;
+                }
                 let a = a.borrow();
                 let b = b.borrow();
-                a.container_type == b.container_type
+                if a.len() != b.len() {
+                    return false;
+                }
+                a.iter().zip(b.iter()).all(|(x, y)| x == y)
+            }
+
+            (Value::Object(a), Value::Object(b)) => {
+                if Rc::ptr_eq(a, b) {
+                    return true;
+                }
+                let a = a.borrow();
+                let b = b.borrow();
+                if a.len() != b.len() {
+                    return false;
+                }
+                a.iter()
+                    .all(|(k, v)| b.get(k).map_or(false, |bv| v == bv))
+            }
+
+            (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
+            (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
+                name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b)
+            }
+            (Value::Future(a), Value::Future(b)) => Rc::ptr_eq(a, b),
+            (Value::Pattern(a), Value::Pattern(b)) => Rc::ptr_eq(a, b),
+
+            (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => a.name == b.name,
+            (Value::ContainerInstance(a), Value::ContainerInstance(b)) => {
+                if Rc::ptr_eq(a, b) {
+                    return true;
+                }
+                let a = a.borrow();
+                let b = b.borrow();
+                if a.container_type != b.container_type {
+                    return false;
+                }
+                if a.properties.len() != b.properties.len() {
+                    return false;
+                }
+                a.properties
+                    .iter()
+                    .all(|(k, v)| b.properties.get(k).map_or(false, |bv| v == bv))
             }
             (Value::ContainerMethod(a), Value::ContainerMethod(b)) => a.name == b.name,
             (Value::ContainerEvent(a), Value::ContainerEvent(b)) => a.name == b.name,
