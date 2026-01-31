@@ -1,5 +1,7 @@
 use std::fs;
+use std::io::Write;
 use std::path::Path;
+use tempfile::Builder;
 use wfl::analyzer::Analyzer;
 use wfl::interpreter::Interpreter;
 use wfl::lexer::{lex_wfl, lex_wfl_with_positions};
@@ -9,10 +11,11 @@ use wfl::typechecker::TypeChecker;
 #[test]
 fn test_export_container_statement_syntax() {
     // Test basic export syntax for containers
-    let test_file = "test_export_container.wfl";
-
-    // Clean up any existing files
-    let _ = fs::remove_file(test_file);
+    // Create a temporary file with .wfl extension
+    let mut temp_file = Builder::new()
+        .suffix(".wfl")
+        .tempfile()
+        .expect("Failed to create temp file");
 
     // Create file with export container statement
     let content = r#"
@@ -23,13 +26,16 @@ end
 
 export container Person
 "#;
-    fs::write(test_file, content).expect("Failed to write test file");
+    temp_file
+        .write_all(content.as_bytes())
+        .expect("Failed to write test file");
 
     // Test parsing
-    let source = fs::read_to_string(test_file).expect("Failed to read test file");
+    let test_file_path = temp_file.path();
+    let source = fs::read_to_string(test_file_path).expect("Failed to read test file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, Path::new(test_file)) {
+    match parse_wfl(&tokens, test_file_path) {
         Ok(ast) => {
             // Should succeed after export syntax is implemented
             let mut interpreter = Interpreter::new();
@@ -58,17 +64,17 @@ export container Person
         }
     }
 
-    // Clean up test file
-    let _ = fs::remove_file(test_file);
+    // Temp file is automatically cleaned up when dropped
 }
 
 #[test]
 fn test_export_action_statement_syntax() {
     // Test export syntax for actions
-    let test_file = "test_export_action.wfl";
-
-    // Clean up any existing files
-    let _ = fs::remove_file(test_file);
+    // Create a temporary file with .wfl extension
+    let mut temp_file = Builder::new()
+        .suffix(".wfl")
+        .tempfile()
+        .expect("Failed to create temp file");
 
     // Create file with export action statement
     let content = r#"
@@ -78,13 +84,16 @@ end
 
 export action helper
 "#;
-    fs::write(test_file, content).expect("Failed to write test file");
+    temp_file
+        .write_all(content.as_bytes())
+        .expect("Failed to write test file");
 
     // Test parsing
-    let source = fs::read_to_string(test_file).expect("Failed to read test file");
+    let test_file_path = temp_file.path();
+    let source = fs::read_to_string(test_file_path).expect("Failed to read test file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, Path::new(test_file)) {
+    match parse_wfl(&tokens, test_file_path) {
         Ok(ast) => {
             // Should succeed after export syntax is implemented
             let mut interpreter = Interpreter::new();
@@ -113,17 +122,17 @@ export action helper
         }
     }
 
-    // Clean up test file
-    let _ = fs::remove_file(test_file);
+    // Temp file is automatically cleaned up when dropped
 }
 
 #[test]
 fn test_export_constant_statement_syntax() {
     // Test export syntax for constants
-    let test_file = "test_export_constant.wfl";
-
-    // Clean up any existing files
-    let _ = fs::remove_file(test_file);
+    // Create a temporary file with .wfl extension
+    let mut temp_file = Builder::new()
+        .suffix(".wfl")
+        .tempfile()
+        .expect("Failed to create temp file");
 
     // Create file with export constant statement
     let content = r#"
@@ -133,13 +142,16 @@ store constant MAX_SIZE as 100
 export constant VERSION
 export constant MAX_SIZE
 "#;
-    fs::write(test_file, content).expect("Failed to write test file");
+    temp_file
+        .write_all(content.as_bytes())
+        .expect("Failed to write test file");
 
     // Test parsing
-    let source = fs::read_to_string(test_file).expect("Failed to read test file");
+    let test_file_path = temp_file.path();
+    let source = fs::read_to_string(test_file_path).expect("Failed to read test file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, Path::new(test_file)) {
+    match parse_wfl(&tokens, test_file_path) {
         Ok(ast) => {
             // Should succeed after export syntax is implemented
             let mut interpreter = Interpreter::new();
@@ -168,17 +180,17 @@ export constant MAX_SIZE
         }
     }
 
-    // Clean up test file
-    let _ = fs::remove_file(test_file);
+    // Temp file is automatically cleaned up when dropped
 }
 
 #[test]
 fn test_export_nonexistent_item_error() {
     // Test that exporting non-existent items produces appropriate errors
-    let test_file = "test_export_error.wfl";
-
-    // Clean up any existing files
-    let _ = fs::remove_file(test_file);
+    // Create a temporary file with .wfl extension
+    let mut temp_file = Builder::new()
+        .suffix(".wfl")
+        .tempfile()
+        .expect("Failed to create temp file");
 
     // Create file that tries to export non-existent items
     let content = r#"
@@ -186,13 +198,16 @@ export container NonExistentContainer
 export action non_existent_action
 export constant MISSING_CONSTANT
 "#;
-    fs::write(test_file, content).expect("Failed to write test file");
+    temp_file
+        .write_all(content.as_bytes())
+        .expect("Failed to write test file");
 
     // Test parsing and execution
-    let source = fs::read_to_string(test_file).expect("Failed to read test file");
+    let test_file_path = temp_file.path();
+    let source = fs::read_to_string(test_file_path).expect("Failed to read test file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, Path::new(test_file)) {
+    match parse_wfl(&tokens, test_file_path) {
         Ok(ast) => {
             let mut interpreter = Interpreter::new();
             let result = interpreter.interpret(&ast);
@@ -216,17 +231,17 @@ export constant MISSING_CONSTANT
         }
     }
 
-    // Clean up test file
-    let _ = fs::remove_file(test_file);
+    // Temp file is automatically cleaned up when dropped
 }
 
 #[test]
 fn test_export_statement_order_independence() {
     // Test that export statements can appear before or after definitions
-    let test_file = "test_export_order.wfl";
-
-    // Clean up any existing files
-    let _ = fs::remove_file(test_file);
+    // Create a temporary file with .wfl extension
+    let mut temp_file = Builder::new()
+        .suffix(".wfl")
+        .tempfile()
+        .expect("Failed to create temp file");
 
     // Create file with exports before and after definitions
     let content = r#"
@@ -242,13 +257,16 @@ end
 
 export action utility
 "#;
-    fs::write(test_file, content).expect("Failed to write test file");
+    temp_file
+        .write_all(content.as_bytes())
+        .expect("Failed to write test file");
 
     // Test parsing and execution
-    let source = fs::read_to_string(test_file).expect("Failed to read test file");
+    let test_file_path = temp_file.path();
+    let source = fs::read_to_string(test_file_path).expect("Failed to read test file");
     let tokens = lex_wfl(&source);
 
-    match parse_wfl(&tokens, Path::new(test_file)) {
+    match parse_wfl(&tokens, test_file_path) {
         Ok(ast) => {
             let mut interpreter = Interpreter::new();
             let result = interpreter.interpret(&ast);
@@ -270,8 +288,7 @@ export action utility
         }
     }
 
-    // Clean up test file
-    let _ = fs::remove_file(test_file);
+    // Temp file is automatically cleaned up when dropped
 }
 
 #[test]
