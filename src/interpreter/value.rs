@@ -3,7 +3,7 @@ use super::error::RuntimeError;
 use crate::parser::ast::Statement;
 use crate::pattern::CompiledPattern;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::rc::{Rc, Weak};
 
@@ -370,25 +370,143 @@ impl fmt::Display for Value {
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Value::Number(a), Value::Number(b)) => a == b,
-            (Value::Text(a), Value::Text(b)) => a == b,
-            (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Date(a), Value::Date(b)) => a == b,
-            (Value::Time(a), Value::Time(b)) => a == b,
-            (Value::DateTime(a), Value::DateTime(b)) => a == b,
-            (Value::Null, Value::Null) => true,
-            (Value::Nothing, Value::Nothing) => true,
-            (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => a.name == b.name,
-            (Value::ContainerInstance(a), Value::ContainerInstance(b)) => {
-                let a = a.borrow();
-                let b = b.borrow();
-                a.container_type == b.container_type
+        let mut visited = HashSet::new();
+        eq_with_visited(self, other, &mut visited)
+    }
+}
+
+fn eq_with_visited(
+    lhs: &Value,
+    rhs: &Value,
+    visited: &mut HashSet<(*const (), *const ())>,
+) -> bool {
+    match (lhs, rhs) {
+        (Value::Number(a), Value::Number(b)) => a == b,
+        (Value::Text(a), Value::Text(b)) => a == b,
+        (Value::Bool(a), Value::Bool(b)) => a == b,
+        (Value::Date(a), Value::Date(b)) => a == b,
+        (Value::Time(a), Value::Time(b)) => a == b,
+        (Value::DateTime(a), Value::DateTime(b)) => a == b,
+        (Value::Null, Value::Null) => true,
+        (Value::Nothing, Value::Nothing) => true,
+
+        (Value::List(a), Value::List(b)) => {
+            if Rc::ptr_eq(a, b) {
+                return true;
             }
-            (Value::ContainerMethod(a), Value::ContainerMethod(b)) => a.name == b.name,
-            (Value::ContainerEvent(a), Value::ContainerEvent(b)) => a.name == b.name,
-            (Value::InterfaceDefinition(a), Value::InterfaceDefinition(b)) => a.name == b.name,
-            _ => false,
+
+            let ptr_a = Rc::as_ptr(a) as *const ();
+            let ptr_b = Rc::as_ptr(b) as *const ();
+            let pair = (ptr_a, ptr_b);
+
+            if visited.contains(&pair) {
+                return true; // Cycle detected, assume equal for now
+            }
+            visited.insert(pair);
+
+            // Use try_borrow to avoid panics if already borrowed mutably
+            match (a.try_borrow(), b.try_borrow()) {
+                (Ok(a_ref), Ok(b_ref)) => {
+                    if a_ref.len() != b_ref.len() {
+                        return false;
+                    }
+                    a_ref
+                        .iter()
+                        .zip(b_ref.iter())
+                        .all(|(x, y)| eq_with_visited(x, y, visited))
+                }
+                _ => false, // Cannot compare if mutably borrowed elsewhere
+            }
         }
+
+        (Value::Object(a), Value::Object(b)) => {
+            if Rc::ptr_eq(a, b) {
+                return true;
+            }
+
+            let ptr_a = Rc::as_ptr(a) as *const ();
+            let ptr_b = Rc::as_ptr(b) as *const ();
+            let pair = (ptr_a, ptr_b);
+
+            if visited.contains(&pair) {
+                return true;
+            }
+            visited.insert(pair);
+
+            match (a.try_borrow(), b.try_borrow()) {
+                (Ok(a_ref), Ok(b_ref)) => {
+                    if a_ref.len() != b_ref.len() {
+                        return false;
+                    }
+                    a_ref.iter().all(|(k, v)| {
+                        b_ref
+                            .get(k)
+                            .is_some_and(|bv| eq_with_visited(v, bv, visited))
+                    })
+                }
+                _ => false,
+            }
+        }
+
+        (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
+        (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
+            name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b)
+        }
+        (Value::Future(a), Value::Future(b)) => Rc::ptr_eq(a, b),
+        (Value::Pattern(a), Value::Pattern(b)) => Rc::ptr_eq(a, b),
+
+        (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => a.name == b.name,
+        (Value::ContainerInstance(a), Value::ContainerInstance(b)) => {
+            if Rc::ptr_eq(a, b) {
+                return true;
+            }
+
+            let ptr_a = Rc::as_ptr(a) as *const ();
+            let ptr_b = Rc::as_ptr(b) as *const ();
+            let pair = (ptr_a, ptr_b);
+
+            if visited.contains(&pair) {
+                return true;
+            }
+            visited.insert(pair);
+
+            match (a.try_borrow(), b.try_borrow()) {
+                (Ok(a_ref), Ok(b_ref)) => {
+                    if a_ref.container_type != b_ref.container_type {
+                        return false;
+                    }
+
+                    // Compare parent hierarchy
+                    let parents_match = match (&a_ref.parent, &b_ref.parent) {
+                        (Some(p1), Some(p2)) => {
+                            let v1 = Value::ContainerInstance(Rc::clone(p1));
+                            let v2 = Value::ContainerInstance(Rc::clone(p2));
+                            eq_with_visited(&v1, &v2, visited)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    };
+
+                    if !parents_match {
+                        return false;
+                    }
+
+                    if a_ref.properties.len() != b_ref.properties.len() {
+                        return false;
+                    }
+                    a_ref.properties.iter().all(|(k, v)| {
+                        b_ref
+                            .properties
+                            .get(k)
+                            .is_some_and(|bv| eq_with_visited(v, bv, visited))
+                    })
+                }
+                _ => false,
+            }
+        }
+        (Value::ContainerMethod(a), Value::ContainerMethod(b)) => a.name == b.name,
+        (Value::ContainerEvent(a), Value::ContainerEvent(b)) => a.name == b.name,
+        (Value::InterfaceDefinition(a), Value::InterfaceDefinition(b)) => a.name == b.name,
+        _ => false,
     }
 }

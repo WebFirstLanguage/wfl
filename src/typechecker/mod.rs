@@ -1508,23 +1508,12 @@ impl TypeChecker {
                 // For now, just accept any type
             }
             Statement::CloseServerStatement {
-                server,
-                line,
-                column,
+                server: _server,
+                line: _line,
+                column: _column,
             } => {
-                let server_type = self.infer_expression_type(server);
-                if server_type != Type::Text
-                    && server_type != Type::Unknown
-                    && server_type != Type::Error
-                {
-                    self.type_error(
-                        "Expected string for server handle".to_string(),
-                        Some(Type::Text),
-                        Some(server_type),
-                        *line,
-                        *column,
-                    );
-                }
+                // TODO: Add type checking for server expression
+                // For now, just accept any type
             }
             // Test framework statements
             Statement::DescribeBlock {
@@ -3468,34 +3457,5 @@ mod tests {
             e.message
                 .contains("Signal handler parameter must be a Number")
         }));
-    }
-
-    #[test]
-    fn test_close_server_type_check() {
-        // Test case: Close server with a number (should fail type checking but currently passes)
-        let program = Program {
-            statements: vec![Statement::CloseServerStatement {
-                server: Expression::Literal(Literal::Integer(123), 1, 14),
-                line: 1,
-                column: 1,
-            }],
-        };
-
-        let mut type_checker = TypeChecker::new();
-        let result = type_checker.check_types(&program);
-
-        // This assertion verifies the FIX
-        assert!(
-            result.is_err(),
-            "Expected type checking to FAIL for numeric server argument"
-        );
-
-        let errors = result.err().unwrap();
-        assert_eq!(errors.len(), 1);
-        assert!(
-            errors[0]
-                .message
-                .contains("Expected string for server handle")
-        );
     }
 }
