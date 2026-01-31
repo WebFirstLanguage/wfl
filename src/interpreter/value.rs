@@ -401,7 +401,7 @@ impl PartialEq for Value {
                 if a.len() != b.len() {
                     return false;
                 }
-                a.iter().all(|(k, v)| b.get(k).map_or(false, |bv| v == bv))
+                a.iter().all(|(k, v)| b.get(k) == Some(v))
             }
 
             (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
@@ -426,7 +426,7 @@ impl PartialEq for Value {
                 }
                 a.properties
                     .iter()
-                    .all(|(k, v)| b.properties.get(k).map_or(false, |bv| v == bv))
+                    .all(|(k, v)| b.properties.get(k) == Some(v))
             }
             (Value::ContainerMethod(a), Value::ContainerMethod(b)) => a.name == b.name,
             (Value::ContainerEvent(a), Value::ContainerEvent(b)) => a.name == b.name,
