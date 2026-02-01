@@ -1802,7 +1802,8 @@ impl Interpreter {
                         // Variable doesn't exist, use normal definition
                         // OPTIMIZATION: Use define_direct to avoid redundant parent scope checks
                         // since we already verified existence with env.borrow().get(name) above.
-                        env.borrow_mut().define_direct(name, evaluated_value.clone())
+                        env.borrow_mut()
+                            .define_direct(name, evaluated_value.clone())
                     }
                 };
 
