@@ -192,7 +192,7 @@ We appreciate the security research community and will acknowledge responsible d
 
 ---
 
-**Last Updated**: January 2026
-**Version**: 26.1.35
+**Last Updated**: February 2026
+**Version**: 26.1.58
 
 © 2026 Logbie LLC. This security policy is subject to updates as WFL evolves from alpha to stable release.
