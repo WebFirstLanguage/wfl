@@ -89,6 +89,20 @@ impl Environment {
         Ok(())
     }
 
+    /// Defines a variable in the current scope without checking parent scopes for shadowing.
+    /// This is an optimization for when existence in parent scopes has already been checked.
+    pub fn define_direct(&mut self, name: &str, value: Value) -> Result<(), String> {
+        // Check if the variable already exists in current scope
+        if self.values.contains_key(name) {
+            return Err(format!(
+                "Variable '{name}' has already been defined. Use 'change {name} to <value>' to modify it."
+            ));
+        }
+
+        self.values.insert(name.to_string(), value);
+        Ok(())
+    }
+
     pub fn define_constant(&mut self, name: &str, value: Value) -> Result<(), String> {
         // Check if the variable/constant already exists
         if self.values.contains_key(name) {
