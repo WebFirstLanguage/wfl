@@ -121,21 +121,6 @@ pub fn native_tolowercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Text(Rc::from(lowercase)))
 }
 
-pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("contains expects 2 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
-
-    let text = expect_text(&args[0])?;
-    let substring = expect_text(&args[1])?;
-
-    Ok(Value::Bool(text.contains(&*substring)))
-}
-
 pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     if args.len() != 3 {
         return Err(RuntimeError::new(
@@ -319,10 +304,6 @@ pub fn register_text(env: &mut Environment) {
     let _ = env.define(
         "tolowercase",
         Value::NativeFunction("tolowercase", native_tolowercase),
-    );
-    let _ = env.define(
-        "contains",
-        Value::NativeFunction("contains", native_contains),
     );
     let _ = env.define(
         "substring",
