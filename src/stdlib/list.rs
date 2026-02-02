@@ -1,31 +1,7 @@
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use std::cell::RefCell;
-use std::rc::Rc;
-
-fn expect_list(value: &Value) -> Result<Rc<RefCell<Vec<Value>>>, RuntimeError> {
-    match value {
-        Value::List(list) => Ok(Rc::clone(list)),
-        _ => Err(RuntimeError::new(
-            format!("Expected a list, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
-
-#[allow(dead_code)]
-fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
-    match value {
-        Value::Number(n) => Ok(*n),
-        _ => Err(RuntimeError::new(
-            format!("Expected a number, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
+use crate::stdlib::helpers::expect_list;
 
 pub fn native_length(args: Vec<Value>) -> Result<Value, RuntimeError> {
     if args.len() != 1 {
