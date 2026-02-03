@@ -1,6 +1,7 @@
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use crate::stdlib::helpers::{check_arg_count, expect_text};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use std::rc::Rc;
@@ -417,20 +418,10 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 
 /// WFLHASH-256 implementation with security fixes
 pub fn native_wflhash256(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            "Invalid argument count".to_string(),
-            0,
-            0,
-        ));
-    }
+    check_arg_count(&args, 1, "wflhash256")?;
 
-    let input = match &args[0] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
+    let text_rc = expect_text(&args[0])?;
+    let input = text_rc.as_bytes();
 
     let params = WflHashParams::new(32); // 256 bits = 32 bytes
     let hash_bytes = wflhash_core_text(input, &params)?; // Validate UTF-8 for text
@@ -441,20 +432,10 @@ pub fn native_wflhash256(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// WFLHASH-512 implementation with security fixes
 pub fn native_wflhash512(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            "Invalid argument count".to_string(),
-            0,
-            0,
-        ));
-    }
+    check_arg_count(&args, 1, "wflhash512")?;
 
-    let input = match &args[0] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
+    let text_rc = expect_text(&args[0])?;
+    let input = text_rc.as_bytes();
 
     let params = WflHashParams::new(64); // 512 bits = 64 bytes
     let hash_bytes = wflhash_core_text(input, &params)?; // Validate UTF-8 for text
@@ -465,27 +446,13 @@ pub fn native_wflhash512(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// WFLHASH-256 with personalization/salt support
 pub fn native_wflhash256_with_salt(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            "Invalid argument count".to_string(),
-            0,
-            0,
-        ));
-    }
+    check_arg_count(&args, 2, "wflhash256_with_salt")?;
 
-    let input = match &args[0] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
+    let input_rc = expect_text(&args[0])?;
+    let input = input_rc.as_bytes();
 
-    let salt = match &args[1] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
+    let salt_rc = expect_text(&args[1])?;
+    let salt = salt_rc.as_bytes();
 
     let params = WflHashParams::new_with_personalization(32, salt);
     let hash_bytes = wflhash_core_text(input, &params)?;
@@ -497,27 +464,13 @@ pub fn native_wflhash256_with_salt(args: Vec<Value>) -> Result<Value, RuntimeErr
 /// WFLHASH-256 with key for MAC functionality (WFLMAC-256)
 /// Now uses proper HKDF key derivation for enhanced security
 pub fn native_wflmac256(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            "Invalid argument count".to_string(),
-            0,
-            0,
-        ));
-    }
+    check_arg_count(&args, 2, "wflmac256")?;
 
-    let input = match &args[0] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
+    let input_rc = expect_text(&args[0])?;
+    let input = input_rc.as_bytes();
 
-    let key = match &args[1] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
+    let key_rc = expect_text(&args[1])?;
+    let key = key_rc.as_bytes();
 
     // Use proper key derivation with error handling
     let params = WflHashParams::new_with_key(32, key)?;
