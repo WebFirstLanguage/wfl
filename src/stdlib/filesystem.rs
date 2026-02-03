@@ -1,6 +1,6 @@
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::stdlib::helpers::{check_arg_count, expect_text};
+use crate::stdlib::helpers::{check_arg_count, check_min_arg_count, expect_text};
 use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -439,7 +439,8 @@ pub fn native_remove_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_remove_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.is_empty() || args.len() > 2 {
+    check_min_arg_count(&args, 1, "remove_dir")?;
+    if args.len() > 2 {
         return Err(RuntimeError::new(
             format!("remove_dir expects 1 or 2 arguments, got {}", args.len()),
             0,

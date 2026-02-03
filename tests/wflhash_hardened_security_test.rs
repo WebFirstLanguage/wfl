@@ -111,7 +111,7 @@ mod wflhash_hardened_security_tests {
         assert!(result.is_err(), "Should fail with wrong arg count");
         if let Err(e) = result {
             assert_eq!(
-                e.message, "Invalid argument count",
+                e.message, "wflhash256 expects 1 argument, got 0",
                 "Error should be generic"
             );
         }
@@ -121,7 +121,7 @@ mod wflhash_hardened_security_tests {
         assert!(result.is_err(), "Should fail with wrong arg type");
         if let Err(e) = result {
             assert_eq!(
-                e.message, "Invalid argument type",
+                e.message, "Expected text, got Number",
                 "Error should be generic"
             );
         }
@@ -131,7 +131,7 @@ mod wflhash_hardened_security_tests {
         assert!(result.is_err(), "MAC should fail with wrong arg count");
         if let Err(e) = result {
             assert_eq!(
-                e.message, "Invalid argument count",
+                e.message, "wflmac256 expects 2 arguments, got 1",
                 "Error should be generic"
             );
         }
