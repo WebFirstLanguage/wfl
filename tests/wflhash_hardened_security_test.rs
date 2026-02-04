@@ -112,7 +112,7 @@ mod wflhash_hardened_security_tests {
         if let Err(e) = result {
             assert_eq!(
                 e.message, "wflhash256 expects 1 argument, got 0",
-                "Error should be generic"
+                "Error should be standard"
             );
         }
 
@@ -122,7 +122,7 @@ mod wflhash_hardened_security_tests {
         if let Err(e) = result {
             assert_eq!(
                 e.message, "Expected text, got Number",
-                "Error should be generic"
+                "Error should be standard"
             );
         }
 
@@ -132,7 +132,7 @@ mod wflhash_hardened_security_tests {
         if let Err(e) = result {
             assert_eq!(
                 e.message, "wflmac256 expects 2 arguments, got 1",
-                "Error should be generic"
+                "Error should be standard"
             );
         }
     }

@@ -1,38 +1,38 @@
+use super::helpers::{check_arg_count, expect_number};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::stdlib::helpers::{check_arg_count, expect_number};
 
 pub fn native_abs(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 1, "abs")?;
+    check_arg_count("abs", &args, 1)?;
 
     let x = expect_number(&args[0])?;
     Ok(Value::Number(x.abs()))
 }
 
 pub fn native_round(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 1, "round")?;
+    check_arg_count("round", &args, 1)?;
 
     let x = expect_number(&args[0])?;
     Ok(Value::Number(x.round()))
 }
 
 pub fn native_floor(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 1, "floor")?;
+    check_arg_count("floor", &args, 1)?;
 
     let x = expect_number(&args[0])?;
     Ok(Value::Number(x.floor()))
 }
 
 pub fn native_ceil(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 1, "ceil")?;
+    check_arg_count("ceil", &args, 1)?;
 
     let x = expect_number(&args[0])?;
     Ok(Value::Number(x.ceil()))
 }
 
 pub fn native_clamp(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 3, "clamp")?;
+    check_arg_count("clamp", &args, 3)?;
 
     let value = expect_number(&args[0])?;
     let min = expect_number(&args[1])?;

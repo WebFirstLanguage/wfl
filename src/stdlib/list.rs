@@ -1,10 +1,10 @@
+use super::helpers::{check_arg_count, expect_list};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::stdlib::helpers::{check_arg_count, expect_list};
 
 pub fn native_length(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 1, "length")?;
+    check_arg_count("length", &args, 1)?;
 
     match &args[0] {
         Value::List(list) => Ok(Value::Number(list.borrow().len() as f64)),
@@ -18,7 +18,7 @@ pub fn native_length(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_push(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "push")?;
+    check_arg_count("push", &args, 2)?;
 
     let list = expect_list(&args[0])?;
     let item = args[1].clone();
@@ -28,7 +28,7 @@ pub fn native_push(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_pop(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 1, "pop")?;
+    check_arg_count("pop", &args, 1)?;
 
     let list = expect_list(&args[0])?;
     let mut list_ref = list.borrow_mut();
@@ -45,7 +45,7 @@ pub fn native_pop(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "contains")?;
+    check_arg_count("contains", &args, 2)?;
 
     let list = expect_list(&args[0])?;
     let item = &args[1];
@@ -60,7 +60,7 @@ pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_indexof(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "indexof")?;
+    check_arg_count("indexof", &args, 2)?;
 
     let list = expect_list(&args[0])?;
     let item = &args[1];

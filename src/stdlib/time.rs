@@ -1,15 +1,16 @@
+use super::helpers::{
+    check_arg_count, check_arg_range, expect_date, expect_datetime, expect_number, expect_text,
+    expect_time,
+};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::stdlib::helpers::{
-    check_arg_count, expect_date, expect_datetime, expect_number, expect_text, expect_time,
-};
 use chrono::{Local, NaiveDate, NaiveTime};
 use std::rc::Rc;
 
 /// Returns the current date
 pub fn native_today(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 0, "today")?;
+    check_arg_count("today", &args, 0)?;
 
     let today = Local::now().date_naive();
     Ok(Value::Date(Rc::new(today)))
@@ -17,7 +18,7 @@ pub fn native_today(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Returns the current time
 pub fn native_now(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 0, "now")?;
+    check_arg_count("now", &args, 0)?;
 
     let now = Local::now().time();
     Ok(Value::Time(Rc::new(now)))
@@ -25,7 +26,7 @@ pub fn native_now(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Returns the current date and time
 pub fn native_datetime_now(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 0, "datetime_now")?;
+    check_arg_count("datetime_now", &args, 0)?;
 
     let now = Local::now().naive_local();
     Ok(Value::DateTime(Rc::new(now)))
@@ -33,7 +34,7 @@ pub fn native_datetime_now(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Formats a date according to a format string
 pub fn native_format_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "format_date")?;
+    check_arg_count("format_date", &args, 2)?;
 
     let date = expect_date(&args[0])?;
     let format_string = expect_text(&args[1])?;
@@ -44,7 +45,7 @@ pub fn native_format_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Formats a time according to a format string
 pub fn native_format_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "format_time")?;
+    check_arg_count("format_time", &args, 2)?;
 
     let time = expect_time(&args[0])?;
     let format_string = expect_text(&args[1])?;
@@ -55,7 +56,7 @@ pub fn native_format_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Formats a datetime according to a format string
 pub fn native_format_datetime(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "format_datetime")?;
+    check_arg_count("format_datetime", &args, 2)?;
 
     let datetime = expect_datetime(&args[0])?;
     let format_string = expect_text(&args[1])?;
@@ -66,7 +67,7 @@ pub fn native_format_datetime(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Parses a date from a string
 pub fn native_parse_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "parse_date")?;
+    check_arg_count("parse_date", &args, 2)?;
 
     let date_str = expect_text(&args[0])?;
     let format_string = expect_text(&args[1])?;
@@ -83,7 +84,7 @@ pub fn native_parse_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Parses a time from a string
 pub fn native_parse_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "parse_time")?;
+    check_arg_count("parse_time", &args, 2)?;
 
     let time_str = expect_text(&args[0])?;
     let format_string = expect_text(&args[1])?;
@@ -100,13 +101,7 @@ pub fn native_parse_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Creates a time from hours, minutes, and seconds
 pub fn native_create_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() < 2 || args.len() > 3 {
-        return Err(RuntimeError::new(
-            format!("create_time expects 2 or 3 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_range("create_time", &args, 2, 3)?;
 
     let hours = expect_number(&args[0])? as u32;
     let minutes = expect_number(&args[1])? as u32;
@@ -155,7 +150,7 @@ pub fn native_create_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Creates a date from year, month, and day
 pub fn native_create_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 3, "create_date")?;
+    check_arg_count("create_date", &args, 3)?;
 
     let year = expect_number(&args[0])? as i32;
     let month = expect_number(&args[1])? as u32;
@@ -189,7 +184,7 @@ pub fn native_create_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Adds days to a date
 pub fn native_add_days(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "add_days")?;
+    check_arg_count("add_days", &args, 2)?;
 
     let date = expect_date(&args[0])?;
     let days = expect_number(&args[1])? as i64;
@@ -203,7 +198,7 @@ pub fn native_add_days(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Gets the difference in days between two dates
 pub fn native_days_between(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "days_between")?;
+    check_arg_count("days_between", &args, 2)?;
 
     let date1 = expect_date(&args[0])?;
     let date2 = expect_date(&args[1])?;
@@ -216,7 +211,7 @@ pub fn native_days_between(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Simple test function that returns the current date as a string
 pub fn native_current_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 0, "current_date")?;
+    check_arg_count("current_date", &args, 0)?;
 
     let today = Local::now().date_naive();
     let formatted = today.format("%Y-%m-%d").to_string();

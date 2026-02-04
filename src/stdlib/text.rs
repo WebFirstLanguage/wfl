@@ -1,7 +1,7 @@
+use super::helpers::{check_arg_count, expect_number, expect_text};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::stdlib::helpers::{check_arg_count, expect_number, expect_text};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -73,7 +73,7 @@ fn parse_key_value_pairs(input: &str, delimiter: char) -> std::collections::Hash
 // which handles both text and lists
 
 pub fn native_touppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 1, "touppercase")?;
+    check_arg_count("touppercase", &args, 1)?;
 
     let text = expect_text(&args[0])?;
     let uppercase = text.to_uppercase();
@@ -81,7 +81,7 @@ pub fn native_touppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_tolowercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 1, "tolowercase")?;
+    check_arg_count("tolowercase", &args, 1)?;
 
     let text = expect_text(&args[0])?;
     let lowercase = text.to_lowercase();
@@ -89,7 +89,7 @@ pub fn native_tolowercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "contains")?;
+    check_arg_count("contains", &args, 2)?;
 
     let text = expect_text(&args[0])?;
     let substring = expect_text(&args[1])?;
@@ -98,7 +98,7 @@ pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 3, "substring")?;
+    check_arg_count("substring", &args, 3)?;
 
     let text = expect_text(&args[0])?;
     let start = expect_number(&args[1])? as usize;
@@ -119,7 +119,7 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "string_split")?;
+    check_arg_count("string_split", &args, 2)?;
 
     let text = expect_text(&args[0])?;
     let delimiter = expect_text(&args[1])?;
@@ -143,7 +143,7 @@ pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_trim(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 1, "trim")?;
+    check_arg_count("trim", &args, 1)?;
 
     let text = expect_text(&args[0])?;
     let trimmed = text.trim();
@@ -151,7 +151,7 @@ pub fn native_trim(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_starts_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "starts_with")?;
+    check_arg_count("starts_with", &args, 2)?;
 
     let text = expect_text(&args[0])?;
     let prefix = expect_text(&args[1])?;
@@ -160,7 +160,7 @@ pub fn native_starts_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_ends_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 2, "ends_with")?;
+    check_arg_count("ends_with", &args, 2)?;
 
     let text = expect_text(&args[0])?;
     let suffix = expect_text(&args[1])?;
@@ -171,7 +171,7 @@ pub fn native_ends_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
 /// Parse query string into WFL object
 /// Usage: parse_query_string("?page=1&limit=10") -> {"page": "1", "limit": "10"}
 pub fn native_parse_query_string(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 1, "parse_query_string")?;
+    check_arg_count("parse_query_string", &args, 1)?;
 
     let query_str = expect_text(&args[0])?;
     let query_str = query_str.trim_start_matches('?');
@@ -186,7 +186,7 @@ pub fn native_parse_query_string(args: Vec<Value>) -> Result<Value, RuntimeError
 pub fn native_parse_cookies(args: Vec<Value>) -> Result<Value, RuntimeError> {
     use std::collections::HashMap;
 
-    check_arg_count(&args, 1, "parse_cookies")?;
+    check_arg_count("parse_cookies", &args, 1)?;
 
     let cookie_header = expect_text(&args[0])?;
     let mut cookies = HashMap::new();
@@ -211,7 +211,7 @@ pub fn native_parse_cookies(args: Vec<Value>) -> Result<Value, RuntimeError> {
 /// Parse URL-encoded form data
 /// Usage: parse_form_urlencoded("name=Alice&age=30") -> {"name": "Alice", "age": "30"}
 pub fn native_parse_form_urlencoded(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count(&args, 1, "parse_form_urlencoded")?;
+    check_arg_count("parse_form_urlencoded", &args, 1)?;
 
     let form_data = expect_text(&args[0])?;
 
