@@ -96,6 +96,7 @@
       "Bash(gh pr view:*)",
       "Bash(git merge:*)",
       "Bash(git push:*)",
+      "Bash(gh pr checks:*)"
       "Bash(gh pr checkout:*)",
       "Bash(git pull:*)"
     ],
