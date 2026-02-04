@@ -1,6 +1,7 @@
 pub mod core;
 pub mod crypto;
 pub mod filesystem;
+pub mod helpers;
 pub mod json;
 pub mod list;
 pub mod math;
