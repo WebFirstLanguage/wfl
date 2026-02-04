@@ -390,6 +390,11 @@ impl PartialEq for Value {
     }
 }
 
+/// Helper function for consistent numeric equality comparison using EPSILON
+fn numbers_equal(a: f64, b: f64) -> bool {
+    (a - b).abs() < f64::EPSILON
+}
+
 fn eq_with_visited(
     lhs: &Value,
     rhs: &Value,
