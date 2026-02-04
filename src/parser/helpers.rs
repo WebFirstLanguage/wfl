@@ -225,8 +225,6 @@ impl<'a> Parser<'a> {
                 | Token::KeywordClose
                 | Token::KeywordWait
                 | Token::KeywordLoad
-                | Token::KeywordInclude
-                | Token::KeywordExport
                 | Token::KeywordGive
                 | Token::KeywordReturn
         )
@@ -250,7 +248,6 @@ impl<'a> Parser<'a> {
                 }
                 Token::KeywordEnd => {
                     // Handle orphaned "end" tokens during error recovery
-                    #[allow(unused_variables)]
                     let line = token.line;
                     exec_trace!("Synchronizing: found 'end' token at line {}", line);
                     self.bump_sync();

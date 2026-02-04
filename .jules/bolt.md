@@ -25,7 +25,3 @@
 ## 2026-02-05 - [Batch Interpreter Timeout Checks]
 **Learning:** Checking `Instant::elapsed()` on every instruction creates significant overhead (15-20%) in tight loops due to syscalls/hardware clock reads.
 **Action:** Implemented a batched check using a simple instruction counter (`op_count & 1023 == 0`), only checking the system clock every 1024 operations. This maintains safety (timeouts are still enforced, just with slightly coarser granularity) while significantly reducing per-instruction overhead.
-
-## 2026-02-18 - [Unified and Optimized Value Equality]
-**Learning:** Three different equality implementations existed (`Value::eq`, `Interpreter::is_equal`, `values_equal`), leading to inconsistent behavior (e.g., `[1] == [1]` was false in WFL code but true in Rust `PartialEq`). Additionally, `Value::eq` unconditionally allocated a `HashSet` for cycle detection, penalizing simple primitive comparisons.
-**Action:** Optimized `Value::eq` with a fast path for primitives (avoiding allocation) and updated all call sites to use it. This unified equality logic, fixed correctness bugs for containers, and improved performance for primitives.

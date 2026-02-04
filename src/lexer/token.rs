@@ -163,10 +163,6 @@ pub enum Token {
     KeywordLoad,
     #[token("module")]
     KeywordModule,
-    #[token("include")]
-    KeywordInclude,
-    #[token("export")]
-    KeywordExport,
     #[token("shell")]
     KeywordShell,
     #[token("kill")]
@@ -576,8 +572,6 @@ impl Token {
                 | Token::KeywordWait
                 | Token::KeywordLoad
                 | Token::KeywordModule
-                | Token::KeywordInclude
-                | Token::KeywordExport
                 | Token::KeywordTry
                 | Token::KeywordWhen
                 | Token::KeywordCatch

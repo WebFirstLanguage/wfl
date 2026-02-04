@@ -1,9 +1,0 @@
-# Test export constant validation
-
-store new constant VALID_CONSTANT as "This is a constant"
-store invalid_variable as "This is not a constant"
-
-export constant VALID_CONSTANT  # This should work
-
-# This should fail at runtime - trying to export a non-constant as constant
-export constant invalid_variable

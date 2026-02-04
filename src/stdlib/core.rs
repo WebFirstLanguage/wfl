@@ -1,4 +1,3 @@
-use super::helpers::check_arg_count;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
@@ -16,14 +15,26 @@ pub fn native_print(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_typeof(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("typeof", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("typeof expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let type_name = args[0].type_name();
     Ok(Value::Text(Rc::from(type_name)))
 }
 
 pub fn native_isnothing(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("isnothing", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("isnothing expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     match &args[0] {
         Value::Null => Ok(Value::Bool(true)),

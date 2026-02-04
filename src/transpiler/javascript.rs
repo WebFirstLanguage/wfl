@@ -1390,24 +1390,6 @@ impl JavaScriptTranspiler {
                     )),
                 }
             }
-
-            Statement::IncludeStatement { line, column, .. } => {
-                // Include statements are not supported in JavaScript transpilation
-                Err(TranspileError {
-                    message: "Include statements are not supported in JavaScript transpilation. Use 'load module' instead.".to_string(),
-                    line: *line,
-                    column: *column,
-                })
-            }
-
-            Statement::ExportStatement { line, column, .. } => {
-                // Export statements are not supported in JavaScript transpilation
-                Err(TranspileError {
-                    message: "Export statements are not supported in JavaScript transpilation. They are for module system management only.".to_string(),
-                    line: *line,
-                    column: *column,
-                })
-            }
         }
     }
 
