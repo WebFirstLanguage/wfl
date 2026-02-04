@@ -205,6 +205,11 @@ impl Environment {
         Err(format!("Undefined variable '{name}'"))
     }
 
+    /// Get a value from the local scope only (does not check parent scopes)
+    pub fn get_local(&self, name: &str) -> Option<Value> {
+        self.values.get(name).cloned()
+    }
+
     pub fn get(&self, name: &str) -> Option<Value> {
         // Check local scope first
         if let Some(value) = self.values.get(name) {
