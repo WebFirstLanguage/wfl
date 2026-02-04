@@ -1,3 +1,7 @@
+use super::helpers::{
+    check_arg_count, check_arg_range, expect_date, expect_datetime, expect_number, expect_text,
+    expect_time,
+};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
@@ -6,13 +10,7 @@ use std::rc::Rc;
 
 /// Returns the current date
 pub fn native_today(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if !args.is_empty() {
-        return Err(RuntimeError::new(
-            format!("today expects 0 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("today", &args, 0)?;
 
     let today = Local::now().date_naive();
     Ok(Value::Date(Rc::new(today)))
@@ -20,13 +18,7 @@ pub fn native_today(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Returns the current time
 pub fn native_now(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if !args.is_empty() {
-        return Err(RuntimeError::new(
-            format!("now expects 0 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("now", &args, 0)?;
 
     let now = Local::now().time();
     Ok(Value::Time(Rc::new(now)))
@@ -34,13 +26,7 @@ pub fn native_now(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Returns the current date and time
 pub fn native_datetime_now(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if !args.is_empty() {
-        return Err(RuntimeError::new(
-            format!("datetime_now expects 0 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("datetime_now", &args, 0)?;
 
     let now = Local::now().naive_local();
     Ok(Value::DateTime(Rc::new(now)))
@@ -48,41 +34,10 @@ pub fn native_datetime_now(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Formats a date according to a format string
 pub fn native_format_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("format_date expects 2 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("format_date", &args, 2)?;
 
-    let date = match &args[0] {
-        Value::Date(d) => d.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "format_date expects a Date as first argument, got {}",
-                    args[0].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let format_string = match &args[1] {
-        Value::Text(s) => s.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "format_date expects a Text as second argument, got {}",
-                    args[1].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
+    let date = expect_date(&args[0])?;
+    let format_string = expect_text(&args[1])?;
 
     let formatted = date.format(&format_string).to_string();
     Ok(Value::Text(formatted.into()))
@@ -90,41 +45,10 @@ pub fn native_format_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Formats a time according to a format string
 pub fn native_format_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("format_time expects 2 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("format_time", &args, 2)?;
 
-    let time = match &args[0] {
-        Value::Time(t) => t.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "format_time expects a Time as first argument, got {}",
-                    args[0].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let format_string = match &args[1] {
-        Value::Text(s) => s.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "format_time expects a Text as second argument, got {}",
-                    args[1].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
+    let time = expect_time(&args[0])?;
+    let format_string = expect_text(&args[1])?;
 
     let formatted = time.format(&format_string).to_string();
     Ok(Value::Text(formatted.into()))
@@ -132,41 +56,10 @@ pub fn native_format_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Formats a datetime according to a format string
 pub fn native_format_datetime(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("format_datetime expects 2 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("format_datetime", &args, 2)?;
 
-    let datetime = match &args[0] {
-        Value::DateTime(dt) => dt.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "format_datetime expects a DateTime as first argument, got {}",
-                    args[0].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let format_string = match &args[1] {
-        Value::Text(s) => s.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "format_datetime expects a Text as second argument, got {}",
-                    args[1].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
+    let datetime = expect_datetime(&args[0])?;
+    let format_string = expect_text(&args[1])?;
 
     let formatted = datetime.format(&format_string).to_string();
     Ok(Value::Text(formatted.into()))
@@ -174,41 +67,10 @@ pub fn native_format_datetime(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Parses a date from a string
 pub fn native_parse_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("parse_date expects 2 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("parse_date", &args, 2)?;
 
-    let date_str = match &args[0] {
-        Value::Text(s) => s.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "parse_date expects a Text as first argument, got {}",
-                    args[0].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let format_string = match &args[1] {
-        Value::Text(s) => s.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "parse_date expects a Text as second argument, got {}",
-                    args[1].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
+    let date_str = expect_text(&args[0])?;
+    let format_string = expect_text(&args[1])?;
 
     match NaiveDate::parse_from_str(&date_str, &format_string) {
         Ok(date) => Ok(Value::Date(Rc::new(date))),
@@ -222,41 +84,10 @@ pub fn native_parse_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Parses a time from a string
 pub fn native_parse_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("parse_time expects 2 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("parse_time", &args, 2)?;
 
-    let time_str = match &args[0] {
-        Value::Text(s) => s.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "parse_time expects a Text as first argument, got {}",
-                    args[0].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let format_string = match &args[1] {
-        Value::Text(s) => s.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "parse_time expects a Text as second argument, got {}",
-                    args[1].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
+    let time_str = expect_text(&args[0])?;
+    let format_string = expect_text(&args[1])?;
 
     match NaiveTime::parse_from_str(&time_str, &format_string) {
         Ok(time) => Ok(Value::Time(Rc::new(time))),
@@ -270,56 +101,13 @@ pub fn native_parse_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Creates a time from hours, minutes, and seconds
 pub fn native_create_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() < 2 || args.len() > 3 {
-        return Err(RuntimeError::new(
-            format!("create_time expects 2 or 3 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_range("create_time", &args, 2, 3)?;
 
-    let hours = match &args[0] {
-        Value::Number(n) => *n as u32,
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "create_time expects a Number as first argument, got {}",
-                    args[0].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let minutes = match &args[1] {
-        Value::Number(n) => *n as u32,
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "create_time expects a Number as second argument, got {}",
-                    args[1].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
+    let hours = expect_number(&args[0])? as u32;
+    let minutes = expect_number(&args[1])? as u32;
 
     let seconds = if args.len() == 3 {
-        match &args[2] {
-            Value::Number(n) => *n as u32,
-            _ => {
-                return Err(RuntimeError::new(
-                    format!(
-                        "create_time expects a Number as third argument, got {}",
-                        args[2].type_name()
-                    ),
-                    0,
-                    0,
-                ));
-            }
-        }
+        expect_number(&args[2])? as u32
     } else {
         0
     };
@@ -362,55 +150,11 @@ pub fn native_create_time(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Creates a date from year, month, and day
 pub fn native_create_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 3 {
-        return Err(RuntimeError::new(
-            format!("create_date expects 3 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("create_date", &args, 3)?;
 
-    let year = match &args[0] {
-        Value::Number(n) => *n as i32,
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "create_date expects a Number as first argument, got {}",
-                    args[0].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let month = match &args[1] {
-        Value::Number(n) => *n as u32,
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "create_date expects a Number as second argument, got {}",
-                    args[1].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let day = match &args[2] {
-        Value::Number(n) => *n as u32,
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "create_date expects a Number as third argument, got {}",
-                    args[2].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
+    let year = expect_number(&args[0])? as i32;
+    let month = expect_number(&args[1])? as u32;
+    let day = expect_number(&args[2])? as u32;
 
     if !(1..=12).contains(&month) {
         return Err(RuntimeError::new(
@@ -440,41 +184,10 @@ pub fn native_create_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Adds days to a date
 pub fn native_add_days(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("add_days expects 2 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("add_days", &args, 2)?;
 
-    let date = match &args[0] {
-        Value::Date(d) => d.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "add_days expects a Date as first argument, got {}",
-                    args[0].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let days = match &args[1] {
-        Value::Number(n) => *n as i64,
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "add_days expects a Number as second argument, got {}",
-                    args[1].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
+    let date = expect_date(&args[0])?;
+    let days = expect_number(&args[1])? as i64;
 
     let new_date = date
         .checked_add_signed(chrono::Duration::days(days))
@@ -485,41 +198,10 @@ pub fn native_add_days(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Gets the difference in days between two dates
 pub fn native_days_between(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("days_between expects 2 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("days_between", &args, 2)?;
 
-    let date1 = match &args[0] {
-        Value::Date(d) => d.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "days_between expects a Date as first argument, got {}",
-                    args[0].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let date2 = match &args[1] {
-        Value::Date(d) => d.clone(),
-        _ => {
-            return Err(RuntimeError::new(
-                format!(
-                    "days_between expects a Date as second argument, got {}",
-                    args[1].type_name()
-                ),
-                0,
-                0,
-            ));
-        }
-    };
+    let date1 = expect_date(&args[0])?;
+    let date2 = expect_date(&args[1])?;
 
     let duration = date2.signed_duration_since(*date1);
     let days = duration.num_days();
@@ -529,13 +211,7 @@ pub fn native_days_between(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Simple test function that returns the current date as a string
 pub fn native_current_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if !args.is_empty() {
-        return Err(RuntimeError::new(
-            format!("current_date expects 0 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("current_date", &args, 0)?;
 
     let today = Local::now().date_naive();
     let formatted = today.format("%Y-%m-%d").to_string();
