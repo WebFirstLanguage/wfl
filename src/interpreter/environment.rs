@@ -78,7 +78,7 @@ impl Environment {
         // Check if the variable exists in parent scopes
         if let Some(parent_weak) = &self.parent
             && let Some(parent) = parent_weak.upgrade()
-            && parent.borrow().get(name).is_some()
+            && parent.borrow().has(name)
         {
             return Err(format!(
                 "Variable '{name}' has already been defined in an outer scope. Use 'change {name} to <value>' to modify it."
@@ -114,7 +114,7 @@ impl Environment {
         // Check if the variable exists in parent scopes
         if let Some(parent_weak) = &self.parent
             && let Some(parent) = parent_weak.upgrade()
-            && parent.borrow().get(name).is_some()
+            && parent.borrow().has(name)
         {
             return Err(format!(
                 "Variable or constant '{name}' has already been defined in an outer scope."
@@ -124,6 +124,28 @@ impl Environment {
         self.values.insert(name.to_string(), value);
         self.constants.insert(name.to_string());
         Ok(())
+    }
+
+    pub fn define_constant_direct(&mut self, name: &str, value: Value) -> Result<(), String> {
+        self.values.insert(name.to_string(), value);
+        self.constants.insert(name.to_string());
+        Ok(())
+    }
+
+    pub fn has(&self, name: &str) -> bool {
+        if self.values.contains_key(name) {
+            return true;
+        }
+
+        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        while let Some(parent_rc) = current_parent {
+            let parent = parent_rc.borrow();
+            if parent.values.contains_key(name) {
+                return true;
+            }
+            current_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+        }
+        false
     }
 
     pub fn is_constant(&self, name: &str) -> bool {
