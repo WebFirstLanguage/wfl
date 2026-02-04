@@ -1,40 +1,10 @@
+use super::helpers::{check_arg_count, expect_list};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use std::cell::RefCell;
-use std::rc::Rc;
-
-fn expect_list(value: &Value) -> Result<Rc<RefCell<Vec<Value>>>, RuntimeError> {
-    match value {
-        Value::List(list) => Ok(Rc::clone(list)),
-        _ => Err(RuntimeError::new(
-            format!("Expected a list, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
-
-#[allow(dead_code)]
-fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
-    match value {
-        Value::Number(n) => Ok(*n),
-        _ => Err(RuntimeError::new(
-            format!("Expected a number, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
 
 pub fn native_length(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            format!("length expects 1 argument, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("length", &args, 1)?;
 
     match &args[0] {
         Value::List(list) => Ok(Value::Number(list.borrow().len() as f64)),
@@ -48,13 +18,7 @@ pub fn native_length(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_push(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("push expects 2 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("push", &args, 2)?;
 
     let list = expect_list(&args[0])?;
     let item = args[1].clone();
@@ -64,13 +28,7 @@ pub fn native_push(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_pop(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            format!("pop expects 1 argument, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("pop", &args, 1)?;
 
     let list = expect_list(&args[0])?;
     let mut list_ref = list.borrow_mut();
@@ -87,13 +45,7 @@ pub fn native_pop(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("contains expects 2 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("contains", &args, 2)?;
 
     let list = expect_list(&args[0])?;
     let item = &args[1];
@@ -108,13 +60,7 @@ pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_indexof(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            format!("indexof expects 2 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("indexof", &args, 2)?;
 
     let list = expect_list(&args[0])?;
     let item = &args[1];

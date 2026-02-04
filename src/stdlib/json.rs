@@ -1,20 +1,10 @@
+use super::helpers::{check_arg_count, expect_text};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-
-fn expect_text(value: &Value) -> Result<Rc<str>, RuntimeError> {
-    match value {
-        Value::Text(s) => Ok(Rc::clone(s)),
-        _ => Err(RuntimeError::new(
-            format!("Expected text, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
 
 /// Convert serde_json::Value to WFL Value
 fn json_to_wfl(json: serde_json::Value) -> Value {
@@ -86,13 +76,7 @@ fn wfl_to_json(value: &Value) -> Result<serde_json::Value, RuntimeError> {
 /// Parse JSON string to WFL value
 /// Usage: parse_json(json_text)
 pub fn native_parse_json(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            format!("parse_json expects 1 argument, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("parse_json", &args, 1)?;
 
     let json_text = expect_text(&args[0])?;
 
@@ -109,13 +93,7 @@ pub fn native_parse_json(args: Vec<Value>) -> Result<Value, RuntimeError> {
 /// Convert WFL value to JSON string
 /// Usage: stringify_json(value)
 pub fn native_stringify_json(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            format!("stringify_json expects 1 argument, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("stringify_json", &args, 1)?;
 
     let json_value = wfl_to_json(&args[0])?;
 
@@ -132,16 +110,7 @@ pub fn native_stringify_json(args: Vec<Value>) -> Result<Value, RuntimeError> {
 /// Convert WFL value to pretty-printed JSON string
 /// Usage: stringify_json_pretty(value)
 pub fn native_stringify_json_pretty(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            format!(
-                "stringify_json_pretty expects 1 argument, got {}",
-                args.len()
-            ),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("stringify_json_pretty", &args, 1)?;
 
     let json_value = wfl_to_json(&args[0])?;
 
