@@ -1808,6 +1808,8 @@ impl Interpreter {
                     if exists {
                         env.borrow_mut().define_constant(name, evaluated_value)
                     } else {
+                        // OPTIMIZATION: Use define_constant_direct to avoid redundant parent scope checks
+                        // since we already verified existence with env.borrow().has(name) above.
                         env.borrow_mut()
                             .define_constant_direct(name, evaluated_value)
                     }
