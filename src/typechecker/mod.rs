@@ -1688,7 +1688,10 @@ impl TypeChecker {
                     );
                 }
                 // Note: Include statements execute in parent scope, making their symbols available
-                // Full symbol resolution would require parsing the included file during type checking
+                // at runtime. However, the type checker doesn't currently parse included files,
+                // which can result in false "not found" errors for symbols defined in included files.
+                // Future improvement: Parse and analyze included files during type checking
+                // to register their symbols in the current scope for more accurate diagnostics.
             }
 
             Statement::ExportStatement {
