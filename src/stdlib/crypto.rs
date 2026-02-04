@@ -1,3 +1,4 @@
+use super::helpers::{check_arg_count, expect_text};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
@@ -417,121 +418,52 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 
 /// WFLHASH-256 implementation with security fixes
 pub fn native_wflhash256(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            "Invalid argument count".to_string(),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("wflhash256", &args, 1)?;
 
-    let input = match &args[0] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
-
+    let text = expect_text(&args[0])?;
     let params = WflHashParams::new(32); // 256 bits = 32 bytes
-    let hash_bytes = wflhash_core_text(input, &params)?; // Validate UTF-8 for text
-    let hash_hex = bytes_to_hex(&hash_bytes);
-
-    Ok(Value::Text(Rc::from(hash_hex)))
+    let hash = wflhash_core_text(text.as_bytes(), &params)?;
+    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-512 implementation with security fixes
 pub fn native_wflhash512(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            "Invalid argument count".to_string(),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("wflhash512", &args, 1)?;
 
-    let input = match &args[0] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
-
+    let text = expect_text(&args[0])?;
     let params = WflHashParams::new(64); // 512 bits = 64 bytes
-    let hash_bytes = wflhash_core_text(input, &params)?; // Validate UTF-8 for text
-    let hash_hex = bytes_to_hex(&hash_bytes);
-
-    Ok(Value::Text(Rc::from(hash_hex)))
+    let hash = wflhash_core_text(text.as_bytes(), &params)?;
+    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-256 with personalization/salt support
 pub fn native_wflhash256_with_salt(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            "Invalid argument count".to_string(),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("wflhash256_with_salt", &args, 2)?;
 
-    let input = match &args[0] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
-
-    let salt = match &args[1] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
-
-    let params = WflHashParams::new_with_personalization(32, salt);
-    let hash_bytes = wflhash_core_text(input, &params)?;
-    let hash_hex = bytes_to_hex(&hash_bytes);
-
-    Ok(Value::Text(Rc::from(hash_hex)))
+    let text = expect_text(&args[0])?;
+    let salt = expect_text(&args[1])?;
+    let params = WflHashParams::new_with_personalization(32, salt.as_bytes());
+    let hash = wflhash_core_text(text.as_bytes(), &params)?;
+    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-256 with key for MAC functionality (WFLMAC-256)
 /// Now uses proper HKDF key derivation for enhanced security
 pub fn native_wflmac256(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            "Invalid argument count".to_string(),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("wflmac256", &args, 2)?;
 
-    let input = match &args[0] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
-
-    let key = match &args[1] {
-        Value::Text(text) => text.as_bytes(),
-        _ => {
-            return Err(RuntimeError::new("Invalid argument type".to_string(), 0, 0));
-        }
-    };
-
-    // Use proper key derivation with error handling
-    let params = WflHashParams::new_with_key(32, key)?;
-    let hash_bytes = wflhash_core_text(input, &params)?;
-    let hash_hex = bytes_to_hex(&hash_bytes);
-
-    Ok(Value::Text(Rc::from(hash_hex)))
+    let text = expect_text(&args[0])?;
+    let key = expect_text(&args[1])?;
+    let params = WflHashParams::new_with_key(32, key.as_bytes())?;
+    let hash = wflhash_core_text(text.as_bytes(), &params)?;
+    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-256 for binary data (no UTF-8 validation)
 pub fn native_wflhash256_binary(data: &[u8]) -> Result<String, RuntimeError> {
     let params = WflHashParams::new(32); // 256 bits = 32 bytes
-    let hash_bytes = wflhash_core(data, &params)?;
-    Ok(bytes_to_hex(&hash_bytes))
+    let hash = wflhash_core(data, &params)?;
+    Ok(bytes_to_hex(&hash))
 }
 
 /// Constant-time MAC verification using subtle crate
@@ -557,7 +489,9 @@ pub fn wflmac256_verify(
 
 /// Generate a cryptographically secure random token (for CSRF, sessions, etc.)
 /// Usage: generate_csrf_token() -> "a1b2c3d4e5f6..."
-pub fn native_generate_csrf_token(_args: Vec<Value>) -> Result<Value, RuntimeError> {
+pub fn native_generate_csrf_token(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("generate_csrf_token", &args, 0)?;
+
     use rand::RngCore;
 
     // Generate 32 random bytes (256 bits)
