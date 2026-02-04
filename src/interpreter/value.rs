@@ -396,7 +396,7 @@ fn eq_with_visited(
     visited: &mut HashSet<(*const (), *const ())>,
 ) -> bool {
     match (lhs, rhs) {
-        (Value::Number(a), Value::Number(b)) => a == b,
+        (Value::Number(a), Value::Number(b)) => numbers_equal(*a, *b),
         (Value::Text(a), Value::Text(b)) => a == b,
         (Value::Bool(a), Value::Bool(b)) => a == b,
         (Value::Date(a), Value::Date(b)) => a == b,
