@@ -421,13 +421,9 @@ pub fn native_wflhash256(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("wflhash256", &args, 1)?;
 
     let text = expect_text(&args[0])?;
-    let input = text.as_bytes();
-
     let params = WflHashParams::new(32); // 256 bits = 32 bytes
-    let hash_bytes = wflhash_core_text(input, &params)?; // Validate UTF-8 for text
-    let hash_hex = bytes_to_hex(&hash_bytes);
-
-    Ok(Value::Text(Rc::from(hash_hex)))
+    let hash = wflhash_core_text(text.as_bytes(), &params)?;
+    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-512 implementation with security fixes
@@ -435,13 +431,9 @@ pub fn native_wflhash512(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("wflhash512", &args, 1)?;
 
     let text = expect_text(&args[0])?;
-    let input = text.as_bytes();
-
     let params = WflHashParams::new(64); // 512 bits = 64 bytes
-    let hash_bytes = wflhash_core_text(input, &params)?; // Validate UTF-8 for text
-    let hash_hex = bytes_to_hex(&hash_bytes);
-
-    Ok(Value::Text(Rc::from(hash_hex)))
+    let hash = wflhash_core_text(text.as_bytes(), &params)?;
+    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-256 with personalization/salt support
@@ -449,16 +441,10 @@ pub fn native_wflhash256_with_salt(args: Vec<Value>) -> Result<Value, RuntimeErr
     check_arg_count("wflhash256_with_salt", &args, 2)?;
 
     let text = expect_text(&args[0])?;
-    let input = text.as_bytes();
-
-    let salt_text = expect_text(&args[1])?;
-    let salt = salt_text.as_bytes();
-
-    let params = WflHashParams::new_with_personalization(32, salt);
-    let hash_bytes = wflhash_core_text(input, &params)?;
-    let hash_hex = bytes_to_hex(&hash_bytes);
-
-    Ok(Value::Text(Rc::from(hash_hex)))
+    let salt = expect_text(&args[1])?;
+    let params = WflHashParams::new_with_personalization(32, salt.as_bytes());
+    let hash = wflhash_core_text(text.as_bytes(), &params)?;
+    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-256 with key for MAC functionality (WFLMAC-256)
@@ -467,24 +453,17 @@ pub fn native_wflmac256(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("wflmac256", &args, 2)?;
 
     let text = expect_text(&args[0])?;
-    let input = text.as_bytes();
-
-    let key_text = expect_text(&args[1])?;
-    let key = key_text.as_bytes();
-
-    // Use proper key derivation with error handling
-    let params = WflHashParams::new_with_key(32, key)?;
-    let hash_bytes = wflhash_core_text(input, &params)?;
-    let hash_hex = bytes_to_hex(&hash_bytes);
-
-    Ok(Value::Text(Rc::from(hash_hex)))
+    let key = expect_text(&args[1])?;
+    let params = WflHashParams::new_with_key(32, key.as_bytes())?;
+    let hash = wflhash_core_text(text.as_bytes(), &params)?;
+    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-256 for binary data (no UTF-8 validation)
 pub fn native_wflhash256_binary(data: &[u8]) -> Result<String, RuntimeError> {
     let params = WflHashParams::new(32); // 256 bits = 32 bytes
-    let hash_bytes = wflhash_core(data, &params)?;
-    Ok(bytes_to_hex(&hash_bytes))
+    let hash = wflhash_core(data, &params)?;
+    Ok(bytes_to_hex(&hash))
 }
 
 /// Constant-time MAC verification using subtle crate
