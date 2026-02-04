@@ -2869,12 +2869,7 @@ impl TypeChecker {
         }
     }
 
-    fn validate_server_operand(
-        &mut self,
-        server: &Expression,
-        line: usize,
-        column: usize,
-    ) {
+    fn validate_server_operand(&mut self, server: &Expression, line: usize, column: usize) {
         let server_type = self.infer_expression_type(server);
         if server_type != Type::Custom("Server".to_string())
             && server_type != Type::Text
@@ -3301,122 +3296,139 @@ mod tests {
     fn test_server_statement_type_checking() {
         // Test case 1: Valid server variable (mocked as Custom("Server"))
         let valid_server_var = Program {
-            statements: vec![
-                Statement::WaitForRequestStatement {
-                    server: Expression::Variable("myServer".to_string(), 1, 30),
-                    request_name: "req".to_string(),
-                    timeout: None,
-                    line: 1,
-                    column: 1,
-                },
-            ],
+            statements: vec![Statement::WaitForRequestStatement {
+                server: Expression::Variable("myServer".to_string(), 1, 30),
+                request_name: "req".to_string(),
+                timeout: None,
+                line: 1,
+                column: 1,
+            }],
         };
 
         let mut type_checker = TypeChecker::new();
         // Manually inject the server symbol to simulate a ListenStatement having run
-        type_checker.analyzer.define_symbol(Symbol {
-            name: "myServer".to_string(),
-            kind: SymbolKind::Variable { mutable: false },
-            symbol_type: Some(Type::Custom("Server".to_string())),
-            line: 0,
-            column: 0,
-        }).unwrap();
+        type_checker
+            .analyzer
+            .define_symbol(Symbol {
+                name: "myServer".to_string(),
+                kind: SymbolKind::Variable { mutable: false },
+                symbol_type: Some(Type::Custom("Server".to_string())),
+                line: 0,
+                column: 0,
+            })
+            .unwrap();
 
         let result = type_checker.check_types(&valid_server_var);
-        assert!(result.is_ok(), "Expected valid server variable to pass type checking");
+        assert!(
+            result.is_ok(),
+            "Expected valid server variable to pass type checking"
+        );
 
         // Test case 2: Valid text server name
         let valid_text_server = Program {
-            statements: vec![
-                Statement::WaitForRequestStatement {
-                    server: Expression::Literal(Literal::String("server_name".to_string()), 1, 30),
-                    request_name: "req".to_string(),
-                    timeout: None,
-                    line: 1,
-                    column: 1,
-                },
-            ],
+            statements: vec![Statement::WaitForRequestStatement {
+                server: Expression::Literal(Literal::String("server_name".to_string()), 1, 30),
+                request_name: "req".to_string(),
+                timeout: None,
+                line: 1,
+                column: 1,
+            }],
         };
 
         let mut type_checker = TypeChecker::new();
         let result = type_checker.check_types(&valid_text_server);
-        assert!(result.is_ok(), "Expected valid text server name to pass type checking");
+        assert!(
+            result.is_ok(),
+            "Expected valid text server name to pass type checking"
+        );
 
         // Test case 3: Invalid server type (Number)
         let invalid_server_type = Program {
-            statements: vec![
-                Statement::WaitForRequestStatement {
-                    server: Expression::Literal(Literal::Integer(123), 1, 30),
-                    request_name: "req".to_string(),
-                    timeout: None,
-                    line: 1,
-                    column: 1,
-                },
-            ],
+            statements: vec![Statement::WaitForRequestStatement {
+                server: Expression::Literal(Literal::Integer(123), 1, 30),
+                request_name: "req".to_string(),
+                timeout: None,
+                line: 1,
+                column: 1,
+            }],
         };
 
         let mut type_checker = TypeChecker::new();
         let result = type_checker.check_types(&invalid_server_type);
-        assert!(result.is_err(), "Expected type error for numeric server name");
+        assert!(
+            result.is_err(),
+            "Expected type error for numeric server name"
+        );
         let errors = result.err().unwrap();
         assert!(
-            errors.iter().any(|e| e.message.contains("Expected a Server object or server name")),
+            errors.iter().any(|e| e
+                .message
+                .contains("Expected a Server object or server name")),
             "Error message should mention expected types"
         );
 
         // Test case 4: Valid timeout
         let valid_timeout = Program {
-            statements: vec![
-                Statement::WaitForRequestStatement {
-                    server: Expression::Literal(Literal::String("server".to_string()), 1, 30),
-                    request_name: "req".to_string(),
-                    timeout: Some(Expression::Literal(Literal::Integer(5000), 1, 50)),
-                    line: 1,
-                    column: 1,
-                },
-            ],
+            statements: vec![Statement::WaitForRequestStatement {
+                server: Expression::Literal(Literal::String("server".to_string()), 1, 30),
+                request_name: "req".to_string(),
+                timeout: Some(Expression::Literal(Literal::Integer(5000), 1, 50)),
+                line: 1,
+                column: 1,
+            }],
         };
 
         let mut type_checker = TypeChecker::new();
         let result = type_checker.check_types(&valid_timeout);
-        assert!(result.is_ok(), "Expected valid timeout to pass type checking");
+        assert!(
+            result.is_ok(),
+            "Expected valid timeout to pass type checking"
+        );
 
         // Test case 5: Invalid timeout type
         let invalid_timeout = Program {
-            statements: vec![
-                Statement::WaitForRequestStatement {
-                    server: Expression::Literal(Literal::String("server".to_string()), 1, 30),
-                    request_name: "req".to_string(),
-                    timeout: Some(Expression::Literal(Literal::String("5s".to_string()), 1, 50)),
-                    line: 1,
-                    column: 1,
-                },
-            ],
+            statements: vec![Statement::WaitForRequestStatement {
+                server: Expression::Literal(Literal::String("server".to_string()), 1, 30),
+                request_name: "req".to_string(),
+                timeout: Some(Expression::Literal(
+                    Literal::String("5s".to_string()),
+                    1,
+                    50,
+                )),
+                line: 1,
+                column: 1,
+            }],
         };
 
         let mut type_checker = TypeChecker::new();
         let result = type_checker.check_types(&invalid_timeout);
-        assert!(result.is_err(), "Expected type error for invalid timeout type");
+        assert!(
+            result.is_err(),
+            "Expected type error for invalid timeout type"
+        );
         let errors = result.err().unwrap();
         assert!(
-            errors.iter().any(|e| e.message.contains("Timeout must be a number")),
+            errors
+                .iter()
+                .any(|e| e.message.contains("Timeout must be a number")),
             "Error message should mention timeout type requirement"
         );
 
         // Test case 6: Close server validation
         let invalid_close = Program {
-            statements: vec![
-                Statement::CloseServerStatement {
-                    server: Expression::Literal(Literal::Integer(123), 1, 15),
-                    line: 1,
-                    column: 1,
-                },
-            ],
+            statements: vec![Statement::CloseServerStatement {
+                server: Expression::Literal(Literal::Integer(123), 1, 15),
+                line: 1,
+                column: 1,
+            }],
         };
 
         let mut type_checker = TypeChecker::new();
         let result = type_checker.check_types(&invalid_close);
-        assert!(result.is_err(), "Expected type error for closing numeric server");
+        assert!(
+            result.is_err(),
+            "Expected type error for closing numeric server"
+        );
     }
 
     #[test]
