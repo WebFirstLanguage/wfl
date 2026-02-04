@@ -1,20 +1,10 @@
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use crate::stdlib::helpers::expect_text;
 use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-
-fn expect_text(value: &Value) -> Result<&str, RuntimeError> {
-    match value {
-        Value::Text(text) => Ok(text),
-        _ => Err(RuntimeError::new(
-            format!("Expected text, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
 
 pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     if args.len() != 1 {
@@ -26,7 +16,7 @@ pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     if !path.exists() {
         return Err(RuntimeError::new(
@@ -146,7 +136,7 @@ pub fn native_path_join(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let mut path = PathBuf::new();
     for arg in &args {
         let component = expect_text(arg)?;
-        path.push(component);
+        path.push(component.as_ref());
     }
 
     let result = path.to_string_lossy();
@@ -163,7 +153,7 @@ pub fn native_path_basename(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     let basename = path
         .file_name()
@@ -183,7 +173,7 @@ pub fn native_path_dirname(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     let dirname = path
         .parent()
@@ -203,7 +193,7 @@ pub fn native_makedirs(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     fs::create_dir_all(path).map_err(|e| {
         RuntimeError::new(
@@ -226,7 +216,7 @@ pub fn native_file_mtime(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     if !path.exists() {
         return Err(RuntimeError::new(
@@ -275,7 +265,7 @@ pub fn native_path_exists(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     Ok(Value::Bool(path.exists()))
 }
@@ -290,7 +280,7 @@ pub fn native_is_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     Ok(Value::Bool(path.is_file()))
 }
@@ -305,7 +295,7 @@ pub fn native_is_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     Ok(Value::Bool(path.is_dir()))
 }
@@ -320,7 +310,7 @@ pub fn native_count_lines(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     if !path.exists() {
         return Err(RuntimeError::new(
@@ -369,7 +359,7 @@ pub fn native_path_extension(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
@@ -386,7 +376,7 @@ pub fn native_path_stem(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
 
@@ -403,7 +393,7 @@ pub fn native_file_size(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     if !path.exists() {
         return Err(RuntimeError::new(
@@ -443,8 +433,8 @@ pub fn native_copy_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let source_str = expect_text(&args[0])?;
     let dest_str = expect_text(&args[1])?;
-    let source = Path::new(source_str);
-    let dest = Path::new(dest_str);
+    let source = Path::new(source_str.as_ref());
+    let dest = Path::new(dest_str.as_ref());
 
     if !source.exists() {
         return Err(RuntimeError::new(
@@ -484,8 +474,8 @@ pub fn native_move_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let source_str = expect_text(&args[0])?;
     let dest_str = expect_text(&args[1])?;
-    let source = Path::new(source_str);
-    let dest = Path::new(dest_str);
+    let source = Path::new(source_str.as_ref());
+    let dest = Path::new(dest_str.as_ref());
 
     if !source.exists() {
         return Err(RuntimeError::new(
@@ -516,7 +506,7 @@ pub fn native_remove_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     if !path.exists() {
         return Err(RuntimeError::new(
@@ -550,7 +540,7 @@ pub fn native_remove_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str);
+    let path = Path::new(path_str.as_ref());
 
     // Check for optional recursive parameter
     let recursive = if args.len() == 2 {
@@ -689,7 +679,7 @@ mod tests {
         let value = Value::Text(Rc::from("test"));
         let result = expect_text(&value);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "test");
+        assert_eq!(result.unwrap().as_ref(), "test");
     }
 
     #[test]

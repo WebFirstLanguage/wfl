@@ -1,30 +1,9 @@
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use crate::stdlib::helpers::{expect_number, expect_text};
 use std::cell::RefCell;
 use std::rc::Rc;
-
-fn expect_text(value: &Value) -> Result<Rc<str>, RuntimeError> {
-    match value {
-        Value::Text(s) => Ok(Rc::clone(s)),
-        _ => Err(RuntimeError::new(
-            format!("Expected text, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
-
-fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
-    match value {
-        Value::Number(n) => Ok(*n),
-        _ => Err(RuntimeError::new(
-            format!("Expected a number, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
 
 /// Decode percent-encoded URL string
 /// Converts '+' to space and decodes %HH hex sequences

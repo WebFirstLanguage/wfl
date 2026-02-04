@@ -1,20 +1,10 @@
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use crate::stdlib::helpers::expect_text;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-
-fn expect_text(value: &Value) -> Result<Rc<str>, RuntimeError> {
-    match value {
-        Value::Text(s) => Ok(Rc::clone(s)),
-        _ => Err(RuntimeError::new(
-            format!("Expected text, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
 
 /// Convert serde_json::Value to WFL Value
 fn json_to_wfl(json: serde_json::Value) -> Value {
