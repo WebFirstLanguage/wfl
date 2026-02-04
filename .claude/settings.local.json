@@ -94,10 +94,7 @@
       "mcp__ide__getDiagnostics",
       "Bash(..targetreleasewfl.exe nexus.wfl)",
       "Bash(gh pr view:*)",
-      "Bash(git merge:*)",
-      "Bash(git push:*)",
-      "Bash(gh pr checkout:*)",
-      "Bash(git pull:*)"
+      "Bash(git merge:*)"
     ],
     "deny": [],
     "ask": []

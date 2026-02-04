@@ -6713,7 +6713,13 @@ impl Interpreter {
     }
 
     fn is_equal(&self, left: &Value, right: &Value) -> bool {
-        left == right
+        match (left, right) {
+            (Value::Number(a), Value::Number(b)) => (a - b).abs() < f64::EPSILON,
+            (Value::Text(a), Value::Text(b)) => a == b,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Null, Value::Null) => true,
+            _ => false,
+        }
     }
 
     // Helper method to create container instance with inheritance

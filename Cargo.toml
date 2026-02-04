@@ -1,6 +1,6 @@
 [package]
 name = "wfl"
-version = "26.2.5"
+version = "26.1.56"
 edition = "2024"
 description = "WFL (WebFirst Language) is a programming language designed to be readable and intuitive using natural language constructs."
 license = "Apache-2.0"
@@ -11,7 +11,7 @@ default-run = "wfl"
 name = "WFL"
 identifier = "com.logbie.wfl"
 icon = ["icons/wfl.png"]
-version = "26.2.5"
+version = "26.1.56"
 copyright = "© 2025 Logbie LLC"
 category = "Developer Tool"
 short_description = "WebFirst Language Compiler and Runtime"
@@ -50,7 +50,7 @@ sqlx = { version = "0.8.1", features = ["runtime-tokio-rustls", "sqlite", "mysql
 serde_json = "1.0.114"
 warp = "0.3.7"
 uuid = { version = "1.6.1", features = ["v4"] }
-bytes = "1.11.1"
+bytes = "1.5.0"
 codespan-reporting = "0.11.1"
 simplelog = "0.12.1"
 chrono = "0.4.31"
