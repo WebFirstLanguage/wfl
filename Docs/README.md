@@ -1,3 +1,4 @@
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/WebFirstLanguage/wfl)
 # WFL Documentation Hub
 
 Welcome to the complete documentation for the WebFirst Language (WFL)! This is your starting point for learning WFL, from your first "Hello, World!" to building production web servers.
