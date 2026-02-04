@@ -254,25 +254,7 @@ impl Interpreter {
 
 /// Helper function to check if two values are equal
 fn values_equal(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Number(a), Value::Number(b)) => (a - b).abs() < f64::EPSILON,
-        (Value::Text(a), Value::Text(b)) => a == b,
-        (Value::Bool(a), Value::Bool(b)) => a == b,
-        (Value::Null, Value::Null) => true,
-        (Value::Nothing, Value::Nothing) => true,
-        (Value::List(a), Value::List(b)) => {
-            let a_ref = a.borrow();
-            let b_ref = b.borrow();
-            if a_ref.len() != b_ref.len() {
-                return false;
-            }
-            a_ref
-                .iter()
-                .zip(b_ref.iter())
-                .all(|(x, y)| values_equal(x, y))
-        }
-        _ => false,
-    }
+    a == b
 }
 
 /// Helper function to check if a value is truthy
