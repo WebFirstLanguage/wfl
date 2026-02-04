@@ -2,6 +2,7 @@ use super::helpers::{check_arg_count, expect_text};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use crate::stdlib::helpers::expect_text;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;

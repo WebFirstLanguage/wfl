@@ -1,6 +1,7 @@
 use super::helpers::{check_arg_count, check_arg_range, expect_text};
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use crate::stdlib::helpers::expect_text;
 use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
