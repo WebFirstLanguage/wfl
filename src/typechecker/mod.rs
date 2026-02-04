@@ -1684,6 +1684,124 @@ impl TypeChecker {
                     }
                 }
             }
+
+            Statement::IncludeStatement {
+                path, line, column, ..
+            } => {
+                // Type check the path expression - must be a string
+                let path_type = self.infer_expression_type(path);
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected string for include path".to_string(),
+                        Some(Type::Text),
+                        Some(path_type),
+                        *line,
+                        *column,
+                    );
+                }
+                // Note: Include statements execute in parent scope, making their symbols available
+                // at runtime. However, the type checker doesn't currently parse included files,
+                // which can result in false "not found" errors for symbols defined in included files.
+                // Future improvement: Parse and analyze included files during type checking
+                // to register their symbols in the current scope for more accurate diagnostics.
+            }
+
+            Statement::ExportStatement {
+                export_type,
+                name,
+                line,
+                column,
+                ..
+            } => {
+                // Basic type checking for export statements
+                // Check if the exported item exists in the current scope
+                match export_type {
+                    crate::parser::ast::ExportType::Container => {
+                        if let Some(_container) = self.analyzer.get_container(name) {
+                            // Container exists - export is valid
+                        } else {
+                            self.type_error(
+                                format!("Container '{}' not found for export", name),
+                                None,
+                                None,
+                                *line,
+                                *column,
+                            );
+                        }
+                    }
+                    crate::parser::ast::ExportType::Action => {
+                        // Check if action exists as a symbol in the current scope
+                        if let Some(symbol) = self.analyzer.get_symbol(name) {
+                            match &symbol.kind {
+                                crate::analyzer::SymbolKind::Function { .. } => {
+                                    // Action exists - export is valid
+                                }
+                                _ => {
+                                    self.type_error(
+                                        format!(
+                                            "'{}' is not an action and cannot be exported as one",
+                                            name
+                                        ),
+                                        None,
+                                        None,
+                                        *line,
+                                        *column,
+                                    );
+                                }
+                            }
+                        } else {
+                            self.type_error(
+                                format!("Action '{}' not found for export", name),
+                                None,
+                                None,
+                                *line,
+                                *column,
+                            );
+                        }
+                    }
+                    crate::parser::ast::ExportType::Constant => {
+                        // Check if variable exists as a symbol in the current scope
+                        if let Some(symbol) = self.analyzer.get_symbol(name) {
+                            match &symbol.kind {
+                                crate::analyzer::SymbolKind::Variable { mutable } => {
+                                    // Only immutable variables can be exported as constants
+                                    if *mutable {
+                                        self.type_error(
+                                            format!(
+                                                "'{}' is mutable and cannot be exported as constant",
+                                                name
+                                            ),
+                                            None,
+                                            None,
+                                            *line,
+                                            *column,
+                                        );
+                                    }
+                                    // Otherwise, immutable variable is valid for constant export
+                                }
+                                _ => {
+                                    self.type_error(
+                                        format!("'{}' is not a variable and cannot be exported as constant", name),
+                                        None,
+                                        None,
+                                        *line,
+                                        *column,
+                                    );
+                                }
+                            }
+                        } else {
+                            self.type_error(
+                                format!("Constant '{}' not found for export", name),
+                                None,
+                                None,
+                                *line,
+                                *column,
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 

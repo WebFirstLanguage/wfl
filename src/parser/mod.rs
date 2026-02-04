@@ -409,6 +409,8 @@ impl<'a> StmtParser<'a> for Parser<'a> {
             match &token.token {
                 Token::KeywordStore => self.parse_variable_declaration(),
                 Token::KeywordLoad => self.parse_load_module_statement(),
+                Token::KeywordInclude => self.parse_include_statement(),
+                Token::KeywordExport => self.parse_export_statement(),
                 Token::KeywordCreate => {
                     // Check what follows "create" keyword
                     if let Some(next_token) = self.cursor.peek_next() {
