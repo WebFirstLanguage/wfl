@@ -1,68 +1,38 @@
+use super::helpers::{check_arg_count, expect_number};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use crate::stdlib::helpers::expect_number;
 
 pub fn native_abs(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            format!("abs expects 1 argument, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("abs", &args, 1)?;
 
     let x = expect_number(&args[0])?;
     Ok(Value::Number(x.abs()))
 }
 
 pub fn native_round(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            format!("round expects 1 argument, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("round", &args, 1)?;
 
     let x = expect_number(&args[0])?;
     Ok(Value::Number(x.round()))
 }
 
 pub fn native_floor(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            format!("floor expects 1 argument, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("floor", &args, 1)?;
 
     let x = expect_number(&args[0])?;
     Ok(Value::Number(x.floor()))
 }
 
 pub fn native_ceil(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 1 {
-        return Err(RuntimeError::new(
-            format!("ceil expects 1 argument, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("ceil", &args, 1)?;
 
     let x = expect_number(&args[0])?;
     Ok(Value::Number(x.ceil()))
 }
 
 pub fn native_clamp(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 3 {
-        return Err(RuntimeError::new(
-            format!("clamp expects 3 arguments, got {}", args.len()),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("clamp", &args, 3)?;
 
     let value = expect_number(&args[0])?;
     let min = expect_number(&args[1])?;
