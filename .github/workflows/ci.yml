@@ -139,50 +139,42 @@ jobs:
           TESTPROGRAMS_DIR="./TestPrograms"
           TIMEOUT_SECONDS=30
           
-          # Files to skip:
-          # - Web server tests (they start servers and wait for requests)
-          # - Error examples (expected to fail)
-          # - Circular includes (cause infinite loops)
-          # - Tests that wait for external input
-          # - Helper modules (not standalone programs)
-          SKIP_PATTERNS=(
-            "web_server"
-            "simple_web"
-            "comprehensive_web"
-            "error_examples"
-            "circular_"
-            "wait_request"
-            "module_helper"
-            "middleware"
-            "graceful_shutdown"
-            "session_test"
-            "websocket"
-            "respond_test"
-            "test_basic_server"
-            "test_static_files"
-            "test_request"
-            "test_cookie"
-            "test_json_and_headers"
-            "header_access"
-            "multi_server"
-            "body_limit"
-            "content_length"
-            "lsp_demo"
-            # Tests with known semantic analysis issues (error_message not defined in catch blocks)
-            "complex_expression_catch_test"
-            "nested_catch_test"
-            "unicode_catch_test"
-            # Tests that reference undefined variables (expected to fail)
-            "scoped.wfl"
-            "test_redefinition_error"
-            # Tests with other known issues
-            "test_list_debug"
-            "test_list_keyword"
-            "test_simple_contextual"
-            "test_simple_static"
-            "time_random_comprehensive"
-            "rust_loc_counter"
+          # Declare associative array for skip patterns with reasons
+          declare -A SKIP_REASONS=(
+            ["web_server"]="starts server and waits for requests"
+            ["simple_web"]="starts server and waits for requests"
+            ["comprehensive_web"]="starts server and waits for requests"
+            ["circular_"]="causes infinite loop (circular include)"
+            ["wait_request"]="waits for external input"
+            ["module_helper"]="helper module, not standalone"
+            ["middleware"]="starts server and waits for requests"
+            ["graceful_shutdown"]="starts server and waits for requests"
+            ["session_test"]="starts server and waits for requests"
+            ["websocket"]="starts server and waits for requests"
+            ["respond_test"]="starts server and waits for requests"
+            ["test_basic_server"]="starts server and waits for requests"
+            ["test_static_files"]="starts server and waits for requests"
+            ["test_request"]="starts server and waits for requests"
+            ["test_cookie"]="starts server and waits for requests"
+            ["test_json_and_headers"]="starts server and waits for requests"
+            ["header_access"]="starts server and waits for requests"
+            ["multi_server"]="starts server and waits for requests"
+            ["body_limit"]="starts server and waits for requests"
+            ["content_length"]="starts server and waits for requests"
+            ["lsp_demo"]="starts LSP server and waits for input"
+            ["complex_expression_catch_test"]="semantic analysis issue (error_message not defined)"
+            ["nested_catch_test"]="semantic analysis issue (error_message not defined)"
+            ["unicode_catch_test"]="semantic analysis issue (error_message not defined)"
+            ["scoped.wfl"]="references undefined variables (expected to fail)"
+            ["test_redefinition_error"]="references undefined variables (expected to fail)"
+            ["test_list_debug"]="known interpreter issue"
+            ["test_list_keyword"]="known interpreter issue"
+            ["test_simple_contextual"]="known interpreter issue"
+            ["test_simple_static"]="known interpreter issue"
+            ["time_random_comprehensive"]="known interpreter issue"
+            ["rust_loc_counter"]="known interpreter issue"
           )
+          ERROR_EXAMPLES_REASON="expected to fail (error example)"
           
           passed=0
           failed=0
@@ -198,16 +190,23 @@ jobs:
             relative_path="${file#./}"
             
             # Check if file should be skipped
-            skip=false
-            for pattern in "${SKIP_PATTERNS[@]}"; do
-              if [[ "$filename" == *"$pattern"* ]] || [[ "$relative_path" == *"error_examples"* ]]; then
-                skip=true
-                break
-              fi
-            done
+            skip_reason=""
             
-            if [ "$skip" = true ]; then
-                echo "SKIP: $relative_path"
+            # Check error_examples directory first
+            if [[ "$relative_path" == *"error_examples"* ]]; then
+              skip_reason="$ERROR_EXAMPLES_REASON"
+            else
+              # Check against skip patterns
+              for pattern in "${!SKIP_REASONS[@]}"; do
+                if [[ "$filename" == *"$pattern"* ]]; then
+                  skip_reason="${SKIP_REASONS[$pattern]}"
+                  break
+                fi
+              done
+            fi
+            
+            if [ -n "$skip_reason" ]; then
+                echo "SKIP: $relative_path ($skip_reason)"
                 skipped=$((skipped + 1))
                 continue
             fi
@@ -254,46 +253,43 @@ jobs:
           $TestProgramsDir = ".\TestPrograms"
           $TimeoutSeconds = 30
           
-          # Files to skip
-          $SkipPatterns = @(
-            "web_server",
-            "simple_web",
-            "comprehensive_web",
-            "error_examples",
-            "circular_",
-            "wait_request",
-            "module_helper",
-            "middleware",
-            "graceful_shutdown",
-            "session_test",
-            "websocket",
-            "respond_test",
-            "test_basic_server",
-            "test_static_files",
-            "test_request",
-            "test_cookie",
-            "test_json_and_headers",
-            "header_access",
-            "multi_server",
-            "body_limit",
-            "content_length",
-            "lsp_demo",
-            "subprocess",  # subprocess tests use Unix commands
-            # Tests with known semantic analysis issues
-            "complex_expression_catch_test",
-            "nested_catch_test",
-            "unicode_catch_test",
-            # Tests that reference undefined variables
-            "scoped.wfl",
-            "test_redefinition_error",
-            # Tests with other known issues
-            "test_list_debug",
-            "test_list_keyword",
-            "test_simple_contextual",
-            "test_simple_static",
-            "time_random_comprehensive",
-            "rust_loc_counter"
-          )
+          # Skip patterns with reasons (hashtable)
+          $SkipReasons = @{
+            "web_server" = "starts server and waits for requests"
+            "simple_web" = "starts server and waits for requests"
+            "comprehensive_web" = "starts server and waits for requests"
+            "circular_" = "causes infinite loop (circular include)"
+            "wait_request" = "waits for external input"
+            "module_helper" = "helper module, not standalone"
+            "middleware" = "starts server and waits for requests"
+            "graceful_shutdown" = "starts server and waits for requests"
+            "session_test" = "starts server and waits for requests"
+            "websocket" = "starts server and waits for requests"
+            "respond_test" = "starts server and waits for requests"
+            "test_basic_server" = "starts server and waits for requests"
+            "test_static_files" = "starts server and waits for requests"
+            "test_request" = "starts server and waits for requests"
+            "test_cookie" = "starts server and waits for requests"
+            "test_json_and_headers" = "starts server and waits for requests"
+            "header_access" = "starts server and waits for requests"
+            "multi_server" = "starts server and waits for requests"
+            "body_limit" = "starts server and waits for requests"
+            "content_length" = "starts server and waits for requests"
+            "lsp_demo" = "starts LSP server and waits for input"
+            "subprocess" = "uses Unix-specific commands"
+            "complex_expression_catch_test" = "semantic analysis issue (error_message not defined)"
+            "nested_catch_test" = "semantic analysis issue (error_message not defined)"
+            "unicode_catch_test" = "semantic analysis issue (error_message not defined)"
+            "scoped.wfl" = "references undefined variables (expected to fail)"
+            "test_redefinition_error" = "references undefined variables (expected to fail)"
+            "test_list_debug" = "known interpreter issue"
+            "test_list_keyword" = "known interpreter issue"
+            "test_simple_contextual" = "known interpreter issue"
+            "test_simple_static" = "known interpreter issue"
+            "time_random_comprehensive" = "known interpreter issue"
+            "rust_loc_counter" = "known interpreter issue"
+          }
+          $ErrorExamplesReason = "expected to fail (error example)"
           
           $passed = 0
           $failed = 0
@@ -311,16 +307,23 @@ jobs:
             $relativePath = $file.FullName.Replace((Get-Location).Path + "\", "")
             
             # Check if file should be skipped
-            $skip = $false
-            foreach ($pattern in $SkipPatterns) {
-              if ($filename -like "*$pattern*" -or $relativePath -like "*error_examples*") {
-                $skip = $true
-                break
+            $skipReason = $null
+            
+            # Check error_examples directory first
+            if ($relativePath -like "*error_examples*") {
+              $skipReason = $ErrorExamplesReason
+            } else {
+              # Check against skip patterns
+              foreach ($pattern in $SkipReasons.Keys) {
+                if ($filename -like "*$pattern*") {
+                  $skipReason = $SkipReasons[$pattern]
+                  break
+                }
               }
             }
             
-            if ($skip) {
-              Write-Host "SKIP: $relativePath"
+            if ($null -ne $skipReason) {
+              Write-Host "SKIP: $relativePath ($skipReason)"
               $skipped++
               continue
             }
