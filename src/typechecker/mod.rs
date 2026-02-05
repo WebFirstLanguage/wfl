@@ -3119,8 +3119,8 @@ impl TypeChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::rc::Rc;
     use crate::parser::ast::{Argument, Expression, Literal, Parameter, Program, Statement, Type};
+    use std::rc::Rc;
 
     #[test]
     fn test_variable_declaration_type_inference() {

@@ -1389,8 +1389,8 @@ impl Analyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::rc::Rc;
     use crate::parser::ast::{Literal, Operator};
+    use std::rc::Rc;
 
     #[test]
     fn test_unused_variable() {
@@ -1590,11 +1590,7 @@ mod tests {
                             column: 10,
                         },
                         then_block: vec![Statement::DisplayStatement {
-                            value: Expression::Literal(
-                                Literal::String(Rc::from("One arg")),
-                                6,
-                                1,
-                            ),
+                            value: Expression::Literal(Literal::String(Rc::from("One arg")), 6, 1),
                             line: 6,
                             column: 1,
                         }],

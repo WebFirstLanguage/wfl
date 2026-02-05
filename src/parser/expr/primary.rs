@@ -6,8 +6,8 @@ use super::super::{Argument, Expression, Literal, ParseError, Parser, UnaryOpera
 use super::{BinaryExprParser, ExprParser};
 use crate::exec_trace;
 use crate::lexer::token::Token;
-use std::rc::Rc;
 use crate::parser::stmt::PatternParser;
+use std::rc::Rc;
 
 /// Trait for parsing primary (atomic) expressions
 pub(crate) trait PrimaryExprParser<'a> {
