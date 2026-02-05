@@ -19,14 +19,6 @@ pub enum Visibility {
     Private,
 }
 
-/// Types of items that can be exported from a module
-#[derive(Debug, Clone, PartialEq)]
-pub enum ExportType {
-    Container,
-    Action,
-    Constant,
-}
-
 /// Types of validation rules that can be applied to properties
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationRuleType {
@@ -258,17 +250,6 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
-    IncludeStatement {
-        path: Expression,
-        line: usize,
-        column: usize,
-    },
-    ExportStatement {
-        export_type: ExportType,
-        name: String,
-        line: usize,
-        column: usize,
-    },
     ExecuteCommandStatement {
         command: Expression,
         arguments: Option<Expression>,
@@ -458,6 +439,7 @@ pub enum Statement {
         content: Expression,
         status: Option<Expression>,
         content_type: Option<Expression>,
+        headers: Option<Expression>,
         line: usize,
         column: usize,
     },

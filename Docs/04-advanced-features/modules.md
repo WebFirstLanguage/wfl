@@ -14,85 +14,34 @@ WFL's module system allows you to organize code across multiple files, enabling 
 
 ## Basic Module Loading
 
-WFL provides two ways to include code from other files:
-
-1. **Load Module** - Isolated execution (existing behavior)
-2. **Include** - Parent scope execution (NEW in V2)
-
-## Load Module Statement
-
 Load code from another WFL file using the `load module from` statement:
 
 ```wfl
 load module from "utilities.wfl"
 ```
 
-This reads, parses, and executes the specified file. The module runs in its own isolated scope but can access variables from the parent file.
+This reads, parses, and executes the specified file. The module runs in its own scope but can access variables from the parent file.
 
-## Include Statement 
+### Simple Example
 
-Include code from another WFL file using the `include from` statement:
-
+**helper.wfl:**
 ```wfl
-include from "containers.wfl"
+store message as "Hello from helper module"
+display message
 ```
 
-This reads, parses, and executes the specified file in the parent scope, making all definitions available to the parent.
-
-## When to Use Each Approach
-
-### Use `load module from` for:
-- **Initialization and setup** - Module side effects
-- **Utility scripts** - Self-contained operations
-- **Protection** - When you don't want module definitions affecting parent scope
-
-### Use `include from` for:
-- **Shared libraries** - Container definitions, common actions
-- **Configuration** - Constants and shared variables
-- **Code organization** - Breaking large files into smaller, manageable pieces
-
-## Comparison Example
-
-**containers.wfl:**
+**main.wfl:**
 ```wfl
-create container Person:
-    property name: Text
-    property age: Number
-end
-
-store utility_value as "shared utility"
+display "Loading helper..."
+load module from "helper.wfl"
+display "Helper loaded"
 ```
 
-### Using Include (Exposes Definitions)
-
-**include_example.wfl:**
-```wfl
-include from "containers.wfl"
-
-# Person container is available!
-create new Person as alice:
-    name is "Alice" 
-    age is 30
-end
-
-# Variables are also available
-display utility_value  # Works: "shared utility"
+**Output:**
 ```
-
-### Using Load Module (Isolated)
-
-**load_example.wfl:**
-```wfl
-load module from "containers.wfl"
-
-# Person container is NOT available
-create new Person as bob:  # Error: Container type 'Person' not found
-    name is "Bob"
-    age is 25
-end
-
-# Variables are also NOT available
-display utility_value  # Error: Variable 'utility_value' not found
+Loading helper...
+Hello from helper module
+Helper loaded
 ```
 
 ## How Modules Work
@@ -510,81 +459,56 @@ end try
 
 ## Limitations
 
-## Export Statement
+### Current Limitations (V1)
 
-WFL includes an `export` statement that documents and validates module interfaces:
+1. **No Export Mechanism**
+   - Modules cannot expose variables/actions to parent
+   - All definitions stay in module scope
+   - Future: `export` keyword planned
 
-```wfl
-# Define items in a module
-create container Person:
-    property name: Text
-    property age: Number
-end
-
-define action called greet:
-    display "Hello!"
-end
-
-store constant VERSION as "1.0.0"
-
-# Document which items are intended for external use
-export container Person
-export action greet
-export constant VERSION
-```
-
-**Current Benefits:**
-- **Documentation**: Makes module interface explicit and clear
-- **Validation**: Ensures exported items actually exist at compile/lint time
-- **Best Practices**: Encourages conscious design of module interfaces
-
-**Future Enhancements:** The export statement establishes the foundation for selective module exposure and namespace control in future WFL versions.
-
-### Current Limitations (V2)
-
-1. **No Namespace Control**
+2. **No Namespace Control**
    - Cannot load module with custom name
    - Future: `load module from "x.wfl" as name` planned
 
-2. **No Selective Imports**
+3. **No Selective Imports**
    - Must load entire module
    - Future: `load function1, function2 from "x.wfl"` planned
 
-3. **No Module Caching**
+4. **No Module Caching**
    - Each `load module` re-parses and re-executes
    - Multiple loads of same file execute multiple times
    - Future: Optional caching planned
 
-4. **Export Foundation Only**
-   - Export statements validate but don't yet enable selective exposure
-   - Future: Full namespace and selective import system
+5. **Semantic Analysis Limitation**
+   - Modules are analyzed independently
+   - Cannot reference parent variables during analysis
+   - Runtime execution works, but analysis may show warnings
 
 ### Workarounds
 
-**For shared containers and functions**, use `include`:
+**For shared functionality**, use side effects:
 
 ```wfl
-# containers.wfl
-create container Person:
-    property name: Text
-    property age: Number
-end
+# Instead of exporting functions, use files
+
+# logger.wfl
+create file at "app.log" with ""
 
 # main.wfl
-include from "containers.wfl"
-# Person container is now available
+load module from "logger.wfl"
+# Now app.log exists and can be used
 ```
 
-**For initialization**, use `load module`:
+**For configuration**, use parent-to-module flow:
 
 ```wfl
-# init.wfl
-create file at "app.log" with ""
-display "System initialized"
-
 # main.wfl
-load module from "init.wfl"
-# Side effects occur but no definitions exposed
+store api_key as "secret123"
+store db_host as "localhost"
+
+load module from "app_init.wfl"
+
+# app_init.wfl reads these from parent scope
 ```
 
 ## Common Patterns
@@ -788,20 +712,11 @@ load module from "package:json-parser"
 
 ## Summary
 
-WFL's hybrid module system provides flexible code organization:
-
-- **`load module from "path.wfl"`** - Isolated execution for initialization and side effects
-- **`include from "path.wfl"`** - Parent scope execution for shared libraries and containers  
-- **`export container/action/constant NAME`** - Foundation for future namespace system
+- Use `load module from "path.wfl"` to include other WFL files
+- Modules execute in child scope with parent read access
 - Paths resolve relative to the including file
 - Circular dependencies are automatically detected
-- Full error handling and type checking for all statements
+- Modules are best for initialization and side effects
+- Variables defined in modules stay local to that module
 
-### Quick Decision Guide
-
-- **Need container definitions available?** → Use `include from`
-- **Need shared actions and constants?** → Use `include from`
-- **Need initialization without exposing definitions?** → Use `load module from`
-- **Want to prepare for future selective exports?** → Add `export` statements
-
-The hybrid system solves the fundamental limitation while maintaining backward compatibility. Start with simple includes and build up to more complex module hierarchies as your project grows.
+Modules enable better code organization and reusability in WFL projects. Start with simple includes and build up to more complex module hierarchies as your project grows.

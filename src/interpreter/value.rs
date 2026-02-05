@@ -370,21 +370,6 @@ impl fmt::Display for Value {
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-        // Fast path for simple types that don't need cycle detection
-        match (self, other) {
-            (Value::Number(a), Value::Number(b)) => return (a - b).abs() < f64::EPSILON,
-            (Value::Text(a), Value::Text(b)) => return a == b,
-            (Value::Bool(a), Value::Bool(b)) => return a == b,
-            (Value::Null, Value::Null) => return true,
-            (Value::Nothing, Value::Nothing) => return true,
-            (Value::Date(a), Value::Date(b)) => return a == b,
-            (Value::Time(a), Value::Time(b)) => return a == b,
-            (Value::DateTime(a), Value::DateTime(b)) => return a == b,
-            (Value::Pattern(a), Value::Pattern(b)) => return Rc::ptr_eq(a, b),
-            // For types that might contain cycles or require deeper inspection, use the full visited check
-            _ => {}
-        }
-
         let mut visited = HashSet::new();
         eq_with_visited(self, other, &mut visited)
     }

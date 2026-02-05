@@ -163,10 +163,6 @@ pub enum Token {
     KeywordLoad,
     #[token("module")]
     KeywordModule,
-    #[token("include")]
-    KeywordInclude,
-    #[token("export")]
-    KeywordExport,
     #[token("shell")]
     KeywordShell,
     #[token("kill")]
@@ -357,6 +353,8 @@ pub enum Token {
     KeywordTimeout,
     #[token("header")]
     KeywordHeader,
+    #[token("headers")]
+    KeywordHeaders,
     #[token("current")]
     KeywordCurrent,
     #[token("milliseconds")]
@@ -574,8 +572,6 @@ impl Token {
                 | Token::KeywordWait
                 | Token::KeywordLoad
                 | Token::KeywordModule
-                | Token::KeywordInclude
-                | Token::KeywordExport
                 | Token::KeywordTry
                 | Token::KeywordWhen
                 | Token::KeywordCatch
@@ -632,6 +628,7 @@ impl Token {
                 | Token::KeywordRead    // Context-sensitive
                 | Token::KeywordPush    // Context-sensitive
                 | Token::KeywordSkip    // Context-sensitive
+                | Token::KeywordHeaders // Context-sensitive
                 | Token::KeywordGive
                 | Token::KeywordBack
                 | Token::KeywordCalled

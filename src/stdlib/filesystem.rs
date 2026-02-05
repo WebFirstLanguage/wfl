@@ -1,4 +1,3 @@
-use super::helpers::{check_arg_count, check_arg_range, expect_text};
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use std::cell::RefCell;
@@ -6,11 +5,28 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+fn expect_text(value: &Value) -> Result<&str, RuntimeError> {
+    match value {
+        Value::Text(text) => Ok(text),
+        _ => Err(RuntimeError::new(
+            format!("Expected text, got {}", value.type_name()),
+            0,
+            0,
+        )),
+    }
+}
+
 pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("list_dir", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("list_dir expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     if !path.exists() {
         return Err(RuntimeError::new(
@@ -46,7 +62,13 @@ pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_glob(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("glob", &args, 2)?;
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("glob expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let pattern = expect_text(&args[0])?;
     let base_path = expect_text(&args[1])?;
@@ -74,7 +96,13 @@ pub fn native_glob(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_rglob(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("rglob", &args, 2)?;
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("rglob expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let pattern = expect_text(&args[0])?;
     let base_path = expect_text(&args[1])?;
@@ -107,14 +135,18 @@ pub fn native_rglob(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_join(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    // check_min_arg_count is needed here because it says "expects at least 1 argument"
-    // But helper implementation uses check_min_arg_count
-    super::helpers::check_min_arg_count("path_join", &args, 1)?;
+    if args.is_empty() {
+        return Err(RuntimeError::new(
+            "path_join expects at least 1 argument".to_string(),
+            0,
+            0,
+        ));
+    }
 
     let mut path = PathBuf::new();
     for arg in &args {
         let component = expect_text(arg)?;
-        path.push(component.as_ref());
+        path.push(component);
     }
 
     let result = path.to_string_lossy();
@@ -122,10 +154,16 @@ pub fn native_path_join(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_basename(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("path_basename", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("path_basename expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     let basename = path
         .file_name()
@@ -136,10 +174,16 @@ pub fn native_path_basename(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_dirname(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("path_dirname", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("path_dirname expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     let dirname = path
         .parent()
@@ -150,10 +194,16 @@ pub fn native_path_dirname(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_makedirs(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("makedirs", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("makedirs expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     fs::create_dir_all(path).map_err(|e| {
         RuntimeError::new(
@@ -167,10 +217,16 @@ pub fn native_makedirs(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_file_mtime(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("file_mtime", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("file_mtime expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     if !path.exists() {
         return Err(RuntimeError::new(
@@ -210,37 +266,61 @@ pub fn native_file_mtime(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_exists(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("path_exists", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("path_exists expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     Ok(Value::Bool(path.exists()))
 }
 
 pub fn native_is_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("is_file", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("is_file expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     Ok(Value::Bool(path.is_file()))
 }
 
 pub fn native_is_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("is_dir", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("is_dir expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     Ok(Value::Bool(path.is_dir()))
 }
 
 pub fn native_count_lines(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("count_lines", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("count_lines expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     if !path.exists() {
         return Err(RuntimeError::new(
@@ -280,10 +360,16 @@ pub fn native_count_lines(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_extension(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("path_extension", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("path_extension expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
@@ -291,10 +377,16 @@ pub fn native_path_extension(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_stem(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("path_stem", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("path_stem expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
 
@@ -302,10 +394,16 @@ pub fn native_path_stem(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_file_size(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("file_size", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("file_size expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     if !path.exists() {
         return Err(RuntimeError::new(
@@ -335,12 +433,18 @@ pub fn native_file_size(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_copy_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("copy_file", &args, 2)?;
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("copy_file expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let source_str = expect_text(&args[0])?;
     let dest_str = expect_text(&args[1])?;
-    let source = Path::new(source_str.as_ref());
-    let dest = Path::new(dest_str.as_ref());
+    let source = Path::new(source_str);
+    let dest = Path::new(dest_str);
 
     if !source.exists() {
         return Err(RuntimeError::new(
@@ -370,12 +474,18 @@ pub fn native_copy_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_move_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("move_file", &args, 2)?;
+    if args.len() != 2 {
+        return Err(RuntimeError::new(
+            format!("move_file expects 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let source_str = expect_text(&args[0])?;
     let dest_str = expect_text(&args[1])?;
-    let source = Path::new(source_str.as_ref());
-    let dest = Path::new(dest_str.as_ref());
+    let source = Path::new(source_str);
+    let dest = Path::new(dest_str);
 
     if !source.exists() {
         return Err(RuntimeError::new(
@@ -397,10 +507,16 @@ pub fn native_move_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_remove_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("remove_file", &args, 1)?;
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("remove_file expects 1 argument, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     if !path.exists() {
         return Err(RuntimeError::new(
@@ -425,10 +541,16 @@ pub fn native_remove_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_remove_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_range("remove_dir", &args, 1, 2)?;
+    if args.is_empty() || args.len() > 2 {
+        return Err(RuntimeError::new(
+            format!("remove_dir expects 1 or 2 arguments, got {}", args.len()),
+            0,
+            0,
+        ));
+    }
 
     let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
+    let path = Path::new(path_str);
 
     // Check for optional recursive parameter
     let recursive = if args.len() == 2 {
@@ -567,7 +689,7 @@ mod tests {
         let value = Value::Text(Rc::from("test"));
         let result = expect_text(&value);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().as_ref(), "test");
+        assert_eq!(result.unwrap(), "test");
     }
 
     #[test]
