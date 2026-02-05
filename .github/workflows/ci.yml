@@ -304,7 +304,13 @@ jobs:
           
           foreach ($file in $wflFiles) {
             $filename = $file.Name
-            $relativePath = $file.FullName.Replace((Get-Location).Path + "\", "")
+            # Get relative path more robustly using Push-Location context
+            $currentDir = (Get-Location).Path
+            if ($file.FullName.StartsWith($currentDir)) {
+              $relativePath = $file.FullName.Substring($currentDir.Length).TrimStart('\', '/')
+            } else {
+              $relativePath = $file.FullName
+            }
             
             # Check if file should be skipped
             $skipReason = $null
