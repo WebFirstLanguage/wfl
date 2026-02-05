@@ -43,7 +43,7 @@ end
             // Verify the display statement structure
             if let Statement::DisplayStatement { value, .. } = &body[0] {
                 if let Expression::Literal(Literal::String(s), line, column) = value {
-                    assert_eq!(s, "Hello", "Display text should be 'Hello'");
+                    assert_eq!(s.as_ref(), "Hello", "Display text should be 'Hello'");
                     // These coordinates should point to the string literal in the action body,
                     // not to some corrupted position from earlier parsing
                     assert_eq!(*line, 6, "String literal should be on line 6 (action body)");

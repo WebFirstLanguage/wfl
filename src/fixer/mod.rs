@@ -1092,7 +1092,7 @@ impl CodeFixer {
     fn count_newline_literals(&self, expr: &Expression) -> usize {
         match expr {
             Expression::Literal(Literal::String(s), ..) => {
-                if s == "\n" {
+                if &**s == "\n" {
                     1
                 } else {
                     0
