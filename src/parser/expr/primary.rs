@@ -7,6 +7,7 @@ use super::{BinaryExprParser, ExprParser};
 use crate::exec_trace;
 use crate::lexer::token::Token;
 use crate::parser::stmt::PatternParser;
+use std::rc::Rc;
 
 /// Trait for parsing primary (atomic) expressions
 pub(crate) trait PrimaryExprParser<'a> {
@@ -96,7 +97,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                 Token::StringLiteral(s) => {
                     let token_pos = self.bump_sync().unwrap();
                     Ok(Expression::Literal(
-                        Literal::String(s.to_string()),
+                        Literal::String(Rc::from(s.as_str())),
                         token_pos.line,
                         token_pos.column,
                     ))

@@ -1,4 +1,5 @@
 use std::fmt;
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Program {
@@ -684,7 +685,7 @@ pub enum Expression {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
-    String(String),
+    String(Rc<str>),
     Integer(i64),
     Float(f64),
     Boolean(bool),

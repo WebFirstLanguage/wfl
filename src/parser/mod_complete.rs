@@ -9,6 +9,7 @@ use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use ast::*;
 use std::iter::Peekable;
+use std::rc::Rc;
 use std::slice::Iter;
 
 pub struct Parser<'a> {
@@ -496,7 +497,7 @@ impl<'a> Parser<'a> {
                 Token::StringLiteral(s) => {
                     let token_pos = self.tokens.next().unwrap();
                     Ok(Expression::Literal(
-                        Literal::String(s.to_string()),
+                        Literal::String(Rc::from(s.as_str())),
                         token_pos.line,
                         token_pos.column,
                     ))

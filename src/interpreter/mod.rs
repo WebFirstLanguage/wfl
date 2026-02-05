@@ -5438,7 +5438,7 @@ impl Interpreter {
         column: usize,
     ) -> Result<Option<Value>, RuntimeError> {
         match literal {
-            Literal::String(s) => Ok(Some(Value::Text(Rc::from(s.as_str())))),
+            Literal::String(s) => Ok(Some(Value::Text(s.clone()))),
             Literal::Integer(i) => Ok(Some(Value::Number(*i as f64))),
             Literal::Float(f) => Ok(Some(Value::Number(*f))),
             Literal::Boolean(b) => Ok(Some(Value::Bool(*b))),
@@ -5883,7 +5883,7 @@ impl Interpreter {
                 Ok(value)
             }
             Expression::Literal(literal, _line, _column) => match literal {
-                Literal::String(s) => Ok(Value::Text(Rc::from(s.as_str()))),
+                Literal::String(s) => Ok(Value::Text(s.clone())),
                 Literal::Integer(i) => Ok(Value::Number(*i as f64)),
                 Literal::Float(f) => Ok(Value::Number(*f)),
                 Literal::Boolean(b) => Ok(Value::Bool(*b)),
