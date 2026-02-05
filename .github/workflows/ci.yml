@@ -327,22 +327,32 @@ jobs:
             
             Write-Host -NoNewline "RUN:  $relativePath ... "
             
-            # Run with timeout
-            $process = Start-Process -FilePath $WflBinary -ArgumentList $file.FullName -NoNewWindow -PassThru -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
-            $completed = $process.WaitForExit($TimeoutSeconds * 1000)
+            # Run with timeout using a job for better process control
+            $job = Start-Job -ScriptBlock {
+              param($binary, $filePath)
+              & $binary $filePath 2>&1 | Out-Null
+              $LASTEXITCODE
+            } -ArgumentList $WflBinary, $file.FullName
             
-            if (-not $completed) {
-              $process.Kill()
+            $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
+            
+            if ($null -eq $completed) {
+              Stop-Job -Job $job
+              Remove-Job -Job $job -Force
               Write-Host "TIMEOUT (${TimeoutSeconds}s)"
               $failed++
               $failedFiles += $relativePath
-            } elseif ($process.ExitCode -eq 0) {
-              Write-Host "PASS"
-              $passed++
             } else {
-              Write-Host "FAIL (exit code: $($process.ExitCode))"
-              $failed++
-              $failedFiles += $relativePath
+              $exitCode = Receive-Job -Job $job
+              Remove-Job -Job $job
+              if ($exitCode -eq 0) {
+                Write-Host "PASS"
+                $passed++
+              } else {
+                Write-Host "FAIL (exit code: $exitCode)"
+                $failed++
+                $failedFiles += $relativePath
+              }
             }
           }
           
