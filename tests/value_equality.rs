@@ -214,3 +214,46 @@ fn test_container_parent_comparison() {
         "Containers with different parents should not be equal"
     );
 }
+
+#[test]
+fn test_numeric_equality_consistency() {
+    // This test demonstrates the issue where floating point comparison
+    // is inconsistent between top-level and nested values
+
+    // Create floating point values that should be equal but may not be due to precision
+    let a = 0.1 + 0.2;
+    let b = 0.3;
+
+    let value_a = Value::Number(a);
+    let value_b = Value::Number(b);
+
+    // Top-level comparison should use EPSILON comparison
+    assert_eq!(
+        value_a, value_b,
+        "Top-level numeric comparison should use EPSILON comparison for 0.1 + 0.2 == 0.3"
+    );
+
+    // Create lists with the same numeric values
+    let list_a = Value::List(Rc::new(RefCell::new(vec![Value::Number(a)])));
+    let list_b = Value::List(Rc::new(RefCell::new(vec![Value::Number(b)])));
+
+    // Nested comparison should also use EPSILON comparison for consistency
+    assert_eq!(
+        list_a, list_b,
+        "Nested numeric comparison should also use EPSILON comparison for [0.1 + 0.2] == [0.3]"
+    );
+
+    // Test with objects as well
+    let mut map_a = HashMap::new();
+    map_a.insert("value".to_string(), Value::Number(a));
+    let obj_a = Value::Object(Rc::new(RefCell::new(map_a)));
+
+    let mut map_b = HashMap::new();
+    map_b.insert("value".to_string(), Value::Number(b));
+    let obj_b = Value::Object(Rc::new(RefCell::new(map_b)));
+
+    assert_eq!(
+        obj_a, obj_b,
+        "Nested object numeric comparison should also use EPSILON comparison"
+    );
+}
