@@ -6995,7 +6995,7 @@ impl Interpreter {
             (Value::Text(a), Value::Text(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Null, Value::Null) => true,
-            _ => false,
+            (a, b) => a == b,
         }
     }
 
