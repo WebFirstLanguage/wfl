@@ -1,4 +1,3 @@
-
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -9,10 +8,22 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn get_wfl_binary_path() -> PathBuf {
     let current_dir = env::current_dir().unwrap();
-    let release_path = current_dir.join(if cfg!(target_os = "windows") { "target/release/wfl.exe" } else { "target/release/wfl" });
-    if release_path.exists() { return release_path; }
-    let debug_path = current_dir.join(if cfg!(target_os = "windows") { "target/debug/wfl.exe" } else { "target/debug/wfl" });
-    if debug_path.exists() { return debug_path; }
+    let release_path = current_dir.join(if cfg!(target_os = "windows") {
+        "target/release/wfl.exe"
+    } else {
+        "target/release/wfl"
+    });
+    if release_path.exists() {
+        return release_path;
+    }
+    let debug_path = current_dir.join(if cfg!(target_os = "windows") {
+        "target/debug/wfl.exe"
+    } else {
+        "target/debug/wfl"
+    });
+    if debug_path.exists() {
+        return debug_path;
+    }
     panic!("WFL binary not found.");
 }
 
@@ -22,25 +33,53 @@ fn get_unique_test_file_path(prefix: &str) -> PathBuf {
     let temp_dir = env::temp_dir();
     let counter = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
     let thread_id = thread::current().id();
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    temp_dir.join(format!("{}_{}_{:?}_{}_{}.wfl", prefix, std::process::id(), thread_id, timestamp, counter))
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    temp_dir.join(format!(
+        "{}_{}_{:?}_{}_{}.wfl",
+        prefix,
+        std::process::id(),
+        thread_id,
+        timestamp,
+        counter
+    ))
 }
 
 fn cleanup_temp_file_with_retry(file_path: &PathBuf, max_retries: u32) {
     for attempt in 0..=max_retries {
-        if fs::remove_file(file_path).is_ok() { return; }
+        if fs::remove_file(file_path).is_ok() {
+            return;
+        }
         thread::sleep(Duration::from_millis(50));
     }
 }
 
-fn execute_with_timeout(binary_path: &PathBuf, test_file: &PathBuf, timeout: Duration) -> Result<std::process::Output, std::io::Error> {
+fn execute_with_timeout(
+    binary_path: &PathBuf,
+    test_file: &PathBuf,
+    timeout: Duration,
+) -> Result<std::process::Output, std::io::Error> {
     use std::process::Stdio;
-    let mut child = Command::new(binary_path).arg(test_file).stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null()).spawn()?;
+    let mut child = Command::new(binary_path)
+        .arg(test_file)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()?;
     let start = std::time::Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(_)) => return Ok(child.wait_with_output()?),
-            Ok(None) => if start.elapsed() > timeout { let _ = child.kill(); return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "Timeout")); } else { thread::sleep(Duration::from_millis(100)); },
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "Timeout"));
+                } else {
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
             Err(e) => return Err(e),
         }
     }
@@ -50,7 +89,8 @@ fn run_wfl_program(program_content: &str, test_name: &str) -> std::process::Outp
     let binary_path = get_wfl_binary_path();
     let test_file = get_unique_test_file_path(test_name);
     fs::write(&test_file, program_content).expect("Failed to write test file");
-    let output = execute_with_timeout(&binary_path, &test_file, Duration::from_secs(30)).expect("Failed to execute WFL binary");
+    let output = execute_with_timeout(&binary_path, &test_file, Duration::from_secs(30))
+        .expect("Failed to execute WFL binary");
     cleanup_temp_file_with_retry(&test_file, 3);
     output
 }
@@ -82,7 +122,10 @@ display textHasWorld
     println!("STDOUT:\n{}", stdout);
     println!("STDERR:\n{}", stderr);
 
-    assert!(stdout.contains("yes") || stdout.contains("true"), "Should contain true output");
+    assert!(
+        stdout.contains("yes") || stdout.contains("true"),
+        "Should contain true output"
+    );
 
     // Check that we have two positive outputs
     // Note: boolean true is printed as "yes" in WFL
