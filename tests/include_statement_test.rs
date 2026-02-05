@@ -64,7 +64,6 @@ display alice.name
 }
 
 #[tokio::test]
-#[ignore] // TODO: Include functionality not fully implemented yet
 async fn test_include_vs_load_module_behavior() {
     // This test demonstrates the difference between include and load module
     // Create temporary directory for test isolation
@@ -153,7 +152,6 @@ display utility_value
 }
 
 #[tokio::test]
-#[ignore] // TODO: Include functionality not fully implemented yet
 async fn test_include_statement_executes_in_parent_scope() {
     // Test that include executes code in parent scope, not isolated child
     // Create temporary directory for test isolation
@@ -206,7 +204,6 @@ display new_var
 }
 
 #[tokio::test]
-#[ignore] // TODO: Include functionality not fully implemented yet
 async fn test_include_statement_path_resolution() {
     // Test that include follows same path resolution as load module
     // Create temporary directory for test isolation

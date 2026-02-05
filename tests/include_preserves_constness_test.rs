@@ -120,3 +120,54 @@ display parent_var
 
     // Temp directory is automatically cleaned up when dropped
 }
+
+#[tokio::test]
+async fn test_include_path_resolution_simple() {
+    // Simple test to verify that include path resolution works correctly
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let included_file = temp_dir.path().join("simple_include.wfl");
+    let main_file = temp_dir.path().join("main.wfl");
+
+    // Create a simple included file that stores a value
+    let included_content = r#"
+store included_value as "success"
+"#;
+    fs::write(&included_file, included_content).expect("Failed to write included file");
+
+    // Create main file with include statement
+    let main_content = r#"
+include from "simple_include.wfl"
+
+display included_value
+"#;
+    fs::write(&main_file, main_content).expect("Failed to write main file");
+
+    // Parse and analyze
+    let source = fs::read_to_string(&main_file).expect("Failed to read main file");
+    let tokens = lex_wfl_with_positions(&source);
+    let mut parser = Parser::new(&tokens);
+    let ast = parser.parse().expect("Should parse successfully");
+
+    // Analyze
+    let mut analyzer = Analyzer::new();
+    let analyze_result = analyzer.analyze(&ast);
+
+    assert!(
+        analyze_result.is_ok(),
+        "Analysis should succeed: {:?}",
+        analyze_result.err()
+    );
+
+    // Execute - this should succeed if include path resolution works
+    let mut interpreter = Interpreter::new();
+    interpreter.set_source_file(main_file.clone());
+    let result = interpreter.interpret(&ast).await;
+
+    assert!(
+        result.is_ok(),
+        "Include statement should resolve path correctly: {:?}",
+        result.err()
+    );
+
+    // Temp directory is automatically cleaned up when dropped
+}
