@@ -94,7 +94,6 @@
       "mcp__ide__getDiagnostics",
       "Bash(..targetreleasewfl.exe nexus.wfl)",
       "Bash(gh pr view:*)",
-      "Bash(git merge:*)"
       "Bash(git merge:*)",
       "Bash(git push:*)",
       "Bash(gh pr checks:*)"
