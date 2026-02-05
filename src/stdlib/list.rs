@@ -95,16 +95,36 @@ pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
         ));
     }
 
-    let list = expect_list(&args[0])?;
-    let item = &args[1];
-
-    for value in list.borrow().iter() {
-        if value == item {
-            return Ok(Value::Bool(true));
+    match &args[0] {
+        Value::List(list) => {
+            let item = &args[1];
+            for value in list.borrow().iter() {
+                if value == item {
+                    return Ok(Value::Bool(true));
+                }
+            }
+            Ok(Value::Bool(false))
         }
+        Value::Text(text) => match &args[1] {
+            Value::Text(substring) => Ok(Value::Bool(text.contains(substring.as_ref()))),
+            _ => Err(RuntimeError::new(
+                format!(
+                    "contains on text expects a text argument, got {}",
+                    args[1].type_name()
+                ),
+                0,
+                0,
+            )),
+        },
+        _ => Err(RuntimeError::new(
+            format!(
+                "contains expects a list or text, got {}",
+                args[0].type_name()
+            ),
+            0,
+            0,
+        )),
     }
-
-    Ok(Value::Bool(false))
 }
 
 pub fn native_indexof(args: Vec<Value>) -> Result<Value, RuntimeError> {

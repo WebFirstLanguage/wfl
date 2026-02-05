@@ -375,13 +375,18 @@ impl PartialEq for Value {
     }
 }
 
+/// Helper function for consistent numeric equality comparison using EPSILON
+fn numbers_equal(a: f64, b: f64) -> bool {
+    (a - b).abs() < f64::EPSILON
+}
+
 fn eq_with_visited(
     lhs: &Value,
     rhs: &Value,
     visited: &mut HashSet<(*const (), *const ())>,
 ) -> bool {
     match (lhs, rhs) {
-        (Value::Number(a), Value::Number(b)) => a == b,
+        (Value::Number(a), Value::Number(b)) => numbers_equal(*a, *b),
         (Value::Text(a), Value::Text(b)) => a == b,
         (Value::Bool(a), Value::Bool(b)) => a == b,
         (Value::Date(a), Value::Date(b)) => a == b,
