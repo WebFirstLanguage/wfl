@@ -48,7 +48,7 @@ fn get_unique_test_file_path(prefix: &str) -> PathBuf {
 }
 
 fn cleanup_temp_file_with_retry(file_path: &PathBuf, max_retries: u32) {
-    for attempt in 0..=max_retries {
+    for _attempt in 0..=max_retries {
         if fs::remove_file(file_path).is_ok() {
             return;
         }
@@ -71,7 +71,7 @@ fn execute_with_timeout(
     let start = std::time::Instant::now();
     loop {
         match child.try_wait() {
-            Ok(Some(_)) => return Ok(child.wait_with_output()?),
+            Ok(Some(_)) => return child.wait_with_output(),
             Ok(None) => {
                 if start.elapsed() > timeout {
                     let _ = child.kill();
