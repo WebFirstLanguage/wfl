@@ -3,6 +3,7 @@
 use super::super::{Expression, FileOpenMode, Literal, ParseError, Parser, Statement};
 use crate::lexer::token::Token;
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
+use std::rc::Rc;
 
 pub(crate) trait IoParser<'a>: ExprParser<'a> {
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError>;
@@ -525,7 +526,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 let column = token.column;
                 let path = path_str.clone();
                 self.bump_sync(); // Consume the string literal
-                Expression::Literal(Literal::String(path), line, column)
+                Expression::Literal(Literal::String(Rc::from(path)), line, column)
             } else {
                 return Err(ParseError::from_token(
                     format!(

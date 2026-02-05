@@ -3119,6 +3119,7 @@ impl TypeChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::rc::Rc;
     use crate::parser::ast::{Argument, Expression, Literal, Parameter, Program, Statement, Type};
 
     #[test]
@@ -3158,7 +3159,7 @@ mod tests {
                 },
                 Statement::Assignment {
                     name: "x".to_string(),
-                    value: Expression::Literal(Literal::String("hello".to_string()), 2, 1),
+                    value: Expression::Literal(Literal::String(Rc::from("hello")), 2, 1),
                     line: 2,
                     column: 1,
                 },
@@ -3185,13 +3186,13 @@ mod tests {
                 is_constant: false,
                 value: Expression::BinaryOperation {
                     left: Box::new(Expression::Literal(
-                        Literal::String("hello".to_string()),
+                        Literal::String(Rc::from("hello")),
                         1,
                         5,
                     )),
                     operator: crate::parser::ast::Operator::Plus,
                     right: Box::new(Expression::Literal(
-                        Literal::String("world".to_string()),
+                        Literal::String(Rc::from("world")),
                         1,
                         10,
                     )),
@@ -3218,7 +3219,7 @@ mod tests {
                     left: Box::new(Expression::Literal(Literal::Integer(10), 1, 5)),
                     operator: crate::parser::ast::Operator::Minus,
                     right: Box::new(Expression::Literal(
-                        Literal::String("hello".to_string()),
+                        Literal::String(Rc::from("hello")),
                         1,
                         10,
                     )),
@@ -3349,7 +3350,7 @@ mod tests {
                             left: Box::new(Expression::Variable("item".to_string(), 3, 5)),
                             operator: crate::parser::ast::Operator::Minus,
                             right: Box::new(Expression::Literal(
-                                Literal::String("text".to_string()),
+                                Literal::String(Rc::from("text")),
                                 3,
                                 12,
                             )),

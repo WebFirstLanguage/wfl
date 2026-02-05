@@ -42,7 +42,11 @@ fn parses_concatenation_correctly() {
 
                 // Inner right should be a string literal with actual newline
                 if let Expression::Literal(Literal::String(s), ..) = *inner_right {
-                    assert_eq!(s, "\n", "Right side should be string with actual newline");
+                    assert_eq!(
+                        s.as_ref(),
+                        "\n",
+                        "Right side should be string with actual newline"
+                    );
                 } else {
                     panic!("Inner right side should be a String literal, not {inner_right:?}");
                 }
@@ -75,7 +79,7 @@ fn test_parse_variable_declaration() {
     if let Ok(Statement::VariableDeclaration { name, value, .. }) = result {
         assert_eq!(name, "greeting");
         if let Expression::Literal(Literal::String(s), ..) = value {
-            assert_eq!(s, "Hello, World!");
+            assert_eq!(s.as_ref(), "Hello, World!");
         } else {
             panic!("Expected string literal");
         }
@@ -127,7 +131,7 @@ fn test_parse_if_statement() {
         assert_eq!(then_block.len(), 1);
         if let Statement::DisplayStatement { value, .. } = &then_block[0] {
             if let Expression::Literal(Literal::String(s), ..) = value {
-                assert_eq!(s, "x is 10");
+                assert_eq!(s.as_ref(), "x is 10");
             } else {
                 panic!("Expected string literal in then block");
             }
@@ -140,7 +144,7 @@ fn test_parse_if_statement() {
         assert_eq!(else_stmts.len(), 1);
         if let Statement::DisplayStatement { value, .. } = &else_stmts[0] {
             if let Expression::Literal(Literal::String(s), ..) = value {
-                assert_eq!(s, "x is not 10");
+                assert_eq!(s.as_ref(), "x is not 10");
             } else {
                 panic!("Expected string literal in else block");
             }
@@ -251,7 +255,7 @@ fn test_parse_wait_for_open_file() {
         }) = result
         {
             if let Expression::Literal(Literal::String(s), ..) = path {
-                assert_eq!(s, "nexus.log");
+                assert_eq!(s.as_ref(), "nexus.log");
             } else {
                 panic!("Expected string literal for path");
             }
@@ -287,7 +291,7 @@ fn test_parse_wait_for_open_file() {
             } = *inner
             {
                 if let Expression::Literal(Literal::String(s), ..) = path {
-                    assert_eq!(s, "data.txt");
+                    assert_eq!(s.as_ref(), "data.txt");
                 } else {
                     panic!("Expected string literal for path");
                 }
@@ -1301,7 +1305,7 @@ fn test_call_syntax_basic() {
             assert_eq!(arguments.len(), 1, "Should have 1 argument");
 
             if let Expression::Literal(Literal::String(s), ..) = &arguments[0].value {
-                assert_eq!(s, "Alice", "Argument should be 'Alice'");
+                assert_eq!(s.as_ref(), "Alice", "Argument should be 'Alice'");
             } else {
                 panic!("Argument should be a string literal");
             }
@@ -1413,14 +1417,14 @@ fn test_concatenation_unchanged() {
         if let Expression::Concatenation { left, right, .. } = value {
             // Left should be string "Hello"
             if let Expression::Literal(Literal::String(s), ..) = *left {
-                assert_eq!(s, "Hello", "Left side should be 'Hello'");
+                assert_eq!(s.as_ref(), "Hello", "Left side should be 'Hello'");
             } else {
                 panic!("Left side should be string literal");
             }
 
             // Right should be string " World"
             if let Expression::Literal(Literal::String(s), ..) = *right {
-                assert_eq!(s, " World", "Right side should be ' World'");
+                assert_eq!(s.as_ref(), " World", "Right side should be ' World'");
             } else {
                 panic!("Right side should be string literal");
             }
@@ -1486,7 +1490,7 @@ store y as x with " more""#;
 
             // Right should be string " more"
             if let Expression::Literal(Literal::String(s), ..) = &**right {
-                assert_eq!(s, " more", "Right side should be ' more'");
+                assert_eq!(s.as_ref(), " more", "Right side should be ' more'");
             } else {
                 panic!("Right side should be string literal");
             }

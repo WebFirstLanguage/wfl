@@ -1389,6 +1389,7 @@ impl Analyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::rc::Rc;
     use crate::parser::ast::{Literal, Operator};
 
     #[test]
@@ -1441,7 +1442,7 @@ mod tests {
                         column: 5,
                     }],
                     else_block: Some(vec![Statement::DisplayStatement {
-                        value: Expression::Literal(Literal::String("No return".to_string()), 5, 9),
+                        value: Expression::Literal(Literal::String(Rc::from("No return")), 5, 9),
                         line: 5,
                         column: 5,
                     }]),
@@ -1555,9 +1556,9 @@ mod tests {
                     name: "args".to_string(),
                     value: Expression::Literal(
                         Literal::List(vec![
-                            Expression::Literal(Literal::String("a".to_string()), 1, 1),
-                            Expression::Literal(Literal::String("b".to_string()), 1, 1),
-                            Expression::Literal(Literal::String("c".to_string()), 1, 1),
+                            Expression::Literal(Literal::String(Rc::from("a")), 1, 1),
+                            Expression::Literal(Literal::String(Rc::from("b")), 1, 1),
+                            Expression::Literal(Literal::String(Rc::from("c")), 1, 1),
                         ]),
                         2,
                         1,
@@ -1576,7 +1577,7 @@ mod tests {
                         column: 10,
                     },
                     then_block: vec![Statement::DisplayStatement {
-                        value: Expression::Literal(Literal::String("No args".to_string()), 4, 1),
+                        value: Expression::Literal(Literal::String(Rc::from("No args")), 4, 1),
                         line: 4,
                         column: 1,
                     }],
@@ -1590,7 +1591,7 @@ mod tests {
                         },
                         then_block: vec![Statement::DisplayStatement {
                             value: Expression::Literal(
-                                Literal::String("One arg".to_string()),
+                                Literal::String(Rc::from("One arg")),
                                 6,
                                 1,
                             ),
@@ -1611,7 +1612,7 @@ mod tests {
                             },
                             then_block: vec![Statement::DisplayStatement {
                                 value: Expression::Literal(
-                                    Literal::String("Two args".to_string()),
+                                    Literal::String(Rc::from("Two args")),
                                     8,
                                     1,
                                 ),
