@@ -33,10 +33,10 @@ pub fn update_dependencies(
         // TODO: Update lock file
         // TODO: Download and install updated package
 
-        return Err(PackageError::General(format!(
+        Err(PackageError::General(format!(
             "Updating package \"{}\" is not yet implemented.",
             name
-        )));
+        )))
     } else {
         // Update all packages
         if manifest.dependencies.is_empty() {
@@ -49,9 +49,9 @@ pub fn update_dependencies(
         // TODO: Update lock file
         // TODO: Download and install updated packages
 
-        return Err(PackageError::General(format!(
+        Err(PackageError::General(format!(
             "Dependency update is not yet implemented ({} dependencies found).",
             manifest.dependencies.len()
-        )));
+        )))
     }
 }

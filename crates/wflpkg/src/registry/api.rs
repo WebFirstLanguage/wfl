@@ -56,7 +56,7 @@ impl RegistryClient {
 
     /// Search for packages matching a query.
     pub async fn search(&self, query: &str) -> Result<Vec<SearchResult>, PackageError> {
-        let url = format!("{}/api/v1/search?q={}", self.base_url, query);
+        let url = build_search_url(&self.base_url, query)?;
         let response =
             self.client.get(&url).send().await.map_err(|e| {
                 PackageError::RegistryUnreachable(format!("{}: {}", self.base_url, e))
@@ -93,7 +93,7 @@ impl RegistryClient {
 
     /// Get detailed information about a package.
     pub async fn get_package_info(&self, name: &str) -> Result<PackageInfo, PackageError> {
-        let url = format!("{}/api/v1/packages/{}", self.base_url, name);
+        let url = build_package_url(&self.base_url, name)?;
         let response =
             self.client.get(&url).send().await.map_err(|e| {
                 PackageError::RegistryUnreachable(format!("{}: {}", self.base_url, e))
@@ -195,5 +195,149 @@ impl RegistryClient {
     /// Get the base URL.
     pub fn base_url(&self) -> &str {
         &self.base_url
+    }
+}
+
+/// Percent-encode a string for use as a URL path segment (RFC 3986).
+/// Unreserved characters (A-Z, a-z, 0-9, `-`, `.`, `_`, `~`) pass through unchanged.
+fn percent_encode_path_segment(s: &str) -> String {
+    let mut encoded = String::with_capacity(s.len());
+    for byte in s.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                encoded.push(byte as char);
+            }
+            _ => {
+                encoded.push_str(&format!("%{:02X}", byte));
+            }
+        }
+    }
+    encoded
+}
+
+/// Build a properly-encoded search URL with the query as a `q` parameter.
+fn build_search_url(base_url: &str, query: &str) -> Result<String, PackageError> {
+    let base = format!("{}/api/v1/search", base_url);
+    let mut url = reqwest::Url::parse(&base)
+        .map_err(|e| PackageError::Http(format!("Invalid base URL: {}", e)))?;
+    url.query_pairs_mut().append_pair("q", query);
+    Ok(url.to_string())
+}
+
+/// Build a properly-encoded package URL with the name as a path segment.
+fn build_package_url(base_url: &str, name: &str) -> Result<String, PackageError> {
+    let encoded_name = percent_encode_path_segment(name);
+    let base = format!("{}/api/v1/packages/{}", base_url, encoded_name);
+    // Validate the URL is well-formed
+    reqwest::Url::parse(&base).map_err(|e| PackageError::Http(format!("Invalid URL: {}", e)))?;
+    Ok(base)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BASE: &str = "https://registry.example.com";
+
+    // --- search URL tests ---
+
+    #[test]
+    fn test_search_url_simple_query() {
+        let url = build_search_url(BASE, "my-package").unwrap();
+        assert_eq!(
+            url,
+            "https://registry.example.com/api/v1/search?q=my-package"
+        );
+    }
+
+    #[test]
+    fn test_search_url_encodes_spaces() {
+        let url = build_search_url(BASE, "hello world").unwrap();
+        assert!(url.contains("q=hello"));
+        // Must not contain a raw space
+        assert!(!url.contains("q=hello world"));
+    }
+
+    #[test]
+    fn test_search_url_encodes_ampersand() {
+        let url = build_search_url(BASE, "foo&bar=evil").unwrap();
+        // The ampersand must be encoded — only one `q=` param should exist
+        assert!(url.contains("q=foo"));
+        assert!(!url.contains("&bar=evil"));
+    }
+
+    #[test]
+    fn test_search_url_encodes_hash() {
+        let url = build_search_url(BASE, "foo#fragment").unwrap();
+        // Hash must not truncate the URL; query must contain the full value
+        assert!(url.contains("q=foo"));
+        assert!(!url.ends_with("#fragment"));
+    }
+
+    #[test]
+    fn test_search_url_encodes_question_mark() {
+        let url = build_search_url(BASE, "foo?extra").unwrap();
+        // Only one `?` should appear (the query delimiter)
+        let question_marks = url.matches('?').count();
+        assert_eq!(question_marks, 1);
+    }
+
+    #[test]
+    fn test_search_url_empty_query() {
+        let url = build_search_url(BASE, "").unwrap();
+        assert_eq!(url, "https://registry.example.com/api/v1/search?q=");
+    }
+
+    // --- package URL tests ---
+
+    #[test]
+    fn test_package_url_simple_name() {
+        let url = build_package_url(BASE, "my-package").unwrap();
+        assert_eq!(
+            url,
+            "https://registry.example.com/api/v1/packages/my-package"
+        );
+    }
+
+    #[test]
+    fn test_package_url_encodes_slash() {
+        let url = build_package_url(BASE, "foo/bar").unwrap();
+        assert!(url.contains("foo%2Fbar"));
+        // Must not create a new path segment
+        assert!(!url.contains("packages/foo/bar"));
+    }
+
+    #[test]
+    fn test_package_url_encodes_dot_dot() {
+        let url = build_package_url(BASE, "../secret").unwrap();
+        assert!(url.contains("..%2Fsecret"));
+    }
+
+    #[test]
+    fn test_package_url_encodes_hash() {
+        let url = build_package_url(BASE, "pkg#frag").unwrap();
+        assert!(url.contains("pkg%23frag"));
+        assert!(!url.contains('#'));
+    }
+
+    #[test]
+    fn test_package_url_encodes_question_mark() {
+        let url = build_package_url(BASE, "pkg?q=evil").unwrap();
+        assert!(url.contains("pkg%3Fq%3Devil"));
+        assert!(!url.contains('?'));
+    }
+
+    // --- percent_encode_path_segment tests ---
+
+    #[test]
+    fn test_encode_unreserved_chars_unchanged() {
+        let input = "ABCxyz019-._~";
+        assert_eq!(percent_encode_path_segment(input), input);
+    }
+
+    #[test]
+    fn test_encode_special_chars() {
+        let encoded = percent_encode_path_segment("a/b?c#d&e f");
+        assert_eq!(encoded, "a%2Fb%3Fc%23d%26e%20f");
     }
 }
