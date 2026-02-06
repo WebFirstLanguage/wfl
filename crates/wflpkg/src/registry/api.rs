@@ -126,7 +126,8 @@ impl RegistryClient {
             .collect();
 
         let latest = versions
-            .last()
+            .iter()
+            .max()
             .cloned()
             .unwrap_or(Version::new(0, 1, Some(0)));
 
