@@ -18,12 +18,14 @@ fn hash_directory(base: &Path, path: &Path, hasher: &mut Sha256) -> Result<(), P
         // Hash a single file
         let content = std::fs::read(path)?;
         let relative = path.strip_prefix(base).unwrap_or(path);
-        hasher.update(relative.to_string_lossy().as_bytes());
+        let rel_bytes = relative.to_string_lossy();
+        hasher.update((rel_bytes.len() as u64).to_le_bytes());
+        hasher.update(rel_bytes.as_bytes());
         hasher.update(&content);
         return Ok(());
     }
 
-    let mut entries: Vec<_> = std::fs::read_dir(path)?.filter_map(|e| e.ok()).collect();
+    let mut entries: Vec<_> = std::fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
     entries.sort_by_key(|e| e.file_name());
 
     for entry in entries {
@@ -41,7 +43,9 @@ fn hash_directory(base: &Path, path: &Path, hasher: &mut Sha256) -> Result<(), P
         } else {
             let content = std::fs::read(&entry_path)?;
             let relative = entry_path.strip_prefix(base).unwrap_or(&entry_path);
-            hasher.update(relative.to_string_lossy().as_bytes());
+            let rel_bytes = relative.to_string_lossy();
+            hasher.update((rel_bytes.len() as u64).to_le_bytes());
+            hasher.update(rel_bytes.as_bytes());
             hasher.update(&content);
         }
     }

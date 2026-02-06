@@ -121,6 +121,14 @@ pub fn extract_archive(archive_path: &Path, dest_dir: &Path) -> Result<(), Packa
             )));
         }
 
+        // Reject symlink and hard link entries to prevent symlink-based attacks
+        if entry.header().entry_type().is_symlink() || entry.header().entry_type().is_hard_link() {
+            return Err(PackageError::General(format!(
+                "Archive contains a symlink or hard link: {}",
+                entry_path.display()
+            )));
+        }
+
         // Create parent directories as needed
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;

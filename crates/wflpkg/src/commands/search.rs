@@ -3,7 +3,7 @@ use crate::registry::api::RegistryClient;
 
 /// Search the registry for packages matching a query.
 pub async fn search_packages(query: &str, registry_url: &str) -> Result<(), PackageError> {
-    let client = RegistryClient::new(&format!("https://{}", registry_url));
+    let client = RegistryClient::new(&format!("https://{}", registry_url))?;
     let results = client.search(query).await?;
 
     if results.is_empty() {

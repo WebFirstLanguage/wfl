@@ -67,6 +67,11 @@ pub fn parse_lock_file(content: &str) -> Result<LockFile, PackageError> {
                             ),
                         });
                     }
+                } else {
+                    return Err(PackageError::LockFileParseError {
+                        line: line_num,
+                        message: format!("Unrecognized field in package block: {}", inner),
+                    });
                 }
             } else {
                 return Err(PackageError::LockFileParseError {

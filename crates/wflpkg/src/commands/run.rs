@@ -24,18 +24,31 @@ pub async fn run_project(project_dir: &Path) -> Result<(), PackageError> {
         )));
     }
 
-    // Execute the entry point using the wfl binary
+    let canon_project = project_dir.canonicalize().map_err(|e| {
+        PackageError::General(format!("Could not canonicalize project directory: {}", e))
+    })?;
+    let canon_entry = entry_path
+        .canonicalize()
+        .map_err(|e| PackageError::General(format!("Could not canonicalize entry point: {}", e)))?;
+    if !canon_entry.starts_with(&canon_project) {
+        return Err(PackageError::General(format!(
+            "The entry point \"{}\" resolves outside the project directory.",
+            manifest.entry_point()
+        )));
+    }
+
     let status = Command::new("wfl")
-        .arg(&entry_path)
+        .arg(&canon_entry)
         .current_dir(project_dir)
         .status()
         .await;
 
     match status {
         Ok(s) if s.success() => Ok(()),
-        Ok(s) => {
-            std::process::exit(s.code().unwrap_or(1));
-        }
+        Ok(s) => Err(PackageError::General(format!(
+            "wfl exited with status code {}",
+            s.code().unwrap_or(1)
+        ))),
         Err(e) => Err(PackageError::General(format!(
             "Could not run wfl: {}\n\
              Make sure wfl is installed and in your PATH.",

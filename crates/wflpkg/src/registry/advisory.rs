@@ -36,7 +36,7 @@ pub async fn check_advisories(
         .connect_timeout(std::time::Duration::from_secs(30))
         .timeout(std::time::Duration::from_secs(300))
         .build()
-        .unwrap_or_default();
+        .map_err(|e| PackageError::General(format!("HTTP client error: {}", e)))?;
     let response = client
         .post(&url)
         .json(&serde_json::json!({ "packages": package_list }))

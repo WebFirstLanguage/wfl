@@ -19,6 +19,8 @@ use wfl::typechecker::TypeChecker;
 use wfl::wfl_config;
 use wfl::{error, exec_trace, info};
 
+const DEFAULT_REGISTRY: &str = "wflhub.org";
+
 fn print_help() {
     println!("WebFirst Language (WFL) Compiler and Interpreter");
     println!();
@@ -203,7 +205,9 @@ async fn main() -> io::Result<()> {
                     eprintln!("Usage: wfl search <query>");
                     process::exit(2);
                 }
-                match wflpkg::commands::search::search_packages(&sub_args[0], "wflhub.org").await {
+                match wflpkg::commands::search::search_packages(&sub_args[0], DEFAULT_REGISTRY)
+                    .await
+                {
                     Ok(()) => return Ok(()),
                     Err(e) => {
                         eprintln!("{}", e);
@@ -216,7 +220,9 @@ async fn main() -> io::Result<()> {
                     eprintln!("Usage: wfl info <package-name>");
                     process::exit(2);
                 }
-                match wflpkg::commands::info::show_package_info(&sub_args[0], "wflhub.org").await {
+                match wflpkg::commands::info::show_package_info(&sub_args[0], DEFAULT_REGISTRY)
+                    .await
+                {
                     Ok(()) => return Ok(()),
                     Err(e) => {
                         eprintln!("{}", e);
@@ -224,7 +230,7 @@ async fn main() -> io::Result<()> {
                     }
                 }
             }
-            "login" => match wflpkg::commands::login::login("wflhub.org") {
+            "login" => match wflpkg::commands::login::login(DEFAULT_REGISTRY) {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     eprintln!("{}", e);

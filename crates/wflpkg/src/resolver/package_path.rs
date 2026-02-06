@@ -5,6 +5,12 @@ use crate::manifest::ProjectManifest;
 
 /// Resolve the entry point for a package installed in `packages/<name>/`.
 pub fn resolve_package_entry(name: &str, project_dir: &Path) -> Result<PathBuf, PackageError> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") || name.is_empty() {
+        return Err(PackageError::General(format!(
+            "Invalid package name \"{}\": must not contain path separators or '..' components.",
+            name
+        )));
+    }
     let package_dir = project_dir.join("packages").join(name);
 
     if !package_dir.exists() {
@@ -57,13 +63,53 @@ pub fn resolve_package_entry(name: &str, project_dir: &Path) -> Result<PathBuf, 
     // Fallback: look for src/main.wfl
     let default_entry = package_dir.join("src").join("main.wfl");
     if default_entry.exists() {
-        return Ok(default_entry);
+        let canon = default_entry.canonicalize().map_err(|e| {
+            PackageError::General(format!(
+                "Could not canonicalize fallback entry \"{}\": {}",
+                default_entry.display(),
+                e
+            ))
+        })?;
+        let canon_pkg = package_dir.canonicalize().map_err(|e| {
+            PackageError::General(format!(
+                "Could not canonicalize package directory \"{}\": {}",
+                package_dir.display(),
+                e
+            ))
+        })?;
+        if !canon.starts_with(&canon_pkg) {
+            return Err(PackageError::General(format!(
+                "Fallback entry point escapes the package directory for \"{}\".",
+                name
+            )));
+        }
+        return Ok(canon);
     }
 
     // Fallback: look for main.wfl in package root
     let root_main = package_dir.join("main.wfl");
     if root_main.exists() {
-        return Ok(root_main);
+        let canon = root_main.canonicalize().map_err(|e| {
+            PackageError::General(format!(
+                "Could not canonicalize fallback entry \"{}\": {}",
+                root_main.display(),
+                e
+            ))
+        })?;
+        let canon_pkg = package_dir.canonicalize().map_err(|e| {
+            PackageError::General(format!(
+                "Could not canonicalize package directory \"{}\": {}",
+                package_dir.display(),
+                e
+            ))
+        })?;
+        if !canon.starts_with(&canon_pkg) {
+            return Err(PackageError::General(format!(
+                "Fallback entry point escapes the package directory for \"{}\".",
+                name
+            )));
+        }
+        return Ok(canon);
     }
 
     Err(PackageError::General(format!(

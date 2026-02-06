@@ -3,7 +3,7 @@ use crate::registry::api::RegistryClient;
 
 /// Show detailed information about a package from the registry.
 pub async fn show_package_info(name: &str, registry_url: &str) -> Result<(), PackageError> {
-    let client = RegistryClient::new(&format!("https://{}", registry_url));
+    let client = RegistryClient::new(&format!("https://{}", registry_url))?;
     let info = client.get_package_info(name).await?;
 
     println!("{} ({})", info.name, info.latest_version);

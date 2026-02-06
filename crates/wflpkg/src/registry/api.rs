@@ -36,17 +36,17 @@ pub struct SearchResult {
 
 impl RegistryClient {
     /// Create a new registry client for the given base URL.
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(base_url: &str) -> Result<Self, PackageError> {
         let client = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
             .build()
-            .unwrap_or_default();
-        Self {
+            .map_err(|e| PackageError::General(format!("HTTP client error: {}", e)))?;
+        Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             auth_token: None,
             client,
-        }
+        })
     }
 
     /// Set the authentication token.
@@ -346,19 +346,19 @@ mod tests {
 
     #[test]
     fn test_registry_client_strips_trailing_slash() {
-        let client = RegistryClient::new("https://example.com/");
+        let client = RegistryClient::new("https://example.com/").unwrap();
         assert_eq!(client.base_url(), "https://example.com");
     }
 
     #[test]
     fn test_registry_client_preserves_clean_url() {
-        let client = RegistryClient::new("https://example.com");
+        let client = RegistryClient::new("https://example.com").unwrap();
         assert_eq!(client.base_url(), "https://example.com");
     }
 
     #[test]
     fn test_set_auth_token_does_not_panic() {
-        let mut client = RegistryClient::new(BASE);
+        let mut client = RegistryClient::new(BASE).unwrap();
         client.set_auth_token("secret-token".to_string());
         // Should still work after setting token
         assert_eq!(client.base_url(), BASE);
@@ -366,7 +366,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_without_auth_returns_not_authenticated() {
-        let client = RegistryClient::new(BASE);
+        let client = RegistryClient::new(BASE).unwrap();
         let version = crate::manifest::version::Version::new(26, 1, Some(0));
         let fake_path = std::path::Path::new("/nonexistent/archive.wflpkg");
         let result = client

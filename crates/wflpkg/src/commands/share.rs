@@ -51,7 +51,7 @@ pub async fn share_package(project_dir: &Path) -> Result<(), PackageError> {
     let checksum = checksum::compute_checksum(&archive_path)?;
 
     // Upload to registry
-    let mut client = RegistryClient::new(&format!("https://{}", manifest.registry_url()));
+    let mut client = RegistryClient::new(&format!("https://{}", manifest.registry_url()))?;
     client.set_auth_token(token);
 
     client

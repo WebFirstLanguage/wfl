@@ -47,7 +47,7 @@ impl AuthManager {
         }
 
         let mut token_owned = token.to_string();
-        let data = AuthData {
+        let mut data = AuthData {
             token: Some(token_owned.clone()),
             registry: Some(registry.to_string()),
         };
@@ -68,6 +68,12 @@ impl AuthManager {
         // Zeroize secrets to prevent them lingering in memory.
         content.zeroize();
         token_owned.zeroize();
+        if let Some(ref mut t) = data.token {
+            t.zeroize();
+        }
+        if let Some(ref mut r) = data.registry {
+            r.zeroize();
+        }
 
         Ok(())
     }

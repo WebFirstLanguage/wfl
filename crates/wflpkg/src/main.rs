@@ -2,6 +2,8 @@ use std::env;
 use std::path::Path;
 use std::process;
 
+const DEFAULT_REGISTRY: &str = "wflhub.org";
+
 /// Standalone `wflpkg` binary entry point.
 /// Delegates to the same library functions used by `wfl` subcommands.
 #[tokio::main]
@@ -26,6 +28,11 @@ async fn main() {
 }
 
 async fn run_command(args: &[String], cwd: &Path) -> Result<(), wflpkg::PackageError> {
+    if args.is_empty() {
+        return Err(wflpkg::PackageError::General(
+            "No command provided. Run 'wflpkg help' for usage.".to_string(),
+        ));
+    }
     match args[0].as_str() {
         "create" => {
             let name = parse_create_args(&args[1..]);
@@ -65,7 +72,7 @@ async fn run_command(args: &[String], cwd: &Path) -> Result<(), wflpkg::PackageE
                     "Usage: wflpkg search <query>".to_string(),
                 ));
             }
-            wflpkg::commands::search::search_packages(&args[1], "wflhub.org").await?;
+            wflpkg::commands::search::search_packages(&args[1], DEFAULT_REGISTRY).await?;
         }
         "info" => {
             if args.len() < 2 {
@@ -73,10 +80,10 @@ async fn run_command(args: &[String], cwd: &Path) -> Result<(), wflpkg::PackageE
                     "Usage: wflpkg info <package-name>".to_string(),
                 ));
             }
-            wflpkg::commands::info::show_package_info(&args[1], "wflhub.org").await?;
+            wflpkg::commands::info::show_package_info(&args[1], DEFAULT_REGISTRY).await?;
         }
         "login" => {
-            wflpkg::commands::login::login("wflhub.org")?;
+            wflpkg::commands::login::login(DEFAULT_REGISTRY)?;
         }
         "logout" => {
             wflpkg::commands::login::logout()?;
