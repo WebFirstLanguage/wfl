@@ -104,11 +104,309 @@ jobs:
       - name: Run All Integration Tests
         run: cargo test --test '*' --verbose
 
+  # Run WFL test programs to verify the interpreter works correctly
+  run-wfl-programs:
+    name: Run WFL Programs
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    needs: fmt
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Cache Cargo registry and target directory for faster builds
+      - name: Cache Cargo registry and target directory
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: wfl-programs-${{ matrix.os }}
+
+      # Build release version
+      - name: Build Release Binary
+        run: cargo build --release --verbose
+
+      # Run WFL programs (Linux/macOS)
+      - name: Run WFL Programs (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          #!/bin/bash
+          # Note: Do not use 'set -e' as arithmetic operations like ((var++)) return 1 when var is 0
+          
+          WFL_BINARY="./target/release/wfl"
+          TESTPROGRAMS_DIR="./TestPrograms"
+          TIMEOUT_SECONDS=30
+          
+          # Declare associative array for skip patterns with reasons
+          declare -A SKIP_REASONS=(
+            ["web_server"]="starts server and waits for requests"
+            ["simple_web"]="starts server and waits for requests"
+            ["comprehensive_web"]="starts server and waits for requests"
+            ["circular_"]="causes infinite loop (circular include)"
+            ["wait_request"]="waits for external input"
+            ["module_helper"]="helper module, not standalone"
+            ["middleware"]="starts server and waits for requests"
+            ["graceful_shutdown"]="starts server and waits for requests"
+            ["session_test"]="starts server and waits for requests"
+            ["websocket"]="starts server and waits for requests"
+            ["respond_test"]="starts server and waits for requests"
+            ["test_basic_server"]="starts server and waits for requests"
+            ["test_static_files"]="starts server and waits for requests"
+            ["test_request"]="starts server and waits for requests"
+            ["test_cookie"]="starts server and waits for requests"
+            ["test_json_and_headers"]="starts server and waits for requests"
+            ["header_access"]="starts server and waits for requests"
+            ["multi_server"]="starts server and waits for requests"
+            ["body_limit"]="starts server and waits for requests"
+            ["content_length"]="starts server and waits for requests"
+            ["lsp_demo"]="starts LSP server and waits for input"
+            ["complex_expression_catch_test"]="semantic analysis issue (error_message not defined)"
+            ["nested_catch_test"]="semantic analysis issue (error_message not defined)"
+            ["unicode_catch_test"]="semantic analysis issue (error_message not defined)"
+            ["scoped.wfl"]="references undefined variables (expected to fail)"
+            ["test_redefinition_error"]="references undefined variables (expected to fail)"
+            ["test_list_debug"]="known interpreter issue"
+            ["test_list_keyword"]="known interpreter issue"
+            ["test_simple_contextual"]="known interpreter issue"
+            ["test_simple_static"]="known interpreter issue"
+            ["time_random_comprehensive"]="known interpreter issue"
+            ["rust_loc_counter"]="known interpreter issue"
+          )
+          ERROR_EXAMPLES_REASON="expected to fail (error example)"
+          
+          passed=0
+          failed=0
+          skipped=0
+          timed_out=0
+          failed_files=""
+          
+          echo "=== Running WFL Test Programs ==="
+          echo ""
+          
+          # Find all .wfl files
+          while IFS= read -r -d '' file; do
+            filename=$(basename "$file")
+            relative_path="${file#./}"
+            
+            # Check for CI-SKIP directive in the file
+            first_line=$(head -1 "$file")
+            if [[ "$first_line" == *"CI-SKIP:"* ]]; then
+              ci_skip_reason=$(echo "$first_line" | sed 's/.*CI-SKIP:\s*//')
+            fi
+            
+            # Check if file should be skipped
+            skip_reason=""
+            
+            # Check error_examples directory first
+            if [ -n "${ci_skip_reason:-}" ]; then
+              skip_reason="$ci_skip_reason"
+              ci_skip_reason=""
+            elif [[ "$relative_path" == *"error_examples"* ]]; then
+              skip_reason="$ERROR_EXAMPLES_REASON"
+            else
+              # Check against skip patterns
+              for pattern in "${!SKIP_REASONS[@]}"; do
+                if [[ "$filename" == *"$pattern"* ]]; then
+                  skip_reason="${SKIP_REASONS[$pattern]}"
+                  break
+                fi
+              done
+            fi
+            
+            if [ -n "$skip_reason" ]; then
+                echo "SKIP: $relative_path ($skip_reason)"
+                skipped=$((skipped + 1))
+                continue
+            fi
+            
+            echo -n "RUN:  $relative_path ... "
+            
+            # Run with timeout
+            if timeout "$TIMEOUT_SECONDS" "$WFL_BINARY" "$file" > /dev/null 2>&1; then
+              echo "PASS"
+              passed=$((passed + 1))
+            else
+              exit_code=$?
+              if [ $exit_code -eq 124 ]; then
+                echo "TIMEOUT (${TIMEOUT_SECONDS}s)"
+                timed_out=$((timed_out + 1))
+              else
+                echo "FAIL (exit code: $exit_code)"
+              fi
+              failed=$((failed + 1))
+              failed_files="$failed_files\n  - $relative_path"
+            fi
+          done < <(find "$TESTPROGRAMS_DIR" -name "*.wfl" -print0 | sort -z)
+          
+          echo ""
+          echo "=== Summary ==="
+          echo "Passed:  $passed"
+          echo "Failed:  $failed (timeouts: $timed_out)"
+          echo "Skipped: $skipped"
+          echo "Total:   $((passed + failed + skipped))"
+          
+          if [ $failed -gt 0 ]; then
+            echo ""
+            echo "Failed files:$failed_files"
+            exit 1
+          fi
+
+      # Run WFL programs (Windows)
+      - name: Run WFL Programs (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          
+          $WflBinary = Join-Path (Get-Location).Path "target\release\wfl.exe"
+          $TestProgramsDir = ".\TestPrograms"
+          $TimeoutSeconds = 30
+          
+          # Skip patterns with reasons (hashtable)
+          $SkipReasons = @{
+            "web_server" = "starts server and waits for requests"
+            "simple_web" = "starts server and waits for requests"
+            "comprehensive_web" = "starts server and waits for requests"
+            "circular_" = "causes infinite loop (circular include)"
+            "wait_request" = "waits for external input"
+            "module_helper" = "helper module, not standalone"
+            "middleware" = "starts server and waits for requests"
+            "graceful_shutdown" = "starts server and waits for requests"
+            "session_test" = "starts server and waits for requests"
+            "websocket" = "starts server and waits for requests"
+            "respond_test" = "starts server and waits for requests"
+            "test_basic_server" = "starts server and waits for requests"
+            "test_static_files" = "starts server and waits for requests"
+            "test_request" = "starts server and waits for requests"
+            "test_cookie" = "starts server and waits for requests"
+            "test_json_and_headers" = "starts server and waits for requests"
+            "header_access" = "starts server and waits for requests"
+            "multi_server" = "starts server and waits for requests"
+            "body_limit" = "starts server and waits for requests"
+            "content_length" = "starts server and waits for requests"
+            "lsp_demo" = "starts LSP server and waits for input"
+            "subprocess" = "subprocess tests use platform-dependent commands"
+            "complex_expression_catch_test" = "semantic analysis issue (error_message not defined)"
+            "nested_catch_test" = "semantic analysis issue (error_message not defined)"
+            "unicode_catch_test" = "semantic analysis issue (error_message not defined)"
+            "scoped.wfl" = "references undefined variables (expected to fail)"
+            "test_redefinition_error" = "references undefined variables (expected to fail)"
+            "test_list_debug" = "known interpreter issue"
+            "test_list_keyword" = "known interpreter issue"
+            "test_simple_contextual" = "known interpreter issue"
+            "test_simple_static" = "known interpreter issue"
+            "time_random_comprehensive" = "known interpreter issue"
+            "rust_loc_counter" = "known interpreter issue"
+          }
+          $ErrorExamplesReason = "expected to fail (error example)"
+          
+          $passed = 0
+          $failed = 0
+          $skipped = 0
+          $timedOut = 0
+          $failedFiles = @()
+          
+          Write-Host "=== Running WFL Test Programs ==="
+          Write-Host ""
+          
+          # Find all .wfl files
+          $wflFiles = Get-ChildItem -Path $TestProgramsDir -Filter "*.wfl" -Recurse | Sort-Object FullName
+          
+          foreach ($file in $wflFiles) {
+            $filename = $file.Name
+            # Get relative path more robustly
+            $currentDir = (Get-Location).Path
+            if ($file.FullName.StartsWith($currentDir)) {
+              $relativePath = $file.FullName.Substring($currentDir.Length).TrimStart('\', '/')
+            } else {
+              $relativePath = $file.FullName
+            }
+            
+            # Check for CI-SKIP directive in the file
+            $firstLine = Get-Content $file.FullName -First 1
+            $ciSkipReason = $null
+            if ($firstLine -match 'CI-SKIP:\s*(.+)') {
+              $ciSkipReason = $Matches[1].Trim()
+            }
+            
+            # Check if file should be skipped
+            $skipReason = $null
+            
+            if ($null -ne $ciSkipReason) {
+              $skipReason = $ciSkipReason
+            } elseif ($relativePath -like "*error_examples*") {
+              $skipReason = $ErrorExamplesReason
+            } else {
+              # Check against skip patterns
+              foreach ($pattern in $SkipReasons.Keys) {
+                if ($filename -like "*$pattern*") {
+                  $skipReason = $SkipReasons[$pattern]
+                  break
+                }
+              }
+            }
+            
+            if ($null -ne $skipReason) {
+              Write-Host "SKIP: $relativePath ($skipReason)"
+              $skipped++
+              continue
+            }
+            
+            Write-Host -NoNewline "RUN:  $relativePath ... "
+            
+            # Run with timeout using a job for better process control
+            $job = Start-Job -ScriptBlock {
+              param($binary, $filePath)
+              & $binary $filePath 2>&1 | Out-Null
+              $LASTEXITCODE
+            } -ArgumentList $WflBinary, $file.FullName
+            
+            $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
+            
+            if ($null -eq $completed) {
+              Stop-Job -Job $job
+              Remove-Job -Job $job -Force
+              Write-Host "TIMEOUT (${TimeoutSeconds}s)"
+              $timedOut++
+              $failed++
+              $failedFiles += $relativePath
+            } else {
+              $exitCode = Receive-Job -Job $job
+              Remove-Job -Job $job
+              if ($exitCode -eq 0) {
+                Write-Host "PASS"
+                $passed++
+              } else {
+                Write-Host "FAIL (exit code: $exitCode)"
+                $failed++
+                $failedFiles += $relativePath
+              }
+            }
+          }
+          
+          Write-Host ""
+          Write-Host "=== Summary ==="
+          Write-Host "Passed:  $passed"
+          Write-Host "Failed:  $failed (timeouts: $timedOut)"
+          Write-Host "Skipped: $skipped"
+          Write-Host "Total:   $($passed + $failed + $skipped)"
+          
+          if ($failed -gt 0) {
+            Write-Host ""
+            Write-Host "Failed files:"
+            foreach ($f in $failedFiles) {
+              Write-Host "  - $f"
+            }
+            exit 1
+          }
+
   # Version bumping only happens after ALL checks pass
   bump-version:
     name: Bump Version
     runs-on: ubuntu-latest
-    needs: [fmt, clippy-and-test, integration-tests]
+    needs: [fmt, clippy-and-test, integration-tests, run-wfl-programs]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
