@@ -107,7 +107,7 @@ async fn main() -> io::Result<()> {
     #[cfg(feature = "dhat-ad-hoc")]
     let _profiler = dhat::Profiler::new_ad_hoc();
 
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
 
     if args.len() == 1 {
         if let Err(e) = repl::run_repl().await {
@@ -176,14 +176,18 @@ async fn main() -> io::Result<()> {
                     process::exit(1);
                 }
             },
-            "run" if !sub_args.iter().any(|a| a.ends_with(".wfl")) => {
-                // Only handle "wfl run" (no file arg) as package command
-                // "wfl run file.wfl" should fall through to normal execution
-                match wflpkg::commands::run::run_project(&cwd).await {
-                    Ok(()) => return Ok(()),
-                    Err(e) => {
-                        eprintln!("{}", e);
-                        process::exit(1);
+            "run" => {
+                if sub_args.iter().any(|a| a.ends_with(".wfl")) {
+                    // "wfl run file.wfl" — strip "run" so normal file execution handles it
+                    args.remove(1);
+                } else {
+                    // "wfl run" (no file arg) — package run command
+                    match wflpkg::commands::run::run_project(&cwd).await {
+                        Ok(()) => return Ok(()),
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            process::exit(1);
+                        }
                     }
                 }
             }
@@ -265,12 +269,18 @@ async fn main() -> io::Result<()> {
                     }
                 }
             }
-            "test" if sub_args.is_empty() || !sub_args.iter().any(|a| a.ends_with(".wfl")) => {
-                // "wfl test" without a .wfl file — package test command
-                // TODO: Run test files from project
-                println!("Package test mode not yet implemented.");
-                println!("Use 'wfl --test <file.wfl>' to run tests on a specific file.");
-                return Ok(());
+            "test" => {
+                if sub_args.iter().any(|a| a.ends_with(".wfl")) {
+                    // "wfl test file.wfl" — strip "test" and inject "--test" for normal handling
+                    args.remove(1);
+                    args.insert(1, "--test".to_string());
+                } else {
+                    // "wfl test" without a .wfl file — package test command
+                    // TODO: Run test files from project
+                    println!("Package test mode not yet implemented.");
+                    println!("Use 'wfl --test <file.wfl>' to run tests on a specific file.");
+                    return Ok(());
+                }
             }
             _ => {
                 // Fall through to existing flag/file parsing
