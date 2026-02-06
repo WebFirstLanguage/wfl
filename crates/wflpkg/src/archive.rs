@@ -141,6 +141,27 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
+    fn test_wflpkg_files_excluded_from_archive() {
+        let temp = TempDir::new().unwrap();
+        let src = temp.path().join("project");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("main.wfl"), "display \"hello\"").unwrap();
+        std::fs::write(src.join("project.wflpkg"), b"archive data").unwrap();
+
+        let archive_path = temp.path().join("test.wflpkg");
+        create_archive(&src, &archive_path).unwrap();
+
+        let dest = temp.path().join("extracted");
+        extract_archive(&archive_path, &dest).unwrap();
+
+        assert!(dest.join("main.wfl").exists());
+        assert!(
+            !dest.join("project.wflpkg").exists(),
+            ".wflpkg files should be excluded from archive"
+        );
+    }
+
+    #[test]
     fn test_create_and_extract_archive() {
         let temp = TempDir::new().unwrap();
 
