@@ -2963,24 +2963,56 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {target_value:?}"),
+                            format!(
+                                "Expected string for file handle, got {}",
+                                target_value.type_name()
+                            ),
                             *line,
                             *column,
                         ));
                     }
                 };
 
+                // 50MB limit to prevent memory exhaustion
+                const MAX_BINARY_WRITE: usize = 50 * 1024 * 1024;
                 let bytes = match &content_value {
                     Value::Binary(b) => b.clone(),
                     Value::List(items) => {
                         let items = items.borrow();
+                        if items.len() > MAX_BINARY_WRITE {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Byte list length {} exceeds maximum allowed ({})",
+                                    items.len(),
+                                    MAX_BINARY_WRITE
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
                         let mut bytes = Vec::with_capacity(items.len());
-                        for item in items.iter() {
+                        for (i, item) in items.iter().enumerate() {
                             match item {
-                                Value::Number(n) => bytes.push(*n as u8),
+                                Value::Number(n) => {
+                                    if *n < 0.0 || *n > 255.0 {
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Byte value at index {} out of range (0-255): {}",
+                                                i, n
+                                            ),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+                                    bytes.push(*n as u8);
+                                }
                                 _ => {
                                     return Err(RuntimeError::new(
-                                        format!("Expected number in byte list, got {item:?}"),
+                                        format!(
+                                            "Expected number in byte list at index {}, got {}",
+                                            i,
+                                            item.type_name()
+                                        ),
                                         *line,
                                         *column,
                                     ));
@@ -6787,7 +6819,10 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {handle_value:?}"),
+                            format!(
+                                "Expected string for file handle, got {}",
+                                handle_value.type_name()
+                            ),
                             *line,
                             *column,
                         ));
@@ -6812,7 +6847,10 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {handle_value:?}"),
+                            format!(
+                                "Expected string for file handle, got {}",
+                                handle_value.type_name()
+                            ),
                             *line,
                             *column,
                         ));
@@ -6821,10 +6859,35 @@ impl Interpreter {
 
                 let count_value = self.evaluate_expression(count, Rc::clone(&env)).await?;
                 let n = match &count_value {
-                    Value::Number(n) => *n as usize,
+                    Value::Number(n) => {
+                        if *n < 0.0 {
+                            return Err(RuntimeError::new(
+                                format!("Byte count cannot be negative: {n}"),
+                                *line,
+                                *column,
+                            ));
+                        }
+                        let count = *n as usize;
+                        // 50MB limit to prevent memory exhaustion
+                        const MAX_READ_BYTES: usize = 50 * 1024 * 1024;
+                        if count > MAX_READ_BYTES {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Byte count {} exceeds maximum allowed ({})",
+                                    count, MAX_READ_BYTES
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                        count
+                    }
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected number for byte count, got {count_value:?}"),
+                            format!(
+                                "Expected number for byte count, got {}",
+                                count_value.type_name()
+                            ),
                             *line,
                             *column,
                         ));
@@ -6848,7 +6911,10 @@ impl Interpreter {
                     Value::Text(s) => s.clone(),
                     _ => {
                         return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {handle_value:?}"),
+                            format!(
+                                "Expected string for file handle, got {}",
+                                handle_value.type_name()
+                            ),
                             *line,
                             *column,
                         ));

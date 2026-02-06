@@ -485,6 +485,7 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    /// Write binary data to a file handle: `write binary <content> into <handle>`
     WriteBinaryStatement {
         content: Expression,
         target: Expression,
@@ -670,17 +671,20 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    /// Read all binary content from a file handle: `read binary from <handle>`
     ReadBinaryContent {
         file_handle: Box<Expression>,
         line: usize,
         column: usize,
     },
+    /// Read N bytes from a file handle: `read <count> bytes from <handle>`
     ReadBinaryN {
         file_handle: Box<Expression>,
         count: Box<Expression>,
         line: usize,
         column: usize,
     },
+    /// Get the file size in bytes: `file size of <handle>`
     FileSizeOf {
         file_handle: Box<Expression>,
         line: usize,
