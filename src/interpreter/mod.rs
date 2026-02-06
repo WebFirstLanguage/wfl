@@ -1396,18 +1396,18 @@ impl Interpreter {
 
         // Verify the resolved entry is within the packages root to prevent traversal.
         let packages_root = project_dir.join("packages");
-        if let Ok(canon_root) = tokio::fs::canonicalize(&packages_root).await {
-            if !canonical.starts_with(&canon_root) {
-                return Err(RuntimeError::new(
-                    format!(
-                        "Package \"{}\" resolved to a path outside the packages directory. \
-                         This may indicate a path traversal attempt.",
-                        package_name
-                    ),
-                    line,
-                    column,
-                ));
-            }
+        if let Ok(canon_root) = tokio::fs::canonicalize(&packages_root).await
+            && !canonical.starts_with(&canon_root)
+        {
+            return Err(RuntimeError::new(
+                format!(
+                    "Package \"{}\" resolved to a path outside the packages directory. \
+                     This may indicate a path traversal attempt.",
+                    package_name
+                ),
+                line,
+                column,
+            ));
         }
 
         Ok(canonical)

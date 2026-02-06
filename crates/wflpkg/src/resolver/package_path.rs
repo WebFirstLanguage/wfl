@@ -21,7 +21,7 @@ pub fn resolve_package_entry(name: &str, project_dir: &Path) -> Result<PathBuf, 
     if manifest_path.exists() {
         let manifest = ProjectManifest::load(&manifest_path)?;
         let entry = manifest.entry_point();
-        let entry_path = package_dir.join(&entry);
+        let entry_path = package_dir.join(entry);
         if entry_path.exists() {
             // Canonicalize both paths to resolve symlinks and `..` components,
             // then verify the entry point is inside the package directory.
