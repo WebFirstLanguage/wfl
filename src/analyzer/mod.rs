@@ -955,6 +955,13 @@ impl Analyzer {
                 self.analyze_expression(target);
             }
 
+            Statement::WriteBinaryStatement {
+                content, target, ..
+            } => {
+                self.analyze_expression(content);
+                self.analyze_expression(target);
+            }
+
             Statement::ContainerDefinition {
                 name,
                 extends,
@@ -1978,6 +1985,18 @@ impl Analyzer {
                 self.analyze_expression(path);
             }
             Expression::ReadContent { file_handle, .. } => {
+                self.analyze_expression(file_handle);
+            }
+            Expression::ReadBinaryContent { file_handle, .. } => {
+                self.analyze_expression(file_handle);
+            }
+            Expression::ReadBinaryN {
+                file_handle, count, ..
+            } => {
+                self.analyze_expression(file_handle);
+                self.analyze_expression(count);
+            }
+            Expression::FileSizeOf { file_handle, .. } => {
                 self.analyze_expression(file_handle);
             }
             Expression::ListFilesRecursive {

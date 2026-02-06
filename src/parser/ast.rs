@@ -485,6 +485,12 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    WriteBinaryStatement {
+        content: Expression,
+        target: Expression,
+        line: usize,
+        column: usize,
+    },
     // Test framework statements
     DescribeBlock {
         description: String,
@@ -664,6 +670,22 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    ReadBinaryContent {
+        file_handle: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    ReadBinaryN {
+        file_handle: Box<Expression>,
+        count: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
+    FileSizeOf {
+        file_handle: Box<Expression>,
+        line: usize,
+        column: usize,
+    },
     ListFilesRecursive {
         path: Box<Expression>,
         extensions: Option<Vec<Expression>>,
@@ -816,6 +838,7 @@ pub enum Type {
         parameters: Vec<Type>,
         return_type: Box<Type>,
     },
+    Binary,
     Unknown,          // Used during type inference before a type is determined
     Error,            // Used to mark expressions that have already failed type checking
     Async(Box<Type>), // For asynchronous operations returning a value of Type
@@ -898,6 +921,8 @@ pub enum FileOpenMode {
     Read,
     Write,
     Append,
+    ReadBinary,
+    WriteBinary,
 }
 
 #[derive(Debug, Clone, PartialEq)]

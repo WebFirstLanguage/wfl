@@ -171,6 +171,7 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::WriteFileStatement { .. } => "WriteFileStatement".to_string(),
         Statement::WriteToStatement { .. } => "WriteToStatement".to_string(),
         Statement::WriteContentStatement { .. } => "WriteContentStatement".to_string(),
+        Statement::WriteBinaryStatement { .. } => "WriteBinaryStatement".to_string(),
         Statement::CloseFileStatement { .. } => "CloseFileStatement".to_string(),
         Statement::CreateDirectoryStatement { .. } => "CreateDirectoryStatement".to_string(),
         Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
@@ -319,6 +320,9 @@ fn expr_type(expr: &Expression) -> String {
         Expression::DirectoryExists { .. } => "DirectoryExists".to_string(),
         Expression::ListFiles { .. } => "ListFiles".to_string(),
         Expression::ReadContent { .. } => "ReadContent".to_string(),
+        Expression::ReadBinaryContent { .. } => "ReadBinaryContent".to_string(),
+        Expression::ReadBinaryN { .. } => "ReadBinaryN".to_string(),
+        Expression::FileSizeOf { .. } => "FileSizeOf".to_string(),
         Expression::ListFilesRecursive { .. } => "ListFilesRecursive".to_string(),
         Expression::ListFilesFiltered { .. } => "ListFilesFiltered".to_string(),
         Expression::HeaderAccess { header_name, .. } => format!("HeaderAccess '{header_name}'"),
@@ -499,6 +503,12 @@ impl IoClient {
             FileOpenMode::Append => {
                 options.read(false).write(true).create(true).append(true);
             }
+            FileOpenMode::ReadBinary => {
+                options.read(true).write(false).create(false);
+            }
+            FileOpenMode::WriteBinary => {
+                options.read(false).write(true).create(true).truncate(true);
+            }
         }
 
         match options.open(path).await {
@@ -650,6 +660,97 @@ impl IoClient {
                 Err(e) => Err(format!("Failed to truncate file: {e}")),
             },
             Err(e) => Err(format!("Failed to seek in file: {e}")),
+        }
+    }
+
+    async fn read_binary(&self, handle_id: &str) -> Result<Vec<u8>, String> {
+        let mut file_handles = self.file_handles.lock().await;
+
+        if !file_handles.contains_key(handle_id) {
+            return Err(format!("Invalid file handle: {handle_id}"));
+        }
+
+        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
+            Ok(clone) => clone,
+            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+        };
+
+        drop(file_handles);
+
+        // Seek to start before reading all
+        match AsyncSeekExt::seek(&mut file_clone, std::io::SeekFrom::Start(0)).await {
+            Ok(_) => {}
+            Err(e) => return Err(format!("Failed to seek in file: {e}")),
+        }
+
+        let mut contents = Vec::new();
+        match AsyncReadExt::read_to_end(&mut file_clone, &mut contents).await {
+            Ok(_) => Ok(contents),
+            Err(e) => Err(format!("Failed to read binary file: {e}")),
+        }
+    }
+
+    async fn read_binary_n(&self, handle_id: &str, count: usize) -> Result<Vec<u8>, String> {
+        let mut file_handles = self.file_handles.lock().await;
+
+        if !file_handles.contains_key(handle_id) {
+            return Err(format!("Invalid file handle: {handle_id}"));
+        }
+
+        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
+            Ok(clone) => clone,
+            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+        };
+
+        drop(file_handles);
+
+        let mut buf = vec![0u8; count];
+        match AsyncReadExt::read(&mut file_clone, &mut buf).await {
+            Ok(n) => {
+                buf.truncate(n);
+                Ok(buf)
+            }
+            Err(e) => Err(format!("Failed to read binary bytes: {e}")),
+        }
+    }
+
+    async fn write_binary(&self, handle_id: &str, data: &[u8]) -> Result<(), String> {
+        let mut file_handles = self.file_handles.lock().await;
+
+        if !file_handles.contains_key(handle_id) {
+            return Err(format!("Invalid file handle: {handle_id}"));
+        }
+
+        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
+            Ok(clone) => clone,
+            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+        };
+
+        drop(file_handles);
+
+        match AsyncWriteExt::write_all(&mut file_clone, data).await {
+            Ok(_) => match file_clone.flush().await {
+                Ok(_) => {
+                    Self::sync_file_with_windows_handling(&mut file_clone, "write_binary").await
+                }
+                Err(e) => Err(format!("Failed to flush binary file: {e}")),
+            },
+            Err(e) => Err(format!("Failed to write binary data: {e}")),
+        }
+    }
+
+    async fn file_size(&self, handle_id: &str) -> Result<u64, String> {
+        let file_handles = self.file_handles.lock().await;
+
+        if let Some((path, _)) = file_handles.get(handle_id) {
+            let path = path.clone();
+            drop(file_handles);
+            match tokio::fs::metadata(&path).await {
+                Ok(meta) => Ok(meta.len()),
+                Err(e) => Err(format!("Failed to get file size: {e}")),
+            }
+        } else {
+            Err(format!("Invalid file handle: {handle_id}"))
         }
     }
 
@@ -1848,6 +1949,7 @@ impl Interpreter {
             Statement::WriteFileStatement { line, column, .. } => (*line, *column),
             Statement::WriteToStatement { line, column, .. } => (*line, *column),
             Statement::WriteContentStatement { line, column, .. } => (*line, *column),
+            Statement::WriteBinaryStatement { line, column, .. } => (*line, *column),
             Statement::CloseFileStatement { line, column, .. } => (*line, *column),
             Statement::CreateDirectoryStatement { line, column, .. } => (*line, *column),
             Statement::CreateFileStatement { line, column, .. } => (*line, *column),
@@ -2846,6 +2948,62 @@ impl Interpreter {
                         Ok(_) => Ok((Value::Null, ControlFlow::None)),
                         Err(e) => Err(RuntimeError::new(e, *line, *column)),
                     }
+                }
+            }
+            Statement::WriteBinaryStatement {
+                content,
+                target,
+                line,
+                column,
+            } => {
+                let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                let target_value = self.evaluate_expression(target, Rc::clone(&env)).await?;
+
+                let target_str = match &target_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for file handle, got {target_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let bytes = match &content_value {
+                    Value::Binary(b) => b.clone(),
+                    Value::List(items) => {
+                        let items = items.borrow();
+                        let mut bytes = Vec::with_capacity(items.len());
+                        for item in items.iter() {
+                            match item {
+                                Value::Number(n) => bytes.push(*n as u8),
+                                _ => {
+                                    return Err(RuntimeError::new(
+                                        format!("Expected number in byte list, got {item:?}"),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
+                            }
+                        }
+                        bytes
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Expected Binary or List for write binary, got {}",
+                                content_value.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.write_binary(&target_str, &bytes).await {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
             Statement::DeleteDirectoryStatement { path, line, column } => {
@@ -6614,6 +6772,91 @@ impl Interpreter {
 
                 match self.io_client.read_file(&handle_str).await {
                     Ok(content) => Ok(Value::Text(content.into())),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Expression::ReadBinaryContent {
+                file_handle,
+                line,
+                column,
+            } => {
+                let handle_value = self
+                    .evaluate_expression(file_handle, Rc::clone(&env))
+                    .await?;
+                let handle_str = match &handle_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for file handle, got {handle_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.read_binary(&handle_str).await {
+                    Ok(bytes) => Ok(Value::Binary(bytes)),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Expression::ReadBinaryN {
+                file_handle,
+                count,
+                line,
+                column,
+            } => {
+                let handle_value = self
+                    .evaluate_expression(file_handle, Rc::clone(&env))
+                    .await?;
+                let handle_str = match &handle_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for file handle, got {handle_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let count_value = self.evaluate_expression(count, Rc::clone(&env)).await?;
+                let n = match &count_value {
+                    Value::Number(n) => *n as usize,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected number for byte count, got {count_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.read_binary_n(&handle_str, n).await {
+                    Ok(bytes) => Ok(Value::Binary(bytes)),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Expression::FileSizeOf {
+                file_handle,
+                line,
+                column,
+            } => {
+                let handle_value = self
+                    .evaluate_expression(file_handle, Rc::clone(&env))
+                    .await?;
+                let handle_str = match &handle_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for file handle, got {handle_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.file_size(&handle_str).await {
+                    Ok(size) => Ok(Value::Number(size as f64)),
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
