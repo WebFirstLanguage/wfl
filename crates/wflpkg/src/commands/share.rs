@@ -48,7 +48,7 @@ pub async fn share_package(project_dir: &Path) -> Result<(), PackageError> {
     archive::create_archive(project_dir, &archive_path)?;
 
     // Compute checksum
-    let checksum = checksum::compute_checksum(&archive_path)?;
+    let checksum = checksum::compute_checksum(project_dir)?;
 
     // Upload to registry
     let mut client = RegistryClient::new(&format!("https://{}", manifest.registry_url()))?;

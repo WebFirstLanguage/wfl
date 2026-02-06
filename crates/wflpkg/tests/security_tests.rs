@@ -163,6 +163,57 @@ fn test_create_archive_excludes_expected_dirs() {
     assert!(!dest.join("project.lock").exists());
 }
 
+/// Regression test: the checksum published alongside a package must be
+/// computed over the *project directory* (minus excluded dirs), NOT over
+/// the archive file.  When the recipient extracts the archive and runs
+/// `compute_checksum` on the extracted tree the result must match.
+#[test]
+fn test_checksum_of_project_dir_matches_extracted_archive() {
+    let temp = TempDir::new().unwrap();
+
+    let src = temp.path().join("project");
+    fs::create_dir_all(src.join("src")).unwrap();
+    fs::write(
+        src.join("project.wfl"),
+        "name is test\nversion is 26.1.0\ndescription is Test",
+    )
+    .unwrap();
+    fs::write(src.join("src/main.wfl"), "display \"hello\"").unwrap();
+
+    // Add directories that both checksum and archive exclude
+    fs::create_dir_all(src.join("packages")).unwrap();
+    fs::write(src.join("packages/dep.wfl"), "// dep").unwrap();
+    fs::create_dir_all(src.join(".git")).unwrap();
+    fs::write(src.join(".git/HEAD"), "ref: refs/heads/main").unwrap();
+    fs::create_dir_all(src.join("node_modules")).unwrap();
+    fs::write(src.join("node_modules/mod.js"), "//mod").unwrap();
+
+    // Checksum over the project directory (skips packages/, .git/, node_modules/)
+    let checksum_before = wflpkg::checksum::compute_checksum(&src).unwrap();
+
+    // Create archive and extract it
+    let archive_path = temp.path().join("test.wflpkg");
+    wflpkg::archive::create_archive(&src, &archive_path).unwrap();
+
+    let dest = temp.path().join("extracted");
+    wflpkg::archive::extract_archive(&archive_path, &dest).unwrap();
+
+    // Checksum over the extracted directory must equal the original
+    let checksum_after = wflpkg::checksum::compute_checksum(&dest).unwrap();
+
+    assert_eq!(
+        checksum_before, checksum_after,
+        "checksum of project dir should match checksum of extracted archive"
+    );
+
+    // Sanity: computing checksum over the archive *file* gives a different value
+    let checksum_archive = wflpkg::checksum::compute_checksum(&archive_path).unwrap();
+    assert_ne!(
+        checksum_before, checksum_archive,
+        "checksum of archive file should differ from checksum of project dir"
+    );
+}
+
 // ===========================================================================
 // Package name validation (path traversal)
 // ===========================================================================
