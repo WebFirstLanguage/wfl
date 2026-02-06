@@ -51,16 +51,16 @@ pub fn create_project(name: Option<&str>, base_path: &Path) -> Result<PathBuf, P
 
     // Create .wflcfg
     let wflcfg_content = "# WebFirst Language Configuration\n\
-         # Created by wfl create project\n\n\
-         timeout_seconds = 60\n\
-         logging_enabled = false\n"
+# Created by wfl create project\n\n\
+timeout_seconds = 60\n\
+logging_enabled = false\n"
         .to_string();
     std::fs::write(project_dir.join(".wflcfg"), wflcfg_content)?;
 
     // Create src/main.wfl
     let main_content = format!(
         "// {} - {}\n\n\
-         display \"Hello from {}!\"\n",
+display \"Hello from {}!\"\n",
         project_name, manifest.description, project_name,
     );
     std::fs::write(project_dir.join("src").join("main.wfl"), main_content)?;
