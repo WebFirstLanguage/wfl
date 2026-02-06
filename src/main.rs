@@ -19,6 +19,8 @@ use wfl::typechecker::TypeChecker;
 use wfl::wfl_config;
 use wfl::{error, exec_trace, info};
 
+const DEFAULT_REGISTRY: &str = "wflhub.org";
+
 fn print_help() {
     println!("WebFirst Language (WFL) Compiler and Interpreter");
     println!();
@@ -62,7 +64,40 @@ fn print_help() {
     println!("    This ensures that scripts are validated for semantic correctness");
     println!("    and type safety before execution, preventing many common runtime errors.");
     println!();
+    println!("PACKAGE MANAGEMENT:");
+    println!("    create [project] [called <name>]  Create a new WFL project");
+    println!("    add <package> [constraint]         Add a dependency");
+    println!("    remove <package>                   Remove a dependency");
+    println!("    update [package]                   Update dependencies");
+    println!("    build                              Build the project");
+    println!("    run                                Run the project entry point");
+    println!("    share                              Publish to the registry");
+    println!("    search <query>                     Search for packages");
+    println!("    info <package>                     Show package details");
+    println!("    login / logout                     Registry authentication");
+    println!("    check security                     Audit for vulnerabilities");
+    println!("    check compatibility                Check API compatibility");
+    println!();
     println!("If no file is specified, the REPL will be started.");
+}
+
+/// Parse "create project called <name>" args for the package manager.
+fn parse_create_project_args(args: &[String]) -> Option<String> {
+    // Skip "project" keyword if present
+    let args = if !args.is_empty() && args[0] == "project" {
+        &args[1..]
+    } else {
+        args
+    };
+
+    // Look for "called <name>"
+    if args.len() >= 2 && args[0] == "called" {
+        Some(args[1].clone())
+    } else if args.len() == 1 && args[0] != "called" {
+        Some(args[0].clone())
+    } else {
+        None
+    }
 }
 
 #[tokio::main]
@@ -74,7 +109,7 @@ async fn main() -> io::Result<()> {
     #[cfg(feature = "dhat-ad-hoc")]
     let _profiler = dhat::Profiler::new_ad_hoc();
 
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
 
     if args.len() == 1 {
         if let Err(e) = repl::run_repl().await {
@@ -86,6 +121,177 @@ async fn main() -> io::Result<()> {
     if args.len() >= 2 && args[1] == "--help" {
         print_help();
         return Ok(());
+    }
+
+    // Package manager subcommands (positional, not flags)
+    if args.len() >= 2 && !args[1].starts_with('-') {
+        let subcommand = args[1].as_str();
+        let sub_args: Vec<String> = args[2..].to_vec();
+        let cwd = std::env::current_dir()?;
+
+        match subcommand {
+            "create" => {
+                // Parse "create project called <name>" or "create project"
+                let name = parse_create_project_args(&sub_args);
+                match wflpkg::commands::create::create_project(name.as_deref(), &cwd) {
+                    Ok(_) => return Ok(()),
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        process::exit(1);
+                    }
+                }
+            }
+            "add" => match wflpkg::commands::add::add_dependency(&sub_args, &cwd) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    process::exit(1);
+                }
+            },
+            "remove" => {
+                if sub_args.is_empty() {
+                    eprintln!("Usage: wfl remove <package-name>");
+                    process::exit(2);
+                }
+                match wflpkg::commands::remove::remove_dependency(&sub_args[0], &cwd) {
+                    Ok(()) => return Ok(()),
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        process::exit(1);
+                    }
+                }
+            }
+            "update" => {
+                let pkg = sub_args.first().map(|s| s.as_str());
+                match wflpkg::commands::update::update_dependencies(pkg, &cwd) {
+                    Ok(()) => return Ok(()),
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        process::exit(1);
+                    }
+                }
+            }
+            "build" => match wflpkg::commands::build::build_project(&cwd).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    process::exit(1);
+                }
+            },
+            "run" => {
+                if sub_args.iter().any(|a| a.ends_with(".wfl")) {
+                    // "wfl run file.wfl" — strip "run" so normal file execution handles it
+                    args.remove(1);
+                } else {
+                    // "wfl run" (no file arg) — package run command
+                    match wflpkg::commands::run::run_project(&cwd).await {
+                        Ok(()) => return Ok(()),
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            process::exit(1);
+                        }
+                    }
+                }
+            }
+            "share" => match wflpkg::commands::share::share_package(&cwd).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    process::exit(1);
+                }
+            },
+            "search" => {
+                if sub_args.is_empty() {
+                    eprintln!("Usage: wfl search <query>");
+                    process::exit(2);
+                }
+                match wflpkg::commands::search::search_packages(&sub_args[0], DEFAULT_REGISTRY)
+                    .await
+                {
+                    Ok(()) => return Ok(()),
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        process::exit(1);
+                    }
+                }
+            }
+            "info" => {
+                if sub_args.is_empty() {
+                    eprintln!("Usage: wfl info <package-name>");
+                    process::exit(2);
+                }
+                match wflpkg::commands::info::show_package_info(&sub_args[0], DEFAULT_REGISTRY)
+                    .await
+                {
+                    Ok(()) => return Ok(()),
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        process::exit(1);
+                    }
+                }
+            }
+            "login" => match wflpkg::commands::login::login(DEFAULT_REGISTRY) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    process::exit(1);
+                }
+            },
+            "logout" => match wflpkg::commands::login::logout() {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    process::exit(1);
+                }
+            },
+            "check" => {
+                if sub_args.is_empty() {
+                    eprintln!("Usage: wfl check <security|compatibility>");
+                    process::exit(2);
+                }
+                match sub_args[0].as_str() {
+                    "security" => match wflpkg::commands::check::check_security(&cwd).await {
+                        Ok(()) => return Ok(()),
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            process::exit(1);
+                        }
+                    },
+                    "compatibility" => {
+                        match wflpkg::commands::check::check_compatibility(&cwd).await {
+                            Ok(()) => return Ok(()),
+                            Err(e) => {
+                                eprintln!("{}", e);
+                                process::exit(1);
+                            }
+                        }
+                    }
+                    other => {
+                        eprintln!(
+                            "Unknown check type: \"{}\"\n\nValid options:\n  wfl check security\n  wfl check compatibility",
+                            other
+                        );
+                        process::exit(2);
+                    }
+                }
+            }
+            "test" => {
+                if sub_args.iter().any(|a| a.ends_with(".wfl")) {
+                    // "wfl test file.wfl" — strip "test" and inject "--test" for normal handling
+                    args.remove(1);
+                    args.insert(1, "--test".to_string());
+                } else {
+                    // "wfl test" without a .wfl file — package test command
+                    // TODO: Run test files from project
+                    println!("Package test mode not yet implemented.");
+                    println!("Use 'wfl --test <file.wfl>' to run tests on a specific file.");
+                    return Ok(());
+                }
+            }
+            _ => {
+                // Fall through to existing flag/file parsing
+            }
+        }
     }
 
     // Check for version flag only in WFL flags (before script filename)

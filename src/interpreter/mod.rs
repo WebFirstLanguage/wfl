@@ -1287,6 +1287,19 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<PathBuf, RuntimeError> {
+        // Handle package: protocol for package manager imports
+        if let Some(package_name) = relative_path.strip_prefix("package:") {
+            let package_name = package_name.trim();
+            if package_name.is_empty() {
+                return Err(RuntimeError::new(
+                    "Invalid import: \"package:\" requires a package name (e.g. \"package:my-lib\")".to_string(),
+                    line,
+                    column,
+                ));
+            }
+            return self.resolve_package_path(package_name, line, column).await;
+        }
+
         // Extract and clone the Option<PathBuf> to avoid holding the borrow across await
         let opt_path = self.current_source_file.borrow().as_ref().cloned();
 
@@ -1320,6 +1333,106 @@ impl Interpreter {
         })?;
 
         Ok(canonical)
+    }
+
+    /// Resolve a `package:` protocol path to the package's entry point file.
+    async fn resolve_package_path(
+        &self,
+        package_name: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<PathBuf, RuntimeError> {
+        // Validate package name: reject empty, path separators, and traversal segments.
+        if package_name.is_empty() {
+            return Err(RuntimeError::new(
+                "Invalid package name: name cannot be empty.".to_string(),
+                line,
+                column,
+            ));
+        }
+        if package_name.contains('/') || package_name.contains('\\') || package_name.contains("..")
+        {
+            return Err(RuntimeError::new(
+                format!(
+                    "Invalid package name \"{}\": package names must not contain \
+                     path separators ('/', '\\') or traversal segments ('..').",
+                    package_name
+                ),
+                line,
+                column,
+            ));
+        }
+
+        // Find the project root by looking for project.wfl
+        let project_dir = self.find_project_root().ok_or_else(|| {
+            RuntimeError::new(
+                format!(
+                    "Cannot resolve package \"{}\" — no project.wfl found.\n\
+                     \nTo use packages, your project needs a project.wfl manifest.\n\
+                     Run: wfl create project",
+                    package_name
+                ),
+                line,
+                column,
+            )
+        })?;
+
+        let entry =
+            wflpkg::resolver::package_path::resolve_package_entry(package_name, &project_dir)
+                .map_err(|e| RuntimeError::new(e.to_string(), line, column))?;
+
+        // Canonicalize the resolved path
+        let canonical = tokio::fs::canonicalize(&entry).await.map_err(|e| {
+            RuntimeError::new(
+                format!(
+                    "Cannot resolve package entry point for \"{}\": {}\n\
+                     \nRun: wfl add {}",
+                    package_name, e, package_name
+                ),
+                line,
+                column,
+            )
+        })?;
+
+        // Verify the resolved entry is within the packages root to prevent traversal.
+        let packages_root = project_dir.join("packages");
+        if let Ok(canon_root) = tokio::fs::canonicalize(&packages_root).await
+            && !canonical.starts_with(&canon_root)
+        {
+            return Err(RuntimeError::new(
+                format!(
+                    "Package \"{}\" resolved to a path outside the packages directory. \
+                     This may indicate a path traversal attempt.",
+                    package_name
+                ),
+                line,
+                column,
+            ));
+        }
+
+        Ok(canonical)
+    }
+
+    /// Find the project root directory by walking up from the current source file
+    /// looking for a `project.wfl` manifest.
+    fn find_project_root(&self) -> Option<PathBuf> {
+        let source = self.current_source_file.borrow().clone();
+        let start_dir = if let Some(ref path) = source {
+            path.parent().map(|p| p.to_path_buf())
+        } else {
+            std::env::current_dir().ok()
+        };
+
+        let mut dir = start_dir?;
+        loop {
+            if dir.join("project.wfl").exists() {
+                return Some(dir);
+            }
+            if !dir.pop() {
+                break;
+            }
+        }
+        None
     }
 
     fn check_circular_dependency(
