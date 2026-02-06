@@ -1342,6 +1342,27 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<PathBuf, RuntimeError> {
+        // Validate package name: reject empty, path separators, and traversal segments.
+        if package_name.is_empty() {
+            return Err(RuntimeError::new(
+                "Invalid package name: name cannot be empty.".to_string(),
+                line,
+                column,
+            ));
+        }
+        if package_name.contains('/') || package_name.contains('\\') || package_name.contains("..")
+        {
+            return Err(RuntimeError::new(
+                format!(
+                    "Invalid package name \"{}\": package names must not contain \
+                     path separators ('/', '\\') or traversal segments ('..').",
+                    package_name
+                ),
+                line,
+                column,
+            ));
+        }
+
         // Find the project root by looking for project.wfl
         let project_dir = self.find_project_root().ok_or_else(|| {
             RuntimeError::new(
@@ -1372,6 +1393,22 @@ impl Interpreter {
                 column,
             )
         })?;
+
+        // Verify the resolved entry is within the packages root to prevent traversal.
+        let packages_root = project_dir.join("packages");
+        if let Ok(canon_root) = tokio::fs::canonicalize(&packages_root).await {
+            if !canonical.starts_with(&canon_root) {
+                return Err(RuntimeError::new(
+                    format!(
+                        "Package \"{}\" resolved to a path outside the packages directory. \
+                         This may indicate a path traversal attempt.",
+                        package_name
+                    ),
+                    line,
+                    column,
+                ));
+            }
+        }
 
         Ok(canonical)
     }
