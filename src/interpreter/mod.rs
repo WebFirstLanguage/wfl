@@ -2046,6 +2046,11 @@ impl Interpreter {
                 // Determine the variable name to use - custom name or default "count"
                 let loop_var_name = variable_name.as_deref().unwrap_or("count");
 
+                // Check for shadowing before the loop starts to avoid checking in every iteration
+                // Note: CountLoop implicitly allows shadowing (or rather, ignores the failure to define)
+                // to support nested loops using the default "count" variable.
+                let skip_define = env.borrow().has(loop_var_name);
+
                 while should_continue(count, end_num) && iterations < max_iterations {
                     self.check_time()?;
 
@@ -2056,9 +2061,12 @@ impl Interpreter {
 
                     // Make the loop variable available in the loop environment
                     // Use custom variable name if provided, otherwise default to "count"
-                    let _ = loop_env
-                        .borrow_mut()
-                        .define(loop_var_name, Value::Number(count));
+                    // OPTIMIZATION: Use define_direct if not shadowed
+                    if !skip_define {
+                        let _ = loop_env
+                            .borrow_mut()
+                            .define_direct(loop_var_name, Value::Number(count));
+                    }
 
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await;
 
@@ -2143,10 +2151,23 @@ impl Interpreter {
                             indices.iter().map(|&i| list[i].clone()).collect()
                         };
 
+                        // Check for shadowing before the loop starts
+                        if env.borrow().has(item_name) {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Variable '{}' has already been defined in an outer scope. Use 'change {} to <value>' to modify it.",
+                                    item_name, item_name
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+
                         for item in items {
                             // Create a new scope for each iteration
                             let loop_env = Environment::new_child_env(&env);
-                            match loop_env.borrow_mut().define(item_name, item) {
+                            // OPTIMIZATION: Use define_direct since we already checked shadowing above
+                            match loop_env.borrow_mut().define_direct(item_name, item) {
                                 Ok(_) => {}
                                 Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                             }
@@ -2186,10 +2207,23 @@ impl Interpreter {
                             obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
                         };
 
+                        // Check for shadowing before the loop starts
+                        if env.borrow().has(item_name) {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Variable '{}' has already been defined in an outer scope. Use 'change {} to <value>' to modify it.",
+                                    item_name, item_name
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+
                         for (_, value) in items {
                             // Create a new scope for each iteration
                             let loop_env = Environment::new_child_env(&env);
-                            match loop_env.borrow_mut().define(item_name, value) {
+                            // OPTIMIZATION: Use define_direct since we already checked shadowing above
+                            match loop_env.borrow_mut().define_direct(item_name, value) {
                                 Ok(_) => {}
                                 Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                             }
