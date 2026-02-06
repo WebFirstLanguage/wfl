@@ -44,9 +44,18 @@ fn add_dir_to_archive<W: std::io::Write>(
             continue;
         }
 
+        let ft = entry
+            .file_type()
+            .map_err(|e| PackageError::General(format!("Failed to read file type: {}", e)))?;
+
+        // Skip symlinks to avoid following links outside the project
+        if ft.is_symlink() {
+            continue;
+        }
+
         let relative = path.strip_prefix(base).unwrap_or(&path);
 
-        if path.is_dir() {
+        if ft.is_dir() {
             add_dir_to_archive(tar, base, &path)?;
         } else {
             tar.append_path_with_name(&path, relative).map_err(|e| {
