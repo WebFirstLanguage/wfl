@@ -1,0 +1,38 @@
+store start_time as current time in milliseconds
+
+# Stress test string literals and assignments
+# With Rc<str>, these assignments should just be pointer copies (ref count bumps)
+# rather than deep string allocations
+
+# Using 10,000 iterations to avoid default loop limit of 10,001
+count from 1 to 10000:
+    store s1 as "this is a moderately long string literal to test allocation overhead"
+    store s2 as "this is a moderately long string literal to test allocation overhead"
+
+    # This comparison should be fast if string interning/Rc reuse is working well
+    # or at least standard string comparison
+    check if s1 is s2:
+        # Do nothing, just checking
+    end check
+
+    store s3 as s1
+    store s4 as s2
+
+    check if s3 is s4:
+         # Use the variables to avoid unused warnings
+    end check
+
+    # Create a list with string literals
+    create list items:
+        add "item one"
+        add "item two"
+        add "item three"
+        add "item four"
+        add "item five"
+    end list
+end count
+
+store end_time as current time in milliseconds
+display "Benchmark completed in "
+display end_time minus start_time
+display " ms"
