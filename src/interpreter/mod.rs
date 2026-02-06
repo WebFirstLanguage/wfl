@@ -1287,6 +1287,11 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<PathBuf, RuntimeError> {
+        // Handle package: protocol for package manager imports
+        if let Some(package_name) = relative_path.strip_prefix("package:") {
+            return self.resolve_package_path(package_name, line, column).await;
+        }
+
         // Extract and clone the Option<PathBuf> to avoid holding the borrow across await
         let opt_path = self.current_source_file.borrow().as_ref().cloned();
 
@@ -1320,6 +1325,69 @@ impl Interpreter {
         })?;
 
         Ok(canonical)
+    }
+
+    /// Resolve a `package:` protocol path to the package's entry point file.
+    async fn resolve_package_path(
+        &self,
+        package_name: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<PathBuf, RuntimeError> {
+        // Find the project root by looking for project.wfl
+        let project_dir = self.find_project_root().ok_or_else(|| {
+            RuntimeError::new(
+                format!(
+                    "Cannot resolve package \"{}\" — no project.wfl found.\n\
+                     \nTo use packages, your project needs a project.wfl manifest.\n\
+                     Run: wfl create project",
+                    package_name
+                ),
+                line,
+                column,
+            )
+        })?;
+
+        let entry =
+            wflpkg::resolver::package_path::resolve_package_entry(package_name, &project_dir)
+                .map_err(|e| RuntimeError::new(e.to_string(), line, column))?;
+
+        // Canonicalize the resolved path
+        let canonical = tokio::fs::canonicalize(&entry).await.map_err(|e| {
+            RuntimeError::new(
+                format!(
+                    "Cannot resolve package entry point for \"{}\": {}\n\
+                     \nRun: wfl add {}",
+                    package_name, e, package_name
+                ),
+                line,
+                column,
+            )
+        })?;
+
+        Ok(canonical)
+    }
+
+    /// Find the project root directory by walking up from the current source file
+    /// looking for a `project.wfl` manifest.
+    fn find_project_root(&self) -> Option<PathBuf> {
+        let source = self.current_source_file.borrow().clone();
+        let start_dir = if let Some(ref path) = source {
+            path.parent().map(|p| p.to_path_buf())
+        } else {
+            std::env::current_dir().ok()
+        };
+
+        let mut dir = start_dir?;
+        loop {
+            if dir.join("project.wfl").exists() {
+                return Some(dir);
+            }
+            if !dir.pop() {
+                break;
+            }
+        }
+        None
     }
 
     fn check_circular_dependency(
