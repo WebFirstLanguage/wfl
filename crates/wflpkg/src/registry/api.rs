@@ -1,10 +1,16 @@
 use crate::error::PackageError;
 use crate::manifest::version::Version;
 
+/// Default connect timeout for registry requests (30 seconds).
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Default request timeout for registry requests (5 minutes).
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// A client for communicating with the WFL package registry.
 pub struct RegistryClient {
     base_url: String,
     auth_token: Option<String>,
+    client: reqwest::Client,
 }
 
 /// Package metadata returned from the registry.
@@ -31,9 +37,15 @@ pub struct SearchResult {
 impl RegistryClient {
     /// Create a new registry client for the given base URL.
     pub fn new(base_url: &str) -> Self {
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .unwrap_or_default();
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             auth_token: None,
+            client,
         }
     }
 
@@ -45,9 +57,8 @@ impl RegistryClient {
     /// Search for packages matching a query.
     pub async fn search(&self, query: &str) -> Result<Vec<SearchResult>, PackageError> {
         let url = format!("{}/api/v1/search?q={}", self.base_url, query);
-        let client = reqwest::Client::new();
         let response =
-            client.get(&url).send().await.map_err(|e| {
+            self.client.get(&url).send().await.map_err(|e| {
                 PackageError::RegistryUnreachable(format!("{}: {}", self.base_url, e))
             })?;
 
@@ -83,9 +94,8 @@ impl RegistryClient {
     /// Get detailed information about a package.
     pub async fn get_package_info(&self, name: &str) -> Result<PackageInfo, PackageError> {
         let url = format!("{}/api/v1/packages/{}", self.base_url, name);
-        let client = reqwest::Client::new();
         let response =
-            client.get(&url).send().await.map_err(|e| {
+            self.client.get(&url).send().await.map_err(|e| {
                 PackageError::RegistryUnreachable(format!("{}: {}", self.base_url, e))
             })?;
 
@@ -155,7 +165,6 @@ impl RegistryClient {
             .await
             .map_err(PackageError::Io)?;
 
-        let client = reqwest::Client::new();
         let form = reqwest::multipart::Form::new()
             .text("name", name.to_string())
             .text("version", version.to_string())
@@ -166,7 +175,8 @@ impl RegistryClient {
                     .file_name(format!("{}-{}.wflpkg", name, version)),
             );
 
-        let response = client
+        let response = self
+            .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", token))
             .multipart(form)

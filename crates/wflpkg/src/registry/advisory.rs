@@ -32,7 +32,11 @@ pub async fn check_advisories(
         })
         .collect();
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .unwrap_or_default();
     let response = client
         .post(&url)
         .json(&serde_json::json!({ "packages": package_list }))

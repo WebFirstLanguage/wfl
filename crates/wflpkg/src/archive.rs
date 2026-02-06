@@ -58,15 +58,69 @@ fn add_dir_to_archive<W: std::io::Write>(
 }
 
 /// Extract a `.wflpkg` archive to a destination directory.
+///
+/// Validates that all extracted paths stay within `dest_dir` to prevent
+/// directory traversal attacks from malicious archives.
 pub fn extract_archive(archive_path: &Path, dest_dir: &Path) -> Result<(), PackageError> {
     let file = std::fs::File::open(archive_path)?;
     let decoder = GzDecoder::new(file);
     let mut archive = Archive::new(decoder);
 
-    std::fs::create_dir_all(dest_dir)?;
-    archive
-        .unpack(dest_dir)
-        .map_err(|e| PackageError::General(format!("Failed to extract archive: {}", e)))?;
+    let dest_canonical = std::fs::canonicalize(
+        std::fs::create_dir_all(dest_dir)
+            .map(|_| dest_dir)
+            .map_err(PackageError::Io)?,
+    )
+    .map_err(PackageError::Io)?;
+
+    for entry in archive
+        .entries()
+        .map_err(|e| PackageError::General(format!("Failed to read archive entries: {}", e)))?
+    {
+        let mut entry =
+            entry.map_err(|e| PackageError::General(format!("Invalid archive entry: {}", e)))?;
+
+        let entry_path = entry
+            .path()
+            .map_err(|e| PackageError::General(format!("Invalid entry path: {}", e)))?
+            .into_owned();
+
+        // Reject absolute paths
+        if entry_path.is_absolute() {
+            return Err(PackageError::General(format!(
+                "Archive contains absolute path: {}",
+                entry_path.display()
+            )));
+        }
+
+        // Reject paths with .. components
+        for component in entry_path.components() {
+            if matches!(component, std::path::Component::ParentDir) {
+                return Err(PackageError::General(format!(
+                    "Archive contains path traversal: {}",
+                    entry_path.display()
+                )));
+            }
+        }
+
+        // Verify resolved path stays within dest_dir
+        let target = dest_canonical.join(&entry_path);
+        if !target.starts_with(&dest_canonical) {
+            return Err(PackageError::General(format!(
+                "Archive entry escapes destination: {}",
+                entry_path.display()
+            )));
+        }
+
+        // Create parent directories as needed
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        entry.unpack(&target).map_err(|e| {
+            PackageError::General(format!("Failed to extract {}: {}", entry_path.display(), e))
+        })?;
+    }
 
     Ok(())
 }
