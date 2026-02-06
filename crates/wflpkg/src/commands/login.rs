@@ -11,7 +11,11 @@ pub fn login(registry_url: &str) -> Result<(), PackageError> {
         return Ok(());
     }
 
-    println!("Logging in to {}...", registry_url);
+    let bare_host = registry_url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+
+    println!("Logging in to {}...", bare_host);
     println!();
 
     // For now, use a simple token-based login via CLI prompt.
@@ -22,7 +26,7 @@ pub fn login(registry_url: &str) -> Result<(), PackageError> {
 
     println!(
         "Visit https://{}/settings/tokens to generate an API token.",
-        registry_url
+        bare_host
     );
     println!();
 
@@ -36,7 +40,7 @@ pub fn login(registry_url: &str) -> Result<(), PackageError> {
     }
 
     auth.store_token(token, registry_url)?;
-    println!("Logged in successfully to {}.", registry_url);
+    println!("Logged in successfully to {}.", bare_host);
 
     Ok(())
 }
