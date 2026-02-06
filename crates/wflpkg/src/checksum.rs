@@ -33,8 +33,7 @@ fn hash_directory(base: &Path, path: &Path, hasher: &mut Sha256) -> Result<(), P
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
 
-        // Skip non-source directories
-        if name == "packages" || name == ".git" || name == "node_modules" {
+        if crate::EXCLUDED_NAMES.contains(&name.as_ref()) {
             continue;
         }
 

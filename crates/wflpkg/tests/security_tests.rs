@@ -180,15 +180,19 @@ fn test_checksum_of_project_dir_matches_extracted_archive() {
     .unwrap();
     fs::write(src.join("src/main.wfl"), "display \"hello\"").unwrap();
 
-    // Add directories that both checksum and archive exclude
+    // Add every entry from EXCLUDED_NAMES so checksum and archive both skip them
     fs::create_dir_all(src.join("packages")).unwrap();
     fs::write(src.join("packages/dep.wfl"), "// dep").unwrap();
     fs::create_dir_all(src.join(".git")).unwrap();
     fs::write(src.join(".git/HEAD"), "ref: refs/heads/main").unwrap();
     fs::create_dir_all(src.join("node_modules")).unwrap();
     fs::write(src.join("node_modules/mod.js"), "//mod").unwrap();
+    fs::create_dir_all(src.join("target")).unwrap();
+    fs::write(src.join("target/debug"), "bin").unwrap();
+    fs::write(src.join(".gitignore"), "target/\n").unwrap();
+    fs::write(src.join("project.lock"), "// lock\n").unwrap();
 
-    // Checksum over the project directory (skips packages/, .git/, node_modules/)
+    // Checksum over the project directory (skips EXCLUDED_NAMES)
     let checksum_before = wflpkg::checksum::compute_checksum(&src).unwrap();
 
     // Create archive and extract it

@@ -33,14 +33,7 @@ fn add_dir_to_archive<W: std::io::Write>(
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
 
-        // Skip excluded directories and files
-        if name_str == "packages"
-            || name_str == ".git"
-            || name_str == "node_modules"
-            || name_str == "target"
-            || name_str == ".gitignore"
-            || name_str == "project.lock"
-        {
+        if crate::EXCLUDED_NAMES.contains(&name_str.as_ref()) {
             continue;
         }
 
