@@ -159,3 +159,92 @@ fn print_help() {
     println!("    check compatibility                 Check API compatibility");
     println!("    help                                Show this help message");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(val: &str) -> String {
+        val.to_string()
+    }
+
+    // --- parse_create_args tests ---
+
+    #[test]
+    fn test_parse_create_args_with_called_name() {
+        let args = vec![s("project"), s("called"), s("my-app")];
+        assert_eq!(parse_create_args(&args), Some(s("my-app")));
+    }
+
+    #[test]
+    fn test_parse_create_args_direct_name() {
+        let args = vec![s("project"), s("my-app")];
+        assert_eq!(parse_create_args(&args), Some(s("my-app")));
+    }
+
+    #[test]
+    fn test_parse_create_args_no_name() {
+        let args = vec![s("project")];
+        assert_eq!(parse_create_args(&args), None);
+    }
+
+    #[test]
+    fn test_parse_create_args_empty() {
+        let args: Vec<String> = vec![];
+        assert_eq!(parse_create_args(&args), None);
+    }
+
+    #[test]
+    fn test_parse_create_args_called_without_name() {
+        let args = vec![s("project"), s("called")];
+        assert_eq!(parse_create_args(&args), None);
+    }
+
+    // --- run_command tests ---
+
+    #[tokio::test]
+    async fn test_run_command_unknown_subcommand() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let args = vec![s("bogus")];
+        let result = run_command(&args, temp.path()).await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("Unknown command"),
+            "expected 'Unknown command', got: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_run_command_remove_missing_arg() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let args = vec![s("remove")];
+        let result = run_command(&args, temp.path()).await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("Usage:"), "expected 'Usage:', got: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_run_command_search_missing_arg() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let args = vec![s("search")];
+        let result = run_command(&args, temp.path()).await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("Usage:"), "expected 'Usage:', got: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_run_command_check_invalid_type() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let args = vec![s("check"), s("bogus")];
+        let result = run_command(&args, temp.path()).await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("Unknown check type"),
+            "expected 'Unknown check type', got: {msg}"
+        );
+    }
+}

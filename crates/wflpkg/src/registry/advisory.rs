@@ -73,3 +73,15 @@ pub async fn check_advisories(
 
     Ok(advisories)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_check_advisories_empty_packages_returns_empty() {
+        let result = check_advisories("https://registry.example.com", &[]).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+}

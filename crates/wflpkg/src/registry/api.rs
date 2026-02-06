@@ -341,4 +341,48 @@ mod tests {
         let encoded = percent_encode_path_segment("a/b?c#d&e f");
         assert_eq!(encoded, "a%2Fb%3Fc%23d%26e%20f");
     }
+
+    // --- RegistryClient construction tests ---
+
+    #[test]
+    fn test_registry_client_strips_trailing_slash() {
+        let client = RegistryClient::new("https://example.com/");
+        assert_eq!(client.base_url(), "https://example.com");
+    }
+
+    #[test]
+    fn test_registry_client_preserves_clean_url() {
+        let client = RegistryClient::new("https://example.com");
+        assert_eq!(client.base_url(), "https://example.com");
+    }
+
+    #[test]
+    fn test_set_auth_token_does_not_panic() {
+        let mut client = RegistryClient::new(BASE);
+        client.set_auth_token("secret-token".to_string());
+        // Should still work after setting token
+        assert_eq!(client.base_url(), BASE);
+    }
+
+    #[tokio::test]
+    async fn test_publish_without_auth_returns_not_authenticated() {
+        let client = RegistryClient::new(BASE);
+        let version = crate::manifest::version::Version::new(26, 1, Some(0));
+        let fake_path = std::path::Path::new("/nonexistent/archive.wflpkg");
+        let result = client
+            .publish("test-pkg", &version, fake_path, "abc123")
+            .await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("not logged in"),
+            "expected NotAuthenticated, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_build_search_url_invalid_base() {
+        let result = build_search_url("not a url", "q");
+        assert!(result.is_err(), "invalid base URL should fail");
+    }
 }
