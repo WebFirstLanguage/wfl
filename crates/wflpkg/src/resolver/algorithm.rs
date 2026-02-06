@@ -5,11 +5,6 @@ use crate::manifest::Dependency;
 use crate::manifest::version::{Version, VersionConstraint};
 use crate::resolver::ResolvedSet;
 
-/// Available versions for a package (as reported by registry or local cache).
-pub struct AvailableVersions {
-    pub versions: Vec<Version>,
-}
-
 /// A dependency resolver that uses a greedy algorithm.
 ///
 /// Algorithm:

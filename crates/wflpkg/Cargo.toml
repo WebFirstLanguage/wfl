@@ -14,6 +14,7 @@ rustyline = "12.0.0"
 rpassword = "5.0"
 chrono = "0.4.31"
 sha2 = "0.10"
+zeroize = "1.7"
 flate2 = "1.0"
 tar = "0.4"
 

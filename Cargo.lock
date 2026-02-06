@@ -3359,6 +3359,7 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]

@@ -40,19 +40,35 @@ impl AuthManager {
 
     /// Store an authentication token.
     pub fn store_token(&self, token: &str, registry: &str) -> Result<(), PackageError> {
+        use zeroize::Zeroize;
+
         if let Some(parent) = self.auth_file.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
+        let mut token_owned = token.to_string();
         let data = AuthData {
-            token: Some(token.to_string()),
+            token: Some(token_owned.clone()),
             registry: Some(registry.to_string()),
         };
 
-        let content = serde_json::to_string_pretty(&data)
+        let mut content = serde_json::to_string_pretty(&data)
             .map_err(|e| PackageError::General(format!("Failed to serialize auth data: {}", e)))?;
 
-        std::fs::write(&self.auth_file, content)?;
+        std::fs::write(&self.auth_file, &content)?;
+
+        // Set restrictive permissions on Unix (owner read/write only).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(&self.auth_file, perms)?;
+        }
+
+        // Zeroize secrets to prevent them lingering in memory.
+        content.zeroize();
+        token_owned.zeroize();
+
         Ok(())
     }
 
