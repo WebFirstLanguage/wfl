@@ -58,6 +58,14 @@ pub fn parse_lock_file(content: &str) -> Result<LockFile, PackageError> {
                             name: dep_name,
                             version: dep_version,
                         });
+                    } else {
+                        return Err(PackageError::LockFileParseError {
+                            line: line_num,
+                            message: format!(
+                                "Malformed requires line, expected 'requires <name> <version>': {}",
+                                rest.trim()
+                            ),
+                        });
                     }
                 }
             } else {
