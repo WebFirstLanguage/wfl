@@ -33,7 +33,7 @@ fn hash_directory(base: &Path, path: &Path, hasher: &mut Sha256) -> Result<(), P
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
 
-        if crate::EXCLUDED_NAMES.contains(&name.as_ref()) {
+        if crate::is_excluded(&name) {
             continue;
         }
 
@@ -95,5 +95,22 @@ mod tests {
         let c1 = compute_checksum(temp.path()).unwrap();
         let c2 = compute_checksum(temp.path()).unwrap();
         assert_eq!(c1, c2);
+    }
+
+    #[test]
+    fn test_wflpkg_files_excluded_from_checksum() {
+        let temp = TempDir::new().unwrap();
+        std::fs::write(temp.path().join("main.wfl"), "display \"hello\"").unwrap();
+
+        let checksum_before = compute_checksum(temp.path()).unwrap();
+
+        std::fs::write(temp.path().join("myproject.wflpkg"), b"archive data").unwrap();
+
+        let checksum_after = compute_checksum(temp.path()).unwrap();
+
+        assert_eq!(
+            checksum_before, checksum_after,
+            "Checksum should not change when a .wflpkg file is added"
+        );
     }
 }
