@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::process::Command;
+use tokio::process::Command;
 
 use crate::error::PackageError;
 use crate::manifest::ProjectManifest;
@@ -28,7 +28,8 @@ pub async fn run_project(project_dir: &Path) -> Result<(), PackageError> {
     let status = Command::new("wfl")
         .arg(&entry_path)
         .current_dir(project_dir)
-        .status();
+        .status()
+        .await;
 
     match status {
         Ok(s) if s.success() => Ok(()),

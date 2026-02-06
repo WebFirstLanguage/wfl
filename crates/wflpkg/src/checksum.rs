@@ -9,10 +9,7 @@ pub fn compute_checksum(path: &Path) -> Result<String, PackageError> {
     let mut hasher = Sha256::new();
     hash_directory(path, path, &mut hasher)?;
     let result = hasher.finalize();
-    Ok(format!("wflhash:{:x}", result)
-        .chars()
-        .take(24 + 8)
-        .collect())
+    Ok(format!("wflhash:{:x}", result))
 }
 
 /// Recursively hash directory contents in sorted order for determinism.
@@ -69,6 +66,7 @@ mod tests {
         std::fs::write(temp.path().join("test.wfl"), "display \"hello\"").unwrap();
         let checksum = compute_checksum(temp.path()).unwrap();
         assert!(checksum.starts_with("wflhash:"));
+        assert_eq!(checksum.len(), 8 + 64); // "wflhash:" (8) + 64 hex chars
     }
 
     #[test]
@@ -77,7 +75,13 @@ mod tests {
         std::fs::write(temp.path().join("test.wfl"), "display \"hello\"").unwrap();
         let checksum = compute_checksum(temp.path()).unwrap();
         assert!(verify_checksum(temp.path(), &checksum).unwrap());
-        assert!(!verify_checksum(temp.path(), "wflhash:0000000000000000").unwrap());
+        assert!(
+            !verify_checksum(
+                temp.path(),
+                "wflhash:0000000000000000000000000000000000000000000000000000000000000000"
+            )
+            .unwrap()
+        );
     }
 
     #[test]
