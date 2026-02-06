@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(ls -la \"G:\\\\Logbie\\\\wfl\\\\Docs\\\\reference\"\" 2>/dev/null || ls -la \"G:LogbiewflDocs \")",
-      "Bash(ls \"G:\\\\Logbie\\\\wfl\\\\Docs\\\\reference\"\" 2>/dev/null || find \"G:LogbiewflDocs \" -type d -name reference)"
-    ]
-  }
-}

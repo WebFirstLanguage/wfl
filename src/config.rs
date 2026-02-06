@@ -859,11 +859,10 @@ mod tests {
         let mut file = fs::File::create(&config_path).unwrap();
         file.write_all(config_content.as_bytes()).unwrap();
 
-        unsafe {
-            ::std::env::set_var("WFL_GLOBAL_CONFIG_PATH", "/non/existent/path");
-        }
-
-        let config = with_test_global_path(|| load_config(temp_dir.path()));
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
 
         assert_eq!(config.timeout_seconds, 30);
         assert!(!config.logging_enabled); // Default
