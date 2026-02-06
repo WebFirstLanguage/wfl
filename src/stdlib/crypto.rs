@@ -413,7 +413,12 @@ fn wflhash_core_text(input: &[u8], params: &WflHashParams) -> Result<Vec<u8>, Ru
 
 /// Convert bytes to hexadecimal string
 fn bytes_to_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    use std::fmt::Write;
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        write!(s, "{:02x}", b).unwrap();
+    }
+    s
 }
 
 /// WFLHASH-256 implementation with security fixes
@@ -500,10 +505,7 @@ pub fn native_generate_csrf_token(args: Vec<Value>) -> Result<Value, RuntimeErro
     rng.fill_bytes(&mut token_bytes);
 
     // Convert to hex string
-    let token = token_bytes
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<String>();
+    let token = bytes_to_hex(&token_bytes);
 
     Ok(Value::Text(Rc::from(token)))
 }
