@@ -1289,6 +1289,14 @@ impl Interpreter {
     ) -> Result<PathBuf, RuntimeError> {
         // Handle package: protocol for package manager imports
         if let Some(package_name) = relative_path.strip_prefix("package:") {
+            let package_name = package_name.trim();
+            if package_name.is_empty() {
+                return Err(RuntimeError::new(
+                    "Invalid import: \"package:\" requires a package name (e.g. \"package:my-lib\")".to_string(),
+                    line,
+                    column,
+                ));
+            }
             return self.resolve_package_path(package_name, line, column).await;
         }
 

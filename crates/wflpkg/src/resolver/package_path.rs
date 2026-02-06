@@ -21,9 +21,32 @@ pub fn resolve_package_entry(name: &str, project_dir: &Path) -> Result<PathBuf, 
     if manifest_path.exists() {
         let manifest = ProjectManifest::load(&manifest_path)?;
         let entry = manifest.entry_point();
-        let entry_path = package_dir.join(entry);
+        let entry_path = package_dir.join(&entry);
         if entry_path.exists() {
-            return Ok(entry_path);
+            // Canonicalize both paths to resolve symlinks and `..` components,
+            // then verify the entry point is inside the package directory.
+            let canon_pkg = package_dir.canonicalize().map_err(|e| {
+                PackageError::General(format!(
+                    "Could not canonicalize package directory \"{}\": {}",
+                    package_dir.display(),
+                    e
+                ))
+            })?;
+            let canon_entry = entry_path.canonicalize().map_err(|e| {
+                PackageError::General(format!(
+                    "Could not canonicalize entry point \"{}\": {}",
+                    entry_path.display(),
+                    e
+                ))
+            })?;
+            if !canon_entry.starts_with(&canon_pkg) {
+                return Err(PackageError::General(format!(
+                    "The package \"{}\" declares an unsafe entry point \"{}\" \
+                     that escapes the package directory.",
+                    name, entry
+                )));
+            }
+            return Ok(canon_entry);
         }
         return Err(PackageError::General(format!(
             "The package \"{}\" declares entry point \"{}\" but the file does not exist.",
