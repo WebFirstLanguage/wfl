@@ -2033,12 +2033,7 @@ impl Interpreter {
             } => {
                 let evaluated_value = self.evaluate_expression(value, Rc::clone(&env)).await?;
 
-                match self.perform_variable_declaration(
-                    &env,
-                    name,
-                    evaluated_value,
-                    *is_constant,
-                ) {
+                match self.perform_variable_declaration(&env, name, evaluated_value, *is_constant) {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
                     Err(msg) => Err(RuntimeError::new(msg, line, column)),
                 }
