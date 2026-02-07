@@ -5,7 +5,7 @@ use rand::SeedableRng;
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::Arc;
 
 // Global random number generator state - initialized with entropy
 thread_local! {
@@ -225,7 +225,7 @@ pub fn native_generate_uuid(_args: Vec<Value>) -> Result<Value, RuntimeError> {
     use uuid::Uuid;
 
     let uuid = Uuid::new_v4();
-    Ok(Value::Text(Rc::from(uuid.to_string())))
+    Ok(Value::Text(Arc::from(uuid.to_string())))
 }
 
 /// Register all random functions in the environment

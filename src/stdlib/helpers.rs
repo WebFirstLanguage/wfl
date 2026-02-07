@@ -2,6 +2,7 @@ use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Validates that a native function receives exactly the expected number of arguments.
 ///
@@ -223,9 +224,9 @@ pub fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
 ///     Ok(Value::Text(Rc::from(text.to_uppercase())))
 /// }
 /// ```
-pub fn expect_text(value: &Value) -> Result<Rc<str>, RuntimeError> {
+pub fn expect_text(value: &Value) -> Result<Arc<str>, RuntimeError> {
     match value {
-        Value::Text(s) => Ok(Rc::clone(s)),
+        Value::Text(s) => Ok(Arc::clone(s)),
         _ => Err(RuntimeError::new(
             format!("Expected text, got {}", value.type_name()),
             0,

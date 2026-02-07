@@ -6,11 +6,12 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub enum Value {
     Number(f64),
-    Text(Rc<str>),
+    Text(Arc<str>),
     Bool(bool),
     List(Rc<RefCell<Vec<Value>>>),
     Object(Rc<RefCell<HashMap<String, Value>>>),

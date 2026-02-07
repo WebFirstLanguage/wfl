@@ -1716,7 +1716,7 @@ impl Interpreter {
             let args_list: Vec<Value> = self
                 .script_args
                 .iter()
-                .map(|arg| Value::Text(Rc::from(arg.as_str())))
+                .map(|arg| Value::Text(Arc::from(arg.as_str())))
                 .collect();
             let _ = env.define("args", Value::List(Rc::new(RefCell::new(args_list))));
 
@@ -1733,7 +1733,7 @@ impl Interpreter {
                     if i + 1 < self.script_args.len() && !self.script_args[i + 1].starts_with("-") {
                         flags.insert(
                             flag_name.to_string(),
-                            Value::Text(Rc::from(self.script_args[i + 1].as_str())),
+                            Value::Text(Arc::from(self.script_args[i + 1].as_str())),
                         );
                         i += 2;
                     } else {
@@ -1747,7 +1747,7 @@ impl Interpreter {
                     if i + 1 < self.script_args.len() && !self.script_args[i + 1].starts_with("-") {
                         flags.insert(
                             flag_name.to_string(),
-                            Value::Text(Rc::from(self.script_args[i + 1].as_str())),
+                            Value::Text(Arc::from(self.script_args[i + 1].as_str())),
                         );
                         i += 2;
                     } else {
@@ -1755,7 +1755,7 @@ impl Interpreter {
                         i += 1;
                     }
                 } else {
-                    positional_args.push(Value::Text(Rc::from(arg.as_str())));
+                    positional_args.push(Value::Text(Arc::from(arg.as_str())));
                     i += 1;
                 }
             }
@@ -1786,14 +1786,14 @@ impl Interpreter {
                     .to_string_lossy()
                     .into_owned()
             };
-            let _ = env.define("program_name", Value::Text(Rc::from(program_name)));
+            let _ = env.define("program_name", Value::Text(Arc::from(program_name)));
 
             // Store current directory
             let current_dir = std::env::current_dir()
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            let _ = env.define("current_directory", Value::Text(Rc::from(current_dir)));
+            let _ = env.define("current_directory", Value::Text(Arc::from(current_dir)));
 
             // Store flags as individual variables with flag_ prefix
             for (key, value) in flags_map {
@@ -4750,7 +4750,7 @@ impl Interpreter {
                             .insert(server_name.clone(), wfl_server);
 
                         // Create a server value with the actual address
-                        let server_value = Value::Text(Rc::from(format!(
+                        let server_value = Value::Text(Arc::from(format!(
                             "WebServer::{}:{}",
                             addr.ip(),
                             addr.port()
@@ -4914,7 +4914,7 @@ impl Interpreter {
                 let mut request_properties = HashMap::new();
                 request_properties.insert(
                     "_response_sender".to_string(),
-                    Value::Text(Rc::from(request.id.clone())),
+                    Value::Text(Arc::from(request.id.clone())),
                 );
                 let request_object = Value::Object(Rc::new(RefCell::new(request_properties)));
 
@@ -4924,25 +4924,25 @@ impl Interpreter {
                 }
 
                 // Define individual request property variables
-                match env_mut.define("method", Value::Text(Rc::from(request.method.clone()))) {
+                match env_mut.define("method", Value::Text(Arc::from(request.method.clone()))) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
-                match env_mut.define("path", Value::Text(Rc::from(request.path.clone()))) {
+                match env_mut.define("path", Value::Text(Arc::from(request.path.clone()))) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
                 match env_mut.define(
                     "client_ip",
-                    Value::Text(Rc::from(request.client_ip.clone())),
+                    Value::Text(Arc::from(request.client_ip.clone())),
                 ) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
-                match env_mut.define("body", Value::Text(Rc::from(request.body.clone()))) {
+                match env_mut.define("body", Value::Text(Arc::from(request.body.clone()))) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
@@ -4950,7 +4950,7 @@ impl Interpreter {
                 // Convert headers to WFL object and define as headers variable
                 let mut headers_map = HashMap::new();
                 for (key, value) in request.headers.iter() {
-                    headers_map.insert(key.clone(), Value::Text(Rc::from(value.clone())));
+                    headers_map.insert(key.clone(), Value::Text(Arc::from(value.clone())));
                 }
                 let headers_object = Value::Object(Rc::new(RefCell::new(headers_map)));
 
@@ -5097,7 +5097,7 @@ impl Interpreter {
                 env.borrow_mut()
                     .define(
                         &signal_handler_key,
-                        Value::Text(Rc::from(handler_name.clone())),
+                        Value::Text(Arc::from(handler_name.clone())),
                     )
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
@@ -5300,8 +5300,11 @@ impl Interpreter {
 
                 // Build result object
                 let mut result_map = HashMap::new();
-                result_map.insert("output".to_string(), Value::Text(Rc::from(stdout.as_str())));
-                result_map.insert("error".to_string(), Value::Text(Rc::from(stderr.as_str())));
+                result_map.insert(
+                    "output".to_string(),
+                    Value::Text(Arc::from(stdout.as_str())),
+                );
+                result_map.insert("error".to_string(), Value::Text(Arc::from(stderr.as_str())));
                 result_map.insert("exit_code".to_string(), Value::Number(exit_code as f64));
                 result_map.insert("success".to_string(), Value::Bool(exit_code == 0));
 
@@ -5387,7 +5390,7 @@ impl Interpreter {
 
                 // Store process ID in variable
                 env.borrow_mut()
-                    .define(variable_name, Value::Text(Rc::from(process_id.as_str())))
+                    .define(variable_name, Value::Text(Arc::from(process_id.as_str())))
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
                 Ok((Value::Null, ControlFlow::None))
@@ -5429,7 +5432,7 @@ impl Interpreter {
 
                 // Store output in variable
                 env.borrow_mut()
-                    .define(variable_name, Value::Text(Rc::from(output.as_str())))
+                    .define(variable_name, Value::Text(Arc::from(output.as_str())))
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
                 Ok((Value::Null, ControlFlow::None))
@@ -5747,7 +5750,7 @@ impl Interpreter {
         column: usize,
     ) -> Result<Option<Value>, RuntimeError> {
         match literal {
-            Literal::String(s) => Ok(Some(Value::Text(Rc::from(&**s)))),
+            Literal::String(s) => Ok(Some(Value::Text(s.clone()))),
             Literal::Integer(i) => Ok(Some(Value::Number(*i as f64))),
             Literal::Float(f) => Ok(Some(Value::Number(*f))),
             Literal::Boolean(b) => Ok(Some(Value::Bool(*b))),
@@ -5906,7 +5909,7 @@ impl Interpreter {
 
                 // Concatenate
                 let result = format!("{left_val}{right_val}");
-                Ok(Some(Value::Text(Rc::from(result.as_str()))))
+                Ok(Some(Value::Text(Arc::from(result.as_str()))))
             }
             _ => Ok(None),
         }
@@ -6192,7 +6195,7 @@ impl Interpreter {
                 Ok(value)
             }
             Expression::Literal(literal, _line, _column) => match literal {
-                Literal::String(s) => Ok(Value::Text(Rc::from(&**s))),
+                Literal::String(s) => Ok(Value::Text(s.clone())),
                 Literal::Integer(i) => Ok(Value::Number(*i as f64)),
                 Literal::Float(f) => Ok(Value::Number(*f)),
                 Literal::Boolean(b) => Ok(Value::Bool(*b)),
@@ -6534,7 +6537,7 @@ impl Interpreter {
                 let right_val = self.evaluate_expression(right, Rc::clone(&env)).await?;
 
                 let result = format!("{left_val}{right_val}");
-                Ok(Value::Text(Rc::from(result.as_str())))
+                Ok(Value::Text(Arc::from(result.as_str())))
             }
 
             Expression::PatternMatch {
@@ -6615,7 +6618,7 @@ impl Interpreter {
                         let mut result_map = std::collections::HashMap::new();
                         result_map.insert(
                             "matched_text".to_string(),
-                            Value::Text(Rc::from(match_result.matched_text.as_str())),
+                            Value::Text(Arc::from(match_result.matched_text.as_str())),
                         );
                         result_map.insert(
                             "start".to_string(),
@@ -6628,7 +6631,7 @@ impl Interpreter {
                         if !match_result.captures.is_empty() {
                             let mut captures_map = std::collections::HashMap::new();
                             for (name, value) in match_result.captures {
-                                captures_map.insert(name, Value::Text(Rc::from(value.as_str())));
+                                captures_map.insert(name, Value::Text(Arc::from(value.as_str())));
                             }
                             result_map.insert(
                                 "captures".to_string(),
@@ -7127,7 +7130,7 @@ impl Interpreter {
                     .replace("ss", "%S");
 
                 let formatted = now.format(&chrono_format).to_string();
-                Ok(Value::Text(Rc::from(formatted)))
+                Ok(Value::Text(Arc::from(formatted)))
             }
             Expression::ProcessRunning {
                 process_id,
@@ -7293,15 +7296,15 @@ impl Interpreter {
             (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a + b)),
             (Value::Text(a), Value::Text(b)) => {
                 let result = format!("{a}{b}");
-                Ok(Value::Text(Rc::from(result.as_str())))
+                Ok(Value::Text(Arc::from(result.as_str())))
             }
             (Value::Text(a), b) => {
                 let result = format!("{a}{b}");
-                Ok(Value::Text(Rc::from(result.as_str())))
+                Ok(Value::Text(Arc::from(result.as_str())))
             }
             (a, Value::Text(b)) => {
                 let result = format!("{a}{b}");
-                Ok(Value::Text(Rc::from(result.as_str())))
+                Ok(Value::Text(Arc::from(result.as_str())))
             }
             (a, b) => Err(RuntimeError::new(
                 format!("Cannot add {} and {}", a.type_name(), b.type_name()),

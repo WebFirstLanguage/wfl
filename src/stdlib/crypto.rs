@@ -4,7 +4,7 @@ use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use hkdf::Hkdf;
 use sha2::Sha256;
-use std::rc::Rc;
+use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
@@ -428,7 +428,7 @@ pub fn native_wflhash256(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let text = expect_text(&args[0])?;
     let params = WflHashParams::new(32); // 256 bits = 32 bytes
     let hash = wflhash_core_text(text.as_bytes(), &params)?;
-    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
+    Ok(Value::Text(Arc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-512 implementation with security fixes
@@ -438,7 +438,7 @@ pub fn native_wflhash512(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let text = expect_text(&args[0])?;
     let params = WflHashParams::new(64); // 512 bits = 64 bytes
     let hash = wflhash_core_text(text.as_bytes(), &params)?;
-    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
+    Ok(Value::Text(Arc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-256 with personalization/salt support
@@ -449,7 +449,7 @@ pub fn native_wflhash256_with_salt(args: Vec<Value>) -> Result<Value, RuntimeErr
     let salt = expect_text(&args[1])?;
     let params = WflHashParams::new_with_personalization(32, salt.as_bytes());
     let hash = wflhash_core_text(text.as_bytes(), &params)?;
-    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
+    Ok(Value::Text(Arc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-256 with key for MAC functionality (WFLMAC-256)
@@ -461,7 +461,7 @@ pub fn native_wflmac256(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let key = expect_text(&args[1])?;
     let params = WflHashParams::new_with_key(32, key.as_bytes())?;
     let hash = wflhash_core_text(text.as_bytes(), &params)?;
-    Ok(Value::Text(Rc::from(bytes_to_hex(&hash))))
+    Ok(Value::Text(Arc::from(bytes_to_hex(&hash))))
 }
 
 /// WFLHASH-256 for binary data (no UTF-8 validation)
@@ -507,7 +507,7 @@ pub fn native_generate_csrf_token(args: Vec<Value>) -> Result<Value, RuntimeErro
     // Convert to hex string
     let token = bytes_to_hex(&token_bytes);
 
-    Ok(Value::Text(Rc::from(token)))
+    Ok(Value::Text(Arc::from(token)))
 }
 
 /// Register all crypto functions in the environment
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn test_wflhash256_basic() {
-        let result = native_wflhash256(vec![Value::Text(Rc::from("hello"))]);
+        let result = native_wflhash256(vec![Value::Text(Arc::from("hello"))]);
         assert!(result.is_ok());
 
         if let Ok(Value::Text(hash)) = result {
@@ -577,7 +577,7 @@ mod tests {
 
     #[test]
     fn test_wflhash512_basic() {
-        let result = native_wflhash512(vec![Value::Text(Rc::from("hello"))]);
+        let result = native_wflhash512(vec![Value::Text(Arc::from("hello"))]);
         assert!(result.is_ok());
 
         if let Ok(Value::Text(hash)) = result {

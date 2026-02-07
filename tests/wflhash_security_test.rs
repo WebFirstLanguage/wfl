@@ -2,7 +2,7 @@
 // These tests are designed to FAIL with the current implementation
 // and PASS after security fixes are implemented
 
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 use wfl::interpreter::value::Value;
 use wfl::stdlib::crypto::{MAX_INPUT_SIZE, native_wflhash256, native_wflhash256_with_salt};
@@ -21,7 +21,7 @@ mod wflhash_security_tests {
         let input = "test_message";
 
         // Test basic hash (should work)
-        let hash1 = native_wflhash256(vec![Value::Text(Rc::from(input))]).unwrap();
+        let hash1 = native_wflhash256(vec![Value::Text(Arc::from(input))]).unwrap();
         assert!(matches!(hash1, Value::Text(_)), "Hash should return text");
 
         if let Value::Text(h1) = hash1 {
@@ -52,8 +52,8 @@ mod wflhash_security_tests {
         let input1 = "a";
         let input2 = "b";
 
-        let hash1 = native_wflhash256(vec![Value::Text(Rc::from(input1))]).unwrap();
-        let hash2 = native_wflhash256(vec![Value::Text(Rc::from(input2))]).unwrap();
+        let hash1 = native_wflhash256(vec![Value::Text(Arc::from(input1))]).unwrap();
+        let hash2 = native_wflhash256(vec![Value::Text(Arc::from(input2))]).unwrap();
 
         if let (Value::Text(h1), Value::Text(h2)) = (hash1, hash2) {
             let h1_bytes = hex::decode(&h1).unwrap();
@@ -92,8 +92,8 @@ mod wflhash_security_tests {
         let input1 = "hello";
         let input2 = "hello\u{0000}"; // Different length
 
-        let hash1 = native_wflhash256(vec![Value::Text(Rc::from(input1))]).unwrap();
-        let hash2 = native_wflhash256(vec![Value::Text(Rc::from(input2))]).unwrap();
+        let hash1 = native_wflhash256(vec![Value::Text(Arc::from(input1))]).unwrap();
+        let hash2 = native_wflhash256(vec![Value::Text(Arc::from(input2))]).unwrap();
 
         if let (Value::Text(h1), Value::Text(h2)) = (hash1, hash2) {
             // With proper padding, these should be different
@@ -107,8 +107,8 @@ mod wflhash_security_tests {
         let msg_a = "a";
         let msg_b = "aa"; // Different length
 
-        let hash_a = native_wflhash256(vec![Value::Text(Rc::from(msg_a))]).unwrap();
-        let hash_b = native_wflhash256(vec![Value::Text(Rc::from(msg_b))]).unwrap();
+        let hash_a = native_wflhash256(vec![Value::Text(Arc::from(msg_a))]).unwrap();
+        let hash_b = native_wflhash256(vec![Value::Text(Arc::from(msg_b))]).unwrap();
 
         if let (Value::Text(ha), Value::Text(hb)) = (hash_a, hash_b) {
             assert_ne!(
@@ -121,8 +121,8 @@ mod wflhash_security_tests {
         let empty = "";
         let non_empty = "x";
 
-        let hash_empty = native_wflhash256(vec![Value::Text(Rc::from(empty))]).unwrap();
-        let hash_non_empty = native_wflhash256(vec![Value::Text(Rc::from(non_empty))]).unwrap();
+        let hash_empty = native_wflhash256(vec![Value::Text(Arc::from(empty))]).unwrap();
+        let hash_non_empty = native_wflhash256(vec![Value::Text(Arc::from(non_empty))]).unwrap();
 
         if let (Value::Text(he), Value::Text(hne)) = (hash_empty, hash_non_empty) {
             assert_ne!(
@@ -143,7 +143,7 @@ mod wflhash_security_tests {
         let mut hashes = Vec::new();
 
         for input in inputs {
-            let hash = native_wflhash256(vec![Value::Text(Rc::from(input))]).unwrap();
+            let hash = native_wflhash256(vec![Value::Text(Arc::from(input))]).unwrap();
             if let Value::Text(h) = hash {
                 hashes.push(h.to_string());
             }
@@ -188,12 +188,12 @@ mod wflhash_security_tests {
     fn test_input_validation_with_size_limits() {
         // Test that reasonable inputs work (always runs)
         let normal_input = "This is a normal input message";
-        let result = native_wflhash256(vec![Value::Text(Rc::from(normal_input))]);
+        let result = native_wflhash256(vec![Value::Text(Arc::from(normal_input))]);
         assert!(result.is_ok(), "Normal input should work");
 
         // Test that moderately large inputs still work (under limit) - always runs
         let medium_input = "x".repeat(1024 * 1024); // 1MB < 100MB limit
-        let result = native_wflhash256(vec![Value::Text(Rc::from(medium_input))]);
+        let result = native_wflhash256(vec![Value::Text(Arc::from(medium_input))]);
         assert!(result.is_ok(), "Medium input under limit should work");
 
         // Gate the heavy memory allocation test behind environment variable
@@ -205,7 +205,7 @@ mod wflhash_security_tests {
 
         // Test that extremely large inputs are rejected (only runs when WFLHASH_HEAVY_TESTS is set)
         let large_input = "x".repeat(MAX_INPUT_SIZE + 1); // Exceeds MAX_INPUT_SIZE limit
-        let result = native_wflhash256(vec![Value::Text(Rc::from(large_input))]);
+        let result = native_wflhash256(vec![Value::Text(Arc::from(large_input))]);
 
         match result {
             Ok(_) => {
@@ -235,7 +235,7 @@ mod wflhash_security_tests {
 
         // Warmup iterations to stabilize JIT/cache effects
         for _ in 0..10 {
-            let _ = native_wflhash256(vec![Value::Text(Rc::from(input))]);
+            let _ = native_wflhash256(vec![Value::Text(Arc::from(input))]);
         }
 
         let iterations = 50; // Reduced for faster testing
@@ -244,7 +244,7 @@ mod wflhash_security_tests {
         // Measure timing for multiple identical operations
         for _ in 0..iterations {
             let start = Instant::now();
-            let _ = native_wflhash256(vec![Value::Text(Rc::from(input))]);
+            let _ = native_wflhash256(vec![Value::Text(Arc::from(input))]);
             let duration = start.elapsed();
             timings.push(duration.as_nanos());
         }
@@ -287,8 +287,8 @@ mod wflhash_security_tests {
         let input1 = "avalanche_test";
         let input2 = "avalanche_tesU"; // Single character difference
 
-        let hash1 = native_wflhash256(vec![Value::Text(Rc::from(input1))]).unwrap();
-        let hash2 = native_wflhash256(vec![Value::Text(Rc::from(input2))]).unwrap();
+        let hash1 = native_wflhash256(vec![Value::Text(Arc::from(input1))]).unwrap();
+        let hash2 = native_wflhash256(vec![Value::Text(Arc::from(input2))]).unwrap();
 
         if let (Value::Text(h1), Value::Text(h2)) = (hash1, hash2) {
             let h1_bytes = hex::decode(&h1).unwrap();
@@ -329,19 +329,19 @@ mod wflhash_security_tests {
         let salt2 = "salt2";
 
         // Test basic hash without salt
-        let hash_basic = native_wflhash256(vec![Value::Text(Rc::from(input))]).unwrap();
+        let hash_basic = native_wflhash256(vec![Value::Text(Arc::from(input))]).unwrap();
 
         // Test hash with salt1 (using the new function we added)
         let hash_salt1 = native_wflhash256_with_salt(vec![
-            Value::Text(Rc::from(input)),
-            Value::Text(Rc::from(salt1)),
+            Value::Text(Arc::from(input)),
+            Value::Text(Arc::from(salt1)),
         ])
         .unwrap();
 
         // Test hash with salt2
         let hash_salt2 = native_wflhash256_with_salt(vec![
-            Value::Text(Rc::from(input)),
-            Value::Text(Rc::from(salt2)),
+            Value::Text(Arc::from(input)),
+            Value::Text(Arc::from(salt2)),
         ])
         .unwrap();
 

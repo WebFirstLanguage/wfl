@@ -4,6 +4,7 @@ use crate::interpreter::value::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 pub fn register(env: &mut Environment) {
     // Register new pattern functions that work with our pattern system
@@ -99,7 +100,7 @@ pub fn pattern_find_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
             let mut result_map = HashMap::new();
             result_map.insert(
                 "matched_text".to_string(),
-                Value::Text(Rc::from(match_result.matched_text.as_str())),
+                Value::Text(Arc::from(match_result.matched_text.as_str())),
             );
             result_map.insert(
                 "start".to_string(),
@@ -111,7 +112,7 @@ pub fn pattern_find_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
             if !match_result.captures.is_empty() {
                 let mut captures_map = HashMap::new();
                 for (name, value) in match_result.captures {
-                    captures_map.insert(name, Value::Text(Rc::from(value.as_str())));
+                    captures_map.insert(name, Value::Text(Arc::from(value.as_str())));
                 }
                 result_map.insert(
                     "captures".to_string(),
@@ -165,7 +166,7 @@ pub fn pattern_find_all_native(args: Vec<Value>) -> Result<Value, RuntimeError> 
         let mut result_map = HashMap::new();
         result_map.insert(
             "matched_text".to_string(),
-            Value::Text(Rc::from(match_result.matched_text.as_str())),
+            Value::Text(Arc::from(match_result.matched_text.as_str())),
         );
         result_map.insert(
             "start".to_string(),
@@ -177,7 +178,7 @@ pub fn pattern_find_all_native(args: Vec<Value>) -> Result<Value, RuntimeError> 
         if !match_result.captures.is_empty() {
             let mut captures_map = HashMap::new();
             for (name, value) in match_result.captures {
-                captures_map.insert(name, Value::Text(Rc::from(value.as_str())));
+                captures_map.insert(name, Value::Text(Arc::from(value.as_str())));
             }
             result_map.insert(
                 "captures".to_string(),
@@ -239,7 +240,7 @@ pub fn native_pattern_replace(
     };
 
     // TODO: Update to use new pattern system for replacement
-    Ok(Value::Text(Rc::from(text)))
+    Ok(Value::Text(Arc::from(text)))
 }
 
 /// Native function for pattern splitting (called by interpreter)
@@ -283,7 +284,7 @@ pub fn native_pattern_split(
 
     // If no matches, return the entire text as a single element
     if matches.is_empty() {
-        let parts = vec![Value::Text(Rc::from(text))];
+        let parts = vec![Value::Text(Arc::from(text))];
         return Ok(Value::List(Rc::new(RefCell::new(parts))));
     }
 
@@ -314,10 +315,10 @@ pub fn native_pattern_split(
             || (match_result.start == last_end_char && last_end_char == 0)
         {
             let part = &text[last_end_byte..start_byte];
-            parts.push(Value::Text(Rc::from(part)));
+            parts.push(Value::Text(Arc::from(part)));
         } else if match_result.start == last_end_char && last_end_char > 0 {
             // Add empty string for consecutive matches
-            parts.push(Value::Text(Rc::from("")));
+            parts.push(Value::Text(Arc::from("")));
         }
         last_end_char = match_result.end;
     }
@@ -326,7 +327,7 @@ pub fn native_pattern_split(
     if last_end_char < char_to_byte.len() {
         let last_end_byte = char_to_byte[last_end_char];
         let part = &text[last_end_byte..];
-        parts.push(Value::Text(Rc::from(part)));
+        parts.push(Value::Text(Arc::from(part)));
     }
 
     Ok(Value::List(Rc::new(RefCell::new(parts))))
