@@ -1085,6 +1085,8 @@ impl TypeChecker {
                 let content_type = self.infer_expression_type(content);
                 if content_type != Type::Binary
                     && content_type != Type::List(Box::new(Type::Number))
+                    && content_type != Type::List(Box::new(Type::Any))
+                    && content_type != Type::List(Box::new(Type::Unknown))
                     && content_type != Type::Unknown
                     && content_type != Type::Error
                     && content_type != Type::Any

@@ -750,7 +750,13 @@ impl IoClient {
                 Err(e) => Err(format!("Failed to get file size: {e}")),
             }
         } else {
-            Err(format!("Invalid file handle: {handle_id}"))
+            // Fallback: try using handle_id as a filesystem path
+            match tokio::fs::metadata(handle_id).await {
+                Ok(meta) => Ok(meta.len()),
+                Err(e) => Err(format!(
+                    "Invalid file handle '{handle_id}' and filesystem lookup failed: {e}"
+                )),
+            }
         }
     }
 
@@ -2994,11 +3000,11 @@ impl Interpreter {
                         for (i, item) in items.iter().enumerate() {
                             match item {
                                 Value::Number(n) => {
-                                    if *n < 0.0 || *n > 255.0 {
+                                    if !n.is_finite() || n.fract() != 0.0 || *n < 0.0 || *n > 255.0
+                                    {
                                         return Err(RuntimeError::new(
                                             format!(
-                                                "Byte value at index {} out of range (0-255): {}",
-                                                i, n
+                                                "Invalid byte value at index {i}: {n} — must be an integer 0-255"
                                             ),
                                             *line,
                                             *column,
@@ -6860,9 +6866,10 @@ impl Interpreter {
                 let count_value = self.evaluate_expression(count, Rc::clone(&env)).await?;
                 let n = match &count_value {
                     Value::Number(n) => {
-                        if *n < 0.0 {
+                        if !n.is_finite() || n.fract() != 0.0 || *n < 0.0 || *n > usize::MAX as f64
+                        {
                             return Err(RuntimeError::new(
-                                format!("Byte count cannot be negative: {n}"),
+                                format!("Invalid byte count: {n} — must be a non-negative integer"),
                                 *line,
                                 *column,
                             ));

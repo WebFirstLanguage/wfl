@@ -604,7 +604,7 @@ impl JavaScriptTranspiler {
                 let content_expr = self.transpile_expression(content)?;
                 let target_expr = self.transpile_expression(target)?;
                 Ok(format!(
-                    "{}WFL.file.writeBinary({}, {});\n",
+                    "{}WFL.file.writeBinary({}.path, {});\n",
                     self.indent(),
                     target_expr,
                     content_expr
