@@ -735,7 +735,7 @@ None — route matching is simple string/pattern matching.
 
 ## 4. Dependency Graph
 
-```
+```text
 Binary I/O (#1) ──────────────────────► Multipart Form Parsing (#5)
                                               │
                                               ▼
@@ -830,7 +830,7 @@ Structured Routing (#10) ────────────► [Clean API disp
 
 New features should respect `.wflcfg` project configuration where applicable:
 
-```
+```text
 database_url is "postgres://..."
 jwt_secret is "..."
 smtp_host is "..."
