@@ -1390,7 +1390,7 @@ impl Analyzer {
 mod tests {
     use super::*;
     use crate::parser::ast::{Literal, Operator};
-    use std::rc::Rc;
+    use std::sync::Arc;
 
     #[test]
     fn test_unused_variable() {
@@ -1442,7 +1442,7 @@ mod tests {
                         column: 5,
                     }],
                     else_block: Some(vec![Statement::DisplayStatement {
-                        value: Expression::Literal(Literal::String(Rc::from("No return")), 5, 9),
+                        value: Expression::Literal(Literal::String(Arc::from("No return")), 5, 9),
                         line: 5,
                         column: 5,
                     }]),
@@ -1556,9 +1556,9 @@ mod tests {
                     name: "args".to_string(),
                     value: Expression::Literal(
                         Literal::List(vec![
-                            Expression::Literal(Literal::String(Rc::from("a")), 1, 1),
-                            Expression::Literal(Literal::String(Rc::from("b")), 1, 1),
-                            Expression::Literal(Literal::String(Rc::from("c")), 1, 1),
+                            Expression::Literal(Literal::String(Arc::from("a")), 1, 1),
+                            Expression::Literal(Literal::String(Arc::from("b")), 1, 1),
+                            Expression::Literal(Literal::String(Arc::from("c")), 1, 1),
                         ]),
                         2,
                         1,
@@ -1577,7 +1577,7 @@ mod tests {
                         column: 10,
                     },
                     then_block: vec![Statement::DisplayStatement {
-                        value: Expression::Literal(Literal::String(Rc::from("No args")), 4, 1),
+                        value: Expression::Literal(Literal::String(Arc::from("No args")), 4, 1),
                         line: 4,
                         column: 1,
                     }],
@@ -1590,7 +1590,7 @@ mod tests {
                             column: 10,
                         },
                         then_block: vec![Statement::DisplayStatement {
-                            value: Expression::Literal(Literal::String(Rc::from("One arg")), 6, 1),
+                            value: Expression::Literal(Literal::String(Arc::from("One arg")), 6, 1),
                             line: 6,
                             column: 1,
                         }],
@@ -1608,7 +1608,7 @@ mod tests {
                             },
                             then_block: vec![Statement::DisplayStatement {
                                 value: Expression::Literal(
-                                    Literal::String(Rc::from("Two args")),
+                                    Literal::String(Arc::from("Two args")),
                                     8,
                                     1,
                                 ),

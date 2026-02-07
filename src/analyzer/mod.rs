@@ -2053,7 +2053,7 @@ pub use static_analyzer::StaticAnalyzer;
 mod tests {
     use super::*;
     use crate::parser::ast::{Argument, Expression, Literal, Parameter, Program, Statement, Type};
-    use std::rc::Rc;
+    use std::sync::Arc;
 
     #[test]
     fn test_variable_declaration_and_usage() {
@@ -2128,7 +2128,7 @@ mod tests {
                         function: Box::new(Expression::Variable("greet".to_string(), 3, 1)),
                         arguments: vec![Argument {
                             name: None,
-                            value: Expression::Literal(Literal::String(Rc::from("Alice")), 3, 7),
+                            value: Expression::Literal(Literal::String(Arc::from("Alice")), 3, 7),
                         }],
                         line: 3,
                         column: 1,
@@ -2584,7 +2584,7 @@ call x with "test"
             statements: vec![
                 Statement::VariableDeclaration {
                     name: "module_path".to_string(),
-                    value: Expression::Literal(Literal::String(Rc::from("helper.wfl")), 1, 18),
+                    value: Expression::Literal(Literal::String(Arc::from("helper.wfl")), 1, 18),
                     is_constant: false,
                     line: 1,
                     column: 1,
@@ -2612,14 +2612,14 @@ call x with "test"
             statements: vec![
                 Statement::VariableDeclaration {
                     name: "base_path".to_string(),
-                    value: Expression::Literal(Literal::String(Rc::from("modules/")), 1, 18),
+                    value: Expression::Literal(Literal::String(Arc::from("modules/")), 1, 18),
                     is_constant: false,
                     line: 1,
                     column: 1,
                 },
                 Statement::VariableDeclaration {
                     name: "module_name".to_string(),
-                    value: Expression::Literal(Literal::String(Rc::from("helper")), 2, 18),
+                    value: Expression::Literal(Literal::String(Arc::from("helper")), 2, 18),
                     is_constant: false,
                     line: 2,
                     column: 1,
@@ -2635,7 +2635,7 @@ call x with "test"
                         }),
                         operator: Operator::Plus,
                         right: Box::new(Expression::Literal(
-                            Literal::String(Rc::from(".wfl")),
+                            Literal::String(Arc::from(".wfl")),
                             3,
                             40,
                         )),
