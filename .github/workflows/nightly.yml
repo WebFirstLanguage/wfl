@@ -236,6 +236,9 @@ jobs:
       - name: Run tests
         run: cargo test --release --locked --target ${{ env.TARGET }}
 
+      - name: Run LSP Tests
+        run: cargo test -p wfl-lsp --release --locked --target ${{ env.TARGET }} --verbose
+
       # ---------- Build VS Code Extension ----------
       - name: Setup Node.js
         uses: actions/setup-node@v4

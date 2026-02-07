@@ -50,6 +50,14 @@ jobs:
       - name: Run Tests
         run: cargo test --verbose
 
+      # Build LSP to catch Send/Sync regressions
+      - name: Build LSP
+        run: cargo build -p wfl-lsp --verbose
+
+      # Run LSP tests
+      - name: Run LSP Tests
+        run: cargo test -p wfl-lsp --verbose
+
       # Run Clippy for code quality
       - name: Run Clippy
         run: cargo clippy --all-targets -- -D warnings
