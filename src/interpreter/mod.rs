@@ -1801,6 +1801,54 @@ impl Interpreter {
         }
     }
 
+    fn perform_variable_declaration(
+        &self,
+        env: &Rc<RefCell<Environment>>,
+        name: &str,
+        mut value: Value,
+        is_constant: bool,
+    ) -> Result<(), String> {
+        if let Value::Text(text) = &value
+            && text.as_ref() == "[]"
+        {
+            value = Value::List(Rc::new(RefCell::new(Vec::new())));
+        }
+
+        #[cfg(debug_assertions)]
+        exec_var_declare!(name, &value);
+
+        // Check existence efficiently (without deep cloning)
+        let exists = env.borrow().has(name);
+
+        if is_constant {
+            if exists {
+                env.borrow_mut().define_constant(name, value)
+            } else {
+                // OPTIMIZATION: Use define_constant_direct to avoid redundant parent scope checks
+                // since we already verified existence with env.borrow().has(name) above.
+                env.borrow_mut().define_constant_direct(name, value)
+            }
+        } else if exists {
+            // Variable exists, use assignment instead of definition
+            // This handles container property assignment in methods
+            env.borrow_mut().assign(name, value)
+        } else {
+            // Variable doesn't exist, use normal definition
+            env.borrow_mut().define_direct(name, value)
+        }
+    }
+
+    fn perform_assignment(
+        &self,
+        env: &Rc<RefCell<Environment>>,
+        name: &str,
+        value: Value,
+    ) -> Result<(), String> {
+        #[cfg(debug_assertions)]
+        exec_var_assign!(name, &value);
+        env.borrow_mut().assign(name, value)
+    }
+
     async fn execute_statement(
         &self,
         stmt: &Statement,
@@ -1808,7 +1856,87 @@ impl Interpreter {
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         #[cfg(debug_assertions)]
         exec_trace!("Executing statement: {}", stmt_type(stmt));
+
+        // OPTIMIZATION: Try synchronous execution first
+        // This avoids allocating a Box::pin future for simple statements that don't need async/await
+        if let Some(result) = self.try_execute_statement_sync(stmt, &env)? {
+            return Ok(result);
+        }
+
         Box::pin(self._execute_statement(stmt, env)).await
+    }
+
+    // Helper to execute simple statements synchronously to avoid Box::pin allocation
+    fn try_execute_statement_sync(
+        &self,
+        stmt: &Statement,
+        env: &Rc<RefCell<Environment>>,
+    ) -> Result<Option<(Value, ControlFlow)>, RuntimeError> {
+        self.check_time()?;
+
+        match stmt {
+            Statement::ExpressionStatement {
+                expression,
+                line: _line,
+                column: _column,
+            } => {
+                // Try to evaluate expression synchronously
+                // If it returns None, it means it requires async evaluation (e.g. function call)
+                if let Some(val) = self.try_evaluate_simple_expr_sync(expression, env)? {
+                    Ok(Some((val, ControlFlow::None)))
+                } else {
+                    Ok(None)
+                }
+            }
+            Statement::Assignment {
+                name,
+                value,
+                line,
+                column,
+            } => {
+                if let Some(val) = self.try_evaluate_simple_expr_sync(value, env)? {
+                    match self.perform_assignment(env, name, val) {
+                        Ok(_) => Ok(Some((Value::Null, ControlFlow::None))),
+                        Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            Statement::VariableDeclaration {
+                name,
+                value,
+                is_constant,
+                line,
+                column,
+            } => {
+                if let Some(val) = self.try_evaluate_simple_expr_sync(value, env)? {
+                    match self.perform_variable_declaration(env, name, val, *is_constant) {
+                        Ok(_) => Ok(Some((Value::Null, ControlFlow::None))),
+                        Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            // Removed DisplayStatement and ReturnStatement to keep change minimal and focused on critical path
+            Statement::BreakStatement { .. } => {
+                #[cfg(debug_assertions)]
+                exec_trace!("Executing break statement");
+                Ok(Some((Value::Null, ControlFlow::Break)))
+            }
+            Statement::ContinueStatement { .. } => {
+                #[cfg(debug_assertions)]
+                exec_trace!("Executing continue statement");
+                Ok(Some((Value::Null, ControlFlow::Continue)))
+            }
+            Statement::ExitStatement { .. } => {
+                #[cfg(debug_assertions)]
+                exec_trace!("Executing exit statement");
+                Ok(Some((Value::Null, ControlFlow::Exit)))
+            }
+            _ => Ok(None),
+        }
     }
 
     async fn _execute_statement(
@@ -1903,39 +2031,14 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                let mut evaluated_value = self.evaluate_expression(value, Rc::clone(&env)).await?;
+                let evaluated_value = self.evaluate_expression(value, Rc::clone(&env)).await?;
 
-                if let Value::Text(text) = &evaluated_value
-                    && text.as_ref() == "[]"
-                {
-                    evaluated_value = Value::List(Rc::new(RefCell::new(Vec::new())));
-                }
-
-                #[cfg(debug_assertions)]
-                exec_var_declare!(name, &evaluated_value);
-
-                // Check existence efficiently (without deep cloning)
-                let exists = env.borrow().has(name);
-
-                let result = if *is_constant {
-                    if exists {
-                        env.borrow_mut().define_constant(name, evaluated_value)
-                    } else {
-                        // OPTIMIZATION: Use define_constant_direct to avoid redundant parent scope checks
-                        // since we already verified existence with env.borrow().has(name) above.
-                        env.borrow_mut()
-                            .define_constant_direct(name, evaluated_value)
-                    }
-                } else if exists {
-                    // Variable exists, use assignment instead of definition
-                    // This handles container property assignment in methods
-                    env.borrow_mut().assign(name, evaluated_value)
-                } else {
-                    // Variable doesn't exist, use normal definition
-                    env.borrow_mut().define_direct(name, evaluated_value)
-                };
-
-                match result {
+                match self.perform_variable_declaration(
+                    &env,
+                    name,
+                    evaluated_value,
+                    *is_constant,
+                ) {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
                     Err(msg) => Err(RuntimeError::new(msg, line, column)),
                 }
@@ -1948,9 +2051,7 @@ impl Interpreter {
                 column,
             } => {
                 let value = self.evaluate_expression(value, Rc::clone(&env)).await?;
-                #[cfg(debug_assertions)]
-                exec_var_assign!(name, &value);
-                match env.borrow_mut().assign(name, value.clone()) {
+                match self.perform_assignment(&env, name, value) {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
                     Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                 }
