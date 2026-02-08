@@ -43,12 +43,13 @@ fn percent_decode(s: &str) -> String {
         .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned())
 }
 
-/// Parse key-value pairs with URL decoding
+/// Parse key-value pairs with optional URL decoding
 /// Used by query string, form data, and cookie parsing
 fn parse_key_value_pairs(
     input: &str,
     delimiter: char,
     should_trim: bool,
+    should_decode: bool,
 ) -> std::collections::HashMap<String, Value> {
     use std::collections::HashMap;
 
@@ -68,13 +69,25 @@ fn parse_key_value_pairs(
             let key = if should_trim { key.trim() } else { key };
             let value = if should_trim { value.trim() } else { value };
 
-            let decoded_key = percent_decode(key);
-            let decoded_value = percent_decode(value);
+            let decoded_key = if should_decode {
+                percent_decode(key)
+            } else {
+                key.to_string()
+            };
+            let decoded_value = if should_decode {
+                percent_decode(value)
+            } else {
+                value.to_string()
+            };
             params.insert(decoded_key, Value::Text(Rc::from(decoded_value)));
         } else {
             // Key without value
             let key = if should_trim { pair.trim() } else { pair };
-            let decoded_key = percent_decode(key);
+            let decoded_key = if should_decode {
+                percent_decode(key)
+            } else {
+                key.to_string()
+            };
             params.insert(decoded_key, Value::Text(Rc::from("")));
         }
     }
@@ -180,7 +193,8 @@ pub fn native_parse_query_string(args: Vec<Value>) -> Result<Value, RuntimeError
     let query_str = expect_text(&args[0])?;
     let query_str = query_str.trim_start_matches('?');
 
-    let params = parse_key_value_pairs(query_str, '&', false);
+    // Query strings should always be decoded
+    let params = parse_key_value_pairs(query_str, '&', false, true);
 
     Ok(Value::Object(Rc::new(RefCell::new(params))))
 }
@@ -192,7 +206,9 @@ pub fn native_parse_cookies(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let cookie_header = expect_text(&args[0])?;
 
-    let cookies = parse_key_value_pairs(&cookie_header, ';', true);
+    // Cookies should NOT be percent-decoded (RFC 6265)
+    // Values like "abc+def" or "%20" should be preserved as-is
+    let cookies = parse_key_value_pairs(&cookie_header, ';', true, false);
 
     Ok(Value::Object(Rc::new(RefCell::new(cookies))))
 }
@@ -204,7 +220,8 @@ pub fn native_parse_form_urlencoded(args: Vec<Value>) -> Result<Value, RuntimeEr
 
     let form_data = expect_text(&args[0])?;
 
-    let params = parse_key_value_pairs(form_data.as_ref(), '&', false);
+    // Form data should always be decoded
+    let params = parse_key_value_pairs(form_data.as_ref(), '&', false, true);
 
     Ok(Value::Object(Rc::new(RefCell::new(params))))
 }
@@ -316,8 +333,11 @@ mod tests {
 
     #[test]
     fn test_parse_cookies() {
+        // Test standard cookie parsing AND ensure no percent decoding happens
+        // "user=alice%20bob" should remain "alice%20bob", not "alice bob"
+        // "token=abc+def" should remain "abc+def", not "abc def"
         let args = vec![Value::Text(Rc::from(
-            "session_id=abc123; user=alice; Secure",
+            "session_id=abc123; user=alice%20bob; token=abc+def; Secure",
         ))];
         let result = native_parse_cookies(args).unwrap();
 
@@ -328,7 +348,12 @@ mod tests {
                     map.get("session_id").unwrap(),
                     &Value::Text(Rc::from("abc123"))
                 );
-                assert_eq!(map.get("user").unwrap(), &Value::Text(Rc::from("alice")));
+                // Verify NO decoding happened
+                assert_eq!(
+                    map.get("user").unwrap(),
+                    &Value::Text(Rc::from("alice%20bob"))
+                );
+                assert_eq!(map.get("token").unwrap(), &Value::Text(Rc::from("abc+def")));
                 assert_eq!(map.get("Secure").unwrap(), &Value::Text(Rc::from("")));
             }
             _ => panic!("Expected Object"),
