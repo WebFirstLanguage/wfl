@@ -44,8 +44,12 @@ fn percent_decode(s: &str) -> String {
 }
 
 /// Parse key-value pairs with URL decoding
-/// Used by both query string and form data parsing
-fn parse_key_value_pairs(input: &str, delimiter: char) -> std::collections::HashMap<String, Value> {
+/// Used by query string, form data, and cookie parsing
+fn parse_key_value_pairs(
+    input: &str,
+    delimiter: char,
+    should_trim: bool,
+) -> std::collections::HashMap<String, Value> {
     use std::collections::HashMap;
 
     let mut params = HashMap::new();
@@ -55,13 +59,22 @@ fn parse_key_value_pairs(input: &str, delimiter: char) -> std::collections::Hash
     }
 
     for pair in input.split(delimiter) {
+        let pair = if should_trim { pair.trim() } else { pair };
+        if pair.is_empty() {
+            continue;
+        }
+
         if let Some((key, value)) = pair.split_once('=') {
+            let key = if should_trim { key.trim() } else { key };
+            let value = if should_trim { value.trim() } else { value };
+
             let decoded_key = percent_decode(key);
             let decoded_value = percent_decode(value);
             params.insert(decoded_key, Value::Text(Rc::from(decoded_value)));
         } else {
             // Key without value
-            let decoded_key = percent_decode(pair);
+            let key = if should_trim { pair.trim() } else { pair };
+            let decoded_key = percent_decode(key);
             params.insert(decoded_key, Value::Text(Rc::from("")));
         }
     }
@@ -167,7 +180,7 @@ pub fn native_parse_query_string(args: Vec<Value>) -> Result<Value, RuntimeError
     let query_str = expect_text(&args[0])?;
     let query_str = query_str.trim_start_matches('?');
 
-    let params = parse_key_value_pairs(query_str, '&');
+    let params = parse_key_value_pairs(query_str, '&', false);
 
     Ok(Value::Object(Rc::new(RefCell::new(params))))
 }
@@ -175,26 +188,11 @@ pub fn native_parse_query_string(args: Vec<Value>) -> Result<Value, RuntimeError
 /// Parse Cookie header into WFL object
 /// Usage: parse_cookies("session_id=abc123; user=alice") -> {"session_id": "abc123", "user": "alice"}
 pub fn native_parse_cookies(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    use std::collections::HashMap;
-
     check_arg_count("parse_cookies", &args, 1)?;
 
     let cookie_header = expect_text(&args[0])?;
-    let mut cookies = HashMap::new();
 
-    if cookie_header.is_empty() {
-        return Ok(Value::Object(Rc::new(RefCell::new(cookies))));
-    }
-
-    // Split by ;
-    for cookie in cookie_header.split(';') {
-        let cookie = cookie.trim();
-        if let Some((key, value)) = cookie.split_once('=') {
-            let decoded_key = percent_decode(key.trim());
-            let decoded_value = percent_decode(value.trim());
-            cookies.insert(decoded_key, Value::Text(Rc::from(decoded_value)));
-        }
-    }
+    let cookies = parse_key_value_pairs(&cookie_header, ';', true);
 
     Ok(Value::Object(Rc::new(RefCell::new(cookies))))
 }
@@ -206,7 +204,7 @@ pub fn native_parse_form_urlencoded(args: Vec<Value>) -> Result<Value, RuntimeEr
 
     let form_data = expect_text(&args[0])?;
 
-    let params = parse_key_value_pairs(form_data.as_ref(), '&');
+    let params = parse_key_value_pairs(form_data.as_ref(), '&', false);
 
     Ok(Value::Object(Rc::new(RefCell::new(params))))
 }
@@ -263,4 +261,108 @@ pub fn register_text(env: &mut Environment) {
         "parse_form_urlencoded",
         Value::NativeFunction("parse_form_urlencoded", native_parse_form_urlencoded),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interpreter::value::Value;
+
+    #[test]
+    fn test_parse_query_string() {
+        let args = vec![Value::Text(Rc::from("?page=1&limit=10&sort=asc"))];
+        let result = native_parse_query_string(args).unwrap();
+
+        match result {
+            Value::Object(obj) => {
+                let map = obj.borrow();
+                assert_eq!(map.get("page").unwrap(), &Value::Text(Rc::from("1")));
+                assert_eq!(map.get("limit").unwrap(), &Value::Text(Rc::from("10")));
+                assert_eq!(map.get("sort").unwrap(), &Value::Text(Rc::from("asc")));
+            }
+            _ => panic!("Expected Object"),
+        }
+    }
+
+    #[test]
+    fn test_parse_query_string_decoding() {
+        let args = vec![Value::Text(Rc::from("name=John%20Doe&city=New+York"))];
+        let result = native_parse_query_string(args).unwrap();
+
+        match result {
+            Value::Object(obj) => {
+                let map = obj.borrow();
+                assert_eq!(map.get("name").unwrap(), &Value::Text(Rc::from("John Doe")));
+                assert_eq!(map.get("city").unwrap(), &Value::Text(Rc::from("New York")));
+            }
+            _ => panic!("Expected Object"),
+        }
+    }
+
+    #[test]
+    fn test_parse_query_string_empty_value() {
+        let args = vec![Value::Text(Rc::from("flag=&option"))];
+        let result = native_parse_query_string(args).unwrap();
+
+        match result {
+            Value::Object(obj) => {
+                let map = obj.borrow();
+                assert_eq!(map.get("flag").unwrap(), &Value::Text(Rc::from("")));
+                assert_eq!(map.get("option").unwrap(), &Value::Text(Rc::from("")));
+            }
+            _ => panic!("Expected Object"),
+        }
+    }
+
+    #[test]
+    fn test_parse_cookies() {
+        let args = vec![Value::Text(Rc::from(
+            "session_id=abc123; user=alice; Secure",
+        ))];
+        let result = native_parse_cookies(args).unwrap();
+
+        match result {
+            Value::Object(obj) => {
+                let map = obj.borrow();
+                assert_eq!(
+                    map.get("session_id").unwrap(),
+                    &Value::Text(Rc::from("abc123"))
+                );
+                assert_eq!(map.get("user").unwrap(), &Value::Text(Rc::from("alice")));
+                assert_eq!(map.get("Secure").unwrap(), &Value::Text(Rc::from("")));
+            }
+            _ => panic!("Expected Object"),
+        }
+    }
+
+    #[test]
+    fn test_parse_cookies_trimming() {
+        // Spaces around semicolons and equals
+        let args = vec![Value::Text(Rc::from(" key1 = val1 ;  key2=val2  "))];
+        let result = native_parse_cookies(args).unwrap();
+
+        match result {
+            Value::Object(obj) => {
+                let map = obj.borrow();
+                assert_eq!(map.get("key1").unwrap(), &Value::Text(Rc::from("val1")));
+                assert_eq!(map.get("key2").unwrap(), &Value::Text(Rc::from("val2")));
+            }
+            _ => panic!("Expected Object"),
+        }
+    }
+
+    #[test]
+    fn test_parse_form_urlencoded() {
+        let args = vec![Value::Text(Rc::from("field1=value1&field2=value2"))];
+        let result = native_parse_form_urlencoded(args).unwrap();
+
+        match result {
+            Value::Object(obj) => {
+                let map = obj.borrow();
+                assert_eq!(map.get("field1").unwrap(), &Value::Text(Rc::from("value1")));
+                assert_eq!(map.get("field2").unwrap(), &Value::Text(Rc::from("value2")));
+            }
+            _ => panic!("Expected Object"),
+        }
+    }
 }
