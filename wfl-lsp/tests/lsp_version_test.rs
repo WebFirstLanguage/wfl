@@ -4,13 +4,7 @@ use std::time::Duration;
 #[test]
 fn test_version_flag_exits_immediately() {
     // Test that --version flag exits immediately and doesn't hang
-    let output = Command::new("cargo")
-        .arg("run")
-        .arg("-p")
-        .arg("wfl-lsp")
-        .arg("--bin")
-        .arg("wfl-lsp")
-        .arg("--")
+    let output = Command::new(env!("CARGO_BIN_EXE_wfl-lsp"))
         .arg("--version")
         .output()
         .expect("Failed to execute wfl-lsp --version");
@@ -28,13 +22,7 @@ fn test_version_flag_exits_immediately() {
 #[test]
 fn test_help_flag_exits_immediately() {
     // Test that --help flag also exits immediately
-    let output = Command::new("cargo")
-        .arg("run")
-        .arg("-p")
-        .arg("wfl-lsp")
-        .arg("--bin")
-        .arg("wfl-lsp")
-        .arg("--")
+    let output = Command::new(env!("CARGO_BIN_EXE_wfl-lsp"))
         .arg("--help")
         .output()
         .expect("Failed to execute wfl-lsp --help");
@@ -52,22 +40,16 @@ fn test_version_flag_with_timeout() {
     // Test that --version completes within a reasonable time (not hanging)
     let start = std::time::Instant::now();
 
-    let output = Command::new("cargo")
-        .arg("run")
-        .arg("-p")
-        .arg("wfl-lsp")
-        .arg("--bin")
-        .arg("wfl-lsp")
-        .arg("--")
+    let output = Command::new(env!("CARGO_BIN_EXE_wfl-lsp"))
         .arg("--version")
         .output()
         .expect("Failed to execute wfl-lsp --version");
 
     let elapsed = start.elapsed();
 
-    // Should complete within 30 seconds (accounting for compilation in CI)
+    // Should complete within 5 seconds (no compilation overhead)
     assert!(
-        elapsed < Duration::from_secs(30),
+        elapsed < Duration::from_secs(5),
         "Command took too long: {:?}",
         elapsed
     );

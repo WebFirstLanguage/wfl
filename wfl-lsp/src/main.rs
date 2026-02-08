@@ -29,26 +29,30 @@ fn print_version() {
     println!("wfl-lsp {}", env!("CARGO_PKG_VERSION"));
 }
 
-#[tokio::main]
-async fn main() {
-    // Parse command-line arguments before setting up logging
+fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    // Handle version and help flags first (they should exit immediately)
+    // Handle version and help flags first (no tokio runtime needed)
     for arg in &args[1..] {
         match arg.as_str() {
             "--version" | "-v" => {
                 print_version();
-                std::process::exit(0);
+                return;
             }
             "--help" | "-h" => {
                 print_help();
-                std::process::exit(0);
+                return;
             }
             _ => {}
         }
     }
 
+    // Only create tokio runtime when actually running a server
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+    rt.block_on(async_main(args));
+}
+
+async fn async_main(args: Vec<String>) {
     // Parse remaining command-line arguments
     let mut mcp_mode = false;
     let mut _stdio_mode = true; // Default mode
@@ -129,14 +133,11 @@ async fn main() {
     }
 
     // Set up logging with the parsed log level
-    // Create a builder that respects existing RUST_LOG or uses the parsed level
     let mut builder = env_logger::Builder::new();
 
-    // If RUST_LOG is already set, parse it; otherwise use the command line argument
     if let Ok(rust_log) = std::env::var("RUST_LOG") {
         builder.parse_filters(&rust_log);
     } else {
-        // Use the parsed log level from command line
         builder.parse_filters(log_level);
     }
 
@@ -146,8 +147,6 @@ async fn main() {
     if mcp_mode {
         run_mcp_server().await;
     } else {
-        // TODO: In the future, we can use the parsed options to configure the LSP server
-        // For now, we just use the defaults
         run_lsp_server().await;
     }
 }
