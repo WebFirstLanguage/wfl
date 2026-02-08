@@ -7499,6 +7499,37 @@ impl Interpreter {
         })
     }
 
+    fn compare_values(
+        &self,
+        left: Value,
+        right: Value,
+        op_symbol: &str,
+        check: impl Fn(std::cmp::Ordering) -> bool,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError> {
+        match (left, right) {
+            (Value::Number(a), Value::Number(b)) => {
+                if let Some(ord) = a.partial_cmp(&b) {
+                    Ok(Value::Bool(check(ord)))
+                } else {
+                    Ok(Value::Bool(false))
+                }
+            }
+            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(check(a.cmp(&b)))),
+            (a, b) => Err(RuntimeError::new(
+                format!(
+                    "Cannot compare {} and {} with {}",
+                    a.type_name(),
+                    b.type_name(),
+                    op_symbol
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
     fn greater_than(
         &self,
         left: Value,
@@ -7506,19 +7537,14 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a > b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a > b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with >",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
+        self.compare_values(
+            left,
+            right,
+            ">",
+            |ord| matches!(ord, std::cmp::Ordering::Greater),
+            line,
+            column,
+        )
     }
 
     fn less_than(
@@ -7528,19 +7554,14 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a < b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a < b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with <",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
+        self.compare_values(
+            left,
+            right,
+            "<",
+            |ord| matches!(ord, std::cmp::Ordering::Less),
+            line,
+            column,
+        )
     }
 
     fn greater_than_equal(
@@ -7550,19 +7571,14 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a >= b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a >= b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with >=",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
+        self.compare_values(
+            left,
+            right,
+            ">=",
+            |ord| matches!(ord, std::cmp::Ordering::Greater | std::cmp::Ordering::Equal),
+            line,
+            column,
+        )
     }
 
     fn less_than_equal(
@@ -7572,19 +7588,14 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a <= b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a <= b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with <=",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
+        self.compare_values(
+            left,
+            right,
+            "<=",
+            |ord| matches!(ord, std::cmp::Ordering::Less | std::cmp::Ordering::Equal),
+            line,
+            column,
+        )
     }
 
     fn contains(
