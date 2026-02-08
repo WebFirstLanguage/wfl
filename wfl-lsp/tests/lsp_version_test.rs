@@ -65,9 +65,9 @@ fn test_version_flag_with_timeout() {
 
     let elapsed = start.elapsed();
 
-    // Should complete within 30 seconds (accounting for compilation in CI)
+    // Should complete within 120 seconds (accounting for compilation in CI)
     assert!(
-        elapsed < Duration::from_secs(30),
+        elapsed < Duration::from_secs(120),
         "Command took too long: {:?}",
         elapsed
     );
