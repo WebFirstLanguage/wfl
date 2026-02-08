@@ -5807,16 +5807,6 @@ impl Interpreter {
     ) -> Result<Option<Value>, RuntimeError> {
         match expr {
             Expression::Literal(literal, line, column) => {
-                if let Literal::List(elements) = literal {
-                    let mut list_values = Vec::with_capacity(elements.len());
-                    for element in elements {
-                        match self.try_evaluate_simple_expr_sync(element, env)? {
-                            Some(val) => list_values.push(val),
-                            None => return Ok(None),
-                        }
-                    }
-                    return Ok(Some(Value::List(Rc::new(RefCell::new(list_values)))));
-                }
                 self.evaluate_literal_direct(literal, *line, *column)
             }
             Expression::Variable(name, line, column) => {

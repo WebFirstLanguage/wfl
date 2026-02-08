@@ -1,8 +1,8 @@
+use wfl::analyzer::Analyzer;
 use wfl::interpreter::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::typechecker::TypeChecker;
-use wfl::analyzer::Analyzer;
 
 #[tokio::test]
 async fn test_list_sync_optimization() {
@@ -43,7 +43,10 @@ store l6 as [(abs of -5)]
     type_checker.check_types(&program).ok();
 
     let mut interpreter = Interpreter::new();
-    interpreter.interpret(&program).await.expect("Should execute successfully");
+    interpreter
+        .interpret(&program)
+        .await
+        .expect("Should execute successfully");
 
     let env = interpreter.global_env();
     let env = env.borrow();
