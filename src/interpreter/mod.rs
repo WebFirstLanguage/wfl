@@ -171,6 +171,7 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::WriteFileStatement { .. } => "WriteFileStatement".to_string(),
         Statement::WriteToStatement { .. } => "WriteToStatement".to_string(),
         Statement::WriteContentStatement { .. } => "WriteContentStatement".to_string(),
+        Statement::WriteBinaryStatement { .. } => "WriteBinaryStatement".to_string(),
         Statement::CloseFileStatement { .. } => "CloseFileStatement".to_string(),
         Statement::CreateDirectoryStatement { .. } => "CreateDirectoryStatement".to_string(),
         Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
@@ -319,6 +320,9 @@ fn expr_type(expr: &Expression) -> String {
         Expression::DirectoryExists { .. } => "DirectoryExists".to_string(),
         Expression::ListFiles { .. } => "ListFiles".to_string(),
         Expression::ReadContent { .. } => "ReadContent".to_string(),
+        Expression::ReadBinaryContent { .. } => "ReadBinaryContent".to_string(),
+        Expression::ReadBinaryN { .. } => "ReadBinaryN".to_string(),
+        Expression::FileSizeOf { .. } => "FileSizeOf".to_string(),
         Expression::ListFilesRecursive { .. } => "ListFilesRecursive".to_string(),
         Expression::ListFilesFiltered { .. } => "ListFilesFiltered".to_string(),
         Expression::HeaderAccess { header_name, .. } => format!("HeaderAccess '{header_name}'"),
@@ -499,6 +503,12 @@ impl IoClient {
             FileOpenMode::Append => {
                 options.read(false).write(true).create(true).append(true);
             }
+            FileOpenMode::ReadBinary => {
+                options.read(true).write(false).create(false);
+            }
+            FileOpenMode::WriteBinary => {
+                options.read(false).write(true).create(true).truncate(true);
+            }
         }
 
         match options.open(path).await {
@@ -650,6 +660,103 @@ impl IoClient {
                 Err(e) => Err(format!("Failed to truncate file: {e}")),
             },
             Err(e) => Err(format!("Failed to seek in file: {e}")),
+        }
+    }
+
+    async fn read_binary(&self, handle_id: &str) -> Result<Vec<u8>, String> {
+        let mut file_handles = self.file_handles.lock().await;
+
+        if !file_handles.contains_key(handle_id) {
+            return Err(format!("Invalid file handle: {handle_id}"));
+        }
+
+        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
+            Ok(clone) => clone,
+            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+        };
+
+        drop(file_handles);
+
+        // Seek to start before reading all
+        match AsyncSeekExt::seek(&mut file_clone, std::io::SeekFrom::Start(0)).await {
+            Ok(_) => {}
+            Err(e) => return Err(format!("Failed to seek in file: {e}")),
+        }
+
+        let mut contents = Vec::new();
+        match AsyncReadExt::read_to_end(&mut file_clone, &mut contents).await {
+            Ok(_) => Ok(contents),
+            Err(e) => Err(format!("Failed to read binary file: {e}")),
+        }
+    }
+
+    async fn read_binary_n(&self, handle_id: &str, count: usize) -> Result<Vec<u8>, String> {
+        let mut file_handles = self.file_handles.lock().await;
+
+        if !file_handles.contains_key(handle_id) {
+            return Err(format!("Invalid file handle: {handle_id}"));
+        }
+
+        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
+            Ok(clone) => clone,
+            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+        };
+
+        drop(file_handles);
+
+        let mut buf = vec![0u8; count];
+        match AsyncReadExt::read(&mut file_clone, &mut buf).await {
+            Ok(n) => {
+                buf.truncate(n);
+                Ok(buf)
+            }
+            Err(e) => Err(format!("Failed to read binary bytes: {e}")),
+        }
+    }
+
+    async fn write_binary(&self, handle_id: &str, data: &[u8]) -> Result<(), String> {
+        let mut file_handles = self.file_handles.lock().await;
+
+        if !file_handles.contains_key(handle_id) {
+            return Err(format!("Invalid file handle: {handle_id}"));
+        }
+
+        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
+            Ok(clone) => clone,
+            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+        };
+
+        drop(file_handles);
+
+        match AsyncWriteExt::write_all(&mut file_clone, data).await {
+            Ok(_) => match file_clone.flush().await {
+                Ok(_) => {
+                    Self::sync_file_with_windows_handling(&mut file_clone, "write_binary").await
+                }
+                Err(e) => Err(format!("Failed to flush binary file: {e}")),
+            },
+            Err(e) => Err(format!("Failed to write binary data: {e}")),
+        }
+    }
+
+    async fn file_size(&self, handle_id: &str) -> Result<u64, String> {
+        let file_handles = self.file_handles.lock().await;
+
+        if let Some((path, _)) = file_handles.get(handle_id) {
+            let path = path.clone();
+            drop(file_handles);
+            match tokio::fs::metadata(&path).await {
+                Ok(meta) => Ok(meta.len()),
+                Err(e) => Err(format!("Failed to get file size: {e}")),
+            }
+        } else {
+            // Fallback: try using handle_id as a filesystem path
+            match tokio::fs::metadata(handle_id).await {
+                Ok(meta) => Ok(meta.len()),
+                Err(e) => Err(format!(
+                    "Invalid file handle '{handle_id}' and filesystem lookup failed: {e}"
+                )),
+            }
         }
     }
 
@@ -1609,7 +1716,7 @@ impl Interpreter {
             let args_list: Vec<Value> = self
                 .script_args
                 .iter()
-                .map(|arg| Value::Text(Rc::from(arg.as_str())))
+                .map(|arg| Value::Text(Arc::from(arg.as_str())))
                 .collect();
             let _ = env.define("args", Value::List(Rc::new(RefCell::new(args_list))));
 
@@ -1626,7 +1733,7 @@ impl Interpreter {
                     if i + 1 < self.script_args.len() && !self.script_args[i + 1].starts_with("-") {
                         flags.insert(
                             flag_name.to_string(),
-                            Value::Text(Rc::from(self.script_args[i + 1].as_str())),
+                            Value::Text(Arc::from(self.script_args[i + 1].as_str())),
                         );
                         i += 2;
                     } else {
@@ -1640,7 +1747,7 @@ impl Interpreter {
                     if i + 1 < self.script_args.len() && !self.script_args[i + 1].starts_with("-") {
                         flags.insert(
                             flag_name.to_string(),
-                            Value::Text(Rc::from(self.script_args[i + 1].as_str())),
+                            Value::Text(Arc::from(self.script_args[i + 1].as_str())),
                         );
                         i += 2;
                     } else {
@@ -1648,7 +1755,7 @@ impl Interpreter {
                         i += 1;
                     }
                 } else {
-                    positional_args.push(Value::Text(Rc::from(arg.as_str())));
+                    positional_args.push(Value::Text(Arc::from(arg.as_str())));
                     i += 1;
                 }
             }
@@ -1679,14 +1786,14 @@ impl Interpreter {
                     .to_string_lossy()
                     .into_owned()
             };
-            let _ = env.define("program_name", Value::Text(Rc::from(program_name)));
+            let _ = env.define("program_name", Value::Text(Arc::from(program_name)));
 
             // Store current directory
             let current_dir = std::env::current_dir()
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            let _ = env.define("current_directory", Value::Text(Rc::from(current_dir)));
+            let _ = env.define("current_directory", Value::Text(Arc::from(current_dir)));
 
             // Store flags as individual variables with flag_ prefix
             for (key, value) in flags_map {
@@ -1848,6 +1955,7 @@ impl Interpreter {
             Statement::WriteFileStatement { line, column, .. } => (*line, *column),
             Statement::WriteToStatement { line, column, .. } => (*line, *column),
             Statement::WriteContentStatement { line, column, .. } => (*line, *column),
+            Statement::WriteBinaryStatement { line, column, .. } => (*line, *column),
             Statement::CloseFileStatement { line, column, .. } => (*line, *column),
             Statement::CreateDirectoryStatement { line, column, .. } => (*line, *column),
             Statement::CreateFileStatement { line, column, .. } => (*line, *column),
@@ -2846,6 +2954,94 @@ impl Interpreter {
                         Ok(_) => Ok((Value::Null, ControlFlow::None)),
                         Err(e) => Err(RuntimeError::new(e, *line, *column)),
                     }
+                }
+            }
+            Statement::WriteBinaryStatement {
+                content,
+                target,
+                line,
+                column,
+            } => {
+                let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
+                let target_value = self.evaluate_expression(target, Rc::clone(&env)).await?;
+
+                let target_str = match &target_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Expected string for file handle, got {}",
+                                target_value.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // 50MB limit to prevent memory exhaustion
+                const MAX_BINARY_WRITE: usize = 50 * 1024 * 1024;
+                let bytes = match &content_value {
+                    Value::Binary(b) => b.clone(),
+                    Value::List(items) => {
+                        let items = items.borrow();
+                        if items.len() > MAX_BINARY_WRITE {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Byte list length {} exceeds maximum allowed ({})",
+                                    items.len(),
+                                    MAX_BINARY_WRITE
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                        let mut bytes = Vec::with_capacity(items.len());
+                        for (i, item) in items.iter().enumerate() {
+                            match item {
+                                Value::Number(n) => {
+                                    if !n.is_finite() || n.fract() != 0.0 || *n < 0.0 || *n > 255.0
+                                    {
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Invalid byte value at index {i}: {n} — must be an integer 0-255"
+                                            ),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+                                    bytes.push(*n as u8);
+                                }
+                                _ => {
+                                    return Err(RuntimeError::new(
+                                        format!(
+                                            "Expected number in byte list at index {}, got {}",
+                                            i,
+                                            item.type_name()
+                                        ),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
+                            }
+                        }
+                        bytes
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Expected Binary or List for write binary, got {}",
+                                content_value.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.write_binary(&target_str, &bytes).await {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
             Statement::DeleteDirectoryStatement { path, line, column } => {
@@ -4554,7 +4750,7 @@ impl Interpreter {
                             .insert(server_name.clone(), wfl_server);
 
                         // Create a server value with the actual address
-                        let server_value = Value::Text(Rc::from(format!(
+                        let server_value = Value::Text(Arc::from(format!(
                             "WebServer::{}:{}",
                             addr.ip(),
                             addr.port()
@@ -4718,7 +4914,7 @@ impl Interpreter {
                 let mut request_properties = HashMap::new();
                 request_properties.insert(
                     "_response_sender".to_string(),
-                    Value::Text(Rc::from(request.id.clone())),
+                    Value::Text(Arc::from(request.id.clone())),
                 );
                 let request_object = Value::Object(Rc::new(RefCell::new(request_properties)));
 
@@ -4728,25 +4924,25 @@ impl Interpreter {
                 }
 
                 // Define individual request property variables
-                match env_mut.define("method", Value::Text(Rc::from(request.method.clone()))) {
+                match env_mut.define("method", Value::Text(Arc::from(request.method.clone()))) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
-                match env_mut.define("path", Value::Text(Rc::from(request.path.clone()))) {
+                match env_mut.define("path", Value::Text(Arc::from(request.path.clone()))) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
                 match env_mut.define(
                     "client_ip",
-                    Value::Text(Rc::from(request.client_ip.clone())),
+                    Value::Text(Arc::from(request.client_ip.clone())),
                 ) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
-                match env_mut.define("body", Value::Text(Rc::from(request.body.clone()))) {
+                match env_mut.define("body", Value::Text(Arc::from(request.body.clone()))) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
@@ -4754,7 +4950,7 @@ impl Interpreter {
                 // Convert headers to WFL object and define as headers variable
                 let mut headers_map = HashMap::new();
                 for (key, value) in request.headers.iter() {
-                    headers_map.insert(key.clone(), Value::Text(Rc::from(value.clone())));
+                    headers_map.insert(key.clone(), Value::Text(Arc::from(value.clone())));
                 }
                 let headers_object = Value::Object(Rc::new(RefCell::new(headers_map)));
 
@@ -4901,7 +5097,7 @@ impl Interpreter {
                 env.borrow_mut()
                     .define(
                         &signal_handler_key,
-                        Value::Text(Rc::from(handler_name.clone())),
+                        Value::Text(Arc::from(handler_name.clone())),
                     )
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
@@ -5104,8 +5300,11 @@ impl Interpreter {
 
                 // Build result object
                 let mut result_map = HashMap::new();
-                result_map.insert("output".to_string(), Value::Text(Rc::from(stdout.as_str())));
-                result_map.insert("error".to_string(), Value::Text(Rc::from(stderr.as_str())));
+                result_map.insert(
+                    "output".to_string(),
+                    Value::Text(Arc::from(stdout.as_str())),
+                );
+                result_map.insert("error".to_string(), Value::Text(Arc::from(stderr.as_str())));
                 result_map.insert("exit_code".to_string(), Value::Number(exit_code as f64));
                 result_map.insert("success".to_string(), Value::Bool(exit_code == 0));
 
@@ -5191,7 +5390,7 @@ impl Interpreter {
 
                 // Store process ID in variable
                 env.borrow_mut()
-                    .define(variable_name, Value::Text(Rc::from(process_id.as_str())))
+                    .define(variable_name, Value::Text(Arc::from(process_id.as_str())))
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
                 Ok((Value::Null, ControlFlow::None))
@@ -5233,7 +5432,7 @@ impl Interpreter {
 
                 // Store output in variable
                 env.borrow_mut()
-                    .define(variable_name, Value::Text(Rc::from(output.as_str())))
+                    .define(variable_name, Value::Text(Arc::from(output.as_str())))
                     .map_err(|e| RuntimeError::new(e, *line, *column))?;
 
                 Ok((Value::Null, ControlFlow::None))
@@ -5710,7 +5909,7 @@ impl Interpreter {
 
                 // Concatenate
                 let result = format!("{left_val}{right_val}");
-                Ok(Some(Value::Text(Rc::from(result.as_str()))))
+                Ok(Some(Value::Text(Arc::from(result.as_str()))))
             }
             _ => Ok(None),
         }
@@ -6338,7 +6537,7 @@ impl Interpreter {
                 let right_val = self.evaluate_expression(right, Rc::clone(&env)).await?;
 
                 let result = format!("{left_val}{right_val}");
-                Ok(Value::Text(Rc::from(result.as_str())))
+                Ok(Value::Text(Arc::from(result.as_str())))
             }
 
             Expression::PatternMatch {
@@ -6419,7 +6618,7 @@ impl Interpreter {
                         let mut result_map = std::collections::HashMap::new();
                         result_map.insert(
                             "matched_text".to_string(),
-                            Value::Text(Rc::from(match_result.matched_text.as_str())),
+                            Value::Text(Arc::from(match_result.matched_text.as_str())),
                         );
                         result_map.insert(
                             "start".to_string(),
@@ -6432,7 +6631,7 @@ impl Interpreter {
                         if !match_result.captures.is_empty() {
                             let mut captures_map = std::collections::HashMap::new();
                             for (name, value) in match_result.captures {
-                                captures_map.insert(name, Value::Text(Rc::from(value.as_str())));
+                                captures_map.insert(name, Value::Text(Arc::from(value.as_str())));
                             }
                             result_map.insert(
                                 "captures".to_string(),
@@ -6614,6 +6813,126 @@ impl Interpreter {
 
                 match self.io_client.read_file(&handle_str).await {
                     Ok(content) => Ok(Value::Text(content.into())),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Expression::ReadBinaryContent {
+                file_handle,
+                line,
+                column,
+            } => {
+                let handle_value = self
+                    .evaluate_expression(file_handle, Rc::clone(&env))
+                    .await?;
+                let handle_str = match &handle_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Expected string for file handle, got {}",
+                                handle_value.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.read_binary(&handle_str).await {
+                    Ok(bytes) => Ok(Value::Binary(bytes)),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Expression::ReadBinaryN {
+                file_handle,
+                count,
+                line,
+                column,
+            } => {
+                let handle_value = self
+                    .evaluate_expression(file_handle, Rc::clone(&env))
+                    .await?;
+                let handle_str = match &handle_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Expected string for file handle, got {}",
+                                handle_value.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let count_value = self.evaluate_expression(count, Rc::clone(&env)).await?;
+                let n = match &count_value {
+                    Value::Number(n) => {
+                        if !n.is_finite() || n.fract() != 0.0 || *n < 0.0 || *n > usize::MAX as f64
+                        {
+                            return Err(RuntimeError::new(
+                                format!("Invalid byte count: {n} — must be a non-negative integer"),
+                                *line,
+                                *column,
+                            ));
+                        }
+                        let count = *n as usize;
+                        // 50MB limit to prevent memory exhaustion
+                        const MAX_READ_BYTES: usize = 50 * 1024 * 1024;
+                        if count > MAX_READ_BYTES {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Byte count {} exceeds maximum allowed ({})",
+                                    count, MAX_READ_BYTES
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                        count
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Expected number for byte count, got {}",
+                                count_value.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.read_binary_n(&handle_str, n).await {
+                    Ok(bytes) => Ok(Value::Binary(bytes)),
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Expression::FileSizeOf {
+                file_handle,
+                line,
+                column,
+            } => {
+                let handle_value = self
+                    .evaluate_expression(file_handle, Rc::clone(&env))
+                    .await?;
+                let handle_str = match &handle_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Expected string for file handle, got {}",
+                                handle_value.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.file_size(&handle_str).await {
+                    Ok(size) => Ok(Value::Number(size as f64)),
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
@@ -6811,7 +7130,7 @@ impl Interpreter {
                     .replace("ss", "%S");
 
                 let formatted = now.format(&chrono_format).to_string();
-                Ok(Value::Text(Rc::from(formatted)))
+                Ok(Value::Text(Arc::from(formatted)))
             }
             Expression::ProcessRunning {
                 process_id,
@@ -6977,15 +7296,15 @@ impl Interpreter {
             (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a + b)),
             (Value::Text(a), Value::Text(b)) => {
                 let result = format!("{a}{b}");
-                Ok(Value::Text(Rc::from(result.as_str())))
+                Ok(Value::Text(Arc::from(result.as_str())))
             }
             (Value::Text(a), b) => {
                 let result = format!("{a}{b}");
-                Ok(Value::Text(Rc::from(result.as_str())))
+                Ok(Value::Text(Arc::from(result.as_str())))
             }
             (a, Value::Text(b)) => {
                 let result = format!("{a}{b}");
-                Ok(Value::Text(Rc::from(result.as_str())))
+                Ok(Value::Text(Arc::from(result.as_str())))
             }
             (a, b) => Err(RuntimeError::new(
                 format!("Cannot add {} and {}", a.type_name(), b.type_name()),

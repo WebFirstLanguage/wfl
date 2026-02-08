@@ -7,7 +7,7 @@ use super::{BinaryExprParser, ExprParser};
 use crate::exec_trace;
 use crate::lexer::token::Token;
 use crate::parser::stmt::PatternParser;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Trait for parsing primary (atomic) expressions
 pub(crate) trait PrimaryExprParser<'a> {
@@ -97,7 +97,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                 Token::StringLiteral(s) => {
                     let token_pos = self.bump_sync().unwrap();
                     Ok(Expression::Literal(
-                        Literal::String(Rc::from(s.as_str())),
+                        Literal::String(Arc::from(s.as_str())),
                         token_pos.line,
                         token_pos.column,
                     ))
@@ -400,6 +400,20 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                     let token_line = token.line;
                     let token_column = token.column;
 
+                    // Check if it's "file size of <handle>"
+                    if let Some(next_token) = self.cursor.peek()
+                        && matches!(&next_token.token, Token::Identifier(s) if s == "size")
+                    {
+                        self.bump_sync(); // Consume "size"
+                        self.expect_token(Token::KeywordOf, "Expected 'of' after 'file size'")?;
+                        let file_handle = self.parse_primary_expression()?;
+                        return Ok(Expression::FileSizeOf {
+                            file_handle: Box::new(file_handle),
+                            line: token_line,
+                            column: token_column,
+                        });
+                    }
+
                     // Check if it's "file exists at"
                     if let Some(next_token) = self.cursor.peek()
                         && next_token.token == Token::KeywordExists
@@ -697,21 +711,64 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                     let token_line = token.line;
                     let token_column = token.column;
 
-                    // Check if it's "read content from"
-                    if let Some(next_token) = self.cursor.peek()
-                        && next_token.token == Token::KeywordContent
-                    {
-                        self.bump_sync(); // Consume "content"
-                        self.expect_token(
-                            Token::KeywordFrom,
-                            "Expected 'from' after 'read content'",
-                        )?;
-                        let file_handle = self.parse_primary_expression()?;
-                        return Ok(Expression::ReadContent {
-                            file_handle: Box::new(file_handle),
-                            line: token_line,
-                            column: token_column,
-                        });
+                    if let Some(next_token) = self.cursor.peek() {
+                        // "read content from <handle>"
+                        if next_token.token == Token::KeywordContent {
+                            self.bump_sync(); // Consume "content"
+                            self.expect_token(
+                                Token::KeywordFrom,
+                                "Expected 'from' after 'read content'",
+                            )?;
+                            let file_handle = self.parse_primary_expression()?;
+                            return Ok(Expression::ReadContent {
+                                file_handle: Box::new(file_handle),
+                                line: token_line,
+                                column: token_column,
+                            });
+                        }
+
+                        // "read binary from <handle>"
+                        if next_token.token == Token::KeywordBinary {
+                            self.bump_sync(); // Consume "binary"
+                            self.expect_token(
+                                Token::KeywordFrom,
+                                "Expected 'from' after 'read binary'",
+                            )?;
+                            let file_handle = self.parse_primary_expression()?;
+                            return Ok(Expression::ReadBinaryContent {
+                                file_handle: Box::new(file_handle),
+                                line: token_line,
+                                column: token_column,
+                            });
+                        }
+
+                        // "read <N> bytes from <handle>"
+                        if matches!(
+                            next_token.token,
+                            Token::IntLiteral(_) | Token::Identifier(_)
+                        ) {
+                            // Speculatively parse count expression, then check for "bytes"
+                            let saved_pos = self.cursor.checkpoint();
+                            if let Ok(count_expr) = self.parse_primary_expression()
+                                && let Some(bytes_tok) = self.cursor.peek()
+                                && bytes_tok.token == Token::KeywordBytes
+                            {
+                                self.bump_sync(); // Consume "bytes"
+                                self.expect_token(
+                                    Token::KeywordFrom,
+                                    "Expected 'from' after 'read N bytes'",
+                                )?;
+                                let file_handle = self.parse_primary_expression()?;
+                                return Ok(Expression::ReadBinaryN {
+                                    file_handle: Box::new(file_handle),
+                                    count: Box::new(count_expr),
+                                    line: token_line,
+                                    column: token_column,
+                                });
+                            }
+                            // Not "read N bytes from" pattern, restore position
+                            self.cursor.rewind(saved_pos);
+                        }
                     }
 
                     // Otherwise treat "read" as a variable

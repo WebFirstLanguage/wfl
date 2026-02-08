@@ -2,7 +2,7 @@ use super::helpers::check_arg_count;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub fn native_print(args: Vec<Value>) -> Result<Value, RuntimeError> {
     for (i, arg) in args.iter().enumerate() {
@@ -19,7 +19,7 @@ pub fn native_typeof(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("typeof", &args, 1)?;
 
     let type_name = args[0].type_name();
-    Ok(Value::Text(Rc::from(type_name)))
+    Ok(Value::Text(Arc::from(type_name)))
 }
 
 pub fn native_isnothing(args: Vec<Value>) -> Result<Value, RuntimeError> {

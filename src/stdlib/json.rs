@@ -5,6 +5,7 @@ use crate::interpreter::value::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Convert serde_json::Value to WFL Value
 fn json_to_wfl(json: serde_json::Value) -> Value {
@@ -18,7 +19,7 @@ fn json_to_wfl(json: serde_json::Value) -> Value {
                 Value::Nothing
             }
         }
-        serde_json::Value::String(s) => Value::Text(Rc::from(s)),
+        serde_json::Value::String(s) => Value::Text(Arc::from(s)),
         serde_json::Value::Array(arr) => {
             let wfl_list: Vec<Value> = arr.into_iter().map(json_to_wfl).collect();
             Value::List(Rc::new(RefCell::new(wfl_list)))
@@ -98,7 +99,7 @@ pub fn native_stringify_json(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let json_value = wfl_to_json(&args[0])?;
 
     match serde_json::to_string(&json_value) {
-        Ok(json_str) => Ok(Value::Text(Rc::from(json_str))),
+        Ok(json_str) => Ok(Value::Text(Arc::from(json_str))),
         Err(e) => Err(RuntimeError::new(
             format!("Failed to stringify JSON: {}", e),
             0,
@@ -115,7 +116,7 @@ pub fn native_stringify_json_pretty(args: Vec<Value>) -> Result<Value, RuntimeEr
     let json_value = wfl_to_json(&args[0])?;
 
     match serde_json::to_string_pretty(&json_value) {
-        Ok(json_str) => Ok(Value::Text(Rc::from(json_str))),
+        Ok(json_str) => Ok(Value::Text(Arc::from(json_str))),
         Err(e) => Err(RuntimeError::new(
             format!("Failed to stringify JSON: {}", e),
             0,
@@ -147,7 +148,7 @@ mod tests {
     #[test]
     fn test_parse_json_object() {
         let json = r#"{"name": "Alice", "age": 30, "active": true}"#;
-        let result = native_parse_json(vec![Value::Text(Rc::from(json))]);
+        let result = native_parse_json(vec![Value::Text(Arc::from(json))]);
         assert!(result.is_ok());
 
         if let Ok(Value::Object(obj)) = result {
@@ -164,7 +165,7 @@ mod tests {
     #[test]
     fn test_parse_json_array() {
         let json = r#"[1, 2, 3, "test"]"#;
-        let result = native_parse_json(vec![Value::Text(Rc::from(json))]);
+        let result = native_parse_json(vec![Value::Text(Arc::from(json))]);
         assert!(result.is_ok());
 
         if let Ok(Value::List(list)) = result {
@@ -178,7 +179,7 @@ mod tests {
     #[test]
     fn test_stringify_json() {
         let mut obj = HashMap::new();
-        obj.insert("name".to_string(), Value::Text(Rc::from("Bob")));
+        obj.insert("name".to_string(), Value::Text(Arc::from("Bob")));
         obj.insert("age".to_string(), Value::Number(25.0));
         obj.insert("active".to_string(), Value::Bool(false));
 
@@ -198,7 +199,7 @@ mod tests {
     #[test]
     fn test_parse_invalid_json() {
         let json = r#"{"invalid": }"#;
-        let result = native_parse_json(vec![Value::Text(Rc::from(json))]);
+        let result = native_parse_json(vec![Value::Text(Arc::from(json))]);
         assert!(result.is_err());
     }
 
@@ -207,7 +208,7 @@ mod tests {
         let json = r#"{"user": {"name": "Charlie", "scores": [95, 87, 91]}, "verified": true}"#;
 
         // Parse JSON
-        let parsed = native_parse_json(vec![Value::Text(Rc::from(json))]).unwrap();
+        let parsed = native_parse_json(vec![Value::Text(Arc::from(json))]).unwrap();
 
         // Stringify back
         let stringified = native_stringify_json(vec![parsed]).unwrap();

@@ -3,7 +3,7 @@
 use super::super::{Expression, FileOpenMode, Literal, ParseError, Parser, Statement};
 use crate::lexer::token::Token;
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub(crate) trait IoParser<'a>: ExprParser<'a> {
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError>;
@@ -147,6 +147,23 @@ impl<'a> IoParser<'a> for Parser<'a> {
                     column,
                 }),
                 Expression::ReadContent { line, column, .. } => Ok(Statement::DisplayStatement {
+                    value: expr,
+                    line,
+                    column,
+                }),
+                Expression::ReadBinaryContent { line, column, .. } => {
+                    Ok(Statement::DisplayStatement {
+                        value: expr,
+                        line,
+                        column,
+                    })
+                }
+                Expression::ReadBinaryN { line, column, .. } => Ok(Statement::DisplayStatement {
+                    value: expr,
+                    line,
+                    column,
+                }),
+                Expression::FileSizeOf { line, column, .. } => Ok(Statement::DisplayStatement {
                     value: expr,
                     line,
                     column,
@@ -357,11 +374,27 @@ impl<'a> IoParser<'a> for Parser<'a> {
                             }
                             Token::Identifier(mode_str) if mode_str == "reading" => {
                                 self.bump_sync(); // Consume "reading"
-                                FileOpenMode::Read
+                                // Check for optional "binary" keyword
+                                if let Some(next) = self.cursor.peek()
+                                    && next.token == Token::KeywordBinary
+                                {
+                                    self.bump_sync(); // Consume "binary"
+                                    FileOpenMode::ReadBinary
+                                } else {
+                                    FileOpenMode::Read
+                                }
                             }
                             Token::Identifier(mode_str) if mode_str == "writing" => {
                                 self.bump_sync(); // Consume "writing"
-                                FileOpenMode::Write
+                                // Check for optional "binary" keyword
+                                if let Some(next) = self.cursor.peek()
+                                    && next.token == Token::KeywordBinary
+                                {
+                                    self.bump_sync(); // Consume "binary"
+                                    FileOpenMode::WriteBinary
+                                } else {
+                                    FileOpenMode::Write
+                                }
                             }
                             _ => {
                                 return Err(ParseError::from_token(
@@ -526,7 +559,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 let column = token.column;
                 let path = path_str.clone();
                 self.bump_sync(); // Consume the string literal
-                Expression::Literal(Literal::String(Rc::from(path)), line, column)
+                Expression::Literal(Literal::String(Arc::from(path)), line, column)
             } else {
                 return Err(ParseError::from_token(
                     format!(
@@ -595,6 +628,29 @@ impl<'a> IoParser<'a> for Parser<'a> {
 
     fn parse_write_to_statement(&mut self) -> Result<Statement, ParseError> {
         let token_pos = self.bump_sync().unwrap(); // Consume "write"
+
+        // Check if next token is "binary" for "write binary X into Y" syntax
+        if let Some(next_token) = self.cursor.peek()
+            && matches!(&next_token.token, Token::KeywordBinary)
+        {
+            self.bump_sync(); // Consume "binary"
+
+            let content = self.parse_expression()?;
+
+            self.expect_token(
+                Token::KeywordInto,
+                "Expected 'into' after content in write binary statement",
+            )?;
+
+            let target = self.parse_primary_expression()?;
+
+            return Ok(Statement::WriteBinaryStatement {
+                content,
+                target,
+                line: token_pos.line,
+                column: token_pos.column,
+            });
+        }
 
         // Check if next token is "content" for "write content X into Y" syntax
         if let Some(next_token) = self.cursor.peek()

@@ -6,11 +6,12 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub enum Value {
     Number(f64),
-    Text(Rc<str>),
+    Text(Arc<str>),
     Bool(bool),
     List(Rc<RefCell<Vec<Value>>>),
     Object(Rc<RefCell<HashMap<String, Value>>>),
@@ -21,6 +22,7 @@ pub enum Value {
     Time(Rc<chrono::NaiveTime>),
     DateTime(Rc<chrono::NaiveDateTime>),
     Pattern(Rc<CompiledPattern>),
+    Binary(Vec<u8>),
     Null,
     Nothing, // Used for void returns
 
@@ -169,6 +171,7 @@ impl Value {
             Value::Time(_) => "Time",
             Value::DateTime(_) => "DateTime",
             Value::Pattern(_) => "Pattern",
+            Value::Binary(_) => "Binary",
             Value::Null => "Null",
             Value::Nothing => "Nothing",
             Value::ContainerDefinition(_def) => "Container",
@@ -191,6 +194,7 @@ impl Value {
             Value::Future(future) => future.borrow().completed,
             Value::Date(_) | Value::Time(_) | Value::DateTime(_) => true,
             Value::Pattern(_) => true,
+            Value::Binary(b) => !b.is_empty(),
             Value::Nothing => false,
             Value::ContainerDefinition(_) => true,
             Value::ContainerInstance(_) => true,
@@ -290,6 +294,7 @@ impl fmt::Debug for Value {
             Value::Time(t) => write!(f, "Time({t})"),
             Value::DateTime(dt) => write!(f, "DateTime({dt})"),
             Value::Pattern(_) => write!(f, "[Pattern]"),
+            Value::Binary(b) => write!(f, "[Binary: {} bytes]", b.len()),
             Value::Null => write!(f, "null"),
             Value::ContainerDefinition(def) => write!(f, "<container {}>", def.name),
             Value::ContainerInstance(instance) => {
@@ -355,6 +360,7 @@ impl fmt::Display for Value {
             Value::Time(t) => write!(f, "{}", t.format("%H:%M:%S")),
             Value::DateTime(dt) => write!(f, "{}", dt.format("%Y-%m-%d %H:%M:%S")),
             Value::Pattern(_) => write!(f, "[Pattern]"),
+            Value::Binary(b) => write!(f, "[Binary: {} bytes]", b.len()),
             Value::Null => write!(f, "nothing"),
             Value::ContainerDefinition(def) => write!(f, "container {}", def.name),
             Value::ContainerInstance(instance) => {
@@ -381,6 +387,7 @@ impl PartialEq for Value {
             (Value::Time(a), Value::Time(b)) => return a == b,
             (Value::DateTime(a), Value::DateTime(b)) => return a == b,
             (Value::Pattern(a), Value::Pattern(b)) => return Rc::ptr_eq(a, b),
+            (Value::Binary(a), Value::Binary(b)) => return a == b,
             // For types that might contain cycles or require deeper inspection, use the full visited check
             _ => {}
         }
@@ -474,6 +481,7 @@ fn eq_with_visited(
         }
         (Value::Future(a), Value::Future(b)) => Rc::ptr_eq(a, b),
         (Value::Pattern(a), Value::Pattern(b)) => Rc::ptr_eq(a, b),
+        (Value::Binary(a), Value::Binary(b)) => a == b,
 
         (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => a.name == b.name,
         (Value::ContainerInstance(a), Value::ContainerInstance(b)) => {

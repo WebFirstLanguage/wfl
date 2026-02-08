@@ -1152,6 +1152,7 @@ impl CodeFixer {
             Type::Boolean => "Boolean".to_string(),
             Type::Nothing => "Nothing".to_string(),
             Type::Pattern => "Pattern".to_string(),
+            Type::Binary => "Binary".to_string(),
             Type::Custom(name) => name.clone(),
             Type::List(inner) => format!("List of {}", self.format_type(inner)),
             Type::Map(key, value) => format!(

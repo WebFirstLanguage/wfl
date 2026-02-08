@@ -57,6 +57,7 @@ impl fmt::Display for Type {
             Type::Boolean => write!(f, "Boolean"),
             Type::Nothing => write!(f, "Nothing"),
             Type::Pattern => write!(f, "Pattern"),
+            Type::Binary => write!(f, "Binary"),
             Type::Custom(name) => write!(f, "{name}"),
             Type::List(item_type) => write!(f, "List of {item_type}"),
             Type::Map(key_type, value_type) => write!(f, "Map from {key_type} to {value_type}"),
@@ -1063,6 +1064,44 @@ impl TypeChecker {
                 let target_type = self.infer_expression_type(target);
                 if target_type != Type::Custom("File".to_string())
                     && target_type != Type::Text  // Allow string file handles
+                    && target_type != Type::Unknown
+                    && target_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected a file handle or string".to_string(),
+                        Some(Type::Custom("File".to_string())),
+                        Some(target_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
+            Statement::WriteBinaryStatement {
+                content,
+                target,
+                line: _line,
+                column: _column,
+            } => {
+                let content_type = self.infer_expression_type(content);
+                if content_type != Type::Binary
+                    && content_type != Type::List(Box::new(Type::Number))
+                    && content_type != Type::List(Box::new(Type::Any))
+                    && content_type != Type::List(Box::new(Type::Unknown))
+                    && content_type != Type::Unknown
+                    && content_type != Type::Error
+                    && content_type != Type::Any
+                {
+                    self.type_error(
+                        "Expected Binary or List of Number for write binary content".to_string(),
+                        Some(Type::Binary),
+                        Some(content_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+                let target_type = self.infer_expression_type(target);
+                if target_type != Type::Custom("File".to_string())
+                    && target_type != Type::Text
                     && target_type != Type::Unknown
                     && target_type != Type::Error
                 {
@@ -2865,6 +2904,9 @@ impl TypeChecker {
             Expression::DirectoryExists { .. } => Type::Boolean,
             Expression::ListFiles { .. } => Type::List(Box::new(Type::Text)),
             Expression::ReadContent { .. } => Type::Text,
+            Expression::ReadBinaryContent { .. } => Type::Binary,
+            Expression::ReadBinaryN { .. } => Type::Binary,
+            Expression::FileSizeOf { .. } => Type::Number,
             Expression::ListFilesRecursive { .. } => Type::List(Box::new(Type::Text)),
             Expression::ListFilesFiltered { .. } => Type::List(Box::new(Type::Text)),
             Expression::HeaderAccess { .. } => Type::Text,
@@ -3120,7 +3162,7 @@ impl TypeChecker {
 mod tests {
     use super::*;
     use crate::parser::ast::{Argument, Expression, Literal, Parameter, Program, Statement, Type};
-    use std::rc::Rc;
+    use std::sync::Arc;
 
     #[test]
     fn test_variable_declaration_type_inference() {
@@ -3159,7 +3201,7 @@ mod tests {
                 },
                 Statement::Assignment {
                     name: "x".to_string(),
-                    value: Expression::Literal(Literal::String(Rc::from("hello")), 2, 1),
+                    value: Expression::Literal(Literal::String(Arc::from("hello")), 2, 1),
                     line: 2,
                     column: 1,
                 },
@@ -3186,13 +3228,13 @@ mod tests {
                 is_constant: false,
                 value: Expression::BinaryOperation {
                     left: Box::new(Expression::Literal(
-                        Literal::String(Rc::from("hello")),
+                        Literal::String(Arc::from("hello")),
                         1,
                         5,
                     )),
                     operator: crate::parser::ast::Operator::Plus,
                     right: Box::new(Expression::Literal(
-                        Literal::String(Rc::from("world")),
+                        Literal::String(Arc::from("world")),
                         1,
                         10,
                     )),
@@ -3219,7 +3261,7 @@ mod tests {
                     left: Box::new(Expression::Literal(Literal::Integer(10), 1, 5)),
                     operator: crate::parser::ast::Operator::Minus,
                     right: Box::new(Expression::Literal(
-                        Literal::String(Rc::from("hello")),
+                        Literal::String(Arc::from("hello")),
                         1,
                         10,
                     )),
@@ -3350,7 +3392,7 @@ mod tests {
                             left: Box::new(Expression::Variable("item".to_string(), 3, 5)),
                             operator: crate::parser::ast::Operator::Minus,
                             right: Box::new(Expression::Literal(
-                                Literal::String(Rc::from("text")),
+                                Literal::String(Arc::from("text")),
                                 3,
                                 12,
                             )),

@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("list_dir", &args, 1)?;
@@ -39,7 +40,7 @@ pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
         let file_name = entry.file_name();
         let file_name_str = file_name.to_string_lossy();
-        files.push(Value::Text(Rc::from(file_name_str.as_ref())));
+        files.push(Value::Text(Arc::from(file_name_str.as_ref())));
     }
 
     Ok(Value::List(Rc::new(RefCell::new(files))))
@@ -67,7 +68,7 @@ pub fn native_glob(args: Vec<Value>) -> Result<Value, RuntimeError> {
             .map_err(|e| RuntimeError::new(format!("Error reading glob result: {e}"), 0, 0))?;
 
         let path_str = path.to_string_lossy();
-        files.push(Value::Text(Rc::from(path_str.as_ref())));
+        files.push(Value::Text(Arc::from(path_str.as_ref())));
     }
 
     Ok(Value::List(Rc::new(RefCell::new(files))))
@@ -100,7 +101,7 @@ pub fn native_rglob(args: Vec<Value>) -> Result<Value, RuntimeError> {
         })?;
 
         let path_str = path.to_string_lossy();
-        files.push(Value::Text(Rc::from(path_str.as_ref())));
+        files.push(Value::Text(Arc::from(path_str.as_ref())));
     }
 
     Ok(Value::List(Rc::new(RefCell::new(files))))
@@ -118,7 +119,7 @@ pub fn native_path_join(args: Vec<Value>) -> Result<Value, RuntimeError> {
     }
 
     let result = path.to_string_lossy();
-    Ok(Value::Text(Rc::from(result.as_ref())))
+    Ok(Value::Text(Arc::from(result.as_ref())))
 }
 
 pub fn native_path_basename(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -132,7 +133,7 @@ pub fn native_path_basename(args: Vec<Value>) -> Result<Value, RuntimeError> {
         .and_then(|name| name.to_str())
         .unwrap_or("");
 
-    Ok(Value::Text(Rc::from(basename)))
+    Ok(Value::Text(Arc::from(basename)))
 }
 
 pub fn native_path_dirname(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -146,7 +147,7 @@ pub fn native_path_dirname(args: Vec<Value>) -> Result<Value, RuntimeError> {
         .and_then(|parent| parent.to_str())
         .unwrap_or("");
 
-    Ok(Value::Text(Rc::from(dirname)))
+    Ok(Value::Text(Arc::from(dirname)))
 }
 
 pub fn native_makedirs(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -287,7 +288,7 @@ pub fn native_path_extension(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
-    Ok(Value::Text(Rc::from(extension)))
+    Ok(Value::Text(Arc::from(extension)))
 }
 
 pub fn native_path_stem(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -298,7 +299,7 @@ pub fn native_path_stem(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
 
-    Ok(Value::Text(Rc::from(stem)))
+    Ok(Value::Text(Arc::from(stem)))
 }
 
 pub fn native_file_size(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -559,12 +560,12 @@ pub fn register_filesystem(env: &mut crate::interpreter::environment::Environmen
 mod tests {
     use super::*;
     use crate::interpreter::value::Value;
-    use std::rc::Rc;
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     #[test]
     fn test_expect_text_success() {
-        let value = Value::Text(Rc::from("test"));
+        let value = Value::Text(Arc::from("test"));
         let result = expect_text(&value);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().as_ref(), "test");
@@ -581,9 +582,9 @@ mod tests {
     #[test]
     fn test_native_path_join() {
         let args = vec![
-            Value::Text(Rc::from("home")),
-            Value::Text(Rc::from("user")),
-            Value::Text(Rc::from("documents")),
+            Value::Text(Arc::from("home")),
+            Value::Text(Arc::from("user")),
+            Value::Text(Arc::from("documents")),
         ];
         let result = native_path_join(args).unwrap();
 
@@ -611,7 +612,7 @@ mod tests {
 
     #[test]
     fn test_native_path_basename() {
-        let args = vec![Value::Text(Rc::from("/home/user/test.txt"))];
+        let args = vec![Value::Text(Arc::from("/home/user/test.txt"))];
         let result = native_path_basename(args).unwrap();
 
         if let Value::Text(basename) = result {
@@ -623,7 +624,7 @@ mod tests {
 
     #[test]
     fn test_native_path_dirname() {
-        let args = vec![Value::Text(Rc::from("/home/user/test.txt"))];
+        let args = vec![Value::Text(Arc::from("/home/user/test.txt"))];
         let result = native_path_dirname(args).unwrap();
 
         if let Value::Text(dirname) = result {
@@ -635,7 +636,7 @@ mod tests {
 
     #[test]
     fn test_native_path_exists_current_dir() {
-        let args = vec![Value::Text(Rc::from("."))];
+        let args = vec![Value::Text(Arc::from("."))];
         let result = native_path_exists(args).unwrap();
 
         if let Value::Bool(exists) = result {
@@ -647,7 +648,7 @@ mod tests {
 
     #[test]
     fn test_native_path_exists_nonexistent() {
-        let args = vec![Value::Text(Rc::from(
+        let args = vec![Value::Text(Arc::from(
             "/nonexistent/path/that/should/not/exist",
         ))];
         let result = native_path_exists(args).unwrap();
@@ -661,7 +662,7 @@ mod tests {
 
     #[test]
     fn test_native_is_dir_current() {
-        let args = vec![Value::Text(Rc::from("."))];
+        let args = vec![Value::Text(Arc::from("."))];
         let result = native_is_dir(args).unwrap();
 
         if let Value::Bool(is_dir) = result {
@@ -673,7 +674,7 @@ mod tests {
 
     #[test]
     fn test_native_is_file_current() {
-        let args = vec![Value::Text(Rc::from("."))];
+        let args = vec![Value::Text(Arc::from("."))];
         let result = native_is_file(args).unwrap();
 
         if let Value::Bool(is_file) = result {
@@ -685,7 +686,7 @@ mod tests {
 
     #[test]
     fn test_native_list_dir_current() {
-        let args = vec![Value::Text(Rc::from("."))];
+        let args = vec![Value::Text(Arc::from("."))];
         let result = native_list_dir(args).unwrap();
 
         if let Value::List(list) = result {
@@ -698,7 +699,7 @@ mod tests {
 
     #[test]
     fn test_native_list_dir_nonexistent() {
-        let args = vec![Value::Text(Rc::from("/nonexistent/directory"))];
+        let args = vec![Value::Text(Arc::from("/nonexistent/directory"))];
         let result = native_list_dir(args);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("does not exist"));
@@ -710,7 +711,7 @@ mod tests {
         let test_path = temp_dir.path().join("test_subdir").join("nested");
         let test_path_str = test_path.to_string_lossy();
 
-        let args = vec![Value::Text(Rc::from(test_path_str.as_ref()))];
+        let args = vec![Value::Text(Arc::from(test_path_str.as_ref()))];
         let result = native_makedirs(args);
         assert!(result.is_ok());
 
@@ -720,7 +721,10 @@ mod tests {
 
     #[test]
     fn test_native_glob_basic() {
-        let args = vec![Value::Text(Rc::from("*.rs")), Value::Text(Rc::from("src"))];
+        let args = vec![
+            Value::Text(Arc::from("*.rs")),
+            Value::Text(Arc::from("src")),
+        ];
         let result = native_glob(args).unwrap();
 
         if let Value::List(list) = result {
@@ -733,7 +737,10 @@ mod tests {
 
     #[test]
     fn test_native_rglob_basic() {
-        let args = vec![Value::Text(Rc::from("*.rs")), Value::Text(Rc::from("src"))];
+        let args = vec![
+            Value::Text(Arc::from("*.rs")),
+            Value::Text(Arc::from("src")),
+        ];
         let result = native_rglob(args).unwrap();
 
         if let Value::List(list) = result {
@@ -751,13 +758,13 @@ mod tests {
         assert!(result.unwrap_err().message.contains("expects 1 argument"));
 
         let result = native_path_basename(vec![
-            Value::Text(Rc::from("path1")),
-            Value::Text(Rc::from("path2")),
+            Value::Text(Arc::from("path1")),
+            Value::Text(Arc::from("path2")),
         ]);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("expects 1 argument"));
 
-        let result = native_glob(vec![Value::Text(Rc::from("*.txt"))]);
+        let result = native_glob(vec![Value::Text(Arc::from("*.txt"))]);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("expects 2 arguments"));
     }
@@ -786,7 +793,7 @@ mod tests {
         let mut file = File::create(&test_file_path).unwrap();
         file.write_all(test_content.as_bytes()).unwrap();
 
-        let args = vec![Value::Text(Rc::from(
+        let args = vec![Value::Text(Arc::from(
             test_file_path.to_string_lossy().as_ref(),
         ))];
         let result = native_count_lines(args).unwrap();
@@ -808,7 +815,7 @@ mod tests {
         // Create empty file
         File::create(&test_file_path).unwrap();
 
-        let args = vec![Value::Text(Rc::from(
+        let args = vec![Value::Text(Arc::from(
             test_file_path.to_string_lossy().as_ref(),
         ))];
         let result = native_count_lines(args).unwrap();
@@ -833,7 +840,7 @@ mod tests {
         let mut file = File::create(&test_file_path).unwrap();
         file.write_all(test_content.as_bytes()).unwrap();
 
-        let args = vec![Value::Text(Rc::from(
+        let args = vec![Value::Text(Arc::from(
             test_file_path.to_string_lossy().as_ref(),
         ))];
         let result = native_count_lines(args).unwrap();
@@ -847,7 +854,7 @@ mod tests {
 
     #[test]
     fn test_native_count_lines_file_not_found() {
-        let args = vec![Value::Text(Rc::from("/nonexistent/file.txt"))];
+        let args = vec![Value::Text(Arc::from("/nonexistent/file.txt"))];
         let result = native_count_lines(args);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("does not exist"));
@@ -860,8 +867,8 @@ mod tests {
         assert!(result.unwrap_err().message.contains("expects 1 argument"));
 
         let result = native_count_lines(vec![
-            Value::Text(Rc::from("file1.txt")),
-            Value::Text(Rc::from("file2.txt")),
+            Value::Text(Arc::from("file1.txt")),
+            Value::Text(Arc::from("file2.txt")),
         ]);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("expects 1 argument"));
@@ -879,7 +886,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let dir_path = temp_dir.path();
 
-        let args = vec![Value::Text(Rc::from(dir_path.to_string_lossy().as_ref()))];
+        let args = vec![Value::Text(Arc::from(dir_path.to_string_lossy().as_ref()))];
         let result = native_count_lines(args);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("not a file"));
@@ -888,23 +895,23 @@ mod tests {
     // Tests for path_extension
     #[test]
     fn test_native_path_extension_with_ext() {
-        let args = vec![Value::Text(Rc::from("document.txt"))];
+        let args = vec![Value::Text(Arc::from("document.txt"))];
         let result = native_path_extension(args).unwrap();
-        assert_eq!(result, Value::Text(Rc::from("txt")));
+        assert_eq!(result, Value::Text(Arc::from("txt")));
     }
 
     #[test]
     fn test_native_path_extension_multiple_dots() {
-        let args = vec![Value::Text(Rc::from("archive.tar.gz"))];
+        let args = vec![Value::Text(Arc::from("archive.tar.gz"))];
         let result = native_path_extension(args).unwrap();
-        assert_eq!(result, Value::Text(Rc::from("gz")));
+        assert_eq!(result, Value::Text(Arc::from("gz")));
     }
 
     #[test]
     fn test_native_path_extension_no_ext() {
-        let args = vec![Value::Text(Rc::from("README"))];
+        let args = vec![Value::Text(Arc::from("README"))];
         let result = native_path_extension(args).unwrap();
-        assert_eq!(result, Value::Text(Rc::from("")));
+        assert_eq!(result, Value::Text(Arc::from("")));
     }
 
     #[test]
@@ -917,23 +924,23 @@ mod tests {
     // Tests for path_stem
     #[test]
     fn test_native_path_stem_with_ext() {
-        let args = vec![Value::Text(Rc::from("document.txt"))];
+        let args = vec![Value::Text(Arc::from("document.txt"))];
         let result = native_path_stem(args).unwrap();
-        assert_eq!(result, Value::Text(Rc::from("document")));
+        assert_eq!(result, Value::Text(Arc::from("document")));
     }
 
     #[test]
     fn test_native_path_stem_no_ext() {
-        let args = vec![Value::Text(Rc::from("README"))];
+        let args = vec![Value::Text(Arc::from("README"))];
         let result = native_path_stem(args).unwrap();
-        assert_eq!(result, Value::Text(Rc::from("README")));
+        assert_eq!(result, Value::Text(Arc::from("README")));
     }
 
     #[test]
     fn test_native_path_stem_with_path() {
-        let args = vec![Value::Text(Rc::from("/home/user/file.txt"))];
+        let args = vec![Value::Text(Arc::from("/home/user/file.txt"))];
         let result = native_path_stem(args).unwrap();
-        assert_eq!(result, Value::Text(Rc::from("file")));
+        assert_eq!(result, Value::Text(Arc::from("file")));
     }
 
     #[test]
@@ -954,7 +961,7 @@ mod tests {
         let mut file = File::create(&test_file).unwrap();
         file.write_all(b"12345").unwrap();
 
-        let args = vec![Value::Text(Rc::from(test_file.to_string_lossy().as_ref()))];
+        let args = vec![Value::Text(Arc::from(test_file.to_string_lossy().as_ref()))];
         let result = native_file_size(args).unwrap();
 
         assert_eq!(result, Value::Number(5.0));
@@ -968,7 +975,7 @@ mod tests {
         let test_file = temp_dir.path().join("empty.txt");
         File::create(&test_file).unwrap();
 
-        let args = vec![Value::Text(Rc::from(test_file.to_string_lossy().as_ref()))];
+        let args = vec![Value::Text(Arc::from(test_file.to_string_lossy().as_ref()))];
         let result = native_file_size(args).unwrap();
 
         assert_eq!(result, Value::Number(0.0));
@@ -976,7 +983,7 @@ mod tests {
 
     #[test]
     fn test_native_file_size_not_found() {
-        let args = vec![Value::Text(Rc::from("nonexistent.txt"))];
+        let args = vec![Value::Text(Arc::from("nonexistent.txt"))];
         let result = native_file_size(args);
 
         assert!(result.is_err());
@@ -994,7 +1001,7 @@ mod tests {
     fn test_native_file_size_rejects_directory() {
         let temp_dir = TempDir::new().unwrap();
 
-        let args = vec![Value::Text(Rc::from(
+        let args = vec![Value::Text(Arc::from(
             temp_dir.path().to_string_lossy().as_ref(),
         ))];
         let result = native_file_size(args);
@@ -1017,8 +1024,8 @@ mod tests {
         file.write_all(b"content").unwrap();
 
         let args = vec![
-            Value::Text(Rc::from(source.to_string_lossy().as_ref())),
-            Value::Text(Rc::from(dest.to_string_lossy().as_ref())),
+            Value::Text(Arc::from(source.to_string_lossy().as_ref())),
+            Value::Text(Arc::from(dest.to_string_lossy().as_ref())),
         ];
         let result = native_copy_file(args);
 
@@ -1033,8 +1040,8 @@ mod tests {
         let dest = temp_dir.path().join("dest.txt");
 
         let args = vec![
-            Value::Text(Rc::from("nonexistent.txt")),
-            Value::Text(Rc::from(dest.to_string_lossy().as_ref())),
+            Value::Text(Arc::from("nonexistent.txt")),
+            Value::Text(Arc::from(dest.to_string_lossy().as_ref())),
         ];
         let result = native_copy_file(args);
 
@@ -1044,7 +1051,7 @@ mod tests {
 
     #[test]
     fn test_native_copy_file_wrong_args() {
-        let result = native_copy_file(vec![Value::Text(Rc::from("only_one"))]);
+        let result = native_copy_file(vec![Value::Text(Arc::from("only_one"))]);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("expects 2 arguments"));
     }
@@ -1063,8 +1070,8 @@ mod tests {
         file.write_all(b"content").unwrap();
 
         let args = vec![
-            Value::Text(Rc::from(source.to_string_lossy().as_ref())),
-            Value::Text(Rc::from(dest.to_string_lossy().as_ref())),
+            Value::Text(Arc::from(source.to_string_lossy().as_ref())),
+            Value::Text(Arc::from(dest.to_string_lossy().as_ref())),
         ];
         let result = native_move_file(args);
 
@@ -1079,8 +1086,8 @@ mod tests {
         let dest = temp_dir.path().join("dest.txt");
 
         let args = vec![
-            Value::Text(Rc::from("nonexistent.txt")),
-            Value::Text(Rc::from(dest.to_string_lossy().as_ref())),
+            Value::Text(Arc::from("nonexistent.txt")),
+            Value::Text(Arc::from(dest.to_string_lossy().as_ref())),
         ];
         let result = native_move_file(args);
 
@@ -1103,7 +1110,7 @@ mod tests {
         let test_file = temp_dir.path().join("to_remove.txt");
         File::create(&test_file).unwrap();
 
-        let args = vec![Value::Text(Rc::from(test_file.to_string_lossy().as_ref()))];
+        let args = vec![Value::Text(Arc::from(test_file.to_string_lossy().as_ref()))];
         let result = native_remove_file(args);
 
         assert!(result.is_ok());
@@ -1112,7 +1119,7 @@ mod tests {
 
     #[test]
     fn test_native_remove_file_not_found() {
-        let args = vec![Value::Text(Rc::from("nonexistent.txt"))];
+        let args = vec![Value::Text(Arc::from("nonexistent.txt"))];
         let result = native_remove_file(args);
 
         assert!(result.is_err());
@@ -1134,7 +1141,7 @@ mod tests {
         fs::create_dir(&test_subdir).unwrap();
 
         // Remove without recursive flag (default)
-        let args = vec![Value::Text(Rc::from(
+        let args = vec![Value::Text(Arc::from(
             test_subdir.to_string_lossy().as_ref(),
         ))];
         let result = native_remove_dir(args);
@@ -1153,7 +1160,7 @@ mod tests {
         File::create(test_subdir.join("file.txt")).unwrap();
 
         // Try to remove without recursive - should fail
-        let args = vec![Value::Text(Rc::from(
+        let args = vec![Value::Text(Arc::from(
             test_subdir.to_string_lossy().as_ref(),
         ))];
         let result = native_remove_dir(args);
@@ -1174,7 +1181,7 @@ mod tests {
 
         // Remove with recursive flag
         let args = vec![
-            Value::Text(Rc::from(test_subdir.to_string_lossy().as_ref())),
+            Value::Text(Arc::from(test_subdir.to_string_lossy().as_ref())),
             Value::Bool(true), // recursive = true
         ];
         let result = native_remove_dir(args);

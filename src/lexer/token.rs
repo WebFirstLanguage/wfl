@@ -185,6 +185,10 @@ pub enum Token {
     KeywordAppending,
     #[token("content")]
     KeywordContent,
+    #[token("binary")]
+    KeywordBinary,
+    #[token("bytes")]
+    KeywordBytes,
     #[token("into")]
     KeywordInto, // (if needed for phrasing like "into variable")
     #[token("wait")]
@@ -646,6 +650,8 @@ impl Token {
                 | Token::KeywordAny
                 | Token::KeywordMust
                 | Token::KeywordDefaults
+                | Token::KeywordBinary
+                | Token::KeywordBytes
         )
     }
 

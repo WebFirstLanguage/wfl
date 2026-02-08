@@ -4,6 +4,7 @@ use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Decode percent-encoded URL string
 /// Converts '+' to space and decodes %HH hex sequences
@@ -58,11 +59,11 @@ fn parse_key_value_pairs(input: &str, delimiter: char) -> std::collections::Hash
         if let Some((key, value)) = pair.split_once('=') {
             let decoded_key = percent_decode(key);
             let decoded_value = percent_decode(value);
-            params.insert(decoded_key, Value::Text(Rc::from(decoded_value)));
+            params.insert(decoded_key, Value::Text(Arc::from(decoded_value)));
         } else {
             // Key without value
             let decoded_key = percent_decode(pair);
-            params.insert(decoded_key, Value::Text(Rc::from("")));
+            params.insert(decoded_key, Value::Text(Arc::from("")));
         }
     }
 
@@ -77,7 +78,7 @@ pub fn native_touppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let text = expect_text(&args[0])?;
     let uppercase = text.to_uppercase();
-    Ok(Value::Text(Rc::from(uppercase)))
+    Ok(Value::Text(Arc::from(uppercase)))
 }
 
 pub fn native_tolowercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -85,7 +86,7 @@ pub fn native_tolowercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let text = expect_text(&args[0])?;
     let lowercase = text.to_lowercase();
-    Ok(Value::Text(Rc::from(lowercase)))
+    Ok(Value::Text(Arc::from(lowercase)))
 }
 
 pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -98,7 +99,7 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     // Optimization: If start index is larger than the byte length, it's definitely
     // out of bounds (since num_chars <= num_bytes). This avoids iterating for very large starts.
     if start >= text.len() {
-        return Ok(Value::Text(Rc::from("")));
+        return Ok(Value::Text(Arc::from("")));
     }
 
     // Optimization: Avoid intermediate String and Vec<char> allocations
@@ -106,7 +107,7 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     // Note: skip(start) implicitly handles out-of-bounds start (returns empty).
     let substring: String = text.chars().skip(start).take(length).collect();
 
-    Ok(Value::Text(Rc::from(substring)))
+    Ok(Value::Text(Arc::from(substring)))
 }
 
 pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -127,7 +128,7 @@ pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
     // Split the text by the delimiter
     let parts: Vec<Value> = text
         .split(delimiter.as_ref())
-        .map(|s| Value::Text(Rc::from(s)))
+        .map(|s| Value::Text(Arc::from(s)))
         .collect();
 
     Ok(Value::List(Rc::new(RefCell::new(parts))))
@@ -138,7 +139,7 @@ pub fn native_trim(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     let text = expect_text(&args[0])?;
     let trimmed = text.trim();
-    Ok(Value::Text(Rc::from(trimmed)))
+    Ok(Value::Text(Arc::from(trimmed)))
 }
 
 pub fn native_starts_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -192,7 +193,7 @@ pub fn native_parse_cookies(args: Vec<Value>) -> Result<Value, RuntimeError> {
         if let Some((key, value)) = cookie.split_once('=') {
             let decoded_key = percent_decode(key.trim());
             let decoded_value = percent_decode(value.trim());
-            cookies.insert(decoded_key, Value::Text(Rc::from(decoded_value)));
+            cookies.insert(decoded_key, Value::Text(Arc::from(decoded_value)));
         }
     }
 

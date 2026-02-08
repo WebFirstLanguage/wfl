@@ -2,7 +2,7 @@
 // Tests for the security-hardened WFLHASH implementation
 // These tests verify that all security vulnerabilities have been addressed
 
-use std::rc::Rc;
+use std::sync::Arc;
 use wfl::interpreter::value::Value;
 use wfl::stdlib::crypto::{
     native_wflhash256, native_wflhash256_binary, native_wflhash256_with_salt, native_wflmac256,
@@ -24,14 +24,14 @@ mod wflhash_hardened_security_tests {
 
         // Both should work now with proper key derivation
         let mac1 = native_wflmac256(vec![
-            Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(weak_key)),
+            Value::Text(Arc::from(message)),
+            Value::Text(Arc::from(weak_key)),
         ])
         .expect("MAC with weak key should work with HKDF");
 
         let mac2 = native_wflmac256(vec![
-            Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(strong_key)),
+            Value::Text(Arc::from(message)),
+            Value::Text(Arc::from(strong_key)),
         ])
         .expect("MAC with strong key should work");
 
@@ -82,8 +82,8 @@ mod wflhash_hardened_security_tests {
 
         // Create MAC and verify it cleans up properly
         let mac_result = native_wflmac256(vec![
-            Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(sensitive_key)),
+            Value::Text(Arc::from(message)),
+            Value::Text(Arc::from(sensitive_key)),
         ]);
 
         assert!(mac_result.is_ok(), "MAC generation should succeed");
@@ -127,7 +127,7 @@ mod wflhash_hardened_security_tests {
         }
 
         // Test MAC with invalid args
-        let result = native_wflmac256(vec![Value::Text(Rc::from("test"))]);
+        let result = native_wflmac256(vec![Value::Text(Arc::from("test"))]);
         assert!(result.is_err(), "MAC should fail with wrong arg count");
         if let Err(e) = result {
             assert_eq!(
@@ -147,14 +147,14 @@ mod wflhash_hardened_security_tests {
     fn test_input_validation_improvements() {
         // Test that reasonable large inputs still work (always runs)
         let reasonable_input = "x".repeat(1024 * 1024); // 1MB
-        let result = native_wflhash256(vec![Value::Text(Rc::from(reasonable_input))]);
+        let result = native_wflhash256(vec![Value::Text(Arc::from(reasonable_input))]);
         assert!(result.is_ok(), "Reasonable input should work");
 
         // Gate the expensive 101MB allocation test behind environment variable
         if std::env::var("WFLHASH_OVERSIZED_INPUT_TEST").is_ok() {
             // Test that large inputs are rejected with generic error
             let large_input = "x".repeat(101 * 1024 * 1024); // > 100MB
-            let result = native_wflhash256(vec![Value::Text(Rc::from(large_input))]);
+            let result = native_wflhash256(vec![Value::Text(Arc::from(large_input))]);
 
             assert!(result.is_err(), "Large input should be rejected");
             if let Err(e) = result {
@@ -190,7 +190,7 @@ mod wflhash_hardened_security_tests {
 
         // Generate hashes for all inputs
         for input in &test_inputs {
-            let hash = native_wflhash256(vec![Value::Text(Rc::from(*input))]).unwrap();
+            let hash = native_wflhash256(vec![Value::Text(Arc::from(*input))]).unwrap();
             if let Value::Text(h) = hash {
                 hashes.push(h.to_string());
             }
@@ -211,8 +211,8 @@ mod wflhash_hardened_security_tests {
         let input1 = "avalanche_test_input";
         let input2 = "avalanche_test_inpuU"; // Single bit difference
 
-        let hash1 = native_wflhash256(vec![Value::Text(Rc::from(input1))]).unwrap();
-        let hash2 = native_wflhash256(vec![Value::Text(Rc::from(input2))]).unwrap();
+        let hash1 = native_wflhash256(vec![Value::Text(Arc::from(input1))]).unwrap();
+        let hash2 = native_wflhash256(vec![Value::Text(Arc::from(input2))]).unwrap();
 
         if let (Value::Text(h1), Value::Text(h2)) = (hash1, hash2) {
             // Decode hex to compare bits
@@ -252,24 +252,24 @@ mod wflhash_hardened_security_tests {
 
         // Generate hashes with different salts
         let hash_salt1 = native_wflhash256_with_salt(vec![
-            Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(salt1)),
+            Value::Text(Arc::from(message)),
+            Value::Text(Arc::from(salt1)),
         ])
         .unwrap();
 
         let hash_salt2 = native_wflhash256_with_salt(vec![
-            Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(salt2)),
+            Value::Text(Arc::from(message)),
+            Value::Text(Arc::from(salt2)),
         ])
         .unwrap();
 
         let hash_salt3 = native_wflhash256_with_salt(vec![
-            Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(salt3)),
+            Value::Text(Arc::from(message)),
+            Value::Text(Arc::from(salt3)),
         ])
         .unwrap();
 
-        let hash_no_salt = native_wflhash256(vec![Value::Text(Rc::from(message))]).unwrap();
+        let hash_no_salt = native_wflhash256(vec![Value::Text(Arc::from(message))]).unwrap();
 
         // Extract hash strings
         if let (Value::Text(h1), Value::Text(h2), Value::Text(h3), Value::Text(h_no_salt)) =
@@ -297,8 +297,8 @@ mod wflhash_hardened_security_tests {
 
         // Generate MAC
         let mac_result = native_wflmac256(vec![
-            Value::Text(Rc::from(message)),
-            Value::Text(Rc::from(key)),
+            Value::Text(Arc::from(message)),
+            Value::Text(Arc::from(key)),
         ])
         .unwrap();
 

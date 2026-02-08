@@ -557,6 +557,8 @@ impl JavaScriptTranspiler {
                     FileOpenMode::Read => "r",
                     FileOpenMode::Write => "w",
                     FileOpenMode::Append => "a",
+                    FileOpenMode::ReadBinary => "rb",
+                    FileOpenMode::WriteBinary => "wb",
                 };
                 Ok(format!(
                     "{}let {} = {{ path: {}, mode: '{}', content: null }};\n",
@@ -590,6 +592,19 @@ impl JavaScriptTranspiler {
                 let target_expr = self.transpile_expression(target)?;
                 Ok(format!(
                     "{}WFL.file.write({}, {});\n",
+                    self.indent(),
+                    target_expr,
+                    content_expr
+                ))
+            }
+
+            Statement::WriteBinaryStatement {
+                content, target, ..
+            } => {
+                let content_expr = self.transpile_expression(content)?;
+                let target_expr = self.transpile_expression(target)?;
+                Ok(format!(
+                    "{}WFL.file.writeBinary({}.path, {});\n",
                     self.indent(),
                     target_expr,
                     content_expr
@@ -1634,6 +1649,24 @@ impl JavaScriptTranspiler {
             Expression::ReadContent { file_handle, .. } => {
                 let fh = self.transpile_expression(file_handle)?;
                 Ok(format!("WFL.file.read({}.path)", fh))
+            }
+
+            Expression::ReadBinaryContent { file_handle, .. } => {
+                let fh = self.transpile_expression(file_handle)?;
+                Ok(format!("WFL.file.readBinary({}.path)", fh))
+            }
+
+            Expression::ReadBinaryN {
+                file_handle, count, ..
+            } => {
+                let fh = self.transpile_expression(file_handle)?;
+                let n = self.transpile_expression(count)?;
+                Ok(format!("WFL.file.readBinaryN({}.path, {})", fh, n))
+            }
+
+            Expression::FileSizeOf { file_handle, .. } => {
+                let fh = self.transpile_expression(file_handle)?;
+                Ok(format!("WFL.file.size({}.path)", fh))
             }
 
             Expression::ProcessRunning { process_id, .. } => {
