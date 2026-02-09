@@ -134,19 +134,53 @@ pub fn native_pattern_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
         return Ok(Value::Text(text));
     }
 
+    // Build character-to-byte index mapping
+    // This is needed because match indices are character offsets, but string slicing uses byte offsets
+    let char_to_byte: Vec<usize> = text_str
+        .char_indices()
+        .map(|(byte_idx, _)| byte_idx)
+        .collect();
+    let mut char_to_byte = char_to_byte;
+    char_to_byte.push(text_str.len()); // Add final byte position
+
     let mut result = String::with_capacity(text_str.len());
-    let mut last_end = 0;
+    let mut last_end_char = 0;
 
     for m in matches {
+        // Convert character indices to byte indices
+        // Safe access: if index >= len, use length of string (byte offset)
+        let start_byte = if m.start < char_to_byte.len() {
+            char_to_byte[m.start]
+        } else {
+            text_str.len()
+        };
+
+        let last_end_byte = if last_end_char < char_to_byte.len() {
+            char_to_byte[last_end_char]
+        } else {
+            text_str.len()
+        };
+
         // Append text between last match and current match
-        result.push_str(&text_str[last_end..m.start]);
+        if start_byte > last_end_byte {
+            result.push_str(&text_str[last_end_byte..start_byte]);
+        }
+
         // Append replacement
         result.push_str(replacement.as_ref());
-        last_end = m.end;
+        last_end_char = m.end;
     }
 
     // Append remaining text
-    result.push_str(&text_str[last_end..]);
+    let last_end_byte = if last_end_char < char_to_byte.len() {
+        char_to_byte[last_end_char]
+    } else {
+        text_str.len()
+    };
+
+    if last_end_byte < text_str.len() {
+        result.push_str(&text_str[last_end_byte..]);
+    }
 
     Ok(Value::Text(Arc::from(result)))
 }
