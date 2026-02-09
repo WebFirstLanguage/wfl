@@ -95,14 +95,20 @@ pub fn native_indexof(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn register_list(env: &mut Environment) {
-    let _ = env.define("length", Value::new_native_function("length", native_length));
+    let _ = env.define(
+        "length",
+        Value::new_native_function("length", native_length),
+    );
     let _ = env.define("push", Value::new_native_function("push", native_push));
     let _ = env.define("pop", Value::new_native_function("pop", native_pop));
     let _ = env.define(
         "contains",
         Value::new_native_function("contains", native_contains),
     );
-    let _ = env.define("indexof", Value::new_native_function("indexof", native_indexof));
+    let _ = env.define(
+        "indexof",
+        Value::new_native_function("indexof", native_indexof),
+    );
 
     let _ = env.define(
         "index_of",

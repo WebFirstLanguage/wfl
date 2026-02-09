@@ -520,8 +520,14 @@ pub fn register_filesystem(env: &mut crate::interpreter::environment::Environmen
         "path_exists",
         Value::new_native_function("path_exists", native_path_exists),
     );
-    let _ = env.define("is_file", Value::new_native_function("is_file", native_is_file));
-    let _ = env.define("is_dir", Value::new_native_function("is_dir", native_is_dir));
+    let _ = env.define(
+        "is_file",
+        Value::new_native_function("is_file", native_is_file),
+    );
+    let _ = env.define(
+        "is_dir",
+        Value::new_native_function("is_dir", native_is_dir),
+    );
     let _ = env.define(
         "count_lines",
         Value::new_native_function("count_lines", native_count_lines),

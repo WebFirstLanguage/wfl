@@ -199,9 +199,9 @@ impl Value {
             Value::Text(s) => !s.is_empty(),
             Value::List(list) => !list.borrow().is_empty(),
             Value::Object(obj) => !obj.borrow().is_empty(),
-            Value::Function(_)
-            | Value::NativeFunction(_, _)
-            | Value::NativeFunctionZero(_, _) => true,
+            Value::Function(_) | Value::NativeFunction(_, _) | Value::NativeFunctionZero(_, _) => {
+                true
+            }
             Value::Future(future) => future.borrow().completed,
             Value::Date(_) | Value::Time(_) | Value::DateTime(_) => true,
             Value::Pattern(_) => true,
@@ -494,10 +494,9 @@ fn eq_with_visited(
         (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
             name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b)
         }
-        (
-            Value::NativeFunctionZero(name_a, func_a),
-            Value::NativeFunctionZero(name_b, func_b),
-        ) => name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b),
+        (Value::NativeFunctionZero(name_a, func_a), Value::NativeFunctionZero(name_b, func_b)) => {
+            name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b)
+        }
         (Value::Future(a), Value::Future(b)) => Rc::ptr_eq(a, b),
         (Value::Pattern(a), Value::Pattern(b)) => Rc::ptr_eq(a, b),
         (Value::Binary(a), Value::Binary(b)) => a == b,

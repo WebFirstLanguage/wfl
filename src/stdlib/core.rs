@@ -34,13 +34,19 @@ pub fn native_isnothing(args: Vec<Value>) -> Result<Value, RuntimeError> {
 pub fn register_core(env: &mut Environment) {
     let _ = env.define("print", Value::new_native_function("print", native_print));
 
-    let _ = env.define("typeof", Value::new_native_function("typeof", native_typeof));
+    let _ = env.define(
+        "typeof",
+        Value::new_native_function("typeof", native_typeof),
+    );
     let _ = env.define(
         "isnothing",
         Value::new_native_function("isnothing", native_isnothing),
     );
 
-    let _ = env.define("type_of", Value::new_native_function("type_of", native_typeof));
+    let _ = env.define(
+        "type_of",
+        Value::new_native_function("type_of", native_typeof),
+    );
     let _ = env.define(
         "is_nothing",
         Value::new_native_function("is_nothing", native_isnothing),

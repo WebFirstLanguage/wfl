@@ -230,7 +230,10 @@ pub fn native_generate_uuid(_args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Register all random functions in the environment
 pub fn register_random(env: &mut Environment) {
-    let _ = env.define("random", Value::new_native_function("random", native_random));
+    let _ = env.define(
+        "random",
+        Value::new_native_function("random", native_random),
+    );
     let _ = env.define(
         "random_between",
         Value::new_native_function("random_between", native_random_between),

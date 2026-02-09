@@ -6364,15 +6364,15 @@ impl Interpreter {
                     Value::Function(func) => {
                         self.call_function(&func, arg_values, *line, *column).await
                     }
-                    Value::NativeFunction(_, native_fn) | Value::NativeFunctionZero(_, native_fn) => {
-                        native_fn(arg_values.clone()).map_err(|e| {
+                    Value::NativeFunction(_, native_fn)
+                    | Value::NativeFunctionZero(_, native_fn) => native_fn(arg_values.clone())
+                        .map_err(|e| {
                             RuntimeError::new(
                                 format!("Error in native function: {e}"),
                                 *line,
                                 *column,
                             )
-                        })
-                    }
+                        }),
                     _ => Err(RuntimeError::new(
                         format!("Cannot call {}", function_val.type_name()),
                         *line,
