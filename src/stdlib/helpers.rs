@@ -434,3 +434,32 @@ pub fn expect_datetime(value: &Value) -> Result<Rc<chrono::NaiveDateTime>, Runti
         )),
     }
 }
+
+/// Extracts a CompiledPattern value from a WFL Value, returning it as a reference-counted CompiledPattern.
+///
+/// Returns an `Rc<CompiledPattern>` clone (incrementing the reference count) if the value
+/// is a Pattern variant.
+///
+/// # Arguments
+///
+/// * `value` - The WFL Value to extract from
+///
+/// # Returns
+///
+/// Returns an `Rc<CompiledPattern>` clone (incrementing the reference count) if the value
+/// is a Pattern variant.
+///
+/// # Errors
+///
+/// Returns `RuntimeError` if the value is not a Pattern, with an error message
+/// indicating the expected type and the actual type received.
+pub fn expect_pattern(value: &Value) -> Result<Rc<crate::pattern::CompiledPattern>, RuntimeError> {
+    match value {
+        Value::Pattern(p) => Ok(Rc::clone(p)),
+        _ => Err(RuntimeError::new(
+            format!("Expected a pattern, got {}", value.type_name()),
+            0,
+            0,
+        )),
+    }
+}

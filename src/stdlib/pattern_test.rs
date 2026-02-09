@@ -21,7 +21,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("exactly 2 arguments")
+                .contains("expects 2 arguments")
         );
     }
 
@@ -33,7 +33,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("exactly 2 arguments")
+                .contains("expects 2 arguments")
         );
     }
 
@@ -45,7 +45,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("exactly 2 arguments")
+                .contains("expects 2 arguments")
         );
     }
 
@@ -57,6 +57,7 @@ mod tests {
         ];
         let result = pattern_matches_native(args);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("First argument"));
+        // Updated error message from expect_text helper
+        assert!(result.unwrap_err().to_string().contains("Expected text"));
     }
 }

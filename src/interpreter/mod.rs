@@ -6659,7 +6659,8 @@ impl Interpreter {
                     .await?;
 
                 let args = vec![text_val, pattern_val, replacement_val]; // Note: text, pattern, then replacement
-                crate::stdlib::pattern::native_pattern_replace(args, *_line, *_column)
+                crate::stdlib::pattern::native_pattern_replace(args)
+                    .map_err(|e| RuntimeError::with_kind(e.message, *_line, *_column, e.kind))
             }
 
             Expression::PatternSplit {
@@ -6672,7 +6673,8 @@ impl Interpreter {
                 let pattern_val = self.evaluate_expression(pattern, Rc::clone(&env)).await?;
 
                 let args = vec![text_val, pattern_val];
-                crate::stdlib::pattern::native_pattern_split(args, *_line, *_column)
+                crate::stdlib::pattern::native_pattern_split(args)
+                    .map_err(|e| RuntimeError::with_kind(e.message, *_line, *_column, e.kind))
             }
             Expression::StringSplit {
                 text,
