@@ -123,11 +123,32 @@ pub fn native_pattern_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("pattern_replace", &args, 3)?;
 
     let text = expect_text(&args[0])?;
-    let _pattern = expect_pattern(&args[1])?;
-    let _replacement = expect_text(&args[2])?;
+    let pattern = expect_pattern(&args[1])?;
+    let replacement = expect_text(&args[2])?;
 
-    // TODO: Update to use new pattern system for replacement
-    Ok(Value::Text(text))
+    let text_str = text.as_ref();
+    let matches = pattern.find_all(text_str);
+
+    // If no matches, return original text
+    if matches.is_empty() {
+        return Ok(Value::Text(text));
+    }
+
+    let mut result = String::with_capacity(text_str.len());
+    let mut last_end = 0;
+
+    for m in matches {
+        // Append text between last match and current match
+        result.push_str(&text_str[last_end..m.start]);
+        // Append replacement
+        result.push_str(replacement.as_ref());
+        last_end = m.end;
+    }
+
+    // Append remaining text
+    result.push_str(&text_str[last_end..]);
+
+    Ok(Value::Text(Arc::from(result)))
 }
 
 /// Native function for pattern splitting (called by interpreter)

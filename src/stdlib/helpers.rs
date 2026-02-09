@@ -453,6 +453,17 @@ pub fn expect_datetime(value: &Value) -> Result<Rc<chrono::NaiveDateTime>, Runti
 ///
 /// Returns `RuntimeError` if the value is not a Pattern, with an error message
 /// indicating the expected type and the actual type received.
+///
+/// # Examples
+///
+/// ```ignore
+/// pub fn pattern_matches_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
+///     check_arg_count("pattern_matches", &args, 2)?;
+///     let compiled_pattern = expect_pattern(&args[1])?;
+///     // Use compiled_pattern.matches(...)
+///     Ok(Value::Bool(true))
+/// }
+/// ```
 pub fn expect_pattern(value: &Value) -> Result<Rc<crate::pattern::CompiledPattern>, RuntimeError> {
     match value {
         Value::Pattern(p) => Ok(Rc::clone(p)),
