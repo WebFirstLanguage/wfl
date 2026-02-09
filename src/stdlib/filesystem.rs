@@ -492,67 +492,67 @@ pub fn native_remove_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
 pub fn register_filesystem(env: &mut crate::interpreter::environment::Environment) {
     let _ = env.define(
         "list_dir",
-        Value::NativeFunction("list_dir", native_list_dir),
+        Value::new_native_function("list_dir", native_list_dir),
     );
-    let _ = env.define("glob", Value::NativeFunction("glob", native_glob));
-    let _ = env.define("rglob", Value::NativeFunction("rglob", native_rglob));
+    let _ = env.define("glob", Value::new_native_function("glob", native_glob));
+    let _ = env.define("rglob", Value::new_native_function("rglob", native_rglob));
     let _ = env.define(
         "path_join",
-        Value::NativeFunction("path_join", native_path_join),
+        Value::new_native_function("path_join", native_path_join),
     );
     let _ = env.define(
         "path_basename",
-        Value::NativeFunction("path_basename", native_path_basename),
+        Value::new_native_function("path_basename", native_path_basename),
     );
     let _ = env.define(
         "path_dirname",
-        Value::NativeFunction("path_dirname", native_path_dirname),
+        Value::new_native_function("path_dirname", native_path_dirname),
     );
     let _ = env.define(
         "makedirs",
-        Value::NativeFunction("makedirs", native_makedirs),
+        Value::new_native_function("makedirs", native_makedirs),
     );
     let _ = env.define(
         "file_mtime",
-        Value::NativeFunction("file_mtime", native_file_mtime),
+        Value::new_native_function("file_mtime", native_file_mtime),
     );
     let _ = env.define(
         "path_exists",
-        Value::NativeFunction("path_exists", native_path_exists),
+        Value::new_native_function("path_exists", native_path_exists),
     );
-    let _ = env.define("is_file", Value::NativeFunction("is_file", native_is_file));
-    let _ = env.define("is_dir", Value::NativeFunction("is_dir", native_is_dir));
+    let _ = env.define("is_file", Value::new_native_function("is_file", native_is_file));
+    let _ = env.define("is_dir", Value::new_native_function("is_dir", native_is_dir));
     let _ = env.define(
         "count_lines",
-        Value::NativeFunction("count_lines", native_count_lines),
+        Value::new_native_function("count_lines", native_count_lines),
     );
     let _ = env.define(
         "path_extension",
-        Value::NativeFunction("path_extension", native_path_extension),
+        Value::new_native_function("path_extension", native_path_extension),
     );
     let _ = env.define(
         "path_stem",
-        Value::NativeFunction("path_stem", native_path_stem),
+        Value::new_native_function("path_stem", native_path_stem),
     );
     let _ = env.define(
         "file_size",
-        Value::NativeFunction("file_size", native_file_size),
+        Value::new_native_function("file_size", native_file_size),
     );
     let _ = env.define(
         "copy_file",
-        Value::NativeFunction("copy_file", native_copy_file),
+        Value::new_native_function("copy_file", native_copy_file),
     );
     let _ = env.define(
         "move_file",
-        Value::NativeFunction("move_file", native_move_file),
+        Value::new_native_function("move_file", native_move_file),
     );
     let _ = env.define(
         "remove_file",
-        Value::NativeFunction("remove_file", native_remove_file),
+        Value::new_native_function("remove_file", native_remove_file),
     );
     let _ = env.define(
         "remove_dir",
-        Value::NativeFunction("remove_dir", native_remove_dir),
+        Value::new_native_function("remove_dir", native_remove_dir),
     );
 }
 

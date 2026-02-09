@@ -51,9 +51,9 @@ pub fn native_clamp(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn register_math(env: &mut Environment) {
-    let _ = env.define("abs", Value::NativeFunction("abs", native_abs));
-    let _ = env.define("round", Value::NativeFunction("round", native_round));
-    let _ = env.define("floor", Value::NativeFunction("floor", native_floor));
-    let _ = env.define("ceil", Value::NativeFunction("ceil", native_ceil));
-    let _ = env.define("clamp", Value::NativeFunction("clamp", native_clamp));
+    let _ = env.define("abs", Value::new_native_function("abs", native_abs));
+    let _ = env.define("round", Value::new_native_function("round", native_round));
+    let _ = env.define("floor", Value::new_native_function("floor", native_floor));
+    let _ = env.define("ceil", Value::new_native_function("ceil", native_ceil));
+    let _ = env.define("clamp", Value::new_native_function("clamp", native_clamp));
 }

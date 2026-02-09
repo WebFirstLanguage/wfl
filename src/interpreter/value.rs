@@ -17,6 +17,7 @@ pub enum Value {
     Object(Rc<RefCell<HashMap<String, Value>>>),
     Function(Rc<FunctionValue>),
     NativeFunction(&'static str, NativeFunction),
+    NativeFunctionZero(&'static str, NativeFunction),
     Future(Rc<RefCell<FutureValue>>),
     Date(Rc<chrono::NaiveDate>),
     Time(Rc<chrono::NaiveTime>),
@@ -157,6 +158,14 @@ pub struct ActionSignature {
 }
 
 impl Value {
+    pub fn new_native_function(name: &'static str, func: NativeFunction) -> Self {
+        if crate::builtins::get_function_arity(name) == 0 {
+            Value::NativeFunctionZero(name, func)
+        } else {
+            Value::NativeFunction(name, func)
+        }
+    }
+
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Number(_) => "Number",
@@ -165,7 +174,7 @@ impl Value {
             Value::List(_) => "List",
             Value::Object(_) => "Object",
             Value::Function(_) => "Function",
-            Value::NativeFunction(_, _) => "NativeFunction",
+            Value::NativeFunction(_, _) | Value::NativeFunctionZero(_, _) => "NativeFunction",
             Value::Future(_) => "Future",
             Value::Date(_) => "Date",
             Value::Time(_) => "Time",
@@ -190,7 +199,9 @@ impl Value {
             Value::Text(s) => !s.is_empty(),
             Value::List(list) => !list.borrow().is_empty(),
             Value::Object(obj) => !obj.borrow().is_empty(),
-            Value::Function(_) | Value::NativeFunction(_, _) => true,
+            Value::Function(_)
+            | Value::NativeFunction(_, _)
+            | Value::NativeFunctionZero(_, _) => true,
             Value::Future(future) => future.borrow().completed,
             Value::Date(_) | Value::Time(_) | Value::DateTime(_) => true,
             Value::Pattern(_) => true,
@@ -288,7 +299,9 @@ impl fmt::Debug for Value {
                     func.name.as_ref().unwrap_or(&"anonymous".to_string())
                 )
             }
-            Value::NativeFunction(name, _) => write!(f, "NativeFunction({name})"),
+            Value::NativeFunction(name, _) | Value::NativeFunctionZero(name, _) => {
+                write!(f, "NativeFunction({name})")
+            }
             Value::Future(_) => write!(f, "[Future]"),
             Value::Date(d) => write!(f, "Date({d})"),
             Value::Time(t) => write!(f, "Time({t})"),
@@ -354,7 +367,9 @@ impl fmt::Display for Value {
                     func.name.as_ref().unwrap_or(&"anonymous".to_string())
                 )
             }
-            Value::NativeFunction(name, _) => write!(f, "native {name}"),
+            Value::NativeFunction(name, _) | Value::NativeFunctionZero(name, _) => {
+                write!(f, "native {name}")
+            }
             Value::Future(_) => write!(f, "[Future]"),
             Value::Date(d) => write!(f, "{}", d.format("%Y-%m-%d")),
             Value::Time(t) => write!(f, "{}", t.format("%H:%M:%S")),
@@ -479,6 +494,10 @@ fn eq_with_visited(
         (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
             name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b)
         }
+        (
+            Value::NativeFunctionZero(name_a, func_a),
+            Value::NativeFunctionZero(name_b, func_b),
+        ) => name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b),
         (Value::Future(a), Value::Future(b)) => Rc::ptr_eq(a, b),
         (Value::Pattern(a), Value::Pattern(b)) => Rc::ptr_eq(a, b),
         (Value::Binary(a), Value::Binary(b)) => a == b,

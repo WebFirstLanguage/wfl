@@ -19,7 +19,6 @@ use self::value::{
     ContainerDefinitionValue, ContainerEventValue, ContainerInstanceValue, ContainerMethodValue,
     EventHandler, FunctionValue, InterfaceDefinitionValue, Value,
 };
-use crate::builtins::get_function_arity;
 use crate::config::WflConfig;
 use crate::debug_report::CallFrame;
 #[cfg(debug_assertions)]
@@ -1273,7 +1272,7 @@ impl Interpreter {
             let mut env = global_env.borrow_mut();
             let _ = env.define(
                 "display",
-                Value::NativeFunction("display", Self::native_display),
+                Value::new_native_function("display", Self::native_display),
             );
 
             stdlib::register_stdlib(&mut env);
@@ -5774,16 +5773,13 @@ impl Interpreter {
         column: usize,
     ) -> Result<Option<Value>, RuntimeError> {
         match &value {
-            Value::NativeFunction(func_name, native_fn) => {
-                if get_function_arity(func_name) == 0 {
-                    // Native functions are synchronous
-                    native_fn(vec![])
-                        .map(Some)
-                        .map_err(|e| RuntimeError::new(format!("{}", e), line, column))
-                } else {
-                    Ok(Some(value))
-                }
+            Value::NativeFunctionZero(_func_name, native_fn) => {
+                // Native functions are synchronous
+                native_fn(vec![])
+                    .map(Some)
+                    .map_err(|e| RuntimeError::new(format!("{}", e), line, column))
             }
+            Value::NativeFunction(_, _) => Ok(Some(value)),
             Value::Function(func) => {
                 if func.params.is_empty() {
                     // User functions are async -> return None to signal fallback to async
@@ -6238,20 +6234,19 @@ impl Interpreter {
                 if let Some(value) = env.borrow().get(name) {
                     // Check if this is a zero-argument native function that should be auto-called
                     match &value {
-                        Value::NativeFunction(func_name, native_fn) => {
-                            if get_function_arity(func_name) == 0 {
-                                // Auto-call zero-argument functions when referenced as variables
-                                native_fn(vec![]).map_err(|e| {
-                                    RuntimeError::new(
-                                        format!("Error in native function '{}': {}", func_name, e),
-                                        *line,
-                                        *column,
-                                    )
-                                })
-                            } else {
-                                // Return function object for functions with arguments
-                                Ok(value)
-                            }
+                        Value::NativeFunctionZero(func_name, native_fn) => {
+                            // Auto-call zero-argument functions when referenced as variables
+                            native_fn(vec![]).map_err(|e| {
+                                RuntimeError::new(
+                                    format!("Error in native function '{}': {}", func_name, e),
+                                    *line,
+                                    *column,
+                                )
+                            })
+                        }
+                        Value::NativeFunction(_, _) => {
+                            // Return function object for functions with arguments
+                            Ok(value)
                         }
                         Value::Function(func) => {
                             if func.params.is_empty() {
@@ -6369,7 +6364,7 @@ impl Interpreter {
                     Value::Function(func) => {
                         self.call_function(&func, arg_values, *line, *column).await
                     }
-                    Value::NativeFunction(_, native_fn) => {
+                    Value::NativeFunction(_, native_fn) | Value::NativeFunctionZero(_, native_fn) => {
                         native_fn(arg_values.clone()).map_err(|e| {
                             RuntimeError::new(
                                 format!("Error in native function: {e}"),

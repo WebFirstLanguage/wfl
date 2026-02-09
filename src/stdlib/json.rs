@@ -129,15 +129,15 @@ pub fn native_stringify_json_pretty(args: Vec<Value>) -> Result<Value, RuntimeEr
 pub fn register_json(env: &mut Environment) {
     let _ = env.define(
         "parse_json",
-        Value::NativeFunction("parse_json", native_parse_json),
+        Value::new_native_function("parse_json", native_parse_json),
     );
     let _ = env.define(
         "stringify_json",
-        Value::NativeFunction("stringify_json", native_stringify_json),
+        Value::new_native_function("stringify_json", native_stringify_json),
     );
     let _ = env.define(
         "stringify_json_pretty",
-        Value::NativeFunction("stringify_json_pretty", native_stringify_json_pretty),
+        Value::new_native_function("stringify_json_pretty", native_stringify_json_pretty),
     );
 }
 

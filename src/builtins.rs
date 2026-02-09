@@ -11,6 +11,7 @@ use std::sync::OnceLock;
 /// 3. Special test functions used in test programs
 const BUILTIN_FUNCTIONS: &[&str] = &[
     // Core functions (implemented in stdlib/core.rs)
+    "display", // Interpreter built-in
     "print",
     "typeof",
     "type_of",
@@ -76,6 +77,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "endswith",
     "ends_with",
     "split",
+    "string_split", // Alias for split tests
     "join",
     // List functions (implemented in stdlib/list.rs)
     "push",
@@ -224,6 +226,7 @@ pub fn builtin_functions() -> impl Iterator<Item = &'static str> {
 pub fn get_function_arity(name: &str) -> usize {
     match name {
         // === CORE FUNCTIONS ===
+        "display" => 1, // Variadic, but treated as non-zero arity
         "print" => 1,
         "typeof" | "type_of" => 1,
         "isnothing" | "is_nothing" => 1,
@@ -267,7 +270,7 @@ pub fn get_function_arity(name: &str) -> usize {
         // Two argument functions
         "contains" | "indexof" | "index_of" | "lastindexof" | "last_index_of" | "padleft"
         | "padright" | "startswith" | "starts_with" | "endswith" | "ends_with" | "split"
-        | "join" => 2,
+        | "string_split" | "join" => 2,
         // Three argument functions
         "substring" | "replace" => 3,
 

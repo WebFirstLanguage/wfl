@@ -216,52 +216,52 @@ pub fn register_text(env: &mut Environment) {
     // Note: length function is registered by the list module instead
     let _ = env.define(
         "touppercase",
-        Value::NativeFunction("touppercase", native_touppercase),
+        Value::new_native_function("touppercase", native_touppercase),
     );
     let _ = env.define(
         "tolowercase",
-        Value::NativeFunction("tolowercase", native_tolowercase),
+        Value::new_native_function("tolowercase", native_tolowercase),
     );
     let _ = env.define(
         "substring",
-        Value::NativeFunction("substring", native_substring),
+        Value::new_native_function("substring", native_substring),
     );
     let _ = env.define(
         "string_split",
-        Value::NativeFunction("string_split", native_string_split),
+        Value::new_native_function("string_split", native_string_split),
     );
 
     let _ = env.define(
         "to_uppercase",
-        Value::NativeFunction("to_uppercase", native_touppercase),
+        Value::new_native_function("to_uppercase", native_touppercase),
     );
     let _ = env.define(
         "to_lowercase",
-        Value::NativeFunction("to_lowercase", native_tolowercase),
+        Value::new_native_function("to_lowercase", native_tolowercase),
     );
 
     // New string manipulation functions
-    let _ = env.define("trim", Value::NativeFunction("trim", native_trim));
+    let _ = env.define("trim", Value::new_native_function("trim", native_trim));
     let _ = env.define(
         "starts_with",
-        Value::NativeFunction("starts_with", native_starts_with),
+        Value::new_native_function("starts_with", native_starts_with),
     );
     let _ = env.define(
         "ends_with",
-        Value::NativeFunction("ends_with", native_ends_with),
+        Value::new_native_function("ends_with", native_ends_with),
     );
 
     // Query string and form parsing
     let _ = env.define(
         "parse_query_string",
-        Value::NativeFunction("parse_query_string", native_parse_query_string),
+        Value::new_native_function("parse_query_string", native_parse_query_string),
     );
     let _ = env.define(
         "parse_cookies",
-        Value::NativeFunction("parse_cookies", native_parse_cookies),
+        Value::new_native_function("parse_cookies", native_parse_cookies),
     );
     let _ = env.define(
         "parse_form_urlencoded",
-        Value::NativeFunction("parse_form_urlencoded", native_parse_form_urlencoded),
+        Value::new_native_function("parse_form_urlencoded", native_parse_form_urlencoded),
     );
 }

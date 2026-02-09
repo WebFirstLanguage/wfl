@@ -514,23 +514,23 @@ pub fn native_generate_csrf_token(args: Vec<Value>) -> Result<Value, RuntimeErro
 pub fn register_crypto(env: &mut Environment) {
     let _ = env.define(
         "wflhash256",
-        Value::NativeFunction("wflhash256", native_wflhash256),
+        Value::new_native_function("wflhash256", native_wflhash256),
     );
     let _ = env.define(
         "wflhash512",
-        Value::NativeFunction("wflhash512", native_wflhash512),
+        Value::new_native_function("wflhash512", native_wflhash512),
     );
     let _ = env.define(
         "wflhash256_with_salt",
-        Value::NativeFunction("wflhash256_with_salt", native_wflhash256_with_salt),
+        Value::new_native_function("wflhash256_with_salt", native_wflhash256_with_salt),
     );
     let _ = env.define(
         "wflmac256",
-        Value::NativeFunction("wflmac256", native_wflmac256),
+        Value::new_native_function("wflmac256", native_wflmac256),
     );
     let _ = env.define(
         "generate_csrf_token",
-        Value::NativeFunction("generate_csrf_token", native_generate_csrf_token),
+        Value::new_native_function("generate_csrf_token", native_generate_csrf_token),
     );
 }
 
