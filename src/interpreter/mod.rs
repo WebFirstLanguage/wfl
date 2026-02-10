@@ -419,6 +419,24 @@ impl IoClient {
         }
     }
 
+    // Helper to get a cloned file handle safely
+    // Returns None if handle not found
+    // Returns Some(Err) if handle found but clone failed
+    // Returns Some(Ok) if success
+    async fn get_cloned_handle(&self, handle_id: &str) -> Option<Result<tokio::fs::File, String>> {
+        let mut file_handles = self.file_handles.lock().await;
+
+        let file = match file_handles.get_mut(handle_id) {
+            Some((_, file)) => file,
+            None => return None,
+        };
+
+        Some(match file.try_clone().await {
+            Ok(clone) => Ok(clone),
+            Err(e) => Err(format!("Failed to clone file handle: {e}")),
+        })
+    }
+
     #[allow(dead_code)]
     async fn http_get(&self, url: &str) -> Result<String, String> {
         match self.http_client.get(url).send().await {
@@ -535,29 +553,22 @@ impl IoClient {
 
     #[allow(dead_code)]
     async fn read_file(&self, handle_id: &str) -> Result<String, String> {
-        let mut file_handles = self.file_handles.lock().await;
+        let mut file_clone = match self.get_cloned_handle(handle_id).await {
+            Some(Ok(f)) => f,
+            Some(Err(e)) => return Err(e),
+            None => {
+                // Not found, try to open as path
+                let new_handle = self
+                    .open_file(handle_id)
+                    .await
+                    .map_err(|e| format!("Invalid file handle or path: {handle_id}: {e}"))?;
 
-        if !file_handles.contains_key(handle_id) {
-            drop(file_handles);
-
-            match self.open_file(handle_id).await {
-                Ok(new_handle) => {
-                    // Now read from the new handle - use Box::pin to handle recursion in async fn
-                    let future = Box::pin(self.read_file(&new_handle));
-                    let result = future.await;
-                    let _ = self.close_file(&new_handle).await;
-                    return result;
-                }
-                Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
+                // Recursively call read_file with the new handle
+                let result = Box::pin(self.read_file(&new_handle)).await;
+                let _ = self.close_file(&new_handle).await;
+                return result;
             }
-        }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
         };
-
-        drop(file_handles);
 
         let mut contents = String::new();
         match AsyncReadExt::read_to_string(&mut file_clone, &mut contents).await {
@@ -614,29 +625,22 @@ impl IoClient {
 
     #[allow(dead_code)]
     async fn write_file(&self, handle_id: &str, content: &str) -> Result<(), String> {
-        let mut file_handles = self.file_handles.lock().await;
+        let mut file_clone = match self.get_cloned_handle(handle_id).await {
+            Some(Ok(f)) => f,
+            Some(Err(e)) => return Err(e),
+            None => {
+                // Not found, try to open as path
+                let new_handle = self
+                    .open_file(handle_id)
+                    .await
+                    .map_err(|e| format!("Invalid file handle or path: {handle_id}: {e}"))?;
 
-        if !file_handles.contains_key(handle_id) {
-            drop(file_handles);
-
-            match self.open_file(handle_id).await {
-                Ok(new_handle) => {
-                    // Now write to the new handle - use Box::pin to handle recursion in async fn
-                    let future = Box::pin(self.write_file(&new_handle, content));
-                    let result = future.await;
-                    let _ = self.close_file(&new_handle).await;
-                    return result;
-                }
-                Err(e) => return Err(format!("Invalid file handle or path: {handle_id}: {e}")),
+                // Recursively call write_file with the new handle
+                let result = Box::pin(self.write_file(&new_handle, content)).await;
+                let _ = self.close_file(&new_handle).await;
+                return result;
             }
-        }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
         };
-
-        drop(file_handles);
 
         match AsyncSeekExt::seek(&mut file_clone, std::io::SeekFrom::Start(0)).await {
             Ok(_) => match file_clone.set_len(0).await {
@@ -664,18 +668,11 @@ impl IoClient {
     }
 
     async fn read_binary(&self, handle_id: &str) -> Result<Vec<u8>, String> {
-        let mut file_handles = self.file_handles.lock().await;
-
-        if !file_handles.contains_key(handle_id) {
-            return Err(format!("Invalid file handle: {handle_id}"));
-        }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+        let mut file_clone = match self.get_cloned_handle(handle_id).await {
+            Some(Ok(f)) => f,
+            Some(Err(e)) => return Err(e),
+            None => return Err(format!("Invalid file handle: {handle_id}")),
         };
-
-        drop(file_handles);
 
         // Seek to start before reading all
         match AsyncSeekExt::seek(&mut file_clone, std::io::SeekFrom::Start(0)).await {
@@ -691,18 +688,11 @@ impl IoClient {
     }
 
     async fn read_binary_n(&self, handle_id: &str, count: usize) -> Result<Vec<u8>, String> {
-        let mut file_handles = self.file_handles.lock().await;
-
-        if !file_handles.contains_key(handle_id) {
-            return Err(format!("Invalid file handle: {handle_id}"));
-        }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+        let mut file_clone = match self.get_cloned_handle(handle_id).await {
+            Some(Ok(f)) => f,
+            Some(Err(e)) => return Err(e),
+            None => return Err(format!("Invalid file handle: {handle_id}")),
         };
-
-        drop(file_handles);
 
         let mut buf = vec![0u8; count];
         match AsyncReadExt::read(&mut file_clone, &mut buf).await {
@@ -715,18 +705,11 @@ impl IoClient {
     }
 
     async fn write_binary(&self, handle_id: &str, data: &[u8]) -> Result<(), String> {
-        let mut file_handles = self.file_handles.lock().await;
-
-        if !file_handles.contains_key(handle_id) {
-            return Err(format!("Invalid file handle: {handle_id}"));
-        }
-
-        let mut file_clone = match file_handles.get_mut(handle_id).unwrap().1.try_clone().await {
-            Ok(clone) => clone,
-            Err(e) => return Err(format!("Failed to clone file handle: {e}")),
+        let mut file_clone = match self.get_cloned_handle(handle_id).await {
+            Some(Ok(f)) => f,
+            Some(Err(e)) => return Err(e),
+            None => return Err(format!("Invalid file handle: {handle_id}")),
         };
-
-        drop(file_handles);
 
         match AsyncWriteExt::write_all(&mut file_clone, data).await {
             Ok(_) => match file_clone.flush().await {
