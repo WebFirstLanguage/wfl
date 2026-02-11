@@ -229,3 +229,32 @@ async fn test_nested_count_loops() {
     let result = interpreter.interpret(&program).await.unwrap();
     assert_eq!(result, Value::Number(18.0)); // (1×1 + 1×2) + (2×1 + 2×2) + (3×1 + 3×2) = 18
 }
+
+#[tokio::test]
+async fn test_list_no_double_execution_of_side_effects() {
+    // Verify the fix for list literal double execution: a zero-arg action placed
+    // inside a list literal should only execute once, not twice.
+    let input = r#"
+        store counter as 0
+
+        define action called bump:
+            change counter to counter plus 1
+            give back counter
+        end action
+
+        store my_list as [bump]
+        counter
+    "#;
+
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().unwrap();
+
+    let mut interpreter = Interpreter::default();
+    let result = interpreter.interpret(&program).await.unwrap();
+    assert_eq!(
+        result,
+        Value::Number(1.0),
+        "Action in list literal should execute exactly once, not twice"
+    );
+}

@@ -2178,7 +2178,9 @@ impl Interpreter {
                 // Check if this is a bare action call (just the action name without parentheses)
                 if let Expression::Variable(name, var_line, var_column) = expression {
                     // Check if the variable refers to an action
-                    if let Some(Value::Function(func)) = env.borrow().get(name) {
+                    // Extract lookup result so the Ref<Environment> is dropped before call_function
+                    let lookup = env.borrow().get(name);
+                    if let Some(Value::Function(func)) = lookup {
                         // It's an action, so execute it as a call with no arguments
                         #[cfg(debug_assertions)]
                         exec_trace!("Executing bare action call: {}", name);
@@ -5763,19 +5765,76 @@ impl Interpreter {
                 column,
             )),
             Literal::List(elements) => {
+                // First, pre-scan all elements to detect if any require async evaluation
+                // This prevents double execution of side effects
+                for element in elements {
+                    if self.requires_async_evaluation(element, env) {
+                        // At least one element requires async, abort sync optimization for the whole list
+                        return Ok(None);
+                    }
+                }
+
+                // All elements can be evaluated synchronously, proceed safely
                 let mut list_values = Vec::with_capacity(elements.len());
                 for element in elements {
-                    // Recursively try to evaluate elements synchronously.
-                    // This works for nested lists as well.
+                    // Since we've already verified all elements are sync-compatible,
+                    // this should never return None, but handle it gracefully just in case
                     if let Some(value) = self.try_evaluate_simple_expr_sync(element, env)? {
                         list_values.push(value);
                     } else {
-                        // Element requires async evaluation, abort sync optimization for the whole list
+                        // This shouldn't happen after our pre-scan, but fall back to async
                         return Ok(None);
                     }
                 }
                 Ok(Some(Value::List(Rc::new(RefCell::new(list_values)))))
             }
+        }
+    }
+
+    // Helper to probe if an expression requires async evaluation without executing it
+    // Returns true if async is required, false if it can be evaluated synchronously
+    fn requires_async_evaluation(&self, expr: &Expression, env: &Rc<RefCell<Environment>>) -> bool {
+        match expr {
+            Expression::Literal(literal, _line, _column) => {
+                match literal {
+                    Literal::Pattern(_) => false, // Patterns don't require async
+                    Literal::List(elements) => {
+                        // Recursively check all elements
+                        elements
+                            .iter()
+                            .any(|element| self.requires_async_evaluation(element, env))
+                    }
+                    _ => false, // Other literals are synchronous
+                }
+            }
+            Expression::Variable(name, _line, _column) => {
+                // Check if variable exists and if it would require async auto-call
+                if let Ok(env_borrowed) = env.try_borrow() {
+                    if let Some(value) = env_borrowed.get(name) {
+                        match &value {
+                            Value::Function(func) => func.params.is_empty(), // Zero-arg user functions auto-call (async)
+                            Value::NativeFunction(_, _) => false, // Native functions evaluate sync
+                            _ => false,
+                        }
+                    } else {
+                        false // Variable doesn't exist, will be sync error
+                    }
+                } else {
+                    true // Can't borrow environment, conservatively assume async
+                }
+            }
+            Expression::UnaryOperation { expression, .. } => {
+                self.requires_async_evaluation(expression, env)
+            }
+            Expression::BinaryOperation { left, right, .. } => {
+                self.requires_async_evaluation(left, env)
+                    || self.requires_async_evaluation(right, env)
+            }
+            Expression::Concatenation { left, right, .. } => {
+                self.requires_async_evaluation(left, env)
+                    || self.requires_async_evaluation(right, env)
+            }
+            _ => true, // All other expressions require async (function calls, etc.)
         }
     }
 
@@ -6248,7 +6307,9 @@ impl Interpreter {
                 }
 
                 // Try normal variable lookup first (allows user-defined 'count' variables outside loops)
-                if let Some(value) = env.borrow().get(name) {
+                // Extract lookup result so the Ref<Environment> is dropped before call_function
+                let lookup = env.borrow().get(name);
+                if let Some(value) = lookup {
                     // Check if this is a zero-argument native function that should be auto-called
                     match &value {
                         Value::NativeFunction(func_name, native_fn) => {
