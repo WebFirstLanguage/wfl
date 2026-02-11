@@ -6,6 +6,31 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+/// Helper for unary text operations that return text
+fn unary_text_op(
+    func_name: &str,
+    args: Vec<Value>,
+    op: impl Fn(&str) -> String,
+) -> Result<Value, RuntimeError> {
+    check_arg_count(func_name, &args, 1)?;
+    let text = expect_text(&args[0])?;
+    let result = op(&text);
+    Ok(Value::Text(Arc::from(result)))
+}
+
+/// Helper for binary text predicates (text, text) -> bool
+fn binary_text_predicate(
+    func_name: &str,
+    args: Vec<Value>,
+    op: impl Fn(&str, &str) -> bool,
+) -> Result<Value, RuntimeError> {
+    check_arg_count(func_name, &args, 2)?;
+    let text = expect_text(&args[0])?;
+    let other = expect_text(&args[1])?;
+    let result = op(&text, &other);
+    Ok(Value::Bool(result))
+}
+
 /// Decode percent-encoded URL string
 /// Converts '+' to space and decodes %HH hex sequences
 /// Invalid sequences are left as-is
@@ -74,19 +99,11 @@ fn parse_key_value_pairs(input: &str, delimiter: char) -> std::collections::Hash
 // which handles both text and lists
 
 pub fn native_touppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("touppercase", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let uppercase = text.to_uppercase();
-    Ok(Value::Text(Arc::from(uppercase)))
+    unary_text_op("touppercase", args, |s| s.to_uppercase())
 }
 
 pub fn native_tolowercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("tolowercase", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let lowercase = text.to_lowercase();
-    Ok(Value::Text(Arc::from(lowercase)))
+    unary_text_op("tolowercase", args, |s| s.to_lowercase())
 }
 
 pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -135,29 +152,15 @@ pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_trim(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("trim", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let trimmed = text.trim();
-    Ok(Value::Text(Arc::from(trimmed)))
+    unary_text_op("trim", args, |s| s.trim().to_string())
 }
 
 pub fn native_starts_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("starts_with", &args, 2)?;
-
-    let text = expect_text(&args[0])?;
-    let prefix = expect_text(&args[1])?;
-    let result = text.starts_with(prefix.as_ref());
-    Ok(Value::Bool(result))
+    binary_text_predicate("starts_with", args, |s, p| s.starts_with(p))
 }
 
 pub fn native_ends_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("ends_with", &args, 2)?;
-
-    let text = expect_text(&args[0])?;
-    let suffix = expect_text(&args[1])?;
-    let result = text.ends_with(suffix.as_ref());
-    Ok(Value::Bool(result))
+    binary_text_predicate("ends_with", args, |s, p| s.ends_with(p))
 }
 
 /// Parse query string into WFL object
