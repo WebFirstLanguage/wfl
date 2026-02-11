@@ -215,3 +215,54 @@ end count
     assert!(results_str.contains("21"), "Should contain 21");
     assert!(results_str.contains("22"), "Should contain 22");
 }
+
+/// Test that closures capturing loop variables prevent environment recycling.
+///
+/// This verifies that when an action (closure) is defined inside a loop and captures
+/// the loop variable, the environment is not recycled under it. Each closure should
+/// retain its own captured value rather than seeing a cleared/reused environment.
+#[tokio::test]
+async fn test_closure_captures_prevent_env_recycling() {
+    let code = r#"
+create list closures:
+end list
+
+count from 1 to 3 as i:
+    define action called grab_i:
+        give back i
+    end action
+    add grab_i to closures
+end count
+
+store result1 as closures at 0
+store result2 as closures at 1
+store result3 as closures at 2
+"#;
+
+    let tokens = lex_wfl_with_positions(code);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("Should parse");
+
+    // Skip analyzer — it doesn't track `define action` names as variables in scope,
+    // but the interpreter handles this correctly at runtime.
+
+    let mut interpreter = Interpreter::new();
+    interpreter
+        .interpret(&program)
+        .await
+        .expect("Should execute successfully");
+
+    let env = interpreter.global_env();
+    let env_borrowed = env.borrow();
+
+    let r1 = env_borrowed.get("result1").expect("result1 should exist");
+    let r2 = env_borrowed.get("result2").expect("result2 should exist");
+    let r3 = env_borrowed.get("result3").expect("result3 should exist");
+
+    // Each closure should return its own captured loop variable value.
+    // If environment recycling incorrectly cleared captured environments,
+    // all closures would return the same (or invalid) value.
+    assert_eq!(r1.to_string(), "1", "First closure should capture i=1");
+    assert_eq!(r2.to_string(), "2", "Second closure should capture i=2");
+    assert_eq!(r3.to_string(), "3", "Third closure should capture i=3");
+}

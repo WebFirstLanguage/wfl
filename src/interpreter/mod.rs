@@ -5768,18 +5768,32 @@ impl Interpreter {
         Ok((last_value, control_flow))
     }
 
-    // Helper for environment recycling in loops to avoid allocation overhead
+    /// Attempts to recycle a loop iteration environment to avoid heap allocation.
+    ///
+    /// Recycling is only safe when all three conditions are met:
+    /// 1. We are the sole owner (`strong_count == 1`) — no other code holds a reference.
+    /// 2. No weak references exist (`weak_count == 0`) — closures capture environments via
+    ///    `Weak` refs, so any weak ref means a closure may still need the environment's state.
+    /// 3. The recycled environment's parent matches the expected `parent` — prevents scoping
+    ///    bugs where an environment from a different scope is reused with the wrong parent chain.
+    ///
+    /// If any condition fails, a fresh child environment is allocated instead.
     fn get_recycled_env(
         &self,
         reusable_env: Option<Rc<RefCell<Environment>>>,
         parent: &Rc<RefCell<Environment>>,
     ) -> Rc<RefCell<Environment>> {
-        if let Some(env) = reusable_env {
-            // Check if we are the sole owner (strong_count == 1) AND no weak refs exist (weak_count == 0).
-            // Weak refs are created when closures capture the environment.
-            // If a closure captured the environment, we cannot recycle it as the closure expects
-            // the state to be preserved (or at least valid for its lifetime).
-            if Rc::strong_count(&env) == 1 && Rc::weak_count(&env) == 0 {
+        if let Some(env) = reusable_env
+            && Rc::strong_count(&env) == 1
+            && Rc::weak_count(&env) == 0
+        {
+            // Validate parent matches to prevent scoping bugs
+            let parent_matches = env
+                .borrow()
+                .parent
+                .as_ref()
+                .is_some_and(|p| p.ptr_eq(&Rc::downgrade(parent)));
+            if parent_matches {
                 env.borrow_mut().clear();
                 return env;
             }
@@ -5834,8 +5848,12 @@ impl Interpreter {
         }
     }
 
-    // Helper to probe if an expression requires async evaluation without executing it
-    // Returns true if async is required, false if it can be evaluated synchronously
+    /// Probes whether an expression requires async evaluation without executing it.
+    ///
+    /// Returns `true` if the expression must be evaluated asynchronously (e.g., it contains
+    /// a zero-argument user-defined function that would trigger auto-call), or `false` if
+    /// it can be safely evaluated on the synchronous fast-path. Used to pre-scan list
+    /// elements so we can avoid double-execution of side effects.
     fn requires_async_evaluation(&self, expr: &Expression, env: &Rc<RefCell<Environment>>) -> bool {
         match expr {
             Expression::Literal(literal, _line, _column) => {
@@ -5881,7 +5899,12 @@ impl Interpreter {
         }
     }
 
-    // Helper for variable auto-call logic
+    /// Handles the WFL auto-call convention for variables that resolve to functions.
+    ///
+    /// When a variable holds a zero-argument native function, it is invoked immediately
+    /// and the result is returned. For zero-argument user-defined functions (which require
+    /// async execution), returns `Ok(None)` to signal fallback to the async path.
+    /// Non-function values and functions with parameters are returned as-is.
     fn handle_variable_auto_call(
         &self,
         value: Value,
@@ -5911,10 +5934,11 @@ impl Interpreter {
         }
     }
 
-    // Helper to evaluate simple expressions synchronously to avoid Box::pin allocation
-    // This handles literals, variables, and simple binary/unary operations recursively.
-    // Returns Ok(Some(value)) if handled synchronously
-    // Returns Ok(None) if async handling is needed (e.g. function calls)
+    /// Attempts to evaluate an expression synchronously to avoid `Box::pin` allocation overhead.
+    ///
+    /// Handles literals, variables, and simple binary/unary operations recursively.
+    /// Returns `Ok(Some(value))` when the expression was fully evaluated on the sync path,
+    /// or `Ok(None)` when async evaluation is required (e.g., function calls, complex expressions).
     fn try_evaluate_simple_expr_sync(
         &self,
         expr: &Expression,
@@ -6030,10 +6054,11 @@ impl Interpreter {
         }
     }
 
-    // Helper for fast variable lookup to avoid Box::pin allocation
-    // Returns Ok(Some(value)) if handled synchronously
-    // Returns Ok(None) if async handling (user function call) is needed
-    // Returns Err(...) if runtime error
+    /// Synchronously looks up a variable and handles auto-call for native functions.
+    ///
+    /// Returns `Ok(Some(value))` for regular values or zero-arg native function auto-calls,
+    /// `Ok(None)` when a zero-arg user-defined function requires async execution, or
+    /// `Err(...)` for runtime errors (e.g., undefined variable).
     fn try_evaluate_variable_sync(
         &self,
         name: &str,
