@@ -5763,19 +5763,74 @@ impl Interpreter {
                 column,
             )),
             Literal::List(elements) => {
+                // First, pre-scan all elements to detect if any require async evaluation
+                // This prevents double execution of side effects
+                for element in elements {
+                    if self.requires_async_evaluation(element, env) {
+                        // At least one element requires async, abort sync optimization for the whole list
+                        return Ok(None);
+                    }
+                }
+                
+                // All elements can be evaluated synchronously, proceed safely
                 let mut list_values = Vec::with_capacity(elements.len());
                 for element in elements {
-                    // Recursively try to evaluate elements synchronously.
-                    // This works for nested lists as well.
+                    // Since we've already verified all elements are sync-compatible,
+                    // this should never return None, but handle it gracefully just in case
                     if let Some(value) = self.try_evaluate_simple_expr_sync(element, env)? {
                         list_values.push(value);
                     } else {
-                        // Element requires async evaluation, abort sync optimization for the whole list
+                        // This shouldn't happen after our pre-scan, but fall back to async
                         return Ok(None);
                     }
                 }
                 Ok(Some(Value::List(Rc::new(RefCell::new(list_values)))))
             }
+        }
+    }
+
+    // Helper to probe if an expression requires async evaluation without executing it
+    // Returns true if async is required, false if it can be evaluated synchronously
+    fn requires_async_evaluation(&self, expr: &Expression, env: &Rc<RefCell<Environment>>) -> bool {
+        match expr {
+            Expression::Literal(literal, _line, _column) => {
+                match literal {
+                    Literal::Pattern(_) => false, // Patterns don't require async
+                    Literal::List(elements) => {
+                        // Recursively check all elements
+                        elements.iter().any(|element| self.requires_async_evaluation(element, env))
+                    }
+                    _ => false, // Other literals are synchronous
+                }
+            }
+            Expression::Variable(name, _line, _column) => {
+                // Check if variable exists and if it would require async auto-call
+                if let Ok(env_borrowed) = env.try_borrow() {
+                    if let Some(value) = env_borrowed.get(name) {
+                        match &value {
+                            Value::UserFunction(_) => true, // User functions are always async
+                            Value::NativeFunction(func_name, _) => {
+                                get_function_arity(func_name) > 0 // Non-zero arity natives don't auto-call
+                            }
+                            _ => false,
+                        }
+                    } else {
+                        false // Variable doesn't exist, will be sync error
+                    }
+                } else {
+                    false // Can't borrow environment, assume sync
+                }
+            }
+            Expression::UnaryOperation { expression, .. } => {
+                self.requires_async_evaluation(expression, env)
+            }
+            Expression::BinaryOperation { left, right, .. } => {
+                self.requires_async_evaluation(left, env) || self.requires_async_evaluation(right, env)
+            }
+            Expression::Concatenation { left, right, .. } => {
+                self.requires_async_evaluation(left, env) || self.requires_async_evaluation(right, env)
+            }
+            _ => true, // All other expressions require async (function calls, etc.)
         }
     }
 
