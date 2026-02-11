@@ -5771,7 +5771,7 @@ impl Interpreter {
                         return Ok(None);
                     }
                 }
-                
+
                 // All elements can be evaluated synchronously, proceed safely
                 let mut list_values = Vec::with_capacity(elements.len());
                 for element in elements {
@@ -5798,7 +5798,9 @@ impl Interpreter {
                     Literal::Pattern(_) => false, // Patterns don't require async
                     Literal::List(elements) => {
                         // Recursively check all elements
-                        elements.iter().any(|element| self.requires_async_evaluation(element, env))
+                        elements
+                            .iter()
+                            .any(|element| self.requires_async_evaluation(element, env))
                     }
                     _ => false, // Other literals are synchronous
                 }
@@ -5823,10 +5825,12 @@ impl Interpreter {
                 self.requires_async_evaluation(expression, env)
             }
             Expression::BinaryOperation { left, right, .. } => {
-                self.requires_async_evaluation(left, env) || self.requires_async_evaluation(right, env)
+                self.requires_async_evaluation(left, env)
+                    || self.requires_async_evaluation(right, env)
             }
             Expression::Concatenation { left, right, .. } => {
-                self.requires_async_evaluation(left, env) || self.requires_async_evaluation(right, env)
+                self.requires_async_evaluation(left, env)
+                    || self.requires_async_evaluation(right, env)
             }
             _ => true, // All other expressions require async (function calls, etc.)
         }
