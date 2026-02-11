@@ -5746,6 +5746,7 @@ impl Interpreter {
     fn evaluate_literal_direct(
         &self,
         literal: &Literal,
+        env: &Rc<RefCell<Environment>>,
         line: usize,
         column: usize,
     ) -> Result<Option<Value>, RuntimeError> {
@@ -5761,8 +5762,20 @@ impl Interpreter {
                 line,
                 column,
             )),
-            // List requires recursion, so fall through to boxed implementation
-            Literal::List(_) => Ok(None),
+            Literal::List(elements) => {
+                let mut list_values = Vec::with_capacity(elements.len());
+                for element in elements {
+                    // Recursively try to evaluate elements synchronously.
+                    // This works for nested lists as well.
+                    if let Some(value) = self.try_evaluate_simple_expr_sync(element, env)? {
+                        list_values.push(value);
+                    } else {
+                        // Element requires async evaluation, abort sync optimization for the whole list
+                        return Ok(None);
+                    }
+                }
+                Ok(Some(Value::List(Rc::new(RefCell::new(list_values)))))
+            }
         }
     }
 
@@ -5807,7 +5820,7 @@ impl Interpreter {
     ) -> Result<Option<Value>, RuntimeError> {
         match expr {
             Expression::Literal(literal, line, column) => {
-                self.evaluate_literal_direct(literal, *line, *column)
+                self.evaluate_literal_direct(literal, env, *line, *column)
             }
             Expression::Variable(name, line, column) => {
                 self.try_evaluate_variable_sync(name, env, *line, *column)
