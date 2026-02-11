@@ -132,6 +132,14 @@ impl Environment {
         Ok(())
     }
 
+    /// Clears all variables and constants from the current scope.
+    /// Used for environment recycling in loops.
+    pub fn clear(&mut self) {
+        self.values.clear();
+        self.constants.clear();
+        // Parent, isolated status, and other flags remain unchanged
+    }
+
     pub fn has(&self, name: &str) -> bool {
         if self.values.contains_key(name) {
             return true;

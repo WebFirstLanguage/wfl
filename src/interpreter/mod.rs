@@ -2266,14 +2266,15 @@ impl Interpreter {
 
                 // Determine the variable name to use - custom name or default "count"
                 let loop_var_name = variable_name.as_deref().unwrap_or("count");
+                let mut loop_env_recycle = None;
 
                 while should_continue(count, end_num) && iterations < max_iterations {
                     self.check_time()?;
 
                     *self.current_count.borrow_mut() = Some(count);
 
-                    // Create a new scope for each iteration
-                    let loop_env = Environment::new_child_env(&env);
+                    // OPTIMIZATION: Recycle environment if possible
+                    let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
 
                     // Make the loop variable available in the loop environment
                     // Use custom variable name if provided, otherwise default to "count"
@@ -2282,6 +2283,9 @@ impl Interpreter {
                         .define(loop_var_name, Value::Number(count));
 
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await;
+
+                    // Save environment for potential recycling in next iteration
+                    loop_env_recycle = Some(loop_env);
 
                     match result {
                         Ok((_, control_flow)) => match control_flow {
@@ -2364,14 +2368,19 @@ impl Interpreter {
                             indices.iter().map(|&i| list[i].clone()).collect()
                         };
 
+                        let mut loop_env_recycle = None;
                         for item in items {
-                            // Create a new scope for each iteration
-                            let loop_env = Environment::new_child_env(&env);
+                            // OPTIMIZATION: Recycle environment if possible
+                            let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
+
                             match loop_env.borrow_mut().define(item_name, item) {
                                 Ok(_) => {}
                                 Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                             }
                             let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
+
+                            // Save environment for potential recycling in next iteration
+                            loop_env_recycle = Some(loop_env);
 
                             match result.1 {
                                 ControlFlow::Break => {
@@ -2407,14 +2416,19 @@ impl Interpreter {
                             obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
                         };
 
+                        let mut loop_env_recycle = None;
                         for (_, value) in items {
-                            // Create a new scope for each iteration
-                            let loop_env = Environment::new_child_env(&env);
+                            // OPTIMIZATION: Recycle environment if possible
+                            let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
+
                             match loop_env.borrow_mut().define(item_name, value) {
                                 Ok(_) => {}
                                 Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                             }
                             let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
+
+                            // Save environment for potential recycling in next iteration
+                            loop_env_recycle = Some(loop_env);
 
                             match result.1 {
                                 ControlFlow::Break => {
@@ -2558,13 +2572,18 @@ impl Interpreter {
                 exec_trace!("Executing forever loop");
 
                 let mut _last_value = Value::Null;
+                let mut loop_env_recycle = None;
+
                 loop {
                     self.check_time()?;
 
-                    // Create a new scope for each iteration to properly isolate variables
-                    let loop_env = Environment::new_child_env(&env);
+                    // OPTIMIZATION: Recycle environment if possible
+                    let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
                     _last_value = result.0;
+
+                    // Save environment for potential recycling in next iteration
+                    loop_env_recycle = Some(loop_env);
 
                     match result.1 {
                         ControlFlow::Break => {
@@ -2606,14 +2625,19 @@ impl Interpreter {
                 *self.in_main_loop.borrow_mut() = true;
 
                 let mut _last_value = Value::Null;
+                let mut loop_env_recycle = None;
+
                 loop {
                     // Note: check_time() will skip timeout check when in_main_loop is true
                     self.check_time()?;
 
-                    // Create a new scope for each iteration to properly isolate variables
-                    let loop_env = Environment::new_child_env(&env);
+                    // OPTIMIZATION: Recycle environment if possible
+                    let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
                     _last_value = result.0;
+
+                    // Save environment for potential recycling in next iteration
+                    loop_env_recycle = Some(loop_env);
 
                     match result.1 {
                         ControlFlow::Break => {
@@ -5740,6 +5764,25 @@ impl Interpreter {
 
         self.assert_invariants();
         Ok((last_value, control_flow))
+    }
+
+    // Helper for environment recycling in loops to avoid allocation overhead
+    fn get_recycled_env(
+        &self,
+        reusable_env: Option<Rc<RefCell<Environment>>>,
+        parent: &Rc<RefCell<Environment>>,
+    ) -> Rc<RefCell<Environment>> {
+        if let Some(env) = reusable_env {
+            // Check if we are the sole owner (strong_count == 1) AND no weak refs exist (weak_count == 0).
+            // Weak refs are created when closures capture the environment.
+            // If a closure captured the environment, we cannot recycle it as the closure expects
+            // the state to be preserved (or at least valid for its lifetime).
+            if Rc::strong_count(&env) == 1 && Rc::weak_count(&env) == 0 {
+                env.borrow_mut().clear();
+                return env;
+            }
+        }
+        Environment::new_child_env(parent)
     }
 
     // Helper to evaluate literals directly without Box::pin allocation
