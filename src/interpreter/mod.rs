@@ -5808,17 +5808,15 @@ impl Interpreter {
                 if let Ok(env_borrowed) = env.try_borrow() {
                     if let Some(value) = env_borrowed.get(name) {
                         match &value {
-                            Value::UserFunction(_) => true, // User functions are always async
-                            Value::NativeFunction(func_name, _) => {
-                                get_function_arity(func_name) > 0 // Non-zero arity natives don't auto-call
-                            }
+                            Value::Function(func) => func.params.is_empty(), // Zero-arg user functions auto-call (async)
+                            Value::NativeFunction(_, _) => false, // Native functions evaluate sync
                             _ => false,
                         }
                     } else {
                         false // Variable doesn't exist, will be sync error
                     }
                 } else {
-                    false // Can't borrow environment, assume sync
+                    true // Can't borrow environment, conservatively assume async
                 }
             }
             Expression::UnaryOperation { expression, .. } => {
