@@ -234,15 +234,16 @@ async fn test_nested_count_loops() {
 async fn test_list_no_double_execution_of_side_effects() {
     // Verify the fix for list literal double execution: a zero-arg action placed
     // inside a list literal should only execute once, not twice.
-    // We verify by checking the action's return value is in the list,
-    // confirming the async fallback path works correctly.
     let input = r#"
-        define action called get_value:
-            give back 42
+        store counter as 0
+
+        define action called bump:
+            change counter to counter plus 1
+            give back counter
         end action
 
-        store my_list as [get_value, "other"]
-        length of my_list
+        store my_list as [bump]
+        counter
     "#;
 
     let tokens = lex_wfl_with_positions(input);
@@ -253,7 +254,7 @@ async fn test_list_no_double_execution_of_side_effects() {
     let result = interpreter.interpret(&program).await.unwrap();
     assert_eq!(
         result,
-        Value::Number(2.0),
-        "List with zero-arg action should have 2 elements (action result + string)"
+        Value::Number(1.0),
+        "Action in list literal should execute exactly once, not twice"
     );
 }

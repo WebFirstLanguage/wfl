@@ -2178,7 +2178,9 @@ impl Interpreter {
                 // Check if this is a bare action call (just the action name without parentheses)
                 if let Expression::Variable(name, var_line, var_column) = expression {
                     // Check if the variable refers to an action
-                    if let Some(Value::Function(func)) = env.borrow().get(name) {
+                    // Extract lookup result so the Ref<Environment> is dropped before call_function
+                    let lookup = env.borrow().get(name);
+                    if let Some(Value::Function(func)) = lookup {
                         // It's an action, so execute it as a call with no arguments
                         #[cfg(debug_assertions)]
                         exec_trace!("Executing bare action call: {}", name);
@@ -6305,7 +6307,9 @@ impl Interpreter {
                 }
 
                 // Try normal variable lookup first (allows user-defined 'count' variables outside loops)
-                if let Some(value) = env.borrow().get(name) {
+                // Extract lookup result so the Ref<Environment> is dropped before call_function
+                let lookup = env.borrow().get(name);
+                if let Some(value) = lookup {
                     // Check if this is a zero-argument native function that should be auto-called
                     match &value {
                         Value::NativeFunction(func_name, native_fn) => {
