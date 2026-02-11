@@ -2268,14 +2268,15 @@ impl Interpreter {
 
                 // Determine the variable name to use - custom name or default "count"
                 let loop_var_name = variable_name.as_deref().unwrap_or("count");
+                let mut loop_env_recycle = None;
 
                 while should_continue(count, end_num) && iterations < max_iterations {
                     self.check_time()?;
 
                     *self.current_count.borrow_mut() = Some(count);
 
-                    // Create a new scope for each iteration
-                    let loop_env = Environment::new_child_env(&env);
+                    // OPTIMIZATION: Recycle environment if possible
+                    let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
 
                     // Make the loop variable available in the loop environment
                     // Use custom variable name if provided, otherwise default to "count"
@@ -2284,6 +2285,9 @@ impl Interpreter {
                         .define(loop_var_name, Value::Number(count));
 
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await;
+
+                    // Save environment for potential recycling in next iteration
+                    loop_env_recycle = Some(loop_env);
 
                     match result {
                         Ok((_, control_flow)) => match control_flow {
@@ -2366,14 +2370,19 @@ impl Interpreter {
                             indices.iter().map(|&i| list[i].clone()).collect()
                         };
 
+                        let mut loop_env_recycle = None;
                         for item in items {
-                            // Create a new scope for each iteration
-                            let loop_env = Environment::new_child_env(&env);
+                            // OPTIMIZATION: Recycle environment if possible
+                            let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
+
                             match loop_env.borrow_mut().define(item_name, item) {
                                 Ok(_) => {}
                                 Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                             }
                             let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
+
+                            // Save environment for potential recycling in next iteration
+                            loop_env_recycle = Some(loop_env);
 
                             match result.1 {
                                 ControlFlow::Break => {
@@ -2409,14 +2418,19 @@ impl Interpreter {
                             obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
                         };
 
+                        let mut loop_env_recycle = None;
                         for (_, value) in items {
-                            // Create a new scope for each iteration
-                            let loop_env = Environment::new_child_env(&env);
+                            // OPTIMIZATION: Recycle environment if possible
+                            let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
+
                             match loop_env.borrow_mut().define(item_name, value) {
                                 Ok(_) => {}
                                 Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                             }
                             let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
+
+                            // Save environment for potential recycling in next iteration
+                            loop_env_recycle = Some(loop_env);
 
                             match result.1 {
                                 ControlFlow::Break => {
@@ -2560,13 +2574,18 @@ impl Interpreter {
                 exec_trace!("Executing forever loop");
 
                 let mut _last_value = Value::Null;
+                let mut loop_env_recycle = None;
+
                 loop {
                     self.check_time()?;
 
-                    // Create a new scope for each iteration to properly isolate variables
-                    let loop_env = Environment::new_child_env(&env);
+                    // OPTIMIZATION: Recycle environment if possible
+                    let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
                     _last_value = result.0;
+
+                    // Save environment for potential recycling in next iteration
+                    loop_env_recycle = Some(loop_env);
 
                     match result.1 {
                         ControlFlow::Break => {
@@ -2608,14 +2627,19 @@ impl Interpreter {
                 *self.in_main_loop.borrow_mut() = true;
 
                 let mut _last_value = Value::Null;
+                let mut loop_env_recycle = None;
+
                 loop {
                     // Note: check_time() will skip timeout check when in_main_loop is true
                     self.check_time()?;
 
-                    // Create a new scope for each iteration to properly isolate variables
-                    let loop_env = Environment::new_child_env(&env);
+                    // OPTIMIZATION: Recycle environment if possible
+                    let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await?;
                     _last_value = result.0;
+
+                    // Save environment for potential recycling in next iteration
+                    loop_env_recycle = Some(loop_env);
 
                     match result.1 {
                         ControlFlow::Break => {
@@ -5744,6 +5768,39 @@ impl Interpreter {
         Ok((last_value, control_flow))
     }
 
+    /// Attempts to recycle a loop iteration environment to avoid heap allocation.
+    ///
+    /// Recycling is only safe when all three conditions are met:
+    /// 1. We are the sole owner (`strong_count == 1`) — no other code holds a reference.
+    /// 2. No weak references exist (`weak_count == 0`) — closures capture environments via
+    ///    `Weak` refs, so any weak ref means a closure may still need the environment's state.
+    /// 3. The recycled environment's parent matches the expected `parent` — prevents scoping
+    ///    bugs where an environment from a different scope is reused with the wrong parent chain.
+    ///
+    /// If any condition fails, a fresh child environment is allocated instead.
+    fn get_recycled_env(
+        &self,
+        reusable_env: Option<Rc<RefCell<Environment>>>,
+        parent: &Rc<RefCell<Environment>>,
+    ) -> Rc<RefCell<Environment>> {
+        if let Some(env) = reusable_env
+            && Rc::strong_count(&env) == 1
+            && Rc::weak_count(&env) == 0
+        {
+            // Validate parent matches to prevent scoping bugs
+            let parent_matches = env
+                .borrow()
+                .parent
+                .as_ref()
+                .is_some_and(|p| p.ptr_eq(&Rc::downgrade(parent)));
+            if parent_matches {
+                env.borrow_mut().clear();
+                return env;
+            }
+        }
+        Environment::new_child_env(parent)
+    }
+
     // Helper to evaluate literals directly without Box::pin allocation
     fn evaluate_literal_direct(
         &self,
@@ -5791,8 +5848,12 @@ impl Interpreter {
         }
     }
 
-    // Helper to probe if an expression requires async evaluation without executing it
-    // Returns true if async is required, false if it can be evaluated synchronously
+    /// Probes whether an expression requires async evaluation without executing it.
+    ///
+    /// Returns `true` if the expression must be evaluated asynchronously (e.g., it contains
+    /// a zero-argument user-defined function that would trigger auto-call), or `false` if
+    /// it can be safely evaluated on the synchronous fast-path. Used to pre-scan list
+    /// elements so we can avoid double-execution of side effects.
     fn requires_async_evaluation(&self, expr: &Expression, env: &Rc<RefCell<Environment>>) -> bool {
         match expr {
             Expression::Literal(literal, _line, _column) => {
@@ -5838,7 +5899,12 @@ impl Interpreter {
         }
     }
 
-    // Helper for variable auto-call logic
+    /// Handles the WFL auto-call convention for variables that resolve to functions.
+    ///
+    /// When a variable holds a zero-argument native function, it is invoked immediately
+    /// and the result is returned. For zero-argument user-defined functions (which require
+    /// async execution), returns `Ok(None)` to signal fallback to the async path.
+    /// Non-function values and functions with parameters are returned as-is.
     fn handle_variable_auto_call(
         &self,
         value: Value,
@@ -5868,10 +5934,11 @@ impl Interpreter {
         }
     }
 
-    // Helper to evaluate simple expressions synchronously to avoid Box::pin allocation
-    // This handles literals, variables, and simple binary/unary operations recursively.
-    // Returns Ok(Some(value)) if handled synchronously
-    // Returns Ok(None) if async handling is needed (e.g. function calls)
+    /// Attempts to evaluate an expression synchronously to avoid `Box::pin` allocation overhead.
+    ///
+    /// Handles literals, variables, and simple binary/unary operations recursively.
+    /// Returns `Ok(Some(value))` when the expression was fully evaluated on the sync path,
+    /// or `Ok(None)` when async evaluation is required (e.g., function calls, complex expressions).
     fn try_evaluate_simple_expr_sync(
         &self,
         expr: &Expression,
@@ -5987,10 +6054,11 @@ impl Interpreter {
         }
     }
 
-    // Helper for fast variable lookup to avoid Box::pin allocation
-    // Returns Ok(Some(value)) if handled synchronously
-    // Returns Ok(None) if async handling (user function call) is needed
-    // Returns Err(...) if runtime error
+    /// Synchronously looks up a variable and handles auto-call for native functions.
+    ///
+    /// Returns `Ok(Some(value))` for regular values or zero-arg native function auto-calls,
+    /// `Ok(None)` when a zero-arg user-defined function requires async execution, or
+    /// `Err(...)` for runtime errors (e.g., undefined variable).
     fn try_evaluate_variable_sync(
         &self,
         name: &str,
