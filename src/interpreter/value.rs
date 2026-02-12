@@ -391,16 +391,16 @@ impl PartialEq for Value {
             // Optimized fast paths for reference types that don't require cycle detection
             (Value::Function(a), Value::Function(b)) => return Rc::ptr_eq(a, b),
             (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
-                return name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b)
+                return name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b);
             }
             (Value::Future(a), Value::Future(b)) => return Rc::ptr_eq(a, b),
             (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => {
-                return a.name == b.name
+                return a.name == b.name;
             }
             (Value::ContainerMethod(a), Value::ContainerMethod(b)) => return a.name == b.name,
             (Value::ContainerEvent(a), Value::ContainerEvent(b)) => return a.name == b.name,
             (Value::InterfaceDefinition(a), Value::InterfaceDefinition(b)) => {
-                return a.name == b.name
+                return a.name == b.name;
             }
             // Fast-path identity checks for complex types (avoids cycle detection allocation for same-instance comparisons)
             (Value::List(a), Value::List(b)) => {
