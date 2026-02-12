@@ -44,7 +44,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "parse_query_string",
     "parse_cookies",
     "parse_form_urlencoded",
-    // Math functions recognized by TypeChecker but not yet implemented
+    // Math functions (implemented in stdlib/math.rs)
     "min",
     "max",
     "power",
@@ -60,7 +60,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "to_lowercase",
     "contains", // Also works for lists
     "substring",
-    // Text functions recognized by TypeChecker but not yet implemented
+    // Text functions (implemented in stdlib/text.rs)
     "indexof",
     "index_of",
     "lastindexof",
@@ -80,7 +80,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     // List functions (implemented in stdlib/list.rs)
     "push",
     "pop",
-    // List functions recognized by TypeChecker but not yet implemented
+    // List functions (implemented in stdlib/list.rs)
     "shift",
     "unshift",
     "remove_at",
@@ -89,10 +89,12 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "insertat",
     "sort",
     "reverse_list",
+    // List higher-order functions (not yet implemented — require callback support)
     "filter",
     "map",
     "reduce",
     "foreach",
+    // List functions (implemented in stdlib/list.rs)
     "find",
     "find_index",
     "includes",
