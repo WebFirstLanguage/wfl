@@ -273,9 +273,10 @@ pub fn get_function_arity(name: &str) -> usize {
 
         // === LIST FUNCTIONS ===
         // Single argument functions
-        "pop" | "shift" | "sort" | "reverse_list" | "unique" | "clear" | "count" | "size" => 1,
+        "pop" | "shift" | "sort" | "reverse_list" | "unique" | "clear" | "size" => 1,
         // Two argument functions
-        "push" | "unshift" | "remove_at" | "removeat" | "includes" | "find" | "find_index" => 2,
+        "push" | "unshift" | "remove_at" | "removeat" | "includes" | "find" | "find_index"
+        | "count" => 2,
         // Three argument functions
         "insert_at" | "insertat" | "slice" => 3,
         // Variable argument functions (using 2 as minimum for now)
