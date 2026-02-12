@@ -286,7 +286,7 @@ pub fn get_function_arity(name: &str) -> usize {
 
         // === TIME FUNCTIONS ===
         // Zero argument functions
-        "now" | "today" | "datetime_now" | "time" | "current_date" => 0,
+        "now" | "today" | "datetime_now" | "time" | "date" | "current_date" => 0,
         // Single argument functions
         "year" | "month" | "day" | "hour" | "minute" | "second" | "dayofweek" | "day_of_week"
         | "isleapyear" | "is_leap_year" | "sleep" => 1,
