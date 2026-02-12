@@ -228,16 +228,32 @@ pub fn native_last_index_of(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let text = expect_text(&args[0])?;
     let needle = expect_text(&args[1])?;
     match text.rfind(needle.as_ref()) {
-        Some(pos) => Ok(Value::Number(pos as f64)),
+        Some(byte_pos) => {
+            let char_index = text[..byte_pos].chars().count();
+            Ok(Value::Number(char_index as f64))
+        }
         None => Ok(Value::Number(-1.0)),
     }
+}
+
+const MAX_PAD_WIDTH: usize = 1024;
+
+fn validated_pad_width(raw: f64) -> Result<usize, RuntimeError> {
+    if !raw.is_finite() || raw < 0.0 {
+        return Err(RuntimeError::new(
+            format!("pad width must be a finite non-negative number, got {raw}"),
+            0,
+            0,
+        ));
+    }
+    Ok((raw as usize).min(MAX_PAD_WIDTH))
 }
 
 pub fn native_padleft(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("padleft", &args, 2)?;
 
     let text = expect_text(&args[0])?;
-    let width = expect_number(&args[1])? as usize;
+    let width = validated_pad_width(expect_number(&args[1])?)?;
     let len = text.chars().count();
     if len >= width {
         Ok(Value::Text(Arc::clone(&text)))
@@ -251,7 +267,7 @@ pub fn native_padright(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("padright", &args, 2)?;
 
     let text = expect_text(&args[0])?;
-    let width = expect_number(&args[1])? as usize;
+    let width = validated_pad_width(expect_number(&args[1])?)?;
     let len = text.chars().count();
     if len >= width {
         Ok(Value::Text(Arc::clone(&text)))
@@ -472,5 +488,55 @@ mod tests {
         assert!(native_padright(vec![]).is_err());
         assert!(native_capitalize(vec![]).is_err());
         assert!(native_reverse_text(vec![]).is_err());
+    }
+
+    #[test]
+    fn test_last_index_of_unicode_char_index() {
+        // "café" — é is 2 bytes in UTF-8, so byte offset != char offset
+        let result = native_last_index_of(vec![
+            Value::Text(Arc::from("café café")),
+            Value::Text(Arc::from("é")),
+        ])
+        .unwrap();
+        // Last 'é' is at char index 8 (c-a-f-é- -c-a-f-é)
+        assert_eq!(result, Value::Number(8.0));
+    }
+
+    #[test]
+    fn test_padleft_negative_width_errors() {
+        assert!(native_padleft(vec![Value::Text(Arc::from("hi")), Value::Number(-5.0),]).is_err());
+    }
+
+    #[test]
+    fn test_padleft_infinite_width_errors() {
+        assert!(
+            native_padleft(vec![
+                Value::Text(Arc::from("hi")),
+                Value::Number(f64::INFINITY),
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_padright_nan_width_errors() {
+        assert!(
+            native_padright(vec![Value::Text(Arc::from("hi")), Value::Number(f64::NAN),]).is_err()
+        );
+    }
+
+    #[test]
+    fn test_padleft_clamps_large_width() {
+        // Should not OOM — clamped to MAX_PAD_WIDTH (1024)
+        let result = native_padleft(vec![
+            Value::Text(Arc::from("x")),
+            Value::Number(1_000_000.0),
+        ])
+        .unwrap();
+        if let Value::Text(t) = result {
+            assert_eq!(t.len(), 1024);
+        } else {
+            panic!("Expected text");
+        }
     }
 }

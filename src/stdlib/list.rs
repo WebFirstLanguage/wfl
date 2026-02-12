@@ -110,7 +110,10 @@ pub fn native_indexof(args: Vec<Value>) -> Result<Value, RuntimeError> {
                 }
             };
             match text.find(needle.as_ref()) {
-                Some(pos) => Ok(Value::Number(pos as f64)),
+                Some(byte_pos) => {
+                    let char_index = text[..byte_pos].chars().count();
+                    Ok(Value::Number(char_index as f64))
+                }
                 None => Ok(Value::Number(-1.0)),
             }
         }
@@ -269,13 +272,27 @@ pub fn native_fill(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 // --- Batch 5: Sort & Reverse ---
 
-fn value_sort_key(v: &Value) -> (u8, String) {
+fn value_type_discriminant(v: &Value) -> u8 {
     match v {
-        Value::Number(n) => (0, format!("{:+020.10}", n)),
-        Value::Text(s) => (1, s.to_string()),
-        Value::Bool(b) => (2, format!("{}", *b as u8)),
-        Value::Null | Value::Nothing => (3, String::new()),
-        _ => (4, format!("{}", v)),
+        Value::Number(_) => 0,
+        Value::Text(_) => 1,
+        Value::Bool(_) => 2,
+        Value::Null | Value::Nothing => 3,
+        _ => 4,
+    }
+}
+
+fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
+    let da = value_type_discriminant(a);
+    let db = value_type_discriminant(b);
+    if da != db {
+        return da.cmp(&db);
+    }
+    match (a, b) {
+        (Value::Number(na), Value::Number(nb)) => na.total_cmp(nb),
+        (Value::Text(sa), Value::Text(sb)) => sa.cmp(sb),
+        (Value::Bool(ba), Value::Bool(bb)) => ba.cmp(bb),
+        _ => std::cmp::Ordering::Equal,
     }
 }
 
@@ -283,11 +300,7 @@ pub fn native_sort(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("sort", &args, 1)?;
     let list = expect_list(&args[0])?;
     let mut list_ref = list.borrow_mut();
-    list_ref.sort_by(|a, b| {
-        let ka = value_sort_key(a);
-        let kb = value_sort_key(b);
-        ka.cmp(&kb)
-    });
+    list_ref.sort_by(compare_values);
     Ok(Value::Null)
 }
 
@@ -626,6 +639,24 @@ mod tests {
             assert_eq!(l[0], Value::Number(1.0));
             assert_eq!(l[1], Value::Number(2.0));
             assert_eq!(l[2], Value::Number(3.0));
+        }
+    }
+
+    #[test]
+    fn test_sort_negative_numbers() {
+        let list = make_list(vec![
+            Value::Number(1.0),
+            Value::Number(-3.0),
+            Value::Number(-1.0),
+            Value::Number(2.0),
+        ]);
+        native_sort(vec![list.clone()]).unwrap();
+        if let Value::List(l) = &list {
+            let l = l.borrow();
+            assert_eq!(l[0], Value::Number(-3.0));
+            assert_eq!(l[1], Value::Number(-1.0));
+            assert_eq!(l[2], Value::Number(1.0));
+            assert_eq!(l[3], Value::Number(2.0));
         }
     }
 
