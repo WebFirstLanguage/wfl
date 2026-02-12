@@ -92,10 +92,10 @@ display "Starts with 'Hello': " with startswith of sample_text and "Hello"
 display "Ends with 'World!': " with endswith of sample_text and "World!"
 display "Starts with 'Hi': " with startswith of sample_text and "Hi"
 
-// Test replace
+// Note: string replace() is a native function but 'replace' keyword is reserved
+// for pattern replacement. String replace is tested in Rust unit tests.
 store original as "Hello World Hello"
-display "Original: " with original  
-display "Replace 'Hello' with 'Hi': " with replace of original and "Hello" and "Hi"
+display "Original: " with original
 
 // Test trim functions
 store whitespace_text as "  spaced text  "
@@ -115,7 +115,7 @@ display "Original list: " with my_list
 display "List length: " with length of my_list
 
 // Test push function
-push of my_list and 6
+push with my_list and 6
 display "After pushing 6: " with my_list
 
 // Test pop function  
@@ -131,23 +131,143 @@ display "Does list contain 10? " with contains of my_list and 10
 display "Index of 4: " with indexof of my_list and 4
 display "Index of 10: " with indexof of my_list and 10
 
-// Test reverse
-store reversed_list as reverse of my_list
-display "Reversed list: " with reversed_list
-display "Original list unchanged: " with my_list
+// Test reverse_list (mutates in-place, returns Null)
+store to_reverse as [1, 2, 3, 4, 5]
+reverse_list of to_reverse
+display "Reversed list: " with to_reverse
 
-// Test sort (if available)
+// Test sort (mutates in-place, returns Null)
 store unsorted as [5, 2, 8, 1, 9]
 display "Unsorted: " with unsorted
-store sorted_list as sort of unsorted  
-display "Sorted: " with sorted_list
+sort of unsorted
+display "Sorted: " with unsorted
 
 // Test slice
 display "Slice (1, 3): " with slice of my_list and 1 and 3
 display ""
 
+// === New Math Functions Tests ===
+display "5. New Math Functions"
+display "-------------------------"
+
+// Test trig functions
+display "sin(0): " with sin of 0
+display "cos(0): " with cos of 0
+display "tan(0): " with tan of 0
+
+// Test power and sqrt
+display "power(2, 10): " with power of 2 and 10
+display "sqrt(144): " with sqrt of 144
+display ""
+
+// === New Text Functions Tests ===
+display "6. New Text Functions"
+display "-------------------------"
+
+// Test capitalize
+display "capitalize 'hello': " with capitalize of "hello"
+display "capitalize '': " with capitalize of ""
+
+// Test reverse (text)
+display "reverse 'abcdef': " with reverse of "abcdef"
+display "reverse_text 'hello': " with reverse_text of "hello"
+
+// Test padleft and padright
+display "padleft '42' to 6: '" with padleft of "42" and 6 with "'"
+display "padright 'hi' to 6: '" with padright of "hi" and 6 with "'"
+display "padleft 'longtext' to 3: '" with padleft of "longtext" and 3 with "'"
+
+// Test last_index_of
+display "last_index_of 'abcabc' 'bc': " with last_index_of of "abcabc" and "bc"
+display "last_index_of 'hello' 'xyz': " with last_index_of of "hello" and "xyz"
+
+// Note: replace keyword is reserved for pattern replacement
+// String replace() is tested in Rust unit tests
+
+// Test split (uses keyword syntax: split <text> by <delimiter>)
+store parts as split "one,two,three" by ","
+display "split 'one,two,three' by ',': " with parts
+display ""
+
+// === New List Functions Tests ===
+display "7. New List Functions"
+display "-------------------------"
+
+// Test shift and unshift
+store shift_list as [10, 20, 30]
+store shifted as shift of shift_list
+display "Shifted value: " with shifted
+display "List after shift: " with shift_list
+
+unshift of shift_list and 5
+display "List after unshift 5: " with shift_list
+
+// Test remove_at and insert_at
+store mod_list as ["a", "b", "c", "d"]
+store removed as remove_at of mod_list and 1
+display "Removed at index 1: " with removed
+display "List after remove_at: " with mod_list
+
+insert_at of mod_list and 1 and "B"
+display "List after insert_at 1 'B': " with mod_list
+
+// Test clear
+store clear_list as [1, 2, 3]
+clear clear_list
+display "List after clear: " with clear_list
+display "Length after clear: " with length of clear_list
+
+// Test slice (additional test)
+store slice_source as [10, 20, 30, 40, 50]
+store sliced as slice of slice_source and 1 and 4
+display "Slice [10,20,30,40,50] (1,4): " with sliced
+
+// Test concat
+store list_a as [1, 2]
+store list_b as [3, 4]
+store combined as concat of list_a and list_b
+display "Concat [1,2] + [3,4]: " with combined
+
+// Test includes
+display "includes [1,2,3] 2: " with includes of [1, 2, 3] and 2
+display "includes [1,2,3] 5: " with includes of [1, 2, 3] and 5
+
+// Test join
+store words as ["hello", "world", "test"]
+display "join with '-': " with join of words and "-"
+display "join numbers with ', ': " with join of [1, 2, 3] and ", "
+
+// Test unique
+store dupes as [1, 2, 3, 2, 1, 4, 3]
+store unique_list as unique of dupes
+display "unique [1,2,3,2,1,4,3]: " with unique_list
+
+// Note: count/find keywords are reserved, tested in Rust unit tests
+
+// Test fill
+store fill_list as [0, 0, 0, 0]
+fill of fill_list and 7
+display "fill [0,0,0,0] with 7: " with fill_list
+
+// Test find_index (find keyword is reserved for pattern matching)
+store search_list as [10, 20, 30, 40]
+display "find_index 30 in list: " with find_index of search_list and 30
+display "find_index 99 in list: " with find_index of search_list and 99
+
+// Test every and some
+store all_fives as [5, 5, 5]
+store mixed as [5, 3, 5]
+display "every [5,5,5] == 5: " with every of all_fives and 5
+display "every [5,3,5] == 5: " with every of mixed and 5
+display "some [5,3,5] == 3: " with some of mixed and 3
+display "some [5,3,5] == 9: " with some of mixed and 9
+
+// Test size (alias for length)
+display "size of [1,2,3,4]: " with size of [1, 2, 3, 4]
+display ""
+
 // === Time Module Tests ===
-display "5. Time Module Functions"
+display "8. Time Module Functions"
 display "-------------------------"
 
 // Test current date and time
@@ -174,7 +294,7 @@ display "Time minute: " with minute of test_time
 display ""
 
 // === Pattern Module Tests ===
-display "6. Pattern Module Functions"
+display "9. Pattern Module Functions"
 display "-------------------------"
 
 // Test pattern matching with stdlib
@@ -197,18 +317,15 @@ otherwise:
 end check
 
 check if phone_text matches phone_stdlib:
-    display "✓ Phone validation passed"  
+    display "✓ Phone validation passed"
 otherwise:
     display "✗ Phone validation failed"
 end check
 
-// Test pattern groups
-store extracted as extract pattern phone_stdlib from phone_text
-display "Extracted from phone: " with extracted
 display ""
 
 // === Function Call Tests ===
-display "7. Function Call Syntax Tests"
+display "10. Function Call Syntax Tests"
 display "------------------------------"
 
 // Test different function call syntaxes

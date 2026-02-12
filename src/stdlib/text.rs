@@ -212,6 +212,94 @@ pub fn native_parse_form_urlencoded(args: Vec<Value>) -> Result<Value, RuntimeEr
     Ok(Value::Object(Rc::new(RefCell::new(params))))
 }
 
+pub fn native_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("replace", &args, 3)?;
+
+    let text = expect_text(&args[0])?;
+    let old = expect_text(&args[1])?;
+    let new = expect_text(&args[2])?;
+    let result = text.replace(old.as_ref(), new.as_ref());
+    Ok(Value::Text(Arc::from(result)))
+}
+
+pub fn native_last_index_of(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("last_index_of", &args, 2)?;
+
+    let text = expect_text(&args[0])?;
+    let needle = expect_text(&args[1])?;
+    match text.rfind(needle.as_ref()) {
+        Some(byte_pos) => {
+            let char_index = text[..byte_pos].chars().count();
+            Ok(Value::Number(char_index as f64))
+        }
+        None => Ok(Value::Number(-1.0)),
+    }
+}
+
+const MAX_PAD_WIDTH: usize = 1024;
+
+fn validated_pad_width(raw: f64) -> Result<usize, RuntimeError> {
+    if !raw.is_finite() || raw < 0.0 {
+        return Err(RuntimeError::new(
+            format!("pad width must be a finite non-negative number, got {raw}"),
+            0,
+            0,
+        ));
+    }
+    Ok((raw as usize).min(MAX_PAD_WIDTH))
+}
+
+pub fn native_padleft(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("padleft", &args, 2)?;
+
+    let text = expect_text(&args[0])?;
+    let width = validated_pad_width(expect_number(&args[1])?)?;
+    let len = text.chars().count();
+    if len >= width {
+        Ok(Value::Text(Arc::clone(&text)))
+    } else {
+        let padding = " ".repeat(width - len);
+        Ok(Value::Text(Arc::from(format!("{}{}", padding, text))))
+    }
+}
+
+pub fn native_padright(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("padright", &args, 2)?;
+
+    let text = expect_text(&args[0])?;
+    let width = validated_pad_width(expect_number(&args[1])?)?;
+    let len = text.chars().count();
+    if len >= width {
+        Ok(Value::Text(Arc::clone(&text)))
+    } else {
+        let padding = " ".repeat(width - len);
+        Ok(Value::Text(Arc::from(format!("{}{}", text, padding))))
+    }
+}
+
+pub fn native_capitalize(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("capitalize", &args, 1)?;
+
+    let text = expect_text(&args[0])?;
+    let mut chars = text.chars();
+    let result = match chars.next() {
+        Some(c) => {
+            let upper: String = c.to_uppercase().collect();
+            format!("{}{}", upper, chars.as_str())
+        }
+        None => String::new(),
+    };
+    Ok(Value::Text(Arc::from(result)))
+}
+
+pub fn native_reverse_text(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("reverse", &args, 1)?;
+
+    let text = expect_text(&args[0])?;
+    let reversed: String = text.chars().rev().collect();
+    Ok(Value::Text(Arc::from(reversed)))
+}
+
 pub fn register_text(env: &mut Environment) {
     // Note: length function is registered by the list module instead
     let _ = env.define(
@@ -251,6 +339,45 @@ pub fn register_text(env: &mut Environment) {
         Value::NativeFunction("ends_with", native_ends_with),
     );
 
+    // Aliases for split, startswith, endswith
+    let _ = env.define("split", Value::NativeFunction("split", native_string_split));
+    let _ = env.define(
+        "startswith",
+        Value::NativeFunction("startswith", native_starts_with),
+    );
+    let _ = env.define(
+        "endswith",
+        Value::NativeFunction("endswith", native_ends_with),
+    );
+
+    // New text manipulation functions
+    let _ = env.define("replace", Value::NativeFunction("replace", native_replace));
+    let _ = env.define(
+        "last_index_of",
+        Value::NativeFunction("last_index_of", native_last_index_of),
+    );
+    let _ = env.define(
+        "lastindexof",
+        Value::NativeFunction("lastindexof", native_last_index_of),
+    );
+    let _ = env.define("padleft", Value::NativeFunction("padleft", native_padleft));
+    let _ = env.define(
+        "padright",
+        Value::NativeFunction("padright", native_padright),
+    );
+    let _ = env.define(
+        "capitalize",
+        Value::NativeFunction("capitalize", native_capitalize),
+    );
+    let _ = env.define(
+        "reverse",
+        Value::NativeFunction("reverse", native_reverse_text),
+    );
+    let _ = env.define(
+        "reverse_text",
+        Value::NativeFunction("reverse_text", native_reverse_text),
+    );
+
     // Query string and form parsing
     let _ = env.define(
         "parse_query_string",
@@ -264,4 +391,156 @@ pub fn register_text(env: &mut Environment) {
         "parse_form_urlencoded",
         Value::NativeFunction("parse_form_urlencoded", native_parse_form_urlencoded),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_replace() {
+        let result = native_replace(vec![
+            Value::Text(Arc::from("hello world")),
+            Value::Text(Arc::from("world")),
+            Value::Text(Arc::from("rust")),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("hello rust")));
+    }
+
+    #[test]
+    fn test_replace_multiple() {
+        let result = native_replace(vec![
+            Value::Text(Arc::from("aaa")),
+            Value::Text(Arc::from("a")),
+            Value::Text(Arc::from("b")),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("bbb")));
+    }
+
+    #[test]
+    fn test_last_index_of() {
+        let result = native_last_index_of(vec![
+            Value::Text(Arc::from("abcabc")),
+            Value::Text(Arc::from("bc")),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Number(4.0));
+    }
+
+    #[test]
+    fn test_last_index_of_not_found() {
+        let result = native_last_index_of(vec![
+            Value::Text(Arc::from("hello")),
+            Value::Text(Arc::from("xyz")),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Number(-1.0));
+    }
+
+    #[test]
+    fn test_padleft() {
+        let result =
+            native_padleft(vec![Value::Text(Arc::from("hi")), Value::Number(5.0)]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("   hi")));
+    }
+
+    #[test]
+    fn test_padleft_no_padding_needed() {
+        let result =
+            native_padleft(vec![Value::Text(Arc::from("hello")), Value::Number(3.0)]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("hello")));
+    }
+
+    #[test]
+    fn test_padright() {
+        let result =
+            native_padright(vec![Value::Text(Arc::from("hi")), Value::Number(5.0)]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("hi   ")));
+    }
+
+    #[test]
+    fn test_capitalize() {
+        let result = native_capitalize(vec![Value::Text(Arc::from("hello"))]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("Hello")));
+    }
+
+    #[test]
+    fn test_capitalize_empty() {
+        let result = native_capitalize(vec![Value::Text(Arc::from(""))]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("")));
+    }
+
+    #[test]
+    fn test_reverse_text() {
+        let result = native_reverse_text(vec![Value::Text(Arc::from("hello"))]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("olleh")));
+    }
+
+    #[test]
+    fn test_reverse_text_empty() {
+        let result = native_reverse_text(vec![Value::Text(Arc::from(""))]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("")));
+    }
+
+    #[test]
+    fn test_text_arg_count() {
+        assert!(native_replace(vec![Value::Text(Arc::from("a"))]).is_err());
+        assert!(native_last_index_of(vec![Value::Text(Arc::from("a"))]).is_err());
+        assert!(native_padleft(vec![]).is_err());
+        assert!(native_padright(vec![]).is_err());
+        assert!(native_capitalize(vec![]).is_err());
+        assert!(native_reverse_text(vec![]).is_err());
+    }
+
+    #[test]
+    fn test_last_index_of_unicode_char_index() {
+        // "café" — é is 2 bytes in UTF-8, so byte offset != char offset
+        let result = native_last_index_of(vec![
+            Value::Text(Arc::from("café café")),
+            Value::Text(Arc::from("é")),
+        ])
+        .unwrap();
+        // Last 'é' is at char index 8 (c-a-f-é- -c-a-f-é)
+        assert_eq!(result, Value::Number(8.0));
+    }
+
+    #[test]
+    fn test_padleft_negative_width_errors() {
+        assert!(native_padleft(vec![Value::Text(Arc::from("hi")), Value::Number(-5.0),]).is_err());
+    }
+
+    #[test]
+    fn test_padleft_infinite_width_errors() {
+        assert!(
+            native_padleft(vec![
+                Value::Text(Arc::from("hi")),
+                Value::Number(f64::INFINITY),
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_padright_nan_width_errors() {
+        assert!(
+            native_padright(vec![Value::Text(Arc::from("hi")), Value::Number(f64::NAN),]).is_err()
+        );
+    }
+
+    #[test]
+    fn test_padleft_clamps_large_width() {
+        // Should not OOM — clamped to MAX_PAD_WIDTH (1024)
+        let result = native_padleft(vec![
+            Value::Text(Arc::from("x")),
+            Value::Number(1_000_000.0),
+        ])
+        .unwrap();
+        if let Value::Text(t) = result {
+            assert_eq!(t.len(), 1024);
+        } else {
+            panic!("Expected text");
+        }
+    }
 }
