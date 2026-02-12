@@ -44,7 +44,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "parse_query_string",
     "parse_cookies",
     "parse_form_urlencoded",
-    // Math functions recognized by TypeChecker but not yet implemented
+    // Math functions (implemented in stdlib/math.rs)
     "min",
     "max",
     "power",
@@ -60,7 +60,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "to_lowercase",
     "contains", // Also works for lists
     "substring",
-    // Text functions recognized by TypeChecker but not yet implemented
+    // Text functions (implemented in stdlib/text.rs)
     "indexof",
     "index_of",
     "lastindexof",
@@ -71,16 +71,18 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "padright",
     "capitalize",
     "reverse",
+    "reverse_text",
     "startswith",
     "starts_with",
     "endswith",
     "ends_with",
     "split",
+    "string_split",
     "join",
     // List functions (implemented in stdlib/list.rs)
     "push",
     "pop",
-    // List functions recognized by TypeChecker but not yet implemented
+    // List functions (implemented in stdlib/list.rs)
     "shift",
     "unshift",
     "remove_at",
@@ -89,10 +91,12 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "insertat",
     "sort",
     "reverse_list",
+    // List higher-order functions (not yet implemented — require callback support)
     "filter",
     "map",
     "reduce",
     "foreach",
+    // List functions (implemented in stdlib/list.rs)
     "find",
     "find_index",
     "includes",
@@ -263,27 +267,28 @@ pub fn get_function_arity(name: &str) -> usize {
         // === TEXT FUNCTIONS ===
         // Single argument functions
         "length" | "touppercase" | "to_uppercase" | "tolowercase" | "to_lowercase" | "trim"
-        | "capitalize" | "reverse" => 1,
+        | "capitalize" | "reverse" | "reverse_text" => 1,
         // Two argument functions
         "contains" | "indexof" | "index_of" | "lastindexof" | "last_index_of" | "padleft"
         | "padright" | "startswith" | "starts_with" | "endswith" | "ends_with" | "split"
-        | "join" => 2,
+        | "string_split" | "join" => 2,
         // Three argument functions
         "substring" | "replace" => 3,
 
         // === LIST FUNCTIONS ===
         // Single argument functions
-        "pop" | "shift" | "sort" | "reverse_list" | "unique" | "clear" | "count" | "size" => 1,
+        "pop" | "shift" | "sort" | "reverse_list" | "unique" | "clear" | "size" => 1,
         // Two argument functions
-        "push" | "unshift" | "remove_at" | "removeat" | "includes" | "find" | "find_index" => 2,
+        "push" | "unshift" | "remove_at" | "removeat" | "includes" | "find" | "find_index"
+        | "count" | "every" | "some" | "fill" | "concat" => 2,
         // Three argument functions
         "insert_at" | "insertat" | "slice" => 3,
         // Variable argument functions (using 2 as minimum for now)
-        "filter" | "map" | "reduce" | "foreach" | "every" | "some" | "fill" | "concat" => 2,
+        "filter" | "map" | "reduce" | "foreach" => 2,
 
         // === TIME FUNCTIONS ===
         // Zero argument functions
-        "now" | "today" | "datetime_now" | "time" | "current_date" => 0,
+        "now" | "today" | "datetime_now" | "time" | "date" | "current_date" => 0,
         // Single argument functions
         "year" | "month" | "day" | "hour" | "minute" | "second" | "dayofweek" | "day_of_week"
         | "isleapyear" | "is_leap_year" | "sleep" => 1,
