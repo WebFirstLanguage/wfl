@@ -373,6 +373,10 @@ pub fn register_text(env: &mut Environment) {
         "reverse",
         Value::NativeFunction("reverse", native_reverse_text),
     );
+    let _ = env.define(
+        "reverse_text",
+        Value::NativeFunction("reverse_text", native_reverse_text),
+    );
 
     // Query string and form parsing
     let _ = env.define(

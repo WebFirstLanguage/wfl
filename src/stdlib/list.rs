@@ -241,13 +241,15 @@ pub fn native_unique(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("unique", &args, 1)?;
     let list = expect_list(&args[0])?;
     let list_ref = list.borrow();
-    let mut seen = Vec::new();
+    let mut seen_keys = std::collections::HashSet::new();
+    let mut result = Vec::new();
     for item in list_ref.iter() {
-        if !seen.contains(item) {
-            seen.push(item.clone());
+        let key = format!("{}", item);
+        if seen_keys.insert(key) {
+            result.push(item.clone());
         }
     }
-    Ok(Value::List(Rc::new(RefCell::new(seen))))
+    Ok(Value::List(Rc::new(RefCell::new(result))))
 }
 
 pub fn native_count(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -282,6 +284,18 @@ fn value_type_discriminant(v: &Value) -> u8 {
     }
 }
 
+/// Compare two WFL values for sorting.
+///
+/// **Type grouping** (ascending): Numbers (0) < Text (1) < Bool (2) < Null/Nothing (3) < Other (4).
+/// Values of different types are ordered by their group discriminant.
+///
+/// **Within-type ordering:**
+/// - Numbers: `f64::total_cmp` — deterministic even for NaN (NaN sorts after all finite numbers).
+/// - Text: lexicographic via `Ord` on `str`.
+/// - Bool: `false` (0) < `true` (1).
+/// - Null/Nothing & Other: all compare equal.
+///
+/// **Stability:** Rust's `sort_by` is a stable sort, so equal elements keep their original order.
 fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
     let da = value_type_discriminant(a);
     let db = value_type_discriminant(b);

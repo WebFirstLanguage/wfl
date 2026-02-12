@@ -71,6 +71,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "padright",
     "capitalize",
     "reverse",
+    "reverse_text",
     "startswith",
     "starts_with",
     "endswith",
@@ -265,7 +266,7 @@ pub fn get_function_arity(name: &str) -> usize {
         // === TEXT FUNCTIONS ===
         // Single argument functions
         "length" | "touppercase" | "to_uppercase" | "tolowercase" | "to_lowercase" | "trim"
-        | "capitalize" | "reverse" => 1,
+        | "capitalize" | "reverse" | "reverse_text" => 1,
         // Two argument functions
         "contains" | "indexof" | "index_of" | "lastindexof" | "last_index_of" | "padleft"
         | "padright" | "startswith" | "starts_with" | "endswith" | "ends_with" | "split"
