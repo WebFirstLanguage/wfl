@@ -77,6 +77,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "endswith",
     "ends_with",
     "split",
+    "string_split",
     "join",
     // List functions (implemented in stdlib/list.rs)
     "push",
@@ -270,7 +271,7 @@ pub fn get_function_arity(name: &str) -> usize {
         // Two argument functions
         "contains" | "indexof" | "index_of" | "lastindexof" | "last_index_of" | "padleft"
         | "padright" | "startswith" | "starts_with" | "endswith" | "ends_with" | "split"
-        | "join" => 2,
+        | "string_split" | "join" => 2,
         // Three argument functions
         "substring" | "replace" => 3,
 
@@ -279,11 +280,11 @@ pub fn get_function_arity(name: &str) -> usize {
         "pop" | "shift" | "sort" | "reverse_list" | "unique" | "clear" | "size" => 1,
         // Two argument functions
         "push" | "unshift" | "remove_at" | "removeat" | "includes" | "find" | "find_index"
-        | "count" => 2,
+        | "count" | "every" | "some" | "fill" | "concat" => 2,
         // Three argument functions
         "insert_at" | "insertat" | "slice" => 3,
         // Variable argument functions (using 2 as minimum for now)
-        "filter" | "map" | "reduce" | "foreach" | "every" | "some" | "fill" | "concat" => 2,
+        "filter" | "map" | "reduce" | "foreach" => 2,
 
         // === TIME FUNCTIONS ===
         // Zero argument functions

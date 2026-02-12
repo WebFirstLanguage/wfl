@@ -244,7 +244,7 @@ pub fn native_unique(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let mut seen_keys = std::collections::HashSet::new();
     let mut result = Vec::new();
     for item in list_ref.iter() {
-        let key = format!("{}", item);
+        let key = format!("{:?}:{}", std::mem::discriminant(item), item);
         if seen_keys.insert(key) {
             result.push(item.clone());
         }
