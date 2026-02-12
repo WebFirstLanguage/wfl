@@ -11,7 +11,7 @@ pub fn native_length(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     match &args[0] {
         Value::List(list) => Ok(Value::Number(list.borrow().len() as f64)),
-        Value::Text(text) => Ok(Value::Number(text.len() as f64)),
+        Value::Text(text) => Ok(Value::Number(text.chars().count() as f64)),
         _ => Err(RuntimeError::new(
             format!("length expects a list or text, got {}", args[0].type_name()),
             0,
