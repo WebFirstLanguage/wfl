@@ -8,8 +8,6 @@ pub mod error;
 #[cfg(test)]
 mod memory_tests;
 #[cfg(test)]
-mod op_refactor_tests;
-#[cfg(test)]
 mod tests;
 pub mod value;
 
@@ -5960,8 +5958,17 @@ impl Interpreter {
                 column,
             } => {
                 if let Some(val) = self.try_evaluate_simple_expr_sync(expression, env)? {
-                    self.perform_unary_op(operator, val, *line, *column)
-                        .map(Some)
+                    match operator {
+                        UnaryOperator::Not => Ok(Some(Value::Bool(!val.is_truthy()))),
+                        UnaryOperator::Minus => match val {
+                            Value::Number(n) => Ok(Some(Value::Number(-n))),
+                            _ => Err(RuntimeError::new(
+                                format!("Cannot negate {}", val.type_name()),
+                                *line,
+                                *column,
+                            )),
+                        },
+                    }
                 } else {
                     Ok(None)
                 }
@@ -5986,8 +5993,40 @@ impl Interpreter {
                 };
 
                 // Perform binary op
-                self.perform_binary_op(operator, left_val, right_val, *line, *column)
-                    .map(Some)
+                match operator {
+                    Operator::Plus => self.add(left_val, right_val, *line, *column).map(Some),
+                    Operator::Minus => self.subtract(left_val, right_val, *line, *column).map(Some),
+                    Operator::Multiply => {
+                        self.multiply(left_val, right_val, *line, *column).map(Some)
+                    }
+                    Operator::Divide => self.divide(left_val, right_val, *line, *column).map(Some),
+                    Operator::Modulo => self.modulo(left_val, right_val, *line, *column).map(Some),
+                    Operator::Equals => Ok(Some(Value::Bool(self.is_equal(&left_val, &right_val)))),
+                    Operator::NotEquals => {
+                        Ok(Some(Value::Bool(!self.is_equal(&left_val, &right_val))))
+                    }
+                    Operator::GreaterThan => self
+                        .greater_than(left_val, right_val, *line, *column)
+                        .map(Some),
+                    Operator::LessThan => self
+                        .less_than(left_val, right_val, *line, *column)
+                        .map(Some),
+                    Operator::GreaterThanOrEqual => self
+                        .greater_than_equal(left_val, right_val, *line, *column)
+                        .map(Some),
+                    Operator::LessThanOrEqual => self
+                        .less_than_equal(left_val, right_val, *line, *column)
+                        .map(Some),
+                    Operator::And => Ok(Some(Value::Bool(
+                        left_val.is_truthy() && right_val.is_truthy(),
+                    ))),
+                    Operator::Or => Ok(Some(Value::Bool(
+                        left_val.is_truthy() || right_val.is_truthy(),
+                    ))),
+                    Operator::Contains => {
+                        self.contains(left_val, right_val, *line, *column).map(Some)
+                    }
+                }
             }
             Expression::Concatenation {
                 left,
@@ -6008,7 +6047,8 @@ impl Interpreter {
                 };
 
                 // Concatenate
-                Ok(Some(self.perform_concatenation(left_val, right_val)))
+                let result = format!("{left_val}{right_val}");
+                Ok(Some(Value::Text(Arc::from(result.as_str()))))
             }
             _ => Ok(None),
         }
@@ -6395,7 +6435,26 @@ impl Interpreter {
 
                 let right_val = self.evaluate_expression(right, Rc::clone(&env)).await?;
 
-                self.perform_binary_op(operator, left_val, right_val, *line, *column)
+                match operator {
+                    Operator::Plus => self.add(left_val, right_val, *line, *column),
+                    Operator::Minus => self.subtract(left_val, right_val, *line, *column),
+                    Operator::Multiply => self.multiply(left_val, right_val, *line, *column),
+                    Operator::Divide => self.divide(left_val, right_val, *line, *column),
+                    Operator::Modulo => self.modulo(left_val, right_val, *line, *column),
+                    Operator::Equals => Ok(Value::Bool(self.is_equal(&left_val, &right_val))),
+                    Operator::NotEquals => Ok(Value::Bool(!self.is_equal(&left_val, &right_val))),
+                    Operator::GreaterThan => self.greater_than(left_val, right_val, *line, *column),
+                    Operator::LessThan => self.less_than(left_val, right_val, *line, *column),
+                    Operator::GreaterThanOrEqual => {
+                        self.greater_than_equal(left_val, right_val, *line, *column)
+                    }
+                    Operator::LessThanOrEqual => {
+                        self.less_than_equal(left_val, right_val, *line, *column)
+                    }
+                    Operator::And => Ok(Value::Bool(left_val.is_truthy() && right_val.is_truthy())),
+                    Operator::Or => Ok(Value::Bool(left_val.is_truthy() || right_val.is_truthy())),
+                    Operator::Contains => self.contains(left_val, right_val, *line, *column),
+                }
             }
 
             Expression::UnaryOperation {
@@ -6408,7 +6467,17 @@ impl Interpreter {
                     .evaluate_expression(expression, Rc::clone(&env))
                     .await?;
 
-                self.perform_unary_op(operator, value, *line, *column)
+                match operator {
+                    UnaryOperator::Not => Ok(Value::Bool(!value.is_truthy())),
+                    UnaryOperator::Minus => match value {
+                        Value::Number(n) => Ok(Value::Number(-n)),
+                        _ => Err(RuntimeError::new(
+                            format!("Cannot negate {}", value.type_name()),
+                            *line,
+                            *column,
+                        )),
+                    },
+                }
             }
 
             Expression::FunctionCall {
@@ -6609,7 +6678,8 @@ impl Interpreter {
 
                 let right_val = self.evaluate_expression(right, Rc::clone(&env)).await?;
 
-                Ok(self.perform_concatenation(left_val, right_val))
+                let result = format!("{left_val}{right_val}");
+                Ok(Value::Text(Arc::from(result.as_str())))
             }
 
             Expression::PatternMatch {
@@ -7355,59 +7425,6 @@ impl Interpreter {
                 Err(error_with_stack)
             }
         }
-    }
-
-    fn perform_binary_op(
-        &self,
-        operator: &Operator,
-        left_val: Value,
-        right_val: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        match operator {
-            Operator::Plus => self.add(left_val, right_val, line, column),
-            Operator::Minus => self.subtract(left_val, right_val, line, column),
-            Operator::Multiply => self.multiply(left_val, right_val, line, column),
-            Operator::Divide => self.divide(left_val, right_val, line, column),
-            Operator::Modulo => self.modulo(left_val, right_val, line, column),
-            Operator::Equals => Ok(Value::Bool(self.is_equal(&left_val, &right_val))),
-            Operator::NotEquals => Ok(Value::Bool(!self.is_equal(&left_val, &right_val))),
-            Operator::GreaterThan => self.greater_than(left_val, right_val, line, column),
-            Operator::LessThan => self.less_than(left_val, right_val, line, column),
-            Operator::GreaterThanOrEqual => {
-                self.greater_than_equal(left_val, right_val, line, column)
-            }
-            Operator::LessThanOrEqual => self.less_than_equal(left_val, right_val, line, column),
-            Operator::And => Ok(Value::Bool(left_val.is_truthy() && right_val.is_truthy())),
-            Operator::Or => Ok(Value::Bool(left_val.is_truthy() || right_val.is_truthy())),
-            Operator::Contains => self.contains(left_val, right_val, line, column),
-        }
-    }
-
-    fn perform_unary_op(
-        &self,
-        operator: &UnaryOperator,
-        value: Value,
-        line: usize,
-        column: usize,
-    ) -> Result<Value, RuntimeError> {
-        match operator {
-            UnaryOperator::Not => Ok(Value::Bool(!value.is_truthy())),
-            UnaryOperator::Minus => match value {
-                Value::Number(n) => Ok(Value::Number(-n)),
-                _ => Err(RuntimeError::new(
-                    format!("Cannot negate {}", value.type_name()),
-                    line,
-                    column,
-                )),
-            },
-        }
-    }
-
-    fn perform_concatenation(&self, left_val: Value, right_val: Value) -> Value {
-        let result = format!("{left_val}{right_val}");
-        Value::Text(Arc::from(result.as_str()))
     }
 
     fn add(
