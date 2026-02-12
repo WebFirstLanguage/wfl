@@ -391,8 +391,7 @@ impl PartialEq for Value {
             // Optimized fast paths for reference types that don't require cycle detection
             (Value::Function(a), Value::Function(b)) => return Rc::ptr_eq(a, b),
             (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
-                // Use direct function pointer comparison which is stable and MSRV compatible
-                return name_a == name_b && func_a == func_b;
+                return name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b);
             }
             (Value::Future(a), Value::Future(b)) => return Rc::ptr_eq(a, b),
             (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => {
