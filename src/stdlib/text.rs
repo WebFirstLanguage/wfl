@@ -73,20 +73,31 @@ fn parse_key_value_pairs(input: &str, delimiter: char) -> std::collections::Hash
 // Note: The length function is now provided by the list module
 // which handles both text and lists
 
-pub fn native_touppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("touppercase", &args, 1)?;
-
+fn unary_text_op<F>(func_name: &str, args: &[Value], op: F) -> Result<Value, RuntimeError>
+where
+    F: FnOnce(&str) -> String,
+{
+    check_arg_count(func_name, args, 1)?;
     let text = expect_text(&args[0])?;
-    let uppercase = text.to_uppercase();
-    Ok(Value::Text(Arc::from(uppercase)))
+    Ok(Value::Text(Arc::from(op(&text))))
+}
+
+fn binary_text_predicate<F>(func_name: &str, args: &[Value], op: F) -> Result<Value, RuntimeError>
+where
+    F: FnOnce(&str, &str) -> bool,
+{
+    check_arg_count(func_name, args, 2)?;
+    let text = expect_text(&args[0])?;
+    let other = expect_text(&args[1])?;
+    Ok(Value::Bool(op(&text, &other)))
+}
+
+pub fn native_touppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    unary_text_op("touppercase", &args, |s| s.to_uppercase())
 }
 
 pub fn native_tolowercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("tolowercase", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let lowercase = text.to_lowercase();
-    Ok(Value::Text(Arc::from(lowercase)))
+    unary_text_op("tolowercase", &args, |s| s.to_lowercase())
 }
 
 pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -135,29 +146,15 @@ pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_trim(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("trim", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let trimmed = text.trim();
-    Ok(Value::Text(Arc::from(trimmed)))
+    unary_text_op("trim", &args, |s| s.trim().to_string())
 }
 
 pub fn native_starts_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("starts_with", &args, 2)?;
-
-    let text = expect_text(&args[0])?;
-    let prefix = expect_text(&args[1])?;
-    let result = text.starts_with(prefix.as_ref());
-    Ok(Value::Bool(result))
+    binary_text_predicate("starts_with", &args, |s, p| s.starts_with(p))
 }
 
 pub fn native_ends_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("ends_with", &args, 2)?;
-
-    let text = expect_text(&args[0])?;
-    let suffix = expect_text(&args[1])?;
-    let result = text.ends_with(suffix.as_ref());
-    Ok(Value::Bool(result))
+    binary_text_predicate("ends_with", &args, |s, p| s.ends_with(p))
 }
 
 /// Parse query string into WFL object
@@ -249,8 +246,8 @@ fn validated_pad_width(raw: f64) -> Result<usize, RuntimeError> {
     Ok((raw as usize).min(MAX_PAD_WIDTH))
 }
 
-pub fn native_padleft(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("padleft", &args, 2)?;
+fn pad_helper(func_name: &str, args: &[Value], is_left: bool) -> Result<Value, RuntimeError> {
+    check_arg_count(func_name, args, 2)?;
 
     let text = expect_text(&args[0])?;
     let width = validated_pad_width(expect_number(&args[1])?)?;
@@ -259,45 +256,38 @@ pub fn native_padleft(args: Vec<Value>) -> Result<Value, RuntimeError> {
         Ok(Value::Text(Arc::clone(&text)))
     } else {
         let padding = " ".repeat(width - len);
-        Ok(Value::Text(Arc::from(format!("{}{}", padding, text))))
+        let result = if is_left {
+            format!("{}{}", padding, text)
+        } else {
+            format!("{}{}", text, padding)
+        };
+        Ok(Value::Text(Arc::from(result)))
     }
+}
+
+pub fn native_padleft(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    pad_helper("padleft", &args, true)
 }
 
 pub fn native_padright(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("padright", &args, 2)?;
-
-    let text = expect_text(&args[0])?;
-    let width = validated_pad_width(expect_number(&args[1])?)?;
-    let len = text.chars().count();
-    if len >= width {
-        Ok(Value::Text(Arc::clone(&text)))
-    } else {
-        let padding = " ".repeat(width - len);
-        Ok(Value::Text(Arc::from(format!("{}{}", text, padding))))
-    }
+    pad_helper("padright", &args, false)
 }
 
 pub fn native_capitalize(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("capitalize", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let mut chars = text.chars();
-    let result = match chars.next() {
-        Some(c) => {
-            let upper: String = c.to_uppercase().collect();
-            format!("{}{}", upper, chars.as_str())
+    unary_text_op("capitalize", &args, |s| {
+        let mut chars = s.chars();
+        match chars.next() {
+            Some(c) => {
+                let upper: String = c.to_uppercase().collect();
+                format!("{}{}", upper, chars.as_str())
+            }
+            None => String::new(),
         }
-        None => String::new(),
-    };
-    Ok(Value::Text(Arc::from(result)))
+    })
 }
 
 pub fn native_reverse_text(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("reverse", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let reversed: String = text.chars().rev().collect();
-    Ok(Value::Text(Arc::from(reversed)))
+    unary_text_op("reverse", &args, |s| s.chars().rev().collect())
 }
 
 pub fn register_text(env: &mut Environment) {
