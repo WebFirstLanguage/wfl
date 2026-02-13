@@ -394,7 +394,7 @@ impl PartialEq for Value {
             (Value::List(a), Value::List(b)) if Rc::ptr_eq(a, b) => return true,
             (Value::Object(a), Value::Object(b)) if Rc::ptr_eq(a, b) => return true,
             (Value::ContainerInstance(a), Value::ContainerInstance(b)) if Rc::ptr_eq(a, b) => {
-                return true
+                return true;
             }
 
             // Types that don't need cycle detection can be handled directly here
@@ -404,12 +404,12 @@ impl PartialEq for Value {
             }
             (Value::Future(a), Value::Future(b)) => return Rc::ptr_eq(a, b),
             (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => {
-                return a.name == b.name
+                return a.name == b.name;
             }
             (Value::ContainerMethod(a), Value::ContainerMethod(b)) => return a.name == b.name,
             (Value::ContainerEvent(a), Value::ContainerEvent(b)) => return a.name == b.name,
             (Value::InterfaceDefinition(a), Value::InterfaceDefinition(b)) => {
-                return a.name == b.name
+                return a.name == b.name;
             }
 
             // For types that might contain cycles and are not reference-identical, use the full visited check
