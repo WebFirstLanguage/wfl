@@ -388,7 +388,31 @@ impl PartialEq for Value {
             (Value::DateTime(a), Value::DateTime(b)) => return a == b,
             (Value::Pattern(a), Value::Pattern(b)) => return Rc::ptr_eq(a, b),
             (Value::Binary(a), Value::Binary(b)) => return a == b,
-            // For types that might contain cycles or require deeper inspection, use the full visited check
+
+            // Optimization: Check for reference identity before full cycle-safe comparison
+            // This avoids allocating the HashSet for identical objects/lists
+            (Value::List(a), Value::List(b)) if Rc::ptr_eq(a, b) => return true,
+            (Value::Object(a), Value::Object(b)) if Rc::ptr_eq(a, b) => return true,
+            (Value::ContainerInstance(a), Value::ContainerInstance(b)) if Rc::ptr_eq(a, b) => {
+                return true
+            }
+
+            // Types that don't need cycle detection can be handled directly here
+            (Value::Function(a), Value::Function(b)) => return Rc::ptr_eq(a, b),
+            (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
+                return name_a == name_b && std::ptr::fn_addr_eq(*func_a, *func_b);
+            }
+            (Value::Future(a), Value::Future(b)) => return Rc::ptr_eq(a, b),
+            (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => {
+                return a.name == b.name
+            }
+            (Value::ContainerMethod(a), Value::ContainerMethod(b)) => return a.name == b.name,
+            (Value::ContainerEvent(a), Value::ContainerEvent(b)) => return a.name == b.name,
+            (Value::InterfaceDefinition(a), Value::InterfaceDefinition(b)) => {
+                return a.name == b.name
+            }
+
+            // For types that might contain cycles and are not reference-identical, use the full visited check
             _ => {}
         }
 
