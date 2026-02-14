@@ -142,6 +142,9 @@ coverage/
 *.lcov
 .nyc_output
 
+# Deprecated bug reporter (contained API keys)
+bugreport/
+
 # Environment variables
 .env
 .env.local
