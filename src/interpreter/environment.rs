@@ -180,9 +180,9 @@ impl Environment {
             return Err(format!("Cannot modify constant '{name}'"));
         }
 
-        // Check current scope
-        if self.values.contains_key(name) {
-            self.values.insert(name.to_string(), value);
+        // Check current scope - optimized to use get_mut instead of contains_key + insert
+        if let Some(existing_val) = self.values.get_mut(name) {
+            *existing_val = value;
             return Ok(());
         }
 
@@ -197,7 +197,8 @@ impl Environment {
                 return Err(format!("Cannot modify constant '{name}'"));
             }
 
-            if parent.values.contains_key(name) {
+            // Check parent scope - optimized to use get_mut instead of contains_key + insert
+            if let Some(existing_val) = parent.values.get_mut(name) {
                 // If we are in an isolated context (or passed through one), we cannot modify parent variable
                 if is_isolated_context {
                     return Err(format!(
@@ -205,7 +206,7 @@ impl Environment {
                     ));
                 }
 
-                parent.values.insert(name.to_string(), value);
+                *existing_val = value;
                 return Ok(());
             }
 
