@@ -37,6 +37,6 @@
 ## 2026-02-28 - [Use Rc<str> for String Literals]
 **Learning:** `Literal::String` stored an owned `String`, causing a deep copy every time the literal was evaluated (e.g., in a loop). Since string literals are immutable and constant after parsing, they should be shared.
 **Action:** Changed `Literal::String(String)` to `Literal::String(Rc<str>)`. This avoids heap allocation during runtime evaluation, reducing it to a reference count increment. Resulted in ~8% speedup in tight loops involving string literals.
-## 2024-05-23 - Environment Assignment Optimization
+## 2026-02-14 - Environment Assignment Optimization
 **Learning:** Rust's `HashMap::insert` requires an owned key `K` even if the key already exists in the map, causing unnecessary allocation when updating values keyed by `String`. Using `get_mut` avoids this by only requiring a borrowed `&Q` (where `K: Borrow<Q>`).
 **Action:** Always prefer `get_mut` over `contains_key` + `insert` when updating values in HashMaps, especially with `String` keys, to avoid double hashing and allocation.
