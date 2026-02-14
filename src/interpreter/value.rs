@@ -376,9 +376,15 @@ impl fmt::Display for Value {
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
+        // Optimization: Mismatched types are never equal.
+        // This avoids allocating the cycle-detection HashSet for mismatched types (e.g. List == Number).
+        if std::mem::discriminant(self) != std::mem::discriminant(other) {
+            return false;
+        }
+
         // Fast path for simple types that don't need cycle detection
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => return numbers_equal(*a, *b),
+            (Value::Number(a), Value::Number(b)) => return (a - b).abs() < f64::EPSILON,
             (Value::Text(a), Value::Text(b)) => return a == b,
             (Value::Bool(a), Value::Bool(b)) => return a == b,
             (Value::Null, Value::Null) => return true,
@@ -400,7 +406,9 @@ impl PartialEq for Value {
             // Types that don't need cycle detection can be handled directly here
             (Value::Function(a), Value::Function(b)) => return Rc::ptr_eq(a, b),
             (Value::NativeFunction(name_a, func_a), Value::NativeFunction(name_b, func_b)) => {
-                return name_a == name_b && std::ptr::eq(func_a, func_b);
+                // Use cast to usize for MSRV 1.75 compatibility (fn_addr_eq is 1.85+)
+                // This compares the function code addresses directly
+                return name_a == name_b && (*func_a as usize) == (*func_b as usize);
             }
             (Value::Future(a), Value::Future(b)) => return Rc::ptr_eq(a, b),
             (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => {
@@ -412,13 +420,8 @@ impl PartialEq for Value {
                 return a.name == b.name;
             }
 
-            // Non-identical cyclic types (List, Object, ContainerInstance) need the full visited check
-            (Value::List(_), Value::List(_))
-            | (Value::Object(_), Value::Object(_))
-            | (Value::ContainerInstance(_), Value::ContainerInstance(_)) => {}
-
-            // All other combinations (including mismatched variants) are not equal
-            _ => return false,
+            // For types that might contain cycles and are not reference-identical, use the full visited check
+            _ => {}
         }
 
         let mut visited = HashSet::new();
