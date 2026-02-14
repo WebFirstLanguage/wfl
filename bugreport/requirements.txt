@@ -1,5 +1,0 @@
-# Bug Reporting Tool Dependencies
-# For the WFL project's intelligent bug reporting assistant
-
-google-genai>=1.17.0
-pydantic>=2.11.0
