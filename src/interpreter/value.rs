@@ -378,7 +378,7 @@ impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         // Fast path for simple types that don't need cycle detection
         match (self, other) {
-            (Value::Number(a), Value::Number(b)) => return (a - b).abs() < f64::EPSILON,
+            (Value::Number(a), Value::Number(b)) => return numbers_equal(*a, *b),
             (Value::Text(a), Value::Text(b)) => return a == b,
             (Value::Bool(a), Value::Bool(b)) => return a == b,
             (Value::Null, Value::Null) => return true,
@@ -412,8 +412,13 @@ impl PartialEq for Value {
                 return a.name == b.name;
             }
 
-            // For types that might contain cycles and are not reference-identical, use the full visited check
-            _ => {}
+            // Non-identical cyclic types (List, Object, ContainerInstance) need the full visited check
+            (Value::List(_), Value::List(_))
+            | (Value::Object(_), Value::Object(_))
+            | (Value::ContainerInstance(_), Value::ContainerInstance(_)) => {}
+
+            // All other combinations (including mismatched variants) are not equal
+            _ => return false,
         }
 
         let mut visited = HashSet::new();
