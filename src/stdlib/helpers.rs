@@ -434,3 +434,57 @@ pub fn expect_datetime(value: &Value) -> Result<Rc<chrono::NaiveDateTime>, Runti
         )),
     }
 }
+
+/// Applies a unary mathematical operation to a numeric value.
+///
+/// Extracts a number from the first argument, applies the given function,
+/// and returns the result as a Value::Number.
+pub fn unary_math_op<F>(name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(f64) -> f64,
+{
+    check_arg_count(name, &args, 1)?;
+    let val = expect_number(&args[0])?;
+    Ok(Value::Number(op(val)))
+}
+
+/// Applies a binary mathematical operation to two numeric values.
+///
+/// Extracts numbers from the first two arguments, applies the given function,
+/// and returns the result as a Value::Number.
+pub fn binary_math_op<F>(name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(f64, f64) -> f64,
+{
+    check_arg_count(name, &args, 2)?;
+    let a = expect_number(&args[0])?;
+    let b = expect_number(&args[1])?;
+    Ok(Value::Number(op(a, b)))
+}
+
+/// Applies a unary text operation to a string value.
+///
+/// Extracts text from the first argument, applies the given function,
+/// and returns the result as a Value::Text.
+pub fn unary_text_op<F>(name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str) -> String,
+{
+    check_arg_count(name, &args, 1)?;
+    let text = expect_text(&args[0])?;
+    Ok(Value::Text(Arc::from(op(&text))))
+}
+
+/// Applies a binary text predicate (returning boolean).
+///
+/// Extracts text from the first two arguments, applies the given predicate,
+/// and returns the result as a Value::Bool.
+pub fn binary_text_predicate<F>(name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str, &str) -> bool,
+{
+    check_arg_count(name, &args, 2)?;
+    let text = expect_text(&args[0])?;
+    let other = expect_text(&args[1])?;
+    Ok(Value::Bool(op(&text, &other)))
+}
