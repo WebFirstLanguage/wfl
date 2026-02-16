@@ -1,34 +1,22 @@
-use super::helpers::{check_arg_count, expect_number};
+use super::helpers::{binary_math_op, check_arg_count, expect_number, unary_math_op};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 
 pub fn native_abs(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("abs", &args, 1)?;
-
-    let x = expect_number(&args[0])?;
-    Ok(Value::Number(x.abs()))
+    unary_math_op("abs", args, |x| x.abs())
 }
 
 pub fn native_round(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("round", &args, 1)?;
-
-    let x = expect_number(&args[0])?;
-    Ok(Value::Number(x.round()))
+    unary_math_op("round", args, |x| x.round())
 }
 
 pub fn native_floor(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("floor", &args, 1)?;
-
-    let x = expect_number(&args[0])?;
-    Ok(Value::Number(x.floor()))
+    unary_math_op("floor", args, |x| x.floor())
 }
 
 pub fn native_ceil(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("ceil", &args, 1)?;
-
-    let x = expect_number(&args[0])?;
-    Ok(Value::Number(x.ceil()))
+    unary_math_op("ceil", args, |x| x.ceil())
 }
 
 pub fn native_clamp(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -51,27 +39,15 @@ pub fn native_clamp(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_min(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("min", &args, 2)?;
-
-    let a = expect_number(&args[0])?;
-    let b = expect_number(&args[1])?;
-    Ok(Value::Number(a.min(b)))
+    binary_math_op("min", args, |a, b| a.min(b))
 }
 
 pub fn native_max(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("max", &args, 2)?;
-
-    let a = expect_number(&args[0])?;
-    let b = expect_number(&args[1])?;
-    Ok(Value::Number(a.max(b)))
+    binary_math_op("max", args, |a, b| a.max(b))
 }
 
 pub fn native_power(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("power", &args, 2)?;
-
-    let base = expect_number(&args[0])?;
-    let exponent = expect_number(&args[1])?;
-    Ok(Value::Number(base.powf(exponent)))
+    binary_math_op("power", args, |base, exponent| base.powf(exponent))
 }
 
 pub fn native_sqrt(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -89,24 +65,15 @@ pub fn native_sqrt(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_sin(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("sin", &args, 1)?;
-
-    let x = expect_number(&args[0])?;
-    Ok(Value::Number(x.sin()))
+    unary_math_op("sin", args, |x| x.sin())
 }
 
 pub fn native_cos(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("cos", &args, 1)?;
-
-    let x = expect_number(&args[0])?;
-    Ok(Value::Number(x.cos()))
+    unary_math_op("cos", args, |x| x.cos())
 }
 
 pub fn native_tan(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("tan", &args, 1)?;
-
-    let x = expect_number(&args[0])?;
-    Ok(Value::Number(x.tan()))
+    unary_math_op("tan", args, |x| x.tan())
 }
 
 pub fn register_math(env: &mut Environment) {
