@@ -196,6 +196,45 @@ pub fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
     }
 }
 
+/// Helper for unary math operations (f64 -> f64)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The mathematical operation to perform
+pub fn unary_math_op<F>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(f64) -> f64,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let x = expect_number(&args[0])?;
+    Ok(Value::Number(op(x)))
+}
+
+/// Helper for binary math operations ((f64, f64) -> f64)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The mathematical operation to perform
+pub fn binary_math_op<F>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(f64, f64) -> f64,
+{
+    check_arg_count(func_name, &args, 2)?;
+    let a = expect_number(&args[0])?;
+    let b = expect_number(&args[1])?;
+    Ok(Value::Number(op(a, b)))
+}
+
 /// Extracts a text value from a WFL Value, returning it as a reference-counted string.
 ///
 /// Returns an `Rc<str>` to enable efficient memory sharing without copying the string
