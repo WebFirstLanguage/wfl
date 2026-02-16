@@ -181,8 +181,9 @@ impl Environment {
         }
 
         // Check current scope
-        if self.values.contains_key(name) {
-            self.values.insert(name.to_string(), value);
+        // Optimization: Use get_mut to update the value in place, avoiding a String allocation for the key.
+        if let Some(val_ref) = self.values.get_mut(name) {
+            *val_ref = value;
             return Ok(());
         }
 
@@ -197,7 +198,8 @@ impl Environment {
                 return Err(format!("Cannot modify constant '{name}'"));
             }
 
-            if parent.values.contains_key(name) {
+            // Optimization: Use get_mut to update the value in place, avoiding a String allocation for the key.
+            if let Some(val_ref) = parent.values.get_mut(name) {
                 // If we are in an isolated context (or passed through one), we cannot modify parent variable
                 if is_isolated_context {
                     return Err(format!(
@@ -205,7 +207,7 @@ impl Environment {
                     ));
                 }
 
-                parent.values.insert(name.to_string(), value);
+                *val_ref = value;
                 return Ok(());
             }
 
