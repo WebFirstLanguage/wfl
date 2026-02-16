@@ -5952,13 +5952,9 @@ impl Interpreter {
         check_async: bool,
     ) -> Result<Option<Value>, RuntimeError> {
         match expr {
-            Expression::Literal(literal, line, column) => self.evaluate_literal_direct(
-                literal,
-                env,
-                *line,
-                *column,
-                check_async,
-            ),
+            Expression::Literal(literal, line, column) => {
+                self.evaluate_literal_direct(literal, env, *line, *column, check_async)
+            }
             Expression::Variable(name, line, column) => {
                 self.try_evaluate_variable_sync(name, env, *line, *column)
             }
@@ -5968,7 +5964,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                if let Some(val) = self.try_evaluate_simple_expr_sync(expression, env, check_async)?
+                if let Some(val) =
+                    self.try_evaluate_simple_expr_sync(expression, env, check_async)?
                 {
                     self.perform_unary_op(operator, val, *line, *column)
                         .map(Some)
