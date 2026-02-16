@@ -5810,6 +5810,7 @@ impl Interpreter {
         env: &Rc<RefCell<Environment>>,
         line: usize,
         column: usize,
+        check_async: bool,
     ) -> Result<Option<Value>, RuntimeError> {
         match literal {
             Literal::String(s) => Ok(Some(Value::Text(s.clone()))),
@@ -5826,10 +5827,12 @@ impl Interpreter {
             Literal::List(elements) => {
                 // First, pre-scan all elements to detect if any require async evaluation
                 // This prevents double execution of side effects
-                for element in elements {
-                    if self.requires_async_evaluation(element, env) {
-                        // At least one element requires async, abort sync optimization for the whole list
-                        return Ok(None);
+                if check_async {
+                    for element in elements {
+                        if self.requires_async_evaluation(element, env) {
+                            // At least one element requires async, abort sync optimization for the whole list
+                            return Ok(None);
+                        }
                     }
                 }
 
@@ -5838,7 +5841,8 @@ impl Interpreter {
                 for element in elements {
                     // Since we've already verified all elements are sync-compatible,
                     // this should never return None, but handle it gracefully just in case
-                    if let Some(value) = self.try_evaluate_simple_expr_sync(element, env)? {
+                    // Pass check_async=false because we've already verified (or inherited verification for) the list content
+                    if let Some(value) = self.try_evaluate_simple_expr_sync(element, env, false)? {
                         list_values.push(value);
                     } else {
                         // This shouldn't happen after our pre-scan, but fall back to async
@@ -5945,11 +5949,16 @@ impl Interpreter {
         &self,
         expr: &Expression,
         env: &Rc<RefCell<Environment>>,
+        check_async: bool,
     ) -> Result<Option<Value>, RuntimeError> {
         match expr {
-            Expression::Literal(literal, line, column) => {
-                self.evaluate_literal_direct(literal, env, *line, *column)
-            }
+            Expression::Literal(literal, line, column) => self.evaluate_literal_direct(
+                literal,
+                env,
+                *line,
+                *column,
+                check_async,
+            ),
             Expression::Variable(name, line, column) => {
                 self.try_evaluate_variable_sync(name, env, *line, *column)
             }
@@ -5959,7 +5968,8 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                if let Some(val) = self.try_evaluate_simple_expr_sync(expression, env)? {
+                if let Some(val) = self.try_evaluate_simple_expr_sync(expression, env, check_async)?
+                {
                     self.perform_unary_op(operator, val, *line, *column)
                         .map(Some)
                 } else {
@@ -5974,13 +5984,13 @@ impl Interpreter {
                 column,
             } => {
                 // Evaluate left side
-                let left_val = match self.try_evaluate_simple_expr_sync(left, env)? {
+                let left_val = match self.try_evaluate_simple_expr_sync(left, env, check_async)? {
                     Some(v) => v,
                     None => return Ok(None),
                 };
 
                 // Evaluate right side (WFL evaluates both eagerly currently)
-                let right_val = match self.try_evaluate_simple_expr_sync(right, env)? {
+                let right_val = match self.try_evaluate_simple_expr_sync(right, env, check_async)? {
                     Some(v) => v,
                     None => return Ok(None),
                 };
@@ -5996,13 +6006,13 @@ impl Interpreter {
                 column: _column,
             } => {
                 // Evaluate left side
-                let left_val = match self.try_evaluate_simple_expr_sync(left, env)? {
+                let left_val = match self.try_evaluate_simple_expr_sync(left, env, check_async)? {
                     Some(v) => v,
                     None => return Ok(None),
                 };
 
                 // Evaluate right side
-                let right_val = match self.try_evaluate_simple_expr_sync(right, env)? {
+                let right_val = match self.try_evaluate_simple_expr_sync(right, env, check_async)? {
                     Some(v) => v,
                     None => return Ok(None),
                 };
@@ -6068,7 +6078,7 @@ impl Interpreter {
         // OPTIMIZATION: Handle simple expressions synchronously to avoid Box::pin allocation
         // This recursively handles literals, variables, and simple math operations.
         // It significantly improves performance for tight loops with arithmetic.
-        if let Some(value) = self.try_evaluate_simple_expr_sync(expr, &env)? {
+        if let Some(value) = self.try_evaluate_simple_expr_sync(expr, &env, true)? {
             return Ok(value);
         }
 
