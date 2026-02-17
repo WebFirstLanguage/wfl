@@ -1352,9 +1352,8 @@ impl Interpreter {
         }
 
         // Also extract from parent scopes
-        if let Some(parent_weak) = &env_borrowed.parent
-            && let Some(parent_rc) = parent_weak.upgrade()
-        {
+        if let Some(parent_rc_ref) = &env_borrowed.parent {
+            let parent_rc = parent_rc_ref.clone();
             drop(env_borrowed); // Release borrow before recursive call
             let parent_vars = Self::extract_parent_variables(&parent_rc);
             // Parent variables are added first, can be shadowed by current scope
@@ -5794,7 +5793,7 @@ impl Interpreter {
                 .borrow()
                 .parent
                 .as_ref()
-                .is_some_and(|p| p.ptr_eq(&Rc::downgrade(parent)));
+                .is_some_and(|p| Rc::ptr_eq(p, parent));
             if parent_matches {
                 env.borrow_mut().clear();
                 return env;

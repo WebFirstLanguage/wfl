@@ -1,13 +1,13 @@
 use super::value::Value;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub struct Environment {
     pub values: HashMap<String, Value>,
     pub constants: HashSet<String>,
-    pub parent: Option<Weak<RefCell<Environment>>>,
+    pub parent: Option<Rc<RefCell<Environment>>>,
     /// When true, provides module isolation: values from parent scopes are deep cloned
     /// to prevent mutations, and assignment to parent variables is prevented.
     pub isolated: bool,
@@ -33,7 +33,7 @@ impl Environment {
         Rc::new(RefCell::new(Environment {
             values: HashMap::new(),
             constants: HashSet::new(),
-            parent: Some(Rc::downgrade(parent)),
+            parent: Some(Rc::clone(parent)),
             isolated: false,
         }))
     }
@@ -46,7 +46,7 @@ impl Environment {
         Rc::new(RefCell::new(Self {
             values: HashMap::new(),
             constants: HashSet::new(),
-            parent: Some(Rc::downgrade(parent)),
+            parent: Some(Rc::clone(parent)),
             isolated: false,
         }))
     }
@@ -62,7 +62,7 @@ impl Environment {
         Rc::new(RefCell::new(Self {
             values: HashMap::new(),
             constants: HashSet::new(),
-            parent: Some(Rc::downgrade(parent)),
+            parent: Some(Rc::clone(parent)),
             isolated: true,
         }))
     }
@@ -76,8 +76,7 @@ impl Environment {
         }
 
         // Check if the variable exists in parent scopes
-        if let Some(parent_weak) = &self.parent
-            && let Some(parent) = parent_weak.upgrade()
+        if let Some(parent) = &self.parent
             && parent.borrow().has(name)
         {
             return Err(format!(
@@ -112,8 +111,7 @@ impl Environment {
         }
 
         // Check if the variable exists in parent scopes
-        if let Some(parent_weak) = &self.parent
-            && let Some(parent) = parent_weak.upgrade()
+        if let Some(parent) = &self.parent
             && parent.borrow().has(name)
         {
             return Err(format!(
@@ -145,13 +143,13 @@ impl Environment {
             return true;
         }
 
-        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut current_parent = self.parent.clone();
         while let Some(parent_rc) = current_parent {
             let parent = parent_rc.borrow();
             if parent.values.contains_key(name) {
                 return true;
             }
-            current_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+            current_parent = parent.parent.clone();
         }
         false
     }
@@ -161,14 +159,14 @@ impl Environment {
             return true;
         }
 
-        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut current_parent = self.parent.clone();
 
         while let Some(parent_rc) = current_parent {
             let parent = parent_rc.borrow();
             if parent.constants.contains(name) {
                 return true;
             }
-            current_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+            current_parent = parent.parent.clone();
         }
 
         false
@@ -188,7 +186,7 @@ impl Environment {
         }
 
         // Iteratively check parent scopes
-        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut current_parent = self.parent.clone();
         let mut is_isolated_context = self.isolated;
 
         while let Some(parent_rc) = current_parent {
@@ -216,7 +214,7 @@ impl Environment {
             }
 
             // Move to next parent
-            let next_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+            let next_parent = parent.parent.clone();
             drop(parent); // Release borrow
             current_parent = next_parent;
         }
@@ -240,7 +238,7 @@ impl Environment {
         }
 
         // Iteratively check parent scopes
-        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut current_parent = self.parent.clone();
         let mut crossed_isolation_boundary = self.isolated;
 
         while let Some(parent_rc) = current_parent {
@@ -262,7 +260,7 @@ impl Environment {
             }
 
             // Move to next parent
-            current_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+            current_parent = parent.parent.clone();
         }
 
         None
