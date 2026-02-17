@@ -473,3 +473,46 @@ pub fn expect_datetime(value: &Value) -> Result<Rc<chrono::NaiveDateTime>, Runti
         )),
     }
 }
+
+/// Helper for unary text operations (Text -> Text)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The text operation to perform
+pub fn unary_text_op<F>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str) -> String,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let text = expect_text(&args[0])?;
+    Ok(Value::Text(Arc::from(op(&text))))
+}
+
+/// Helper for binary text predicates ((Text, Text) -> Bool)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The predicate to perform
+pub fn binary_text_predicate<F>(
+    func_name: &str,
+    args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str, &str) -> bool,
+{
+    check_arg_count(func_name, &args, 2)?;
+    let a = expect_text(&args[0])?;
+    let b = expect_text(&args[1])?;
+    Ok(Value::Bool(op(&a, &b)))
+}
