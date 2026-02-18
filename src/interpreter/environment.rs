@@ -224,6 +224,88 @@ impl Environment {
         Err(format!("Undefined variable '{name}'"))
     }
 
+    /// Declares a variable, handling both definition (new variable) and assignment (update existing).
+    /// This optimizes the common pattern of checking existence before defining/assigning by performing
+    /// a single traversal of the scope chain.
+    pub fn declare_variable(
+        &mut self,
+        name: &str,
+        value: Value,
+        is_constant: bool,
+    ) -> Result<(), String> {
+        // 1. Check current scope first
+        if self.values.contains_key(name) {
+            if is_constant {
+                return Err(format!(
+                    "Variable or constant '{name}' has already been defined. Use 'change {name} to <value>' to modify it."
+                ));
+            }
+
+            // Update in current scope
+            if self.constants.contains(name) {
+                return Err(format!("Cannot modify constant '{name}'"));
+            }
+
+            // Update value in place
+            if let Some(val_ref) = self.values.get_mut(name) {
+                *val_ref = value;
+            }
+            return Ok(());
+        }
+
+        // 2. Walk parent scopes
+        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut is_isolated_context = self.isolated;
+
+        while let Some(parent_rc) = current_parent {
+            // We need to borrow mutably to potentially update
+            let mut parent = parent_rc.borrow_mut();
+
+            if parent.values.contains_key(name) {
+                // Found in parent
+                if is_constant {
+                    // Trying to define constant, but it shadows parent -> Error
+                    return Err(format!(
+                        "Variable or constant '{name}' has already been defined in an outer scope."
+                    ));
+                }
+
+                // Update in parent
+                if parent.constants.contains(name) {
+                    return Err(format!("Cannot modify constant '{name}'"));
+                }
+
+                if is_isolated_context {
+                    return Err(format!(
+                        "Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."
+                    ));
+                }
+
+                if let Some(val_ref) = parent.values.get_mut(name) {
+                    *val_ref = value;
+                }
+                return Ok(());
+            }
+
+            if parent.isolated {
+                is_isolated_context = true;
+            }
+
+            let next_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+            drop(parent); // Release borrow
+            current_parent = next_parent;
+        }
+
+        // 3. Not found anywhere -> Define new in current scope
+        // Note: We've already checked self.values.contains_key(name) in step 1,
+        // so we can skip validation and insert directly.
+        self.values.insert(name.to_string(), value);
+        if is_constant {
+            self.constants.insert(name.to_string());
+        }
+        Ok(())
+    }
+
     /// Get a value from the local scope only (does not check parent scopes)
     pub fn get_local(&self, name: &str) -> Option<Value> {
         self.values.get(name).cloned()
