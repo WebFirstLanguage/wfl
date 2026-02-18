@@ -7439,6 +7439,32 @@ impl Interpreter {
         }
     }
 
+    fn evaluate_math_op<F, E>(
+        &self,
+        left: Value,
+        right: Value,
+        op: F,
+        error_formatter: E,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>
+    where
+        F: Fn(f64, f64) -> Result<f64, String>,
+        E: Fn(&str, &str) -> String,
+    {
+        match (left, right) {
+            (Value::Number(a), Value::Number(b)) => match op(a, b) {
+                Ok(val) => Ok(Value::Number(val)),
+                Err(msg) => Err(RuntimeError::new(msg, line, column)),
+            },
+            (a, b) => Err(RuntimeError::new(
+                error_formatter(a.type_name(), b.type_name()),
+                line,
+                column,
+            )),
+        }
+    }
+
     fn subtract(
         &self,
         left: Value,
@@ -7446,14 +7472,14 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a - b)),
-            (a, b) => Err(RuntimeError::new(
-                format!("Cannot subtract {} from {}", b.type_name(), a.type_name()),
-                line,
-                column,
-            )),
-        }
+        self.evaluate_math_op(
+            left,
+            right,
+            |a, b| Ok(a - b),
+            |a_type, b_type| format!("Cannot subtract {} from {}", b_type, a_type),
+            line,
+            column,
+        )
     }
 
     fn multiply(
@@ -7463,14 +7489,14 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a * b)),
-            (a, b) => Err(RuntimeError::new(
-                format!("Cannot multiply {} and {}", a.type_name(), b.type_name()),
-                line,
-                column,
-            )),
-        }
+        self.evaluate_math_op(
+            left,
+            right,
+            |a, b| Ok(a * b),
+            |a_type, b_type| format!("Cannot multiply {} and {}", a_type, b_type),
+            line,
+            column,
+        )
     }
 
     fn divide(
@@ -7483,37 +7509,25 @@ impl Interpreter {
         #[cfg(feature = "dhat-ad-hoc")]
         dhat::ad_hoc_event(1); // Track division operations for memory profiling
 
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => {
+        self.evaluate_math_op(
+            left,
+            right,
+            |a, b| {
                 if b == 0.0 {
-                    Err(RuntimeError::new(
-                        "Division by zero".to_string(),
-                        line,
-                        column,
-                    ))
+                    Err("Division by zero".to_string())
                 } else {
-                    // Calculate the result of the division operation
                     let result = a / b;
-
-                    // Check if the result is valid (not NaN or infinite)
                     if !result.is_finite() {
-                        return Err(RuntimeError::new(
-                            format!("Division resulted in invalid number: {result}"),
-                            line,
-                            column,
-                        ));
+                        Err(format!("Division resulted in invalid number: {result}"))
+                    } else {
+                        Ok(result)
                     }
-
-                    // Return the valid result as a Value::Number
-                    Ok(Value::Number(result))
                 }
-            }
-            (a, b) => Err(RuntimeError::new(
-                format!("Cannot divide {} by {}", a.type_name(), b.type_name()),
-                line,
-                column,
-            )),
-        }
+            },
+            |a_type, b_type| format!("Cannot divide {} by {}", a_type, b_type),
+            line,
+            column,
+        )
     }
 
     fn modulo(
@@ -7526,41 +7540,25 @@ impl Interpreter {
         #[cfg(feature = "dhat-ad-hoc")]
         dhat::ad_hoc_event(1); // Track modulo operations for memory profiling
 
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => {
+        self.evaluate_math_op(
+            left,
+            right,
+            |a, b| {
                 if b == 0.0 {
-                    Err(RuntimeError::new(
-                        "Modulo by zero".to_string(),
-                        line,
-                        column,
-                    ))
+                    Err("Modulo by zero".to_string())
                 } else {
-                    // Calculate the result of the modulo operation
                     let result = a % b;
-
-                    // Check if the result is valid (not NaN or infinite)
                     if !result.is_finite() {
-                        return Err(RuntimeError::new(
-                            format!("Modulo resulted in invalid number: {result}"),
-                            line,
-                            column,
-                        ));
+                        Err(format!("Modulo resulted in invalid number: {result}"))
+                    } else {
+                        Ok(result)
                     }
-
-                    // Return the valid result as a Value::Number
-                    Ok(Value::Number(result))
                 }
-            }
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compute modulo of {} by {}",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
+            },
+            |a_type, b_type| format!("Cannot compute modulo of {} by {}", a_type, b_type),
+            line,
+            column,
+        )
     }
 
     fn is_equal(&self, left: &Value, right: &Value) -> bool {
@@ -7624,6 +7622,37 @@ impl Interpreter {
         })
     }
 
+    fn evaluate_comparison<F>(
+        &self,
+        left: Value,
+        right: Value,
+        operator_str: &str,
+        comparator: F,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError>
+    where
+        F: Fn(std::cmp::Ordering) -> bool,
+    {
+        match (left, right) {
+            (Value::Number(a), Value::Number(b)) => match a.partial_cmp(&b) {
+                Some(ord) => Ok(Value::Bool(comparator(ord))),
+                None => Ok(Value::Bool(false)),
+            },
+            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(comparator(a.cmp(&b)))),
+            (a, b) => Err(RuntimeError::new(
+                format!(
+                    "Cannot compare {} and {} with {}",
+                    a.type_name(),
+                    b.type_name(),
+                    operator_str
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
     fn greater_than(
         &self,
         left: Value,
@@ -7631,19 +7660,14 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a > b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a > b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with >",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
+        self.evaluate_comparison(
+            left,
+            right,
+            ">",
+            |ord| ord == std::cmp::Ordering::Greater,
+            line,
+            column,
+        )
     }
 
     fn less_than(
@@ -7653,19 +7677,14 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a < b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a < b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with <",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
+        self.evaluate_comparison(
+            left,
+            right,
+            "<",
+            |ord| ord == std::cmp::Ordering::Less,
+            line,
+            column,
+        )
     }
 
     fn greater_than_equal(
@@ -7675,19 +7694,14 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a >= b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a >= b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with >=",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
+        self.evaluate_comparison(
+            left,
+            right,
+            ">=",
+            |ord| ord != std::cmp::Ordering::Less,
+            line,
+            column,
+        )
     }
 
     fn less_than_equal(
@@ -7697,19 +7711,14 @@ impl Interpreter {
         line: usize,
         column: usize,
     ) -> Result<Value, RuntimeError> {
-        match (left, right) {
-            (Value::Number(a), Value::Number(b)) => Ok(Value::Bool(a <= b)),
-            (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(a <= b)),
-            (a, b) => Err(RuntimeError::new(
-                format!(
-                    "Cannot compare {} and {} with <=",
-                    a.type_name(),
-                    b.type_name()
-                ),
-                line,
-                column,
-            )),
-        }
+        self.evaluate_comparison(
+            left,
+            right,
+            "<=",
+            |ord| ord != std::cmp::Ordering::Greater,
+            line,
+            column,
+        )
     }
 
     fn contains(
