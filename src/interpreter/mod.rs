@@ -7406,6 +7406,12 @@ impl Interpreter {
     }
 
     fn perform_concatenation(&self, left_val: Value, right_val: Value) -> Value {
+        if let (Value::Text(l), Value::Text(r)) = (&left_val, &right_val) {
+            let mut s = String::with_capacity(l.len() + r.len());
+            s.push_str(l);
+            s.push_str(r);
+            return Value::Text(Arc::from(s));
+        }
         let result = format!("{left_val}{right_val}");
         Value::Text(Arc::from(result.as_str()))
     }
@@ -7420,8 +7426,10 @@ impl Interpreter {
         match (left, right) {
             (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a + b)),
             (Value::Text(a), Value::Text(b)) => {
-                let result = format!("{a}{b}");
-                Ok(Value::Text(Arc::from(result.as_str())))
+                let mut s = String::with_capacity(a.len() + b.len());
+                s.push_str(&a);
+                s.push_str(&b);
+                Ok(Value::Text(Arc::from(s)))
             }
             (Value::Text(a), b) => {
                 let result = format!("{a}{b}");
