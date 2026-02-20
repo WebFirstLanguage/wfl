@@ -1,4 +1,6 @@
-use super::helpers::{check_arg_count, expect_number, expect_text};
+use super::helpers::{
+    binary_text_predicate, check_arg_count, expect_number, expect_text, unary_text_op,
+};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
@@ -74,19 +76,11 @@ fn parse_key_value_pairs(input: &str, delimiter: char) -> std::collections::Hash
 // which handles both text and lists
 
 pub fn native_touppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("touppercase", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let uppercase = text.to_uppercase();
-    Ok(Value::Text(Arc::from(uppercase)))
+    unary_text_op("touppercase", args, |s| s.to_uppercase())
 }
 
 pub fn native_tolowercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("tolowercase", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let lowercase = text.to_lowercase();
-    Ok(Value::Text(Arc::from(lowercase)))
+    unary_text_op("tolowercase", args, |s| s.to_lowercase())
 }
 
 pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -135,29 +129,15 @@ pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_trim(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("trim", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let trimmed = text.trim();
-    Ok(Value::Text(Arc::from(trimmed)))
+    unary_text_op("trim", args, |s| Arc::from(s.trim()))
 }
 
 pub fn native_starts_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("starts_with", &args, 2)?;
-
-    let text = expect_text(&args[0])?;
-    let prefix = expect_text(&args[1])?;
-    let result = text.starts_with(prefix.as_ref());
-    Ok(Value::Bool(result))
+    binary_text_predicate("starts_with", args, |s, prefix| s.starts_with(prefix))
 }
 
 pub fn native_ends_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("ends_with", &args, 2)?;
-
-    let text = expect_text(&args[0])?;
-    let suffix = expect_text(&args[1])?;
-    let result = text.ends_with(suffix.as_ref());
-    Ok(Value::Bool(result))
+    binary_text_predicate("ends_with", args, |s, suffix| s.ends_with(suffix))
 }
 
 /// Parse query string into WFL object
@@ -278,26 +258,20 @@ pub fn native_padright(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_capitalize(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("capitalize", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let mut chars = text.chars();
-    let result = match chars.next() {
-        Some(c) => {
-            let upper: String = c.to_uppercase().collect();
-            format!("{}{}", upper, chars.as_str())
+    unary_text_op("capitalize", args, |s| {
+        let mut chars = s.chars();
+        match chars.next() {
+            Some(c) => {
+                let upper: String = c.to_uppercase().collect();
+                format!("{}{}", upper, chars.as_str())
+            }
+            None => String::new(),
         }
-        None => String::new(),
-    };
-    Ok(Value::Text(Arc::from(result)))
+    })
 }
 
 pub fn native_reverse_text(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("reverse", &args, 1)?;
-
-    let text = expect_text(&args[0])?;
-    let reversed: String = text.chars().rev().collect();
-    Ok(Value::Text(Arc::from(reversed)))
+    unary_text_op("reverse", args, |s| s.chars().rev().collect::<String>())
 }
 
 pub fn register_text(env: &mut Environment) {
