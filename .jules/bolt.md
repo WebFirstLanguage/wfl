@@ -37,3 +37,15 @@
 ## 2026-02-28 - [Use Rc<str> for String Literals]
 **Learning:** `Literal::String` stored an owned `String`, causing a deep copy every time the literal was evaluated (e.g., in a loop). Since string literals are immutable and constant after parsing, they should be shared.
 **Action:** Changed `Literal::String(String)` to `Literal::String(Rc<str>)`. This avoids heap allocation during runtime evaluation, reducing it to a reference count increment. Resulted in ~8% speedup in tight loops involving string literals.
+
+## 2025-02-18 - Native Function Execution & Access Optimization
+**Learning:** WFL's `call <func>` syntax parses as `ActionCall`, which previously only supported user-defined actions (`Value::Function`). Native functions (`Value::NativeFunction`) were not supported, causing runtime errors when invoked explicitly with `call`. This also revealed that `Object` (Map) property access using dot notation (`obj.prop`) is parsed as `PropertyAccess`, which is restricted to `ContainerInstance` types; maps must use index syntax (`obj["prop"]`).
+**Action:** When implementing or optimizing function calls, ensure both `ActionCall` (explicit `call`) and `FunctionCall` (implicit or other contexts) handle both `Value::Function` and `Value::NativeFunction`. For map optimizations, target `IndexAccess` rather than `MemberAccess` or `PropertyAccess`.
+
+## 2025-02-18 - Safe Numeric Casting in Optimizations
+**Learning:** When implementing fast paths for numeric operations (like array indexing), Rust's  cast can be dangerous. Negative floats cast to  (saturating), and fractional floats truncate. This can silently mask errors or cause incorrect behavior compared to the robust checks in the slow path.
+**Action:** Always validate that floating-point numbers are non-negative, integers (), and within bounds () before casting to . If validation fails, fallback to the standard evaluation path to ensure consistent error handling.
+
+## 2025-02-18 - Safe Numeric Casting in Optimizations
+**Learning:** When implementing fast paths for numeric operations (like array indexing), Rust's `as usize` cast can be dangerous. Negative floats cast to `0` (saturating), and fractional floats truncate. This can silently mask errors or cause incorrect behavior compared to the robust checks in the slow path.
+**Action:** Always validate that floating-point numbers are non-negative, integers (`fract() == 0.0`), and within bounds (`<= usize::MAX`) before casting to `usize`. If validation fails, fallback to the standard evaluation path to ensure consistent error handling.

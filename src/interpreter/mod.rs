@@ -6010,6 +6010,110 @@ impl Interpreter {
                 // Concatenate
                 Ok(Some(self.perform_concatenation(left_val, right_val)))
             }
+            Expression::MemberAccess {
+                object,
+                property,
+                line,
+                column,
+            } => {
+                if let Some(obj_val) = self.try_evaluate_simple_expr_sync(object, env)? {
+                    match obj_val {
+                        Value::Object(obj_rc) => {
+                            let obj = obj_rc.borrow();
+                            if let Some(value) = obj.get(property) {
+                                Ok(Some(value.clone()))
+                            } else {
+                                Err(RuntimeError::new(
+                                    format!("Object has no property '{property}'"),
+                                    *line,
+                                    *column,
+                                ))
+                            }
+                        }
+                        _ => Ok(None), // Fallback to async for non-simple objects or error handling
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            Expression::PropertyAccess {
+                object,
+                property,
+                line,
+                column,
+            } => {
+                if let Some(obj_val) = self.try_evaluate_simple_expr_sync(object, env)? {
+                    match obj_val {
+                        Value::ContainerInstance(instance) => {
+                            let instance_ref = instance.borrow();
+                            if let Some(prop_value) = instance_ref.properties.get(property) {
+                                Ok(Some(prop_value.clone()))
+                            } else {
+                                Err(RuntimeError::new(
+                                    format!("Property '{property}' not found"),
+                                    *line,
+                                    *column,
+                                ))
+                            }
+                        }
+                        _ => Ok(None),
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            Expression::IndexAccess {
+                collection,
+                index,
+                line,
+                column,
+            } => {
+                if let Some(collection_val) = self.try_evaluate_simple_expr_sync(collection, env)? {
+                    if let Some(index_val) = self.try_evaluate_simple_expr_sync(index, env)? {
+                        match (collection_val, index_val) {
+                            (Value::List(list_rc), Value::Number(idx)) => {
+                                // Ensure index is a valid non-negative integer
+                                if idx < 0.0 || idx.fract() != 0.0 || idx > usize::MAX as f64 {
+                                    return Ok(None); // Fallback to async path for invalid indices
+                                }
+
+                                let list = list_rc.borrow();
+                                let idx_usize = idx as usize;
+                                if idx_usize < list.len() {
+                                    Ok(Some(list[idx_usize].clone()))
+                                } else {
+                                    Err(RuntimeError::new(
+                                        format!(
+                                            "Index {} out of bounds for list of length {}",
+                                            idx_usize,
+                                            list.len()
+                                        ),
+                                        *line,
+                                        *column,
+                                    ))
+                                }
+                            }
+                            (Value::Object(obj_rc), Value::Text(key)) => {
+                                let obj = obj_rc.borrow();
+                                if let Some(val) = obj.get(key.as_ref()) {
+                                    Ok(Some(val.clone()))
+                                } else {
+                                    Err(RuntimeError::new(
+                                        format!("Object has no key '{key}'"),
+                                        *line,
+                                        *column,
+                                    ))
+                                }
+                            }
+                            _ => Ok(None), // Fallback for type mismatches
+                        }
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
             _ => Ok(None),
         }
     }
@@ -6500,6 +6604,33 @@ impl Interpreter {
                         #[cfg(debug_assertions)]
                         if let Ok(ref val) = result {
                             exec_function_return!(&func_name, val);
+                        }
+
+                        result
+                    }
+                    Value::NativeFunction(func_name, native_fn) => {
+                        let mut arg_values = Vec::new();
+                        for arg in arguments.iter() {
+                            arg_values.push(
+                                self.evaluate_expression(&arg.value, Rc::clone(&env))
+                                    .await?,
+                            );
+                        }
+
+                        #[cfg(debug_assertions)]
+                        exec_function_call!(func_name, &arg_values);
+
+                        let result = native_fn(arg_values).map_err(|e| {
+                            RuntimeError::new(
+                                format!("Error in native function '{}': {}", func_name, e),
+                                *line,
+                                *column,
+                            )
+                        });
+
+                        #[cfg(debug_assertions)]
+                        if let Ok(ref val) = result {
+                            exec_function_return!(func_name, val);
                         }
 
                         result
