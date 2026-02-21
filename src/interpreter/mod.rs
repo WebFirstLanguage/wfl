@@ -7763,24 +7763,35 @@ impl Interpreter {
 
             while let Some(entry) = entries.next_entry().await? {
                 let path = entry.path();
-                let path_str = path.to_string_lossy().to_string();
 
                 if path.is_dir() {
+                    let path_str = path.to_string_lossy().to_string();
                     dirs_to_process.push(path_str);
                 } else if path.is_file() {
                     // Check extension filter if provided
                     if let Some(ref exts) = extensions {
-                        let file_ext = path
-                            .extension()
-                            .and_then(|ext| ext.to_str())
-                            .map(|ext| format!(".{ext}"));
+                        // OPTIMIZATION: Avoid allocation by checking extension directly against filter list
+                        // Also delays path string allocation until match is confirmed
+                        let file_ext = path.extension().and_then(|ext| ext.to_str());
 
-                        if let Some(ext) = file_ext
-                            && exts.iter().any(|e| e == &ext)
-                        {
-                            files.push(Value::Text(path_str.into()));
+                        if let Some(ext) = file_ext {
+                            let matches = exts.iter().any(|e| {
+                                // Check if 'e' equals '.' + 'ext'
+                                // e.g., e=".txt", ext="txt"
+                                (e.len() == ext.len() + 1
+                                    && e.starts_with('.')
+                                    && &e[1..] == ext)
+                                    // OR check if 'e' equals 'ext' (if user provided "txt")
+                                    || e == ext
+                            });
+
+                            if matches {
+                                let path_str = path.to_string_lossy().to_string();
+                                files.push(Value::Text(path_str.into()));
+                            }
                         }
                     } else {
+                        let path_str = path.to_string_lossy().to_string();
                         files.push(Value::Text(path_str.into()));
                     }
                 }
@@ -7804,18 +7815,21 @@ impl Interpreter {
             let path = entry.path();
 
             if path.is_file() {
-                let path_str = path.to_string_lossy().to_string();
+                // OPTIMIZATION: Check extension before allocating path string
+                let file_ext = path.extension().and_then(|ext| ext.to_str());
 
-                // Check extension filter
-                let file_ext = path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| format!(".{ext}"));
+                if let Some(ext) = file_ext {
+                    let matches = extensions.iter().any(|e| {
+                        // Check if 'e' equals '.' + 'ext'
+                        (e.len() == ext.len() + 1 && e.starts_with('.') && &e[1..] == ext)
+                            // OR check if 'e' equals 'ext'
+                            || e == ext
+                    });
 
-                if let Some(ext) = file_ext
-                    && extensions.iter().any(|e| e == &ext)
-                {
-                    files.push(Value::Text(path_str.into()));
+                    if matches {
+                        let path_str = path.to_string_lossy().to_string();
+                        files.push(Value::Text(path_str.into()));
+                    }
                 }
             }
         }

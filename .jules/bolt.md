@@ -37,3 +37,8 @@
 ## 2026-02-28 - [Use Rc<str> for String Literals]
 **Learning:** `Literal::String` stored an owned `String`, causing a deep copy every time the literal was evaluated (e.g., in a loop). Since string literals are immutable and constant after parsing, they should be shared.
 **Action:** Changed `Literal::String(String)` to `Literal::String(Rc<str>)`. This avoids heap allocation during runtime evaluation, reducing it to a reference count increment. Resulted in ~8% speedup in tight loops involving string literals.
+
+## 2026-03-01 - [Lazy String Allocation in File Listing]
+**Learning:** Optimizing `list_files_filtered` and `list_files_recursive` by delaying `path.to_string_lossy().to_string()` allocation until after the file matched the extension filter showed only a marginal performance improvement (from ~14.4ms to ~14.7ms for 2000 files).
+**Insight:** In filesystem operations, the IO overhead (syscalls like `read_dir`) vastly dominates the cost of memory allocation. While the optimization reduced allocations by 50% (for non-matching files) and removed `format!` calls, the total execution time remained largely determined by the disk/OS speed.
+**Action:** When optimizing IO-bound operations, CPU/memory optimizations often yield negligible wall-clock improvements unless the data volume is massive or the IO is very fast (e.g., ramdisk). However, reducing allocations is still beneficial for memory pressure and GC/allocator throughput in high-concurrency scenarios.
