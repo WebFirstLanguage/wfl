@@ -274,6 +274,49 @@ pub fn expect_text(value: &Value) -> Result<Arc<str>, RuntimeError> {
     }
 }
 
+/// Helper for unary text operations (Text -> Text)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The text operation to perform. Takes a string slice and returns an Arc<str>.
+pub fn unary_text_op<F>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str) -> Arc<str>,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let text = expect_text(&args[0])?;
+    Ok(Value::Text(op(&text)))
+}
+
+/// Helper for binary text predicates ((Text, Text) -> Bool)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The predicate to evaluate
+pub fn binary_text_predicate<F>(
+    func_name: &str,
+    args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str, &str) -> bool,
+{
+    check_arg_count(func_name, &args, 2)?;
+    let a = expect_text(&args[0])?;
+    let b = expect_text(&args[1])?;
+    Ok(Value::Bool(op(&a, &b)))
+}
+
 /// Extracts a list value from a WFL Value, returning it as a reference-counted mutable vector.
 ///
 /// Returns an `Rc<RefCell<Vec<Value>>>` to enable efficient memory sharing with interior
