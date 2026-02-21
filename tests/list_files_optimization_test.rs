@@ -1,7 +1,7 @@
 use std::fs;
 use std::time::Instant;
-use tokio::time::timeout;
 use tokio::time::Duration;
+use tokio::time::timeout;
 use wfl::interpreter::Interpreter;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
