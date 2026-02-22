@@ -1,4 +1,7 @@
-use super::helpers::{check_arg_count, expect_list, expect_number, expect_text};
+use super::helpers::{
+    binary_list_action, check_arg_count, expect_list, expect_number, expect_text,
+    unary_list_action, unary_list_op,
+};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
@@ -21,30 +24,20 @@ pub fn native_length(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_push(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("push", &args, 2)?;
-
-    let list = expect_list(&args[0])?;
-    let item = args[1].clone();
-
-    list.borrow_mut().push(item);
-    Ok(Value::Null)
+    binary_list_action("push", args, |list, item| list.push(item))
 }
 
 pub fn native_pop(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("pop", &args, 1)?;
-
-    let list = expect_list(&args[0])?;
-    let mut list_ref = list.borrow_mut();
-
-    if list_ref.is_empty() {
-        return Err(RuntimeError::new(
-            "Cannot pop from an empty list".to_string(),
-            0,
-            0,
-        ));
-    }
-
-    Ok(list_ref.pop().unwrap())
+    unary_list_op("pop", args, |list| {
+        if list.is_empty() {
+            return Err(RuntimeError::new(
+                "Cannot pop from an empty list".to_string(),
+                0,
+                0,
+            ));
+        }
+        Ok(list.pop().unwrap())
+    })
 }
 
 pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -131,25 +124,20 @@ pub fn native_indexof(args: Vec<Value>) -> Result<Value, RuntimeError> {
 // --- Batch 3: Basic List Manipulation ---
 
 pub fn native_shift(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("shift", &args, 1)?;
-    let list = expect_list(&args[0])?;
-    let mut list_ref = list.borrow_mut();
-    if list_ref.is_empty() {
-        return Err(RuntimeError::new(
-            "Cannot shift from an empty list".to_string(),
-            0,
-            0,
-        ));
-    }
-    Ok(list_ref.remove(0))
+    unary_list_op("shift", args, |list| {
+        if list.is_empty() {
+            return Err(RuntimeError::new(
+                "Cannot shift from an empty list".to_string(),
+                0,
+                0,
+            ));
+        }
+        Ok(list.remove(0))
+    })
 }
 
 pub fn native_unshift(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("unshift", &args, 2)?;
-    let list = expect_list(&args[0])?;
-    let item = args[1].clone();
-    list.borrow_mut().insert(0, item);
-    Ok(Value::Null)
+    binary_list_action("unshift", args, |list, item| list.insert(0, item))
 }
 
 pub fn native_remove_at(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -193,10 +181,7 @@ pub fn native_insert_at(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_clear(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("clear", &args, 1)?;
-    let list = expect_list(&args[0])?;
-    list.borrow_mut().clear();
-    Ok(Value::Null)
+    unary_list_action("clear", args, |list| list.clear())
 }
 
 pub fn native_slice(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -262,14 +247,11 @@ pub fn native_count(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_fill(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("fill", &args, 2)?;
-    let list = expect_list(&args[0])?;
-    let value = args[1].clone();
-    let mut list_ref = list.borrow_mut();
-    for item in list_ref.iter_mut() {
-        *item = value.clone();
-    }
-    Ok(Value::Null)
+    binary_list_action("fill", args, |list, value| {
+        for item in list.iter_mut() {
+            *item = value.clone();
+        }
+    })
 }
 
 // --- Batch 5: Sort & Reverse ---
@@ -311,18 +293,11 @@ fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
 }
 
 pub fn native_sort(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("sort", &args, 1)?;
-    let list = expect_list(&args[0])?;
-    let mut list_ref = list.borrow_mut();
-    list_ref.sort_by(compare_values);
-    Ok(Value::Null)
+    unary_list_action("sort", args, |list| list.sort_by(compare_values))
 }
 
 pub fn native_reverse_list(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("reverse_list", &args, 1)?;
-    let list = expect_list(&args[0])?;
-    list.borrow_mut().reverse();
-    Ok(Value::Null)
+    unary_list_action("reverse_list", args, |list| list.reverse())
 }
 
 // --- Batch 6: List Search ---
