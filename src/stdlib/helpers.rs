@@ -196,6 +196,68 @@ pub fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
     }
 }
 
+/// Helper for unary text operations (Text -> Text)
+pub fn unary_text_op<F>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str) -> Arc<str>,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let text = expect_text(&args[0])?;
+    Ok(Value::Text(op(&text)))
+}
+
+/// Helper for binary text predicates ((Text, Text) -> Bool)
+pub fn binary_text_predicate<F>(
+    func_name: &str,
+    args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str, &str) -> bool,
+{
+    check_arg_count(func_name, &args, 2)?;
+    let text = expect_text(&args[0])?;
+    let other = expect_text(&args[1])?;
+    Ok(Value::Bool(op(&text, &other)))
+}
+
+/// Helper for unary list actions that modify the list in place and return Null
+pub fn unary_list_action<F>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(&mut Vec<Value>),
+{
+    check_arg_count(func_name, &args, 1)?;
+    let list = expect_list(&args[0])?;
+    op(&mut list.borrow_mut());
+    Ok(Value::Null)
+}
+
+/// Helper for binary list actions that modify the list in place and return Null
+pub fn binary_list_action<F>(
+    func_name: &str,
+    args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: Fn(&mut Vec<Value>, Value),
+{
+    check_arg_count(func_name, &args, 2)?;
+    let list = expect_list(&args[0])?;
+    let item = args[1].clone();
+    op(&mut list.borrow_mut(), item);
+    Ok(Value::Null)
+}
+
+/// Helper for unary list operations that return a value
+pub fn unary_list_op<F>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(&mut Vec<Value>) -> Result<Value, RuntimeError>,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let list = expect_list(&args[0])?;
+    op(&mut list.borrow_mut())
+}
+
 /// Helper for unary math operations (f64 -> f64)
 ///
 /// Handles argument count checking, type extraction, operation execution,
