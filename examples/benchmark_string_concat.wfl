@@ -1,0 +1,21 @@
+store t_start as current time in milliseconds
+store count as 0
+store s as ""
+repeat while count is less than 50000:
+    store s as s with "a"
+    store count as count + 1
+end repeat
+
+store t_end as current time in milliseconds
+display "Concatenation (with): " with (t_end - t_start) with "ms"
+
+store t_start2 as current time in milliseconds
+store count2 as 0
+store s2 as ""
+repeat while count2 is less than 50000:
+    store s2 as s2 + "a"
+    store count2 as count2 + 1
+end repeat
+
+store t_end2 as current time in milliseconds
+display "Concatenation (+): " with (t_end2 - t_start2) with "ms"
