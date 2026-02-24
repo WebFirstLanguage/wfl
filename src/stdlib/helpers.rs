@@ -235,6 +235,51 @@ where
     Ok(Value::Number(op(a, b)))
 }
 
+/// Helper for unary text operations (text -> text)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping. The operation closure can return any type that implements
+/// `Into<Arc<str>>` (e.g., `String`, `&str`, `Arc<str>`).
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The text transformation to perform
+pub fn unary_text_op<F, R>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str) -> R,
+    R: Into<Arc<str>>,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let text = expect_text(&args[0])?;
+    Ok(Value::Text(op(&text).into()))
+}
+
+/// Helper for binary text predicates ((text, text) -> bool)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping. Used for checks like starts_with, ends_with, etc.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The predicate to evaluate
+pub fn binary_text_predicate<F>(
+    func_name: &str,
+    args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str, &str) -> bool,
+{
+    check_arg_count(func_name, &args, 2)?;
+    let text = expect_text(&args[0])?;
+    let arg = expect_text(&args[1])?;
+    Ok(Value::Bool(op(&text, &arg)))
+}
+
 /// Extracts a text value from a WFL Value, returning it as a reference-counted string.
 ///
 /// Returns an `Rc<str>` to enable efficient memory sharing without copying the string
