@@ -102,10 +102,41 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
         return Ok(Value::Text(Arc::from("")));
     }
 
-    // Optimization: Avoid intermediate String and Vec<char> allocations
-    // by iterating directly over characters.
-    // Note: skip(start) implicitly handles out-of-bounds start (returns empty).
-    let substring: String = text.chars().skip(start).take(length).collect();
+    // Optimization: Use chars() iterator which is highly optimized for skipping
+    // and as_str() to get slices without allocating intermediate strings.
+    let mut chars = text.chars();
+
+    // Skip to start
+    if start > 0 {
+        if chars.nth(start - 1).is_none() {
+            return Ok(Value::Text(Arc::from("")));
+        }
+    }
+
+    // Slice starting at 'start'
+    let start_slice = chars.as_str();
+
+    if length == 0 {
+        return Ok(Value::Text(Arc::from("")));
+    }
+
+    // Skip 'length' characters to find the end
+    // nth(n) skips n items and returns the (n+1)th.
+    // We want to consume 'length' items.
+    // nth(length - 1) will consume 'length' items.
+    if chars.nth(length - 1).is_none() {
+        // Length exceeds remaining string, return everything from start
+        return Ok(Value::Text(Arc::from(start_slice)));
+    }
+
+    // The iterator is now positioned after the substring
+    let end_slice = chars.as_str();
+
+    // Calculate byte length of the substring
+    let byte_len = start_slice.len() - end_slice.len();
+
+    // Slice the substring from the start slice
+    let substring = &start_slice[..byte_len];
 
     Ok(Value::Text(Arc::from(substring)))
 }
@@ -542,5 +573,119 @@ mod tests {
         } else {
             panic!("Expected text");
         }
+    }
+
+    #[test]
+    fn test_substring() {
+        // Normal case
+        let result = native_substring(vec![
+            Value::Text(Arc::from("hello world")),
+            Value::Number(6.0),
+            Value::Number(5.0),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("world")));
+    }
+
+    #[test]
+    fn test_substring_out_of_bounds_start() {
+        let result = native_substring(vec![
+            Value::Text(Arc::from("hello")),
+            Value::Number(10.0),
+            Value::Number(5.0),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("")));
+    }
+
+    #[test]
+    fn test_substring_length_exceeds_end() {
+        let result = native_substring(vec![
+            Value::Text(Arc::from("hello")),
+            Value::Number(2.0),
+            Value::Number(10.0),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("llo")));
+    }
+
+    #[test]
+    fn test_substring_empty_string() {
+        let result = native_substring(vec![
+            Value::Text(Arc::from("")),
+            Value::Number(0.0),
+            Value::Number(5.0),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("")));
+    }
+
+    #[test]
+    fn test_substring_zero_length() {
+        let result = native_substring(vec![
+            Value::Text(Arc::from("hello")),
+            Value::Number(1.0),
+            Value::Number(0.0),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("")));
+    }
+
+    #[test]
+    fn test_substring_unicode() {
+        // "café" -> c(1), a(1), f(1), é(2)
+        // Indices: 0, 1, 2, 3(4)
+        // Length 4 chars.
+
+        let result = native_substring(vec![
+            Value::Text(Arc::from("café")),
+            Value::Number(1.0),
+            Value::Number(3.0),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("afé")));
+    }
+
+    #[test]
+    fn test_substring_unicode_middle() {
+        // "heéllo"
+        // 0: h
+        // 1: e
+        // 2: é (2 bytes)
+        // 3: l
+        // 4: l
+        // 5: o
+
+        let result = native_substring(vec![
+            Value::Text(Arc::from("heéllo")),
+            Value::Number(2.0),
+            Value::Number(1.0),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("é")));
+    }
+
+    #[test]
+    fn test_substring_emoji() {
+        // "👋 world"
+        // 0: 👋 (4 bytes)
+        // 1: space
+        // 2: w
+
+        let result = native_substring(vec![
+            Value::Text(Arc::from("👋 world")),
+            Value::Number(0.0),
+            Value::Number(1.0),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("👋")));
+
+        let result = native_substring(vec![
+            Value::Text(Arc::from("👋 world")),
+            Value::Number(1.0),
+            Value::Number(5.0),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from(" worl")));
     }
 }
