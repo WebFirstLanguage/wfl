@@ -107,10 +107,8 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let mut chars = text.chars();
 
     // Skip to start
-    if start > 0 {
-        if chars.nth(start - 1).is_none() {
-            return Ok(Value::Text(Arc::from("")));
-        }
+    if start > 0 && chars.nth(start - 1).is_none() {
+        return Ok(Value::Text(Arc::from("")));
     }
 
     // Slice starting at 'start'
