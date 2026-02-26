@@ -3298,7 +3298,7 @@ dependencies = [
 
 [[package]]
 name = "wfl"
-version = "26.2.29"
+version = "26.2.30"
 dependencies = [
  "bytes",
  "chrono",
