@@ -196,6 +196,51 @@ pub fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
     }
 }
 
+/// Helper for unary text operations (text -> text)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The text operation to perform
+pub fn unary_text_op<F, R>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str) -> R,
+    R: Into<Arc<str>>,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let text = expect_text(&args[0])?;
+    Ok(Value::Text(op(&text).into()))
+}
+
+/// Helper for binary text predicates ((text, text) -> bool)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The text predicate to perform
+pub fn binary_text_predicate<F>(
+    func_name: &str,
+    args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str, &str) -> bool,
+{
+    check_arg_count(func_name, &args, 2)?;
+    let text = expect_text(&args[0])?;
+    let other = expect_text(&args[1])?;
+    Ok(Value::Bool(op(&text, &other)))
+}
+
+
 /// Helper for unary math operations (f64 -> f64)
 ///
 /// Handles argument count checking, type extraction, operation execution,
@@ -471,5 +516,50 @@ pub fn expect_datetime(value: &Value) -> Result<Rc<chrono::NaiveDateTime>, Runti
             0,
             0,
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_unary_text_op() {
+        let op = |s: &str| s.to_uppercase();
+        let result = unary_text_op("test_op", vec![Value::Text(Arc::from("hello"))], op).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("HELLO")));
+    }
+
+    #[test]
+    fn test_unary_text_op_arg_count() {
+        let op = |s: &str| s.to_uppercase();
+        assert!(unary_text_op("test_op", vec![], op).is_err());
+    }
+
+    #[test]
+    fn test_unary_text_op_wrong_type() {
+        let op = |s: &str| s.to_uppercase();
+        assert!(unary_text_op("test_op", vec![Value::Number(1.0)], op).is_err());
+    }
+
+    #[test]
+    fn test_binary_text_predicate() {
+        let op = |a: &str, b: &str| a.starts_with(b);
+        let result = binary_text_predicate(
+            "test_pred",
+            vec![
+                Value::Text(Arc::from("hello world")),
+                Value::Text(Arc::from("hello")),
+            ],
+            op,
+        )
+        .unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_binary_text_predicate_arg_count() {
+        let op = |a: &str, b: &str| a.starts_with(b);
+        assert!(binary_text_predicate("test_pred", vec![], op).is_err());
     }
 }
