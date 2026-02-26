@@ -196,6 +196,50 @@ pub fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
     }
 }
 
+/// Helper for unary text operations (String -> String)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The text operation to perform. Returns any type that can be converted into Arc<str> (e.g. String, &str)
+pub fn unary_text_op<F, R>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str) -> R,
+    R: Into<Arc<str>>,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let text = expect_text(&args[0])?;
+    Ok(Value::Text(op(&text).into()))
+}
+
+/// Helper for binary text predicates ((String, String) -> bool)
+///
+/// Handles argument count checking, type extraction, operation execution,
+/// and result wrapping for functions that return a boolean based on two strings.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The predicate operation to perform
+pub fn binary_text_predicate<F>(
+    func_name: &str,
+    args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: Fn(&str, &str) -> bool,
+{
+    check_arg_count(func_name, &args, 2)?;
+    let text = expect_text(&args[0])?;
+    let pattern = expect_text(&args[1])?;
+    Ok(Value::Bool(op(&text, &pattern)))
+}
+
 /// Helper for unary math operations (f64 -> f64)
 ///
 /// Handles argument count checking, type extraction, operation execution,
