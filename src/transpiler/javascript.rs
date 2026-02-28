@@ -1269,8 +1269,9 @@ impl JavaScriptTranspiler {
                         cached_server_var
                     ));
                     result.push_str(&format!(
-                        "{}reject(new Error('Request timeout'));\n",
-                        self.indent()
+                        "{}reject(new Error('Request timeout: ' + {} + 'ms'));\n",
+                        self.indent(),
+                        timeout_expr
                     ));
                     self.pop_indent();
                     result.push_str(&format!("{}}}, {});\n", self.indent(), timeout_expr));
@@ -1283,14 +1284,13 @@ impl JavaScriptTranspiler {
             }
 
             Statement::RespondStatement {
+                request,
                 content,
                 status,
                 content_type,
-                line,
-                column,
                 ..
             } => {
-                self.warn("Respond requires request context in JS", *line, *column);
+                let req_expr = self.transpile_expression(request)?;
                 let content_expr = self.transpile_expression(content)?;
                 let status_expr = status
                     .as_ref()
@@ -1303,10 +1303,14 @@ impl JavaScriptTranspiler {
                     .transpose()?
                     .unwrap_or_else(|| "'text/html'".to_string());
                 Ok(format!(
-                    "{}// response.writeHead({}, {{ 'Content-Type': {} }}); response.end({});\n",
+                    "{}({}.response || {}).writeHead({}, {{ 'Content-Type': {} }}); ({}.response || {}).end({});\n",
                     self.indent(),
+                    req_expr,
+                    req_expr,
                     status_expr,
                     ct_expr,
+                    req_expr,
+                    req_expr,
                     content_expr
                 ))
             }
@@ -1675,7 +1679,12 @@ impl JavaScriptTranspiler {
                 ..
             } => {
                 let req = self.transpile_expression(request)?;
-                Ok(format!("{}.headers['{}']", req, header_name.to_lowercase()))
+                // Request variable from WaitForRequest resolves to { request, response }
+                // So if we see header access, we should access the nested .request.headers.
+                // Alternatively, we can assume the user explicitly passes the nested req, but
+                // normally in WFL they just do `req's header "..."`. We'll output logic
+                // that handles both direct NodeJS IncomingMessage and our wrapper object.
+                Ok(format!("({}.request || {}).headers['{}']", req, req, header_name.to_lowercase()))
             }
 
             Expression::CurrentTimeMilliseconds { .. } => Ok("Date.now()".to_string()),
@@ -1947,6 +1956,18 @@ impl JavaScriptTranspiler {
                     || else_block
                         .as_ref()
                         .map(|b| self.contains_async(b))
+                        .unwrap_or(false)
+            }
+
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                self.stmt_is_async(then_stmt)
+                    || else_stmt
+                        .as_ref()
+                        .map(|b| self.stmt_is_async(b))
                         .unwrap_or(false)
             }
 
