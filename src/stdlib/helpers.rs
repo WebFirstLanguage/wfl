@@ -517,3 +517,45 @@ pub fn expect_datetime(value: &Value) -> Result<Rc<chrono::NaiveDateTime>, Runti
         )),
     }
 }
+
+/// Helper for unary list operations (List -> Value)
+///
+/// Handles argument count checking, type extraction, and operation execution.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The operation to perform on the list
+pub fn unary_list_op<F>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
+where
+    F: FnOnce(Rc<RefCell<Vec<Value>>>) -> Result<Value, RuntimeError>,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let list = expect_list(&args[0])?;
+    op(list)
+}
+
+/// Helper for binary list value operations ((List, Value) -> Value)
+///
+/// Optimizes memory usage by taking ownership of the argument vector and
+/// popping the last value, avoiding unnecessary clones of the second argument.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The operation to perform on the list and value
+pub fn binary_list_val_op<F>(
+    func_name: &str,
+    mut args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: FnOnce(Rc<RefCell<Vec<Value>>>, Value) -> Result<Value, RuntimeError>,
+{
+    check_arg_count(func_name, &args, 2)?;
+    let val = args.pop().unwrap();
+    let list = expect_list(&args[0])?;
+    op(list, val)
+}

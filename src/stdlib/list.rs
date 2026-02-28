@@ -1,4 +1,6 @@
-use super::helpers::{check_arg_count, expect_list, expect_number, expect_text};
+use super::helpers::{
+    binary_list_val_op, check_arg_count, expect_list, expect_number, unary_list_op,
+};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
@@ -21,30 +23,24 @@ pub fn native_length(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_push(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("push", &args, 2)?;
-
-    let list = expect_list(&args[0])?;
-    let item = args[1].clone();
-
-    list.borrow_mut().push(item);
-    Ok(Value::Null)
+    binary_list_val_op("push", args, |list, item| {
+        list.borrow_mut().push(item);
+        Ok(Value::Null)
+    })
 }
 
 pub fn native_pop(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("pop", &args, 1)?;
-
-    let list = expect_list(&args[0])?;
-    let mut list_ref = list.borrow_mut();
-
-    if list_ref.is_empty() {
-        return Err(RuntimeError::new(
-            "Cannot pop from an empty list".to_string(),
-            0,
-            0,
-        ));
-    }
-
-    Ok(list_ref.pop().unwrap())
+    unary_list_op("pop", args, |list| {
+        let mut list_ref = list.borrow_mut();
+        if list_ref.is_empty() {
+            return Err(RuntimeError::new(
+                "Cannot pop from an empty list".to_string(),
+                0,
+                0,
+            ));
+        }
+        Ok(list_ref.pop().unwrap())
+    })
 }
 
 pub fn native_contains(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -131,44 +127,43 @@ pub fn native_indexof(args: Vec<Value>) -> Result<Value, RuntimeError> {
 // --- Batch 3: Basic List Manipulation ---
 
 pub fn native_shift(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("shift", &args, 1)?;
-    let list = expect_list(&args[0])?;
-    let mut list_ref = list.borrow_mut();
-    if list_ref.is_empty() {
-        return Err(RuntimeError::new(
-            "Cannot shift from an empty list".to_string(),
-            0,
-            0,
-        ));
-    }
-    Ok(list_ref.remove(0))
+    unary_list_op("shift", args, |list| {
+        let mut list_ref = list.borrow_mut();
+        if list_ref.is_empty() {
+            return Err(RuntimeError::new(
+                "Cannot shift from an empty list".to_string(),
+                0,
+                0,
+            ));
+        }
+        Ok(list_ref.remove(0))
+    })
 }
 
 pub fn native_unshift(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("unshift", &args, 2)?;
-    let list = expect_list(&args[0])?;
-    let item = args[1].clone();
-    list.borrow_mut().insert(0, item);
-    Ok(Value::Null)
+    binary_list_val_op("unshift", args, |list, item| {
+        list.borrow_mut().insert(0, item);
+        Ok(Value::Null)
+    })
 }
 
 pub fn native_remove_at(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("remove_at", &args, 2)?;
-    let list = expect_list(&args[0])?;
-    let index = expect_number(&args[1])? as i64;
-    let mut list_ref = list.borrow_mut();
-    if index < 0 || index as usize >= list_ref.len() {
-        return Err(RuntimeError::new(
-            format!(
-                "Index {} out of bounds for list of length {}",
-                index,
-                list_ref.len()
-            ),
-            0,
-            0,
-        ));
-    }
-    Ok(list_ref.remove(index as usize))
+    binary_list_val_op("remove_at", args, |list, index_val| {
+        let index = super::helpers::expect_number(&index_val)? as i64;
+        let mut list_ref = list.borrow_mut();
+        if index < 0 || index as usize >= list_ref.len() {
+            return Err(RuntimeError::new(
+                format!(
+                    "Index {} out of bounds for list of length {}",
+                    index,
+                    list_ref.len()
+                ),
+                0,
+                0,
+            ));
+        }
+        Ok(list_ref.remove(index as usize))
+    })
 }
 
 pub fn native_insert_at(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -193,10 +188,10 @@ pub fn native_insert_at(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_clear(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("clear", &args, 1)?;
-    let list = expect_list(&args[0])?;
-    list.borrow_mut().clear();
-    Ok(Value::Null)
+    unary_list_op("clear", args, |list| {
+        list.borrow_mut().clear();
+        Ok(Value::Null)
+    })
 }
 
 pub fn native_slice(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -217,59 +212,57 @@ pub fn native_slice(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_concat(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("concat", &args, 2)?;
-    let list_a = expect_list(&args[0])?;
-    let list_b = expect_list(&args[1])?;
-    let mut result = list_a.borrow().clone();
-    result.extend(list_b.borrow().iter().cloned());
-    Ok(Value::List(Rc::new(RefCell::new(result))))
+    binary_list_val_op("concat", args, |list_a, list_b_val| {
+        let list_b = super::helpers::expect_list(&list_b_val)?;
+        let mut result = list_a.borrow().clone();
+        result.extend(list_b.borrow().iter().cloned());
+        Ok(Value::List(Rc::new(RefCell::new(result))))
+    })
 }
 
 // --- Batch 4: List Utilities ---
 
 pub fn native_join(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("join", &args, 2)?;
-    let list = expect_list(&args[0])?;
-    let delimiter = expect_text(&args[1])?;
-    let list_ref = list.borrow();
-    let parts: Vec<String> = list_ref.iter().map(|v| v.to_string()).collect();
-    let result = parts.join(delimiter.as_ref());
-    Ok(Value::Text(Arc::from(result)))
+    binary_list_val_op("join", args, |list, delimiter_val| {
+        let delimiter = super::helpers::expect_text(&delimiter_val)?;
+        let list_ref = list.borrow();
+        let parts: Vec<String> = list_ref.iter().map(|v| v.to_string()).collect();
+        let result = parts.join(delimiter.as_ref());
+        Ok(Value::Text(Arc::from(result)))
+    })
 }
 
 pub fn native_unique(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("unique", &args, 1)?;
-    let list = expect_list(&args[0])?;
-    let list_ref = list.borrow();
-    let mut seen_keys = std::collections::HashSet::new();
-    let mut result = Vec::new();
-    for item in list_ref.iter() {
-        let key = format!("{:?}:{}", std::mem::discriminant(item), item);
-        if seen_keys.insert(key) {
-            result.push(item.clone());
+    unary_list_op("unique", args, |list| {
+        let list_ref = list.borrow();
+        let mut seen_keys = std::collections::HashSet::new();
+        let mut result = Vec::new();
+        for item in list_ref.iter() {
+            let key = format!("{:?}:{}", std::mem::discriminant(item), item);
+            if seen_keys.insert(key) {
+                result.push(item.clone());
+            }
         }
-    }
-    Ok(Value::List(Rc::new(RefCell::new(result))))
+        Ok(Value::List(Rc::new(RefCell::new(result))))
+    })
 }
 
 pub fn native_count(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("count", &args, 2)?;
-    let list = expect_list(&args[0])?;
-    let target = &args[1];
-    let list_ref = list.borrow();
-    let count = list_ref.iter().filter(|v| *v == target).count();
-    Ok(Value::Number(count as f64))
+    binary_list_val_op("count", args, |list, target| {
+        let list_ref = list.borrow();
+        let count = list_ref.iter().filter(|v| **v == target).count();
+        Ok(Value::Number(count as f64))
+    })
 }
 
 pub fn native_fill(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("fill", &args, 2)?;
-    let list = expect_list(&args[0])?;
-    let value = args[1].clone();
-    let mut list_ref = list.borrow_mut();
-    for item in list_ref.iter_mut() {
-        *item = value.clone();
-    }
-    Ok(Value::Null)
+    binary_list_val_op("fill", args, |list, value| {
+        let mut list_ref = list.borrow_mut();
+        for item in list_ref.iter_mut() {
+            *item = value.clone();
+        }
+        Ok(Value::Null)
+    })
 }
 
 // --- Batch 5: Sort & Reverse ---
@@ -311,51 +304,47 @@ fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
 }
 
 pub fn native_sort(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("sort", &args, 1)?;
-    let list = expect_list(&args[0])?;
-    let mut list_ref = list.borrow_mut();
-    list_ref.sort_by(compare_values);
-    Ok(Value::Null)
+    unary_list_op("sort", args, |list| {
+        list.borrow_mut().sort_by(compare_values);
+        Ok(Value::Null)
+    })
 }
 
 pub fn native_reverse_list(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("reverse_list", &args, 1)?;
-    let list = expect_list(&args[0])?;
-    list.borrow_mut().reverse();
-    Ok(Value::Null)
+    unary_list_op("reverse_list", args, |list| {
+        list.borrow_mut().reverse();
+        Ok(Value::Null)
+    })
 }
 
 // --- Batch 6: List Search ---
 
 pub fn native_find(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("find", &args, 2)?;
-    let list = expect_list(&args[0])?;
-    let target = &args[1];
-    let list_ref = list.borrow();
-    for item in list_ref.iter() {
-        if item == target {
-            return Ok(item.clone());
+    binary_list_val_op("find", args, |list, target| {
+        let list_ref = list.borrow();
+        for item in list_ref.iter() {
+            if *item == target {
+                return Ok(item.clone());
+            }
         }
-    }
-    Ok(Value::Nothing)
+        Ok(Value::Nothing)
+    })
 }
 
 pub fn native_every(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("every", &args, 2)?;
-    let list = expect_list(&args[0])?;
-    let target = &args[1];
-    let list_ref = list.borrow();
-    let result = list_ref.iter().all(|v| v == target);
-    Ok(Value::Bool(result))
+    binary_list_val_op("every", args, |list, target| {
+        let list_ref = list.borrow();
+        let result = list_ref.iter().all(|v| *v == target);
+        Ok(Value::Bool(result))
+    })
 }
 
 pub fn native_some(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("some", &args, 2)?;
-    let list = expect_list(&args[0])?;
-    let target = &args[1];
-    let list_ref = list.borrow();
-    let result = list_ref.iter().any(|v| v == target);
-    Ok(Value::Bool(result))
+    binary_list_val_op("some", args, |list, target| {
+        let list_ref = list.borrow();
+        let result = list_ref.contains(&target);
+        Ok(Value::Bool(result))
+    })
 }
 
 pub fn register_list(env: &mut Environment) {
