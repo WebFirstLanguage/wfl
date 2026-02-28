@@ -269,12 +269,21 @@ fn perform_pad(args: Vec<Value>, pad_left: bool) -> Result<Value, RuntimeError> 
     if len >= width {
         Ok(Value::Text(Arc::clone(&text)))
     } else {
-        let padding = " ".repeat(width - len);
-        let result = if pad_left {
-            format!("{}{}", padding, text)
+        let padding_len = width - len;
+        let capacity = text.len() + padding_len;
+        let mut result = String::with_capacity(capacity);
+
+        if pad_left {
+            for _ in 0..padding_len {
+                result.push(' ');
+            }
+            result.push_str(&text);
         } else {
-            format!("{}{}", text, padding)
-        };
+            result.push_str(&text);
+            for _ in 0..padding_len {
+                result.push(' ');
+            }
+        }
         Ok(Value::Text(Arc::from(result)))
     }
 }
