@@ -599,7 +599,10 @@ fn test_wait_for_request() {
     assert_contains(&js, "timeoutId = setTimeout(() => {");
     assert_contains(&js, "const __server_req2 = my_server;");
     assert_contains(&js, "__server_req2.removeListener('request', handler);");
-    assert_contains(&js, "reject(new Error('Request timeout: ' + timeoutMs + 'ms'));");
+    assert_contains(
+        &js,
+        "reject(new Error('Request timeout: ' + timeoutMs + 'ms'));",
+    );
     assert_contains(&js, "}, timeoutMs);");
 }
 
@@ -627,7 +630,10 @@ fn test_wait_for_request_header_access() {
 
     let js = transpile_wfl(source).unwrap();
     // Verify header access handles the { request, response } wrapper properly
-    assert_contains(&js, "(() => { const __req = req; return (__req.request || __req).headers['user-agent']; })()");
+    assert_contains(
+        &js,
+        "(() => { const __req = req; return (__req.request || __req).headers['user-agent']; })()",
+    );
     // Verify respond handles the { request, response } wrapper properly
     assert_contains(
         &js,
