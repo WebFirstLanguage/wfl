@@ -202,18 +202,25 @@ impl JavaScriptTranspiler {
             } => {
                 let cond = self.transpile_expression(condition)?;
                 let then_code = self.transpile_statement(then_stmt)?;
-                let mut result =
-                    format!("{}if ({}) {}", self.indent(), cond, then_code.trim_start());
-                if let Some(else_s) = else_stmt {
+
+                let result = if let Some(else_s) = else_stmt {
                     let else_code = self.transpile_statement(else_s)?;
-                    result = format!(
+                    format!(
                         "{}if ({}) {{ {} }} else {{ {} }}\n",
                         self.indent(),
                         cond,
                         then_code.trim(),
                         else_code.trim()
-                    );
-                }
+                    )
+                } else {
+                    format!(
+                        "{}if ({}) {{ {} }}\n",
+                        self.indent(),
+                        cond,
+                        then_code.trim()
+                    )
+                };
+
                 Ok(result)
             }
 
@@ -1259,6 +1266,11 @@ impl JavaScriptTranspiler {
                 if let Some(t) = timeout {
                     let timeout_expr = self.transpile_expression(t)?;
                     result.push_str(&format!(
+                        "{}const timeoutMs = {};\n",
+                        self.indent(),
+                        timeout_expr
+                    ));
+                    result.push_str(&format!(
                         "{}timeoutId = setTimeout(() => {{\n",
                         self.indent()
                     ));
@@ -1269,12 +1281,11 @@ impl JavaScriptTranspiler {
                         cached_server_var
                     ));
                     result.push_str(&format!(
-                        "{}reject(new Error('Request timeout: ' + {} + 'ms'));\n",
-                        self.indent(),
-                        timeout_expr
+                        "{}reject(new Error('Request timeout: ' + timeoutMs + 'ms'));\n",
+                        self.indent()
                     ));
                     self.pop_indent();
-                    result.push_str(&format!("{}}}, {});\n", self.indent(), timeout_expr));
+                    result.push_str(&format!("{}}}, timeoutMs);\n", self.indent()));
                 }
 
                 self.pop_indent();
@@ -1303,14 +1314,12 @@ impl JavaScriptTranspiler {
                     .transpose()?
                     .unwrap_or_else(|| "'text/html'".to_string());
                 Ok(format!(
-                    "{}({}.response || {}).writeHead({}, {{ 'Content-Type': {} }}); ({}.response || {}).end({});\n",
+                    "{}void (() => {{ const __res = {}.response || {}; __res.writeHead({}, {{ 'Content-Type': {} }}); __res.end({}); }})();\n",
                     self.indent(),
                     req_expr,
                     req_expr,
                     status_expr,
                     ct_expr,
-                    req_expr,
-                    req_expr,
                     content_expr
                 ))
             }
@@ -1680,13 +1689,9 @@ impl JavaScriptTranspiler {
             } => {
                 let req = self.transpile_expression(request)?;
                 // Request variable from WaitForRequest resolves to { request, response }
-                // So if we see header access, we should access the nested .request.headers.
-                // Alternatively, we can assume the user explicitly passes the nested req, but
-                // normally in WFL they just do `req's header "..."`. We'll output logic
-                // that handles both direct NodeJS IncomingMessage and our wrapper object.
+                // We use an IIFE to cache the request variable evaluation.
                 Ok(format!(
-                    "({}.request || {}).headers['{}']",
-                    req,
+                    "(() => {{ const __req = {}; return (__req.request || __req).headers['{}']; }})()",
                     req,
                     header_name.to_lowercase()
                 ))

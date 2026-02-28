@@ -595,11 +595,12 @@ fn test_wait_for_request() {
 
     // Second wait for request with timeout
     assert_contains(&js, "let req2 = await new Promise((resolve, reject) => {");
+    assert_contains(&js, "const timeoutMs = 5000;");
     assert_contains(&js, "timeoutId = setTimeout(() => {");
     assert_contains(&js, "const __server_req2 = my_server;");
     assert_contains(&js, "__server_req2.removeListener('request', handler);");
-    assert_contains(&js, "reject(new Error('Request timeout: ' + 5000 + 'ms'));");
-    assert_contains(&js, "}, 5000);");
+    assert_contains(&js, "reject(new Error('Request timeout: ' + timeoutMs + 'ms'));");
+    assert_contains(&js, "}, timeoutMs);");
 }
 
 #[test]
@@ -626,10 +627,10 @@ fn test_wait_for_request_header_access() {
 
     let js = transpile_wfl(source).unwrap();
     // Verify header access handles the { request, response } wrapper properly
-    assert_contains(&js, "(req.request || req).headers['user-agent']");
+    assert_contains(&js, "(() => { const __req = req; return (__req.request || __req).headers['user-agent']; })()");
     // Verify respond handles the { request, response } wrapper properly
     assert_contains(
         &js,
-        "(req.response || req).writeHead(200, { 'Content-Type': 'text/html' }); (req.response || req).end(\"OK\");",
+        "void (() => { const __res = req.response || req; __res.writeHead(200, { 'Content-Type': 'text/html' }); __res.end(\"OK\"); })();",
     );
 }
