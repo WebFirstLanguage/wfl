@@ -628,5 +628,8 @@ fn test_wait_for_request_header_access() {
     // Verify header access handles the { request, response } wrapper properly
     assert_contains(&js, "(req.request || req).headers['user-agent']");
     // Verify respond handles the { request, response } wrapper properly
-    assert_contains(&js, "(req.response || req).writeHead(200, { 'Content-Type': 'text/html' }); (req.response || req).end(\"OK\");");
+    assert_contains(
+        &js,
+        "(req.response || req).writeHead(200, { 'Content-Type': 'text/html' }); (req.response || req).end(\"OK\");",
+    );
 }

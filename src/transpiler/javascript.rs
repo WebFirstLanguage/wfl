@@ -1684,7 +1684,12 @@ impl JavaScriptTranspiler {
                 // Alternatively, we can assume the user explicitly passes the nested req, but
                 // normally in WFL they just do `req's header "..."`. We'll output logic
                 // that handles both direct NodeJS IncomingMessage and our wrapper object.
-                Ok(format!("({}.request || {}).headers['{}']", req, req, header_name.to_lowercase()))
+                Ok(format!(
+                    "({}.request || {}).headers['{}']",
+                    req,
+                    req,
+                    header_name.to_lowercase()
+                ))
             }
 
             Expression::CurrentTimeMilliseconds { .. } => Ok("Date.now()".to_string()),
