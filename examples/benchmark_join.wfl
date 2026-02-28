@@ -1,18 +1,15 @@
-store the_list as create list:
+create list items:
+    add 1
 end list
 
-store c as 0
-repeat while c is less than 10000:
-    push with the_list and "item_" with c
-    store c as c + 1
-end repeat
+count from 1 to 10000:
+    add count to items
+end count
 
-store t1 as current time in milliseconds
-store i as 0
-repeat while i is less than 100:
-    store res as join of the_list and ","
-    store i as i + 1
-end repeat
-store t2 as current time in milliseconds
+store start_time as current time in milliseconds
+count from 1 to 100:
+    join of items and ","
+end count
+store end_time as current time in milliseconds
 
-display "Time: " with (t2 - t1) with "ms"
+display "Time taken: " with (end_time - start_time) with " ms"

@@ -226,8 +226,44 @@ pub fn native_join(args: Vec<Value>) -> Result<Value, RuntimeError> {
     binary_list_val_op("join", args, |list, delimiter_val| {
         let delimiter = super::helpers::expect_text(&delimiter_val)?;
         let list_ref = list.borrow();
-        let parts: Vec<String> = list_ref.iter().map(|v| v.to_string()).collect();
-        let result = parts.join(delimiter.as_ref());
+
+        if list_ref.is_empty() {
+            return Ok(Value::Text(Arc::from("")));
+        }
+
+        let delimiter_len = delimiter.len();
+        let mut total_len = 0;
+        let list_len = list_ref.len();
+
+        for item in list_ref.iter() {
+            match item {
+                Value::Text(s) => total_len += s.len(),
+                Value::Number(_) => total_len += 20,
+                Value::Bool(b) => total_len += if *b { 3 } else { 2 },
+                _ => total_len += 16,
+            }
+        }
+
+        if list_len > 1 {
+            total_len += (list_len - 1) * delimiter_len;
+        }
+
+        let mut result = String::with_capacity(total_len);
+
+        for (i, item) in list_ref.iter().enumerate() {
+            if i > 0 {
+                result.push_str(&delimiter);
+            }
+
+            match item {
+                Value::Text(s) => result.push_str(s),
+                _ => {
+                    use std::fmt::Write;
+                    let _ = write!(result, "{}", item);
+                }
+            }
+        }
+
         Ok(Value::Text(Arc::from(result)))
     })
 }
