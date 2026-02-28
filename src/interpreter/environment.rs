@@ -175,14 +175,13 @@ impl Environment {
     }
 
     pub fn assign(&mut self, name: &str, value: Value) -> Result<(), String> {
-        // Check if it's a constant in current scope
-        if self.constants.contains(name) {
-            return Err(format!("Cannot modify constant '{name}'"));
-        }
-
         // Check current scope
         // Optimization: Use get_mut to update the value in place, avoiding a String allocation for the key.
         if let Some(val_ref) = self.values.get_mut(name) {
+            // Check if it's a constant in current scope AFTER confirming existence
+            if self.constants.contains(name) {
+                return Err(format!("Cannot modify constant '{name}'"));
+            }
             *val_ref = value;
             return Ok(());
         }
@@ -194,12 +193,14 @@ impl Environment {
         while let Some(parent_rc) = current_parent {
             let mut parent = parent_rc.borrow_mut();
 
-            if parent.constants.contains(name) {
-                return Err(format!("Cannot modify constant '{name}'"));
-            }
+            let is_constant = parent.constants.contains(name);
 
             // Optimization: Use get_mut to update the value in place, avoiding a String allocation for the key.
             if let Some(val_ref) = parent.values.get_mut(name) {
+                if is_constant {
+                    return Err(format!("Cannot modify constant '{name}'"));
+                }
+
                 // If we are in an isolated context (or passed through one), we cannot modify parent variable
                 if is_isolated_context {
                     return Err(format!(

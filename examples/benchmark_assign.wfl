@@ -1,0 +1,26 @@
+store a as 0
+store b as 1
+store c as 2
+store d as 3
+store e as 4
+
+store t1 as current time in milliseconds
+
+store i as 0
+repeat while i is less than 100000:
+    change a to 1
+    change b to 2
+    change c to 3
+    change d to 4
+    change e to 5
+    change a to 0
+    change b to 1
+    change c to 2
+    change d to 3
+    change e to 4
+    change i to i + 1
+end repeat
+
+store t2 as current time in milliseconds
+
+display "Time: " with (t2 - t1) with "ms"
