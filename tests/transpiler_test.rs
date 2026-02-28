@@ -574,3 +574,69 @@ fn test_wait_for_with_variable_declaration() {
     assert_contains(&js, "let result = await 42");
     assert!(!js.contains("await let"));
 }
+
+#[test]
+fn test_wait_for_request() {
+    let source = r#"
+        listen on port 8080 as my_server
+        wait for request comes in on my_server as req
+        wait for request comes in on my_server as req2 with timeout 5000
+    "#;
+
+    let js = transpile_wfl(source).unwrap();
+
+    // First wait for request
+    assert_contains(&js, "let req = await new Promise((resolve, reject) => {");
+    assert_contains(&js, "const handler = (req, res) => {");
+    assert_contains(&js, "const __server_req = my_server;");
+    assert_contains(&js, "__server_req.removeListener('request', handler);");
+    assert_contains(&js, "resolve({ request: req, response: res });");
+    assert_contains(&js, "__server_req.on('request', handler);");
+
+    // Second wait for request with timeout
+    assert_contains(&js, "let req2 = await new Promise((resolve, reject) => {");
+    assert_contains(&js, "const timeoutMs = 5000;");
+    assert_contains(&js, "timeoutId = setTimeout(() => {");
+    assert_contains(&js, "const __server_req2 = my_server;");
+    assert_contains(&js, "__server_req2.removeListener('request', handler);");
+    assert_contains(
+        &js,
+        "reject(new Error('Request timeout: ' + timeoutMs + 'ms'));",
+    );
+    assert_contains(&js, "}, timeoutMs);");
+}
+
+#[test]
+fn test_top_level_async_single_line_if() {
+    let source = r#"
+        check if true: wait for 1 seconds
+        end check
+    "#;
+
+    let js = transpile_wfl(source).unwrap();
+    // Verify that the top-level async wrapper is emitted due to the wait inside the single-line if
+    assert_contains(&js, "(async function() {");
+    assert_contains(&js, "await WFL.sleep((1) * 1000)");
+}
+
+#[test]
+fn test_wait_for_request_header_access() {
+    let source = r#"
+        listen on port 8080 as srv
+        wait for request comes in on srv as req
+        display header "User-Agent" of req
+        respond to req with "OK"
+    "#;
+
+    let js = transpile_wfl(source).unwrap();
+    // Verify header access handles the { request, response } wrapper properly
+    assert_contains(
+        &js,
+        "(() => { const __req = req; return (__req.request || __req).headers['user-agent']; })()",
+    );
+    // Verify respond handles the { request, response } wrapper properly
+    assert_contains(
+        &js,
+        "void (() => { const __req = req; const __res = __req.response || __req; __res.writeHead(200, { 'Content-Type': 'text/html' }); __res.end(\"OK\"); })();",
+    );
+}

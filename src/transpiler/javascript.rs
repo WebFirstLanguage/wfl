@@ -67,18 +67,25 @@ impl JavaScriptTranspiler {
             output.push_str("\n\n");
         }
 
-        // Wrap in IIFE if not using ES modules
-        if !self.config.es_modules {
-            output.push_str("(function() {\n");
-            output.push_str("'use strict';\n\n");
-            self.push_indent();
-        }
-
         // First pass: collect all action definitions to hoist them
         let (actions, other_stmts): (Vec<_>, Vec<_>) = program
             .statements
             .iter()
             .partition(|s| matches!(s, Statement::ActionDefinition { .. }));
+
+        // Check if there are any top-level async statements
+        let top_level_async = other_stmts.iter().any(|s| self.stmt_is_async(s));
+
+        // Wrap in IIFE if not using ES modules
+        if !self.config.es_modules {
+            if top_level_async {
+                output.push_str("(async function() {\n");
+            } else {
+                output.push_str("(function() {\n");
+            }
+            output.push_str("'use strict';\n\n");
+            self.push_indent();
+        }
 
         // Generate action definitions first (hoisted)
         for stmt in &actions {
@@ -88,11 +95,14 @@ impl JavaScriptTranspiler {
         }
 
         // Generate other statements
+        let old_async = self.in_async;
+        self.in_async = top_level_async;
         for stmt in &other_stmts {
             let code = self.transpile_statement(stmt)?;
             output.push_str(&code);
             output.push('\n');
         }
+        self.in_async = old_async;
 
         // Check for main action and call it
         let main_action = actions
@@ -105,7 +115,13 @@ impl JavaScriptTranspiler {
             output.push_str("// Entry point\n");
             output.push_str(&self.indent());
             if is_main_async {
-                output.push_str("(async () => { await main(); })();\n");
+                if top_level_async {
+                    // We are inside an (async function() { ... })();
+                    output.push_str("await main();\n");
+                } else {
+                    // ES modules natively support top-level await, but we handle it just to be safe
+                    output.push_str("(async () => { await main(); })();\n");
+                }
             } else {
                 output.push_str("main();\n");
             }
@@ -186,18 +202,25 @@ impl JavaScriptTranspiler {
             } => {
                 let cond = self.transpile_expression(condition)?;
                 let then_code = self.transpile_statement(then_stmt)?;
-                let mut result =
-                    format!("{}if ({}) {}", self.indent(), cond, then_code.trim_start());
-                if let Some(else_s) = else_stmt {
+
+                let result = if let Some(else_s) = else_stmt {
                     let else_code = self.transpile_statement(else_s)?;
-                    result = format!(
+                    format!(
                         "{}if ({}) {{ {} }} else {{ {} }}\n",
                         self.indent(),
                         cond,
                         then_code.trim(),
                         else_code.trim()
-                    );
-                }
+                    )
+                } else {
+                    format!(
+                        "{}if ({}) {{ {} }}\n",
+                        self.indent(),
+                        cond,
+                        then_code.trim()
+                    )
+                };
+
                 Ok(result)
             }
 
@@ -1188,27 +1211,97 @@ impl JavaScriptTranspiler {
                 ))
             }
 
-            Statement::WaitForRequestStatement { line, column, .. } => {
-                self.warn(
-                    "WaitForRequest cannot be directly transpiled: WFL's synchronous request waiting model doesn't map to JavaScript's event-driven model. Use server.on('request', callback) pattern instead",
-                    *line,
-                    *column,
+            Statement::WaitForRequestStatement {
+                server,
+                request_name,
+                timeout,
+                ..
+            } => {
+                let server_expr = self.transpile_expression(server)?;
+                let req_name = self.sanitize_name(request_name);
+
+                let mut result = format!(
+                    "{}let {} = await new Promise((resolve, reject) => {{\n",
+                    self.indent(),
+                    req_name
                 );
-                Ok(format!(
-                    "{}// TODO: WaitForRequest - implement using server.on('request', (req, res) => {{ ... }}) pattern\n",
+                self.push_indent();
+
+                let cached_server_var = format!("__server_{}", req_name);
+                result.push_str(&format!(
+                    "{}const {} = {};\n",
+                    self.indent(),
+                    cached_server_var,
+                    server_expr
+                ));
+
+                result.push_str(&format!("{}let timeoutId = null;\n", self.indent()));
+                result.push_str(&format!(
+                    "{}const handler = (req, res) => {{\n",
                     self.indent()
-                ))
+                ));
+                self.push_indent();
+                result.push_str(&format!(
+                    "{}if (timeoutId) clearTimeout(timeoutId);\n",
+                    self.indent()
+                ));
+                result.push_str(&format!(
+                    "{}{}.removeListener('request', handler);\n",
+                    self.indent(),
+                    cached_server_var
+                ));
+                result.push_str(&format!(
+                    "{}resolve({{ request: req, response: res }});\n",
+                    self.indent()
+                ));
+                self.pop_indent();
+                result.push_str(&format!("{}}};\n", self.indent()));
+
+                result.push_str(&format!(
+                    "{}{}.on('request', handler);\n",
+                    self.indent(),
+                    cached_server_var
+                ));
+
+                if let Some(t) = timeout {
+                    let timeout_expr = self.transpile_expression(t)?;
+                    result.push_str(&format!(
+                        "{}const timeoutMs = {};\n",
+                        self.indent(),
+                        timeout_expr
+                    ));
+                    result.push_str(&format!(
+                        "{}timeoutId = setTimeout(() => {{\n",
+                        self.indent()
+                    ));
+                    self.push_indent();
+                    result.push_str(&format!(
+                        "{}{}.removeListener('request', handler);\n",
+                        self.indent(),
+                        cached_server_var
+                    ));
+                    result.push_str(&format!(
+                        "{}reject(new Error('Request timeout: ' + timeoutMs + 'ms'));\n",
+                        self.indent()
+                    ));
+                    self.pop_indent();
+                    result.push_str(&format!("{}}}, timeoutMs);\n", self.indent()));
+                }
+
+                self.pop_indent();
+                result.push_str(&format!("{}}});\n", self.indent()));
+
+                Ok(result)
             }
 
             Statement::RespondStatement {
+                request,
                 content,
                 status,
                 content_type,
-                line,
-                column,
                 ..
             } => {
-                self.warn("Respond requires request context in JS", *line, *column);
+                let req_expr = self.transpile_expression(request)?;
                 let content_expr = self.transpile_expression(content)?;
                 let status_expr = status
                     .as_ref()
@@ -1221,8 +1314,9 @@ impl JavaScriptTranspiler {
                     .transpose()?
                     .unwrap_or_else(|| "'text/html'".to_string());
                 Ok(format!(
-                    "{}// response.writeHead({}, {{ 'Content-Type': {} }}); response.end({});\n",
+                    "{}void (() => {{ const __req = {}; const __res = __req.response || __req; __res.writeHead({}, {{ 'Content-Type': {} }}); __res.end({}); }})();\n",
                     self.indent(),
+                    req_expr,
                     status_expr,
                     ct_expr,
                     content_expr
@@ -1593,7 +1687,13 @@ impl JavaScriptTranspiler {
                 ..
             } => {
                 let req = self.transpile_expression(request)?;
-                Ok(format!("{}.headers['{}']", req, header_name.to_lowercase()))
+                // Request variable from WaitForRequest resolves to { request, response }
+                // We use an IIFE to cache the request variable evaluation.
+                Ok(format!(
+                    "(() => {{ const __req = {}; return (__req.request || __req).headers['{}']; }})()",
+                    req,
+                    header_name.to_lowercase()
+                ))
             }
 
             Expression::CurrentTimeMilliseconds { .. } => Ok("Date.now()".to_string()),
@@ -1865,6 +1965,18 @@ impl JavaScriptTranspiler {
                     || else_block
                         .as_ref()
                         .map(|b| self.contains_async(b))
+                        .unwrap_or(false)
+            }
+
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                self.stmt_is_async(then_stmt)
+                    || else_stmt
+                        .as_ref()
+                        .map(|b| self.stmt_is_async(b))
                         .unwrap_or(false)
             }
 
