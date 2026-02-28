@@ -522,6 +522,8 @@ pub fn expect_datetime(value: &Value) -> Result<Rc<chrono::NaiveDateTime>, Runti
 ///
 /// Handles argument count checking, type extraction, and operation execution.
 ///
+/// This helper keeps list native functions concise and consistent.
+///
 /// # Arguments
 ///
 /// * `func_name` - Name of the function for error messages
