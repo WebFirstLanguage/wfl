@@ -1314,9 +1314,8 @@ impl JavaScriptTranspiler {
                     .transpose()?
                     .unwrap_or_else(|| "'text/html'".to_string());
                 Ok(format!(
-                    "{}void (() => {{ const __res = {}.response || {}; __res.writeHead({}, {{ 'Content-Type': {} }}); __res.end({}); }})();\n",
+                    "{}void (() => {{ const __req = {}; const __res = __req.response || __req; __res.writeHead({}, {{ 'Content-Type': {} }}); __res.end({}); }})();\n",
                     self.indent(),
-                    req_expr,
                     req_expr,
                     status_expr,
                     ct_expr,

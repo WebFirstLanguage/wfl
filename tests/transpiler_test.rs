@@ -637,6 +637,6 @@ fn test_wait_for_request_header_access() {
     // Verify respond handles the { request, response } wrapper properly
     assert_contains(
         &js,
-        "void (() => { const __res = req.response || req; __res.writeHead(200, { 'Content-Type': 'text/html' }); __res.end(\"OK\"); })();",
+        "void (() => { const __req = req; const __res = __req.response || __req; __res.writeHead(200, { 'Content-Type': 'text/html' }); __res.end(\"OK\"); })();",
     );
 }
