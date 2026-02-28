@@ -67,18 +67,25 @@ impl JavaScriptTranspiler {
             output.push_str("\n\n");
         }
 
-        // Wrap in IIFE if not using ES modules
-        if !self.config.es_modules {
-            output.push_str("(function() {\n");
-            output.push_str("'use strict';\n\n");
-            self.push_indent();
-        }
-
         // First pass: collect all action definitions to hoist them
         let (actions, other_stmts): (Vec<_>, Vec<_>) = program
             .statements
             .iter()
             .partition(|s| matches!(s, Statement::ActionDefinition { .. }));
+
+        // Check if there are any top-level async statements
+        let top_level_async = other_stmts.iter().any(|s| self.stmt_is_async(s));
+
+        // Wrap in IIFE if not using ES modules
+        if !self.config.es_modules {
+            if top_level_async {
+                output.push_str("(async function() {\n");
+            } else {
+                output.push_str("(function() {\n");
+            }
+            output.push_str("'use strict';\n\n");
+            self.push_indent();
+        }
 
         // Generate action definitions first (hoisted)
         for stmt in &actions {
@@ -88,11 +95,14 @@ impl JavaScriptTranspiler {
         }
 
         // Generate other statements
+        let old_async = self.in_async;
+        self.in_async = top_level_async;
         for stmt in &other_stmts {
             let code = self.transpile_statement(stmt)?;
             output.push_str(&code);
             output.push('\n');
         }
+        self.in_async = old_async;
 
         // Check for main action and call it
         let main_action = actions
@@ -105,7 +115,13 @@ impl JavaScriptTranspiler {
             output.push_str("// Entry point\n");
             output.push_str(&self.indent());
             if is_main_async {
-                output.push_str("(async () => { await main(); })();\n");
+                if top_level_async {
+                    // We are inside an (async function() { ... })();
+                    output.push_str("await main();\n");
+                } else {
+                    // ES modules natively support top-level await, but we handle it just to be safe
+                    output.push_str("(async () => { await main(); })();\n");
+                }
             } else {
                 output.push_str("main();\n");
             }
