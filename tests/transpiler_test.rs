@@ -588,14 +588,16 @@ fn test_wait_for_request() {
     // First wait for request
     assert_contains(&js, "let req = await new Promise((resolve, reject) => {");
     assert_contains(&js, "const handler = (req, res) => {");
-    assert_contains(&js, "my_server.removeListener('request', handler);");
+    assert_contains(&js, "const __server_req = my_server;");
+    assert_contains(&js, "__server_req.removeListener('request', handler);");
     assert_contains(&js, "resolve({ request: req, response: res });");
-    assert_contains(&js, "my_server.on('request', handler);");
+    assert_contains(&js, "__server_req.on('request', handler);");
 
     // Second wait for request with timeout
     assert_contains(&js, "let req2 = await new Promise((resolve, reject) => {");
     assert_contains(&js, "timeoutId = setTimeout(() => {");
-    assert_contains(&js, "my_server.removeListener('request', handler);");
+    assert_contains(&js, "const __server_req2 = my_server;");
+    assert_contains(&js, "__server_req2.removeListener('request', handler);");
     assert_contains(&js, "reject(new Error('Request timeout'));");
     assert_contains(&js, "}, 5000);");
 }

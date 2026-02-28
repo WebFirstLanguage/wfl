@@ -1204,6 +1204,14 @@ impl JavaScriptTranspiler {
                 );
                 self.push_indent();
 
+                let cached_server_var = format!("__server_{}", req_name);
+                result.push_str(&format!(
+                    "{}const {} = {};\n",
+                    self.indent(),
+                    cached_server_var,
+                    server_expr
+                ));
+
                 result.push_str(&format!("{}let timeoutId = null;\n", self.indent()));
                 result.push_str(&format!(
                     "{}const handler = (req, res) => {{\n",
@@ -1217,7 +1225,7 @@ impl JavaScriptTranspiler {
                 result.push_str(&format!(
                     "{}{}.removeListener('request', handler);\n",
                     self.indent(),
-                    server_expr
+                    cached_server_var
                 ));
                 result.push_str(&format!(
                     "{}resolve({{ request: req, response: res }});\n",
@@ -1229,7 +1237,7 @@ impl JavaScriptTranspiler {
                 result.push_str(&format!(
                     "{}{}.on('request', handler);\n",
                     self.indent(),
-                    server_expr
+                    cached_server_var
                 ));
 
                 if let Some(t) = timeout {
@@ -1242,7 +1250,7 @@ impl JavaScriptTranspiler {
                     result.push_str(&format!(
                         "{}{}.removeListener('request', handler);\n",
                         self.indent(),
-                        server_expr
+                        cached_server_var
                     ));
                     result.push_str(&format!(
                         "{}reject(new Error('Request timeout'));\n",
