@@ -1188,16 +1188,74 @@ impl JavaScriptTranspiler {
                 ))
             }
 
-            Statement::WaitForRequestStatement { line, column, .. } => {
-                self.warn(
-                    "WaitForRequest cannot be directly transpiled: WFL's synchronous request waiting model doesn't map to JavaScript's event-driven model. Use server.on('request', callback) pattern instead",
-                    *line,
-                    *column,
+            Statement::WaitForRequestStatement {
+                server,
+                request_name,
+                timeout,
+                ..
+            } => {
+                let server_expr = self.transpile_expression(server)?;
+                let req_name = self.sanitize_name(request_name);
+
+                let mut result = format!(
+                    "{}let {} = await new Promise((resolve, reject) => {{\n",
+                    self.indent(),
+                    req_name
                 );
-                Ok(format!(
-                    "{}// TODO: WaitForRequest - implement using server.on('request', (req, res) => {{ ... }}) pattern\n",
+                self.push_indent();
+
+                result.push_str(&format!("{}let timeoutId = null;\n", self.indent()));
+                result.push_str(&format!(
+                    "{}const handler = (req, res) => {{\n",
                     self.indent()
-                ))
+                ));
+                self.push_indent();
+                result.push_str(&format!(
+                    "{}if (timeoutId) clearTimeout(timeoutId);\n",
+                    self.indent()
+                ));
+                result.push_str(&format!(
+                    "{}{}.removeListener('request', handler);\n",
+                    self.indent(),
+                    server_expr
+                ));
+                result.push_str(&format!(
+                    "{}resolve({{ request: req, response: res }});\n",
+                    self.indent()
+                ));
+                self.pop_indent();
+                result.push_str(&format!("{}}};\n", self.indent()));
+
+                result.push_str(&format!(
+                    "{}{}.on('request', handler);\n",
+                    self.indent(),
+                    server_expr
+                ));
+
+                if let Some(t) = timeout {
+                    let timeout_expr = self.transpile_expression(t)?;
+                    result.push_str(&format!(
+                        "{}timeoutId = setTimeout(() => {{\n",
+                        self.indent()
+                    ));
+                    self.push_indent();
+                    result.push_str(&format!(
+                        "{}{}.removeListener('request', handler);\n",
+                        self.indent(),
+                        server_expr
+                    ));
+                    result.push_str(&format!(
+                        "{}reject(new Error('Request timeout'));\n",
+                        self.indent()
+                    ));
+                    self.pop_indent();
+                    result.push_str(&format!("{}}}, {});\n", self.indent(), timeout_expr));
+                }
+
+                self.pop_indent();
+                result.push_str(&format!("{}}});\n", self.indent()));
+
+                Ok(result)
             }
 
             Statement::RespondStatement {

@@ -574,3 +574,28 @@ fn test_wait_for_with_variable_declaration() {
     assert_contains(&js, "let result = await 42");
     assert!(!js.contains("await let"));
 }
+
+#[test]
+fn test_wait_for_request() {
+    let source = r#"
+        listen on port 8080 as my_server
+        wait for request comes in on my_server as req
+        wait for request comes in on my_server as req2 with timeout 5000
+    "#;
+
+    let js = transpile_wfl(source).unwrap();
+
+    // First wait for request
+    assert_contains(&js, "let req = await new Promise((resolve, reject) => {");
+    assert_contains(&js, "const handler = (req, res) => {");
+    assert_contains(&js, "my_server.removeListener('request', handler);");
+    assert_contains(&js, "resolve({ request: req, response: res });");
+    assert_contains(&js, "my_server.on('request', handler);");
+
+    // Second wait for request with timeout
+    assert_contains(&js, "let req2 = await new Promise((resolve, reject) => {");
+    assert_contains(&js, "timeoutId = setTimeout(() => {");
+    assert_contains(&js, "my_server.removeListener('request', handler);");
+    assert_contains(&js, "reject(new Error('Request timeout'));");
+    assert_contains(&js, "}, 5000);");
+}
