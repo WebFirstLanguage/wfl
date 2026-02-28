@@ -1,0 +1,19 @@
+store t1 as current time in milliseconds
+
+store a as 0
+count from 1 to 10000:
+    store b as a + 1
+    store c as b + 1
+    store d as c + 1
+    store e as d + 1
+    store f as e + 1
+    store g as f + 1
+    store h as g + 1
+    store i as h + 1
+    store j as i + 1
+    store k as j + 1
+end count
+
+store t2 as current time in milliseconds
+
+display "Time: " with (t2 - t1) with "ms"

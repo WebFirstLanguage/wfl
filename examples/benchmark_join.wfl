@@ -1,0 +1,18 @@
+store the_list as create list:
+end list
+
+store c as 0
+repeat while c is less than 10000:
+    push with the_list and "item_" with c
+    store c as c + 1
+end repeat
+
+store t1 as current time in milliseconds
+store i as 0
+repeat while i is less than 100:
+    store res as join of the_list and ","
+    store i as i + 1
+end repeat
+store t2 as current time in milliseconds
+
+display "Time: " with (t2 - t1) with "ms"

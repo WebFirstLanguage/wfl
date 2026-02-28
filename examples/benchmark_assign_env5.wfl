@@ -1,0 +1,25 @@
+store a as 0
+store b as 0
+store c as 0
+store d as 0
+store e as 0
+
+define action called do_work:
+    store i as 0
+    repeat while i is less than 100000:
+        change a to 1
+        change b to 1
+        change c to 1
+        change d to 1
+        change e to 1
+        change i to i + 1
+    end repeat
+end action
+
+store t1 as current time in milliseconds
+
+call do_work
+
+store t2 as current time in milliseconds
+
+display "Time: " with (t2 - t1) with "ms"
