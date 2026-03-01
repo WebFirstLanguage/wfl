@@ -258,3 +258,57 @@ async fn test_list_no_double_execution_of_side_effects() {
         "Action in list literal should execute exactly once, not twice"
     );
 }
+
+#[tokio::test]
+async fn test_pattern_literal_evaluation() {
+    let mut interpreter = Interpreter::new();
+    let env = Environment::new_global();
+
+    // 1. Test synchronous evaluation
+    let source = "pattern \"hello\"";
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().unwrap();
+
+    if let Some(stmt) = program.statements.first() {
+        if let crate::parser::ast::Statement::ExpressionStatement { expression, .. } = stmt {
+            let result = interpreter
+                .evaluate_expression(expression, std::rc::Rc::clone(&env))
+                .await
+                .unwrap();
+
+            if let Value::Pattern(p) = result {
+                assert!(p.matches("hello world"));
+                assert!(!p.matches("goodbye"));
+            } else {
+                panic!("Expected Value::Pattern, got {:?}", result);
+            }
+        }
+    }
+
+    // 2. Test async path by nesting in a list (forcing async evaluation path for elements)
+    // Wait, patterns themselves are sync but lists are scanned. If a list contains async, it will evaluate elements async.
+    // Let's create an async function to force it.
+    let async_source = "
+define action called do_async:
+    wait for 1 milliseconds
+end action
+
+[pattern \"async_test\", do_async]
+";
+    let tokens = lex_wfl_with_positions(async_source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().unwrap();
+    let result = interpreter.interpret(&program).await.unwrap();
+
+    if let Value::List(list_ref) = result {
+        let list = list_ref.borrow();
+        if let Some(Value::Pattern(p)) = list.get(0) {
+            assert!(p.matches("hello async_test"));
+        } else {
+            panic!("Expected Value::Pattern at index 0");
+        }
+    } else {
+        panic!("Expected Value::List, got {:?}", result);
+    }
+}

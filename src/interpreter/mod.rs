@@ -44,8 +44,7 @@ use crate::exec_var_declare;
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
 use crate::parser::ast::{
-    Assertion, Expression, FileOpenMode, Literal, Operator, PatternExpression, Program, Statement,
-    UnaryOperator,
+    Assertion, Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
@@ -5805,21 +5804,9 @@ impl Interpreter {
             Literal::Boolean(b) => Ok(Some(Value::Bool(*b))),
             Literal::Nothing => Ok(Some(Value::Null)),
             // Pattern literals might error, so we can handle them here
-            Literal::Pattern(ir_string) => {
-                let pattern_expr = PatternExpression::Literal(ir_string.clone());
-                let compiled_pattern = {
-                    let env_borrow = env.borrow();
-                    CompiledPattern::compile_with_env(&pattern_expr, &env_borrow)
-                };
-                match compiled_pattern {
-                    Ok(compiled) => Ok(Some(Value::Pattern(Rc::new(compiled)))),
-                    Err(e) => Err(RuntimeError::new(
-                        format!("Failed to compile pattern literal: {}", e),
-                        line,
-                        column,
-                    )),
-                }
-            }
+            Literal::Pattern(ir_string) => self
+                .compile_pattern_literal(ir_string, env, line, column)
+                .map(Some),
             Literal::List(elements) => {
                 // First, pre-scan all elements to detect if any require async evaluation
                 // This prevents double execution of side effects
@@ -5844,6 +5831,29 @@ impl Interpreter {
                 }
                 Ok(Some(Value::List(Rc::new(RefCell::new(list_values)))))
             }
+        }
+    }
+
+    /// Compiles a pattern literal string into a Value::Pattern
+    fn compile_pattern_literal(
+        &self,
+        ir_string: &str,
+        env: &Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError> {
+        let pattern_expr = crate::parser::ast::PatternExpression::Literal(ir_string.to_string());
+        let compiled_pattern = {
+            let env_borrow = env.borrow();
+            CompiledPattern::compile_with_env(&pattern_expr, &env_borrow)
+        };
+        match compiled_pattern {
+            Ok(compiled) => Ok(Value::Pattern(Rc::new(compiled))),
+            Err(e) => Err(RuntimeError::new(
+                format!("Failed to compile pattern literal: {}", e),
+                line,
+                column,
+            )),
         }
     }
 
@@ -6298,19 +6308,7 @@ impl Interpreter {
                 Literal::Boolean(b) => Ok(Value::Bool(*b)),
                 Literal::Nothing => Ok(Value::Null),
                 Literal::Pattern(ir_string) => {
-                    let pattern_expr = PatternExpression::Literal(ir_string.clone());
-                    let compiled_pattern = {
-                        let env_borrow = env.borrow();
-                        CompiledPattern::compile_with_env(&pattern_expr, &env_borrow)
-                    };
-                    match compiled_pattern {
-                        Ok(compiled) => Ok(Value::Pattern(Rc::new(compiled))),
-                        Err(e) => Err(RuntimeError::new(
-                            format!("Failed to compile pattern literal: {}", e),
-                            *_line,
-                            *_column,
-                        )),
-                    }
+                    self.compile_pattern_literal(ir_string, &env, *_line, *_column)
                 }
                 Literal::List(elements) => {
                     let mut list_values = Vec::new();
