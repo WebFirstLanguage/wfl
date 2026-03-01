@@ -252,33 +252,53 @@ impl TypeChecker {
                 self.check_pattern_expression_types(inner_pattern, line, column);
             }
             PatternExpression::ListReference(name) => {
-                // Ensure the referenced list actually exists and is a List
+                // Determine if we should check action parameters or local scope
+                // Action parameters don't exist directly in the local scope but are passed down
+                let mut symbol_type = None;
+
                 if let Some(symbol) = self.analyzer.get_symbol(name) {
-                    if let Some(var_type) = &symbol.symbol_type {
-                        match var_type {
-                            Type::List(_) | Type::Unknown => {
-                                // Valid
-                            }
-                            _ => {
+                    symbol_type = symbol.symbol_type.clone();
+                } else if self.analyzer.get_action_parameters().contains(name) {
+                    // It's an action parameter, so we assume it could be valid since parameters
+                    // can be essentially dynamically typed
+                    symbol_type = Some(Type::Unknown);
+                }
+
+                // Ensure the referenced list actually exists and is a List
+                if let Some(var_type) = symbol_type {
+                    match var_type {
+                        Type::List(ref item_type) => {
+                            // Check item type - should be text/unknown for pattern lists
+                            if **item_type != Type::Text
+                                && **item_type != Type::Unknown
+                                && **item_type != Type::Any
+                            {
                                 self.type_error(
-                                    format!("Pattern list reference '{name}' must be a List, got {var_type}"),
-                                    Some(Type::List(Box::new(Type::Text))), // Could be any list, but usually strings in patterns
+                                    format!("Pattern list reference '{name}' must contain Text, got List of {item_type}"),
+                                    Some(Type::List(Box::new(Type::Text))),
                                     Some(var_type.clone()),
                                     line,
                                     column,
                                 );
                             }
                         }
-                    } else {
-                        self.type_error(
-                            format!("Cannot determine type of list reference '{name}' in pattern"),
-                            None,
-                            None,
-                            line,
-                            column,
-                        );
+                        Type::Unknown | Type::Any => {
+                            // Valid - we can't statically guarantee the type, so we allow it
+                        }
+                        _ => {
+                            self.type_error(
+                                format!(
+                                    "Pattern list reference '{name}' must be a List, got {var_type}"
+                                ),
+                                Some(Type::List(Box::new(Type::Text))),
+                                Some(var_type.clone()),
+                                line,
+                                column,
+                            );
+                        }
                     }
                 } else {
+                    // Check if it's undefined
                     self.type_error(
                         format!("Undefined list reference '{name}' in pattern"),
                         None,
@@ -288,6 +308,24 @@ impl TypeChecker {
                     );
                 }
             }
+        }
+    }
+
+    fn check_server_expression_type(
+        &mut self,
+        server_expr: &Expression,
+        line: usize,
+        column: usize,
+    ) {
+        let server_type = self.infer_expression_type(server_expr);
+        if server_type != Type::Text && server_type != Type::Unknown && server_type != Type::Error {
+            self.type_error(
+                "Server must be a text string".to_string(),
+                Some(Type::Text),
+                Some(server_type),
+                line,
+                column,
+            );
         }
     }
 
@@ -1554,19 +1592,7 @@ impl TypeChecker {
                 line,
                 column,
             } => {
-                let server_type = self.infer_expression_type(server);
-                if server_type != Type::Text
-                    && server_type != Type::Unknown
-                    && server_type != Type::Error
-                {
-                    self.type_error(
-                        "Server must be a text string".to_string(),
-                        Some(Type::Text),
-                        Some(server_type),
-                        *line,
-                        *column,
-                    );
-                }
+                self.check_server_expression_type(server, *line, *column);
 
                 if let Some(timeout_expr) = timeout {
                     let timeout_type = self.infer_expression_type(timeout_expr);
@@ -1652,38 +1678,14 @@ impl TypeChecker {
                 line,
                 column,
             } => {
-                let server_type = self.infer_expression_type(server);
-                if server_type != Type::Text
-                    && server_type != Type::Unknown
-                    && server_type != Type::Error
-                {
-                    self.type_error(
-                        "Server must be a text string".to_string(),
-                        Some(Type::Text),
-                        Some(server_type),
-                        *line,
-                        *column,
-                    );
-                }
+                self.check_server_expression_type(server, *line, *column);
             }
             Statement::CloseServerStatement {
                 server,
                 line,
                 column,
             } => {
-                let server_type = self.infer_expression_type(server);
-                if server_type != Type::Text
-                    && server_type != Type::Unknown
-                    && server_type != Type::Error
-                {
-                    self.type_error(
-                        "Server must be a text string".to_string(),
-                        Some(Type::Text),
-                        Some(server_type),
-                        *line,
-                        *column,
-                    );
-                }
+                self.check_server_expression_type(server, *line, *column);
             }
             // Test framework statements
             Statement::DescribeBlock {
