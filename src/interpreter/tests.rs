@@ -270,19 +270,19 @@ async fn test_pattern_literal_evaluation() {
     let mut parser = Parser::new(&tokens);
     let program = parser.parse().unwrap();
 
-    if let Some(stmt) = program.statements.first() {
-        if let crate::parser::ast::Statement::ExpressionStatement { expression, .. } = stmt {
-            let result = interpreter
-                .evaluate_expression(expression, std::rc::Rc::clone(&env))
-                .await
-                .unwrap();
+    if let Some(crate::parser::ast::Statement::ExpressionStatement { expression, .. }) =
+        program.statements.first()
+    {
+        let result = interpreter
+            .evaluate_expression(expression, std::rc::Rc::clone(&env))
+            .await
+            .unwrap();
 
-            if let Value::Pattern(p) = result {
-                assert!(p.matches("hello world"));
-                assert!(!p.matches("goodbye"));
-            } else {
-                panic!("Expected Value::Pattern, got {:?}", result);
-            }
+        if let Value::Pattern(p) = result {
+            assert!(p.matches("hello world"));
+            assert!(!p.matches("goodbye"));
+        } else {
+            panic!("Expected Value::Pattern, got {:?}", result);
         }
     }
 
@@ -303,7 +303,7 @@ end action
 
     if let Value::List(list_ref) = result {
         let list = list_ref.borrow();
-        if let Some(Value::Pattern(p)) = list.get(0) {
+        if let Some(Value::Pattern(p)) = list.first() {
             assert!(p.matches("hello async_test"));
         } else {
             panic!("Expected Value::Pattern at index 0");
