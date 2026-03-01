@@ -1785,12 +1785,51 @@ impl Analyzer {
             return true;
         }
 
-        match (actual, expected) {
-            (_, Type::Any) => true,
+        match (expected, actual) {
             (_, Type::Unknown) => true,
             (Type::Unknown, _) => true,
 
-            // Case-insensitive text type match due to parser mapping "Text" to Custom("Text") in some cases
+            (Type::Any, _) => true,
+            (_, Type::Any) => true,
+
+            (_, Type::Nothing) => true,
+            (_, Type::Error) => true,
+
+            (inner, Type::Async(async_type)) => self.is_type_compatible(async_type, inner),
+
+            (Type::List(expected_inner), Type::List(actual_inner)) => {
+                self.is_type_compatible(actual_inner, expected_inner)
+            }
+
+            (Type::Map(expected_key, expected_val), Type::Map(actual_key, actual_val)) => {
+                self.is_type_compatible(actual_key, expected_key)
+                    && self.is_type_compatible(actual_val, expected_val)
+            }
+
+            (
+                Type::Function {
+                    parameters: expected_params,
+                    return_type: expected_ret,
+                },
+                Type::Function {
+                    parameters: actual_params,
+                    return_type: actual_ret,
+                },
+            ) => {
+                if expected_params.len() != actual_params.len() {
+                    return false;
+                }
+
+                for (e, a) in expected_params.iter().zip(actual_params.iter()) {
+                    if !self.is_type_compatible(a, e) {
+                        return false;
+                    }
+                }
+
+                self.is_type_compatible(actual_ret, expected_ret)
+            }
+
+            // Case-insensitive matches due to parser mapping primitive types to Custom(...) in some cases
             (Type::Text, Type::Custom(name)) | (Type::Custom(name), Type::Text)
                 if name.eq_ignore_ascii_case("text") =>
             {
@@ -1806,18 +1845,44 @@ impl Analyzer {
             {
                 true
             }
-
-            // List type compatibility
-            (Type::List(actual_inner), Type::List(expected_inner)) => {
-                self.is_type_compatible(actual_inner, expected_inner)
+            (Type::Pattern, Type::Custom(name)) | (Type::Custom(name), Type::Pattern)
+                if name.eq_ignore_ascii_case("pattern") =>
+            {
+                true
             }
 
             // Allow implicitly resolving custom types
-            (Type::Custom(actual_name), Type::Custom(expected_name)) => {
-                actual_name == expected_name
+            (Type::Custom(expected_name), Type::Custom(actual_name)) => {
+                expected_name == actual_name
             }
 
             _ => false,
+        }
+    }
+
+    fn format_type_for_display(t: &Type) -> String {
+        match t {
+            Type::Text => "Text".to_string(),
+            Type::Number => "Number".to_string(),
+            Type::Boolean => "Boolean".to_string(),
+            Type::Pattern => "Pattern".to_string(),
+            Type::Nothing => "Nothing".to_string(),
+            Type::Any => "Any".to_string(),
+            Type::Unknown => "Unknown".to_string(),
+            Type::Custom(name) if name.eq_ignore_ascii_case("text") => "Text".to_string(),
+            Type::Custom(name) if name.eq_ignore_ascii_case("number") => "Number".to_string(),
+            Type::Custom(name) if name.eq_ignore_ascii_case("boolean") => "Boolean".to_string(),
+            Type::Custom(name) if name.eq_ignore_ascii_case("pattern") => "Pattern".to_string(),
+            Type::Custom(name) if name.eq_ignore_ascii_case("nothing") => "Nothing".to_string(),
+            Type::Custom(name) => name.clone(),
+            Type::List(inner) => format!("List of {}", Self::format_type_for_display(inner)),
+            Type::Map(k, v) => format!("Map of {} to {}", Self::format_type_for_display(k), Self::format_type_for_display(v)),
+            Type::Function { parameters, return_type } => {
+                let params = parameters.iter().map(Self::format_type_for_display).collect::<Vec<_>>().join(", ");
+                format!("Action({}) -> {}", params, Self::format_type_for_display(return_type))
+            }
+            Type::Async(inner) => format!("Async {}", Self::format_type_for_display(inner)),
+            _ => format!("{:?}", t).replace("Type::", ""),
         }
     }
 
@@ -2029,6 +2094,9 @@ impl Analyzer {
                                         *line,
                                         *column,
                                     ));
+
+                                    // Skip type validation if arity is mismatched to avoid noisy/cascading errors
+                                    return;
                                 }
 
                                 // Type validation
@@ -2047,13 +2115,15 @@ impl Analyzer {
                                             && expected_type != &Type::Any
                                             && !self.is_type_compatible(&arg_type, expected_type)
                                         {
+                                            let expected_display = Self::format_type_for_display(expected_type);
+                                            let actual_display = Self::format_type_for_display(&arg_type);
                                             self.errors.push(SemanticError::new(
                                                 format!(
-                                                    "Argument {} of action '{}' expects {:?}, but got {:?}",
+                                                    "Argument {} of action '{}' expects {}, but got {}",
                                                     i + 1,
                                                     name,
-                                                    expected_type,
-                                                    arg_type
+                                                    expected_display,
+                                                    actual_display
                                                 ),
                                                 *line,
                                                 *column,
@@ -2810,7 +2880,7 @@ call greet with 123
         assert!(
             analyzer.errors.iter().any(|e| e
                 .message
-                .contains("expects Custom(\"Text\"), but got Number")),
+                .contains("expects Text, but got Number")),
             "Should report type mismatch, got: {:?}",
             analyzer.errors
         );
