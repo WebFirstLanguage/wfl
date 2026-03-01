@@ -297,16 +297,11 @@ impl TypeChecker {
                             );
                         }
                     }
-                } else {
-                    // Check if it's undefined
-                    self.type_error(
-                        format!("Undefined list reference '{name}' in pattern"),
-                        None,
-                        None,
-                        line,
-                        column,
-                    );
                 }
+                // If it's completely undefined, we don't throw an error here.
+                // The Analyzer is responsible for catching and reporting undefined variables
+                // in patterns with correct lexical scope, ensuring we don't falsely
+                // flag valid local list references as undefined after scopes are popped.
             }
         }
     }
@@ -3904,5 +3899,65 @@ mod tests {
         );
         let errors = result.err().unwrap();
         assert!(errors.iter().any(|e| e.message.contains("must be a List")));
+
+        // Test valid List<Text> reference
+        let valid_list_text_program = Program {
+            statements: vec![
+                Statement::CreateListStatement {
+                    name: "text_list".to_string(),
+                    initial_values: vec![Expression::Literal(
+                        Literal::String(Arc::from("abc")),
+                        1,
+                        1,
+                    )],
+                    line: 1,
+                    column: 1,
+                },
+                Statement::PatternDefinition {
+                    name: "my_pattern".to_string(),
+                    pattern: PatternExpression::ListReference("text_list".to_string()),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&valid_list_text_program);
+        assert!(
+            result.is_ok(),
+            "Expected valid List<Text> reference to pass type checking"
+        );
+
+        // Test invalid List<Number> reference
+        let invalid_list_number_program = Program {
+            statements: vec![
+                Statement::CreateListStatement {
+                    name: "number_list".to_string(),
+                    initial_values: vec![Expression::Literal(Literal::Integer(123), 1, 1)],
+                    line: 1,
+                    column: 1,
+                },
+                Statement::PatternDefinition {
+                    name: "my_pattern".to_string(),
+                    pattern: PatternExpression::ListReference("number_list".to_string()),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&invalid_list_number_program);
+        assert!(
+            result.is_err(),
+            "Expected type error for List<Number> reference in pattern"
+        );
+        let errors = result.err().unwrap();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("must contain Text"))
+        );
     }
 }

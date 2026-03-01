@@ -1,0 +1,6 @@
+define action called test_action:
+  store list_var as ["1", "2"]
+  create pattern p:
+    list_var
+  end pattern
+end action

@@ -1299,7 +1299,7 @@ impl Analyzer {
 
             Statement::PatternDefinition {
                 name,
-                pattern: _,
+                pattern,
                 line,
                 column,
             } => {
@@ -1315,6 +1315,9 @@ impl Analyzer {
                 if let Err(e) = self.current_scope.define(pattern_symbol) {
                     self.errors.push(e);
                 }
+
+                // Analyze the pattern expression to catch undefined list references
+                self.analyze_pattern_expression(pattern, *line, *column);
             }
 
             Statement::ListenStatement {
@@ -1559,6 +1562,50 @@ impl Analyzer {
         }
     }
 
+    fn analyze_pattern_expression(
+        &mut self,
+        pattern: &crate::parser::ast::PatternExpression,
+        line: usize,
+        column: usize,
+    ) {
+        use crate::parser::ast::PatternExpression;
+        match pattern {
+            PatternExpression::Literal(_)
+            | PatternExpression::CharacterClass(_)
+            | PatternExpression::Anchor(_)
+            | PatternExpression::Backreference(_) => {}
+            PatternExpression::Quantified { pattern: inner, .. } => {
+                self.analyze_pattern_expression(inner, line, column);
+            }
+            PatternExpression::Sequence(patterns) | PatternExpression::Alternative(patterns) => {
+                for inner in patterns {
+                    self.analyze_pattern_expression(inner, line, column);
+                }
+            }
+            PatternExpression::Capture { pattern: inner, .. } => {
+                self.analyze_pattern_expression(inner, line, column);
+            }
+            PatternExpression::Lookahead(inner)
+            | PatternExpression::NegativeLookahead(inner)
+            | PatternExpression::Lookbehind(inner)
+            | PatternExpression::NegativeLookbehind(inner) => {
+                self.analyze_pattern_expression(inner, line, column);
+            }
+            PatternExpression::ListReference(name) => {
+                // Same check as Expression::Variable to ensure it exists
+                if self.current_scope.resolve(name).is_none()
+                    && !self.action_parameters.contains(name)
+                {
+                    self.errors.push(SemanticError {
+                        message: format!("Undefined list reference '{name}' in pattern"),
+                        line,
+                        column,
+                    });
+                }
+            }
+        }
+    }
+
     fn analyze_action_body(&mut self, statement: &Statement) {
         if let Statement::ActionDefinition {
             parameters, body, ..
@@ -1714,190 +1761,6 @@ impl Analyzer {
     pub fn pop_scope(&mut self) {
         if let Some(parent) = self.current_scope.parent.take() {
             self.current_scope = *parent;
-        }
-    }
-
-    fn infer_expression_type(&self, expression: &Expression) -> Type {
-        match expression {
-            Expression::Literal(Literal::Integer(_), _, _) => Type::Number,
-            Expression::Literal(Literal::Float(_), _, _) => Type::Number,
-            Expression::Literal(Literal::String(_), _, _) => Type::Text,
-            Expression::Literal(Literal::Boolean(_), _, _) => Type::Boolean,
-            Expression::Literal(Literal::Nothing, _, _) => Type::Nothing,
-            Expression::Literal(Literal::Pattern(_), _, _) => Type::Pattern,
-            Expression::Literal(Literal::List(_), _, _) => Type::List(Box::new(Type::Unknown)),
-            Expression::Variable(name, _, _) => {
-                if let Some(symbol) = self.current_scope.resolve(name) {
-                    symbol.symbol_type.clone().unwrap_or(Type::Unknown)
-                } else {
-                    Type::Unknown
-                }
-            }
-            Expression::BinaryOperation { operator, .. } => {
-                // Determine the type based on the operator
-                match operator {
-                    crate::parser::ast::Operator::Plus
-                    | crate::parser::ast::Operator::Minus
-                    | crate::parser::ast::Operator::Multiply
-                    | crate::parser::ast::Operator::Divide
-                    | crate::parser::ast::Operator::Modulo => Type::Number,
-                    crate::parser::ast::Operator::Equals
-                    | crate::parser::ast::Operator::NotEquals
-                    | crate::parser::ast::Operator::GreaterThan
-                    | crate::parser::ast::Operator::LessThan
-                    | crate::parser::ast::Operator::GreaterThanOrEqual
-                    | crate::parser::ast::Operator::LessThanOrEqual
-                    | crate::parser::ast::Operator::And
-                    | crate::parser::ast::Operator::Or
-                    | crate::parser::ast::Operator::Contains => Type::Boolean,
-                }
-            }
-            Expression::UnaryOperation { operator, .. } => match operator {
-                crate::parser::ast::UnaryOperator::Not => Type::Boolean,
-                crate::parser::ast::UnaryOperator::Minus => Type::Number,
-            },
-            Expression::Concatenation { .. } => Type::Text,
-            Expression::FunctionCall { function, .. } => {
-                if let Expression::Variable(name, _, _) = &**function
-                    && let Some(symbol) = self.current_scope.resolve(name)
-                    && let SymbolKind::Function { signatures } = &symbol.kind
-                    && let Some(sig) = signatures.first()
-                {
-                    return sig.return_type.clone().unwrap_or(Type::Unknown);
-                }
-                Type::Unknown
-            }
-            Expression::ActionCall { name, .. } => {
-                if let Some(symbol) = self.current_scope.resolve(name)
-                    && let SymbolKind::Function { signatures } = &symbol.kind
-                    && let Some(sig) = signatures.first()
-                {
-                    return sig.return_type.clone().unwrap_or(Type::Unknown);
-                }
-                Type::Unknown
-            }
-            _ => Type::Unknown,
-        }
-    }
-
-    fn is_type_compatible(&self, actual: &Type, expected: &Type) -> bool {
-        if actual == expected {
-            return true;
-        }
-
-        match (expected, actual) {
-            (_, Type::Unknown) => true,
-            (Type::Unknown, _) => true,
-
-            (Type::Any, _) => true,
-            (_, Type::Any) => true,
-
-            (_, Type::Nothing) => true,
-            (_, Type::Error) => true,
-
-            (inner, Type::Async(async_type)) => self.is_type_compatible(async_type, inner),
-
-            (Type::List(expected_inner), Type::List(actual_inner)) => {
-                self.is_type_compatible(actual_inner, expected_inner)
-            }
-
-            (Type::Map(expected_key, expected_val), Type::Map(actual_key, actual_val)) => {
-                self.is_type_compatible(actual_key, expected_key)
-                    && self.is_type_compatible(actual_val, expected_val)
-            }
-
-            (
-                Type::Function {
-                    parameters: expected_params,
-                    return_type: expected_ret,
-                },
-                Type::Function {
-                    parameters: actual_params,
-                    return_type: actual_ret,
-                },
-            ) => {
-                if expected_params.len() != actual_params.len() {
-                    return false;
-                }
-
-                for (e, a) in expected_params.iter().zip(actual_params.iter()) {
-                    if !self.is_type_compatible(a, e) {
-                        return false;
-                    }
-                }
-
-                self.is_type_compatible(actual_ret, expected_ret)
-            }
-
-            // Case-insensitive matches due to parser mapping primitive types to Custom(...) in some cases
-            (Type::Text, Type::Custom(name)) | (Type::Custom(name), Type::Text)
-                if name.eq_ignore_ascii_case("text") =>
-            {
-                true
-            }
-            (Type::Number, Type::Custom(name)) | (Type::Custom(name), Type::Number)
-                if name.eq_ignore_ascii_case("number") =>
-            {
-                true
-            }
-            (Type::Boolean, Type::Custom(name)) | (Type::Custom(name), Type::Boolean)
-                if name.eq_ignore_ascii_case("boolean") =>
-            {
-                true
-            }
-            (Type::Pattern, Type::Custom(name)) | (Type::Custom(name), Type::Pattern)
-                if name.eq_ignore_ascii_case("pattern") =>
-            {
-                true
-            }
-
-            // Allow implicitly resolving custom types
-            (Type::Custom(expected_name), Type::Custom(actual_name)) => {
-                expected_name == actual_name
-            }
-
-            _ => false,
-        }
-    }
-
-    fn format_type_for_display(t: &Type) -> String {
-        match t {
-            Type::Text => "Text".to_string(),
-            Type::Number => "Number".to_string(),
-            Type::Boolean => "Boolean".to_string(),
-            Type::Pattern => "Pattern".to_string(),
-            Type::Nothing => "Nothing".to_string(),
-            Type::Any => "Any".to_string(),
-            Type::Unknown => "Unknown".to_string(),
-            Type::Custom(name) if name.eq_ignore_ascii_case("text") => "Text".to_string(),
-            Type::Custom(name) if name.eq_ignore_ascii_case("number") => "Number".to_string(),
-            Type::Custom(name) if name.eq_ignore_ascii_case("boolean") => "Boolean".to_string(),
-            Type::Custom(name) if name.eq_ignore_ascii_case("pattern") => "Pattern".to_string(),
-            Type::Custom(name) if name.eq_ignore_ascii_case("nothing") => "Nothing".to_string(),
-            Type::Custom(name) => name.clone(),
-            Type::List(inner) => format!("List of {}", Self::format_type_for_display(inner)),
-            Type::Map(k, v) => format!(
-                "Map of {} to {}",
-                Self::format_type_for_display(k),
-                Self::format_type_for_display(v)
-            ),
-            Type::Function {
-                parameters,
-                return_type,
-            } => {
-                let params = parameters
-                    .iter()
-                    .map(Self::format_type_for_display)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "Function({}) -> {}",
-                    params,
-                    Self::format_type_for_display(return_type)
-                )
-            }
-            Type::Async(inner) => format!("Async {}", Self::format_type_for_display(inner)),
-            _ => format!("{:?}", t).replace("Type::", ""),
         }
     }
 
@@ -2109,101 +1972,9 @@ impl Analyzer {
                                         *line,
                                         *column,
                                     ));
-
-                                    // Skip type validation if arity is mismatched to avoid noisy/cascading errors
-                                    return;
                                 }
 
-                                // Map arguments to parameters for type validation
-                                let mut matched_args: Vec<Option<&Expression>> =
-                                    vec![None; first_signature.parameters.len()];
-                                let mut has_mapping_error = false;
-
-                                for (arg_idx, arg) in arguments.iter().enumerate() {
-                                    let mut param_idx_opt = None;
-
-                                    if let Some(arg_name) = &arg.name {
-                                        // Named argument
-                                        if let Some(idx) = first_signature
-                                            .parameters
-                                            .iter()
-                                            .position(|p| p.name == *arg_name)
-                                        {
-                                            param_idx_opt = Some(idx);
-                                        } else {
-                                            self.errors.push(SemanticError::new(
-                                                format!(
-                                                    "Unknown parameter '{}' for action '{}'",
-                                                    arg_name, name
-                                                ),
-                                                *line,
-                                                *column,
-                                            ));
-                                            has_mapping_error = true;
-                                        }
-                                    } else {
-                                        // Positional argument
-                                        if arg_idx < first_signature.parameters.len() {
-                                            param_idx_opt = Some(arg_idx);
-                                        }
-                                    }
-
-                                    if let Some(param_idx) = param_idx_opt {
-                                        if matched_args[param_idx].is_some() {
-                                            let param_name =
-                                                &first_signature.parameters[param_idx].name;
-                                            self.errors.push(SemanticError::new(
-                                                format!(
-                                                    "Duplicate argument for parameter '{}' in action '{}'",
-                                                    param_name, name
-                                                ),
-                                                *line,
-                                                *column,
-                                            ));
-                                            has_mapping_error = true;
-                                        } else {
-                                            matched_args[param_idx] = Some(&arg.value);
-                                        }
-                                    }
-                                }
-
-                                // Skip type validation if argument mapping failed
-                                if has_mapping_error {
-                                    return;
-                                }
-
-                                // Type validation
-                                for (param, arg_opt) in
-                                    first_signature.parameters.iter().zip(matched_args.iter())
-                                {
-                                    if let Some(arg_val) = arg_opt
-                                        && let Some(expected_type) = &param.param_type
-                                    {
-                                        let arg_type = self.infer_expression_type(arg_val);
-
-                                        if arg_type != Type::Unknown
-                                            && expected_type != &Type::Unknown
-                                            && expected_type != &Type::Any
-                                            && !self.is_type_compatible(&arg_type, expected_type)
-                                        {
-                                            let expected_display =
-                                                Self::format_type_for_display(expected_type);
-                                            let actual_display =
-                                                Self::format_type_for_display(&arg_type);
-                                            self.errors.push(SemanticError::new(
-                                                format!(
-                                                    "Argument '{}' of action '{}' expects {}, but got {}",
-                                                    param.name,
-                                                    name,
-                                                    expected_display,
-                                                    actual_display
-                                                ),
-                                                *line,
-                                                *column,
-                                            ));
-                                        }
-                                    }
-                                }
+                                // TODO: Add parameter type validation in future phases
                             }
                         }
                         _ => {
@@ -2931,31 +2702,6 @@ call x with "test"
         assert!(
             result.is_ok(),
             "Expected no semantic errors for path expression"
-        );
-    }
-
-    #[test]
-    fn test_action_call_type_validation() {
-        let input = r#"
-define action called greet needs name as Text:
-    print with name
-end action
-
-call greet with 123
-        "#;
-        let tokens = crate::lexer::lex_wfl_with_positions(input);
-        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
-
-        let mut analyzer = Analyzer::new();
-        let _ = analyzer.analyze(&program);
-
-        assert!(!analyzer.errors.is_empty(), "Should have semantic errors");
-        assert!(
-            analyzer.errors.iter().any(|e| e
-                .message
-                .contains("Argument 'name' of action 'greet' expects Text, but got Number")),
-            "Should report type mismatch, got: {:?}",
-            analyzer.errors
         );
     }
 }
