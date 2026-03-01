@@ -2026,28 +2026,9 @@ impl Interpreter {
                 #[cfg(debug_assertions)]
                 exec_var_declare!(name, &evaluated_value);
 
-                // Check existence efficiently (without deep cloning)
-                let exists = env.borrow().has(name);
-
-                let result = if *is_constant {
-                    if exists {
-                        env.borrow_mut().define_constant(name, evaluated_value)
-                    } else {
-                        // OPTIMIZATION: Use define_constant_direct to avoid redundant parent scope checks
-                        // since we already verified existence with env.borrow().has(name) above.
-                        env.borrow_mut()
-                            .define_constant_direct(name, evaluated_value)
-                    }
-                } else if exists {
-                    // Variable exists, use assignment instead of definition
-                    // This handles container property assignment in methods
-                    env.borrow_mut().assign(name, evaluated_value)
-                } else {
-                    // Variable doesn't exist, use normal definition
-                    env.borrow_mut().define_direct(name, evaluated_value)
-                };
-
-                match result {
+                // OPTIMIZATION: declare_variable handles scope traversal, shadowing detection,
+                // and definition/assignment in a single pass.
+                match env.borrow_mut().declare_variable(name, evaluated_value, *is_constant) {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
                     Err(msg) => Err(RuntimeError::new(msg, line, column)),
                 }

@@ -103,6 +103,71 @@ impl Environment {
         Ok(())
     }
 
+    /// Handles variable declarations and re-assignments in a single scope chain traversal.
+    ///
+    /// This method optimizes variable declaration (`store x as y`) by consolidating what was
+    /// previously two separate operations (`has` followed by `define_direct` or `assign`).
+    pub fn declare_variable(&mut self, name: &str, value: Value, is_constant: bool) -> Result<(), String> {
+        // Check current scope
+        if let Some(val_ref) = self.values.get_mut(name) {
+            if is_constant {
+                return Err(format!("Variable or constant '{name}' has already been defined."));
+            }
+            if self.constants.contains(name) {
+                return Err(format!("Cannot modify constant '{name}'"));
+            }
+            // Use assignment instead of definition
+            *val_ref = value;
+            return Ok(());
+        }
+
+        // Iteratively check parent scopes
+        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut is_isolated_context = self.isolated;
+
+        while let Some(parent_rc) = current_parent {
+            let mut parent = parent_rc.borrow_mut();
+
+            // Optimization: check values and handle assignment in one pass
+            // We use get_mut but check constants first to avoid borrow checker errors
+            let is_parent_constant = parent.constants.contains(name);
+
+            if let Some(val_ref) = parent.values.get_mut(name) {
+                // If it exists in a parent scope, check WFL strict shadowing rules
+                if is_constant || is_parent_constant {
+                    return Err(format!("Variable or constant '{name}' has already been defined in an outer scope."));
+                }
+
+                // If we are in an isolated context (or passed through one), we cannot modify parent variable
+                if is_isolated_context {
+                    return Err(format!(
+                        "Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."
+                    ));
+                }
+
+                // Existing, mutable variable => re-assign
+                *val_ref = value;
+                return Ok(());
+            }
+
+            if parent.isolated {
+                is_isolated_context = true;
+            }
+
+            // Move to next parent
+            let next_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+            drop(parent); // Release borrow
+            current_parent = next_parent;
+        }
+
+        // Variable doesn't exist, use normal definition
+        self.values.insert(name.to_string(), value);
+        if is_constant {
+            self.constants.insert(name.to_string());
+        }
+        Ok(())
+    }
+
     pub fn define_constant(&mut self, name: &str, value: Value) -> Result<(), String> {
         // Check if the variable/constant already exists
         if self.values.contains_key(name) {
