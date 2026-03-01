@@ -1,4 +1,0 @@
-define action called my_action:
-  store x as 10
-  change x to "string"
-end action

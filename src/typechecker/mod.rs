@@ -258,11 +258,7 @@ impl TypeChecker {
                     self.infer_expression_type(&Expression::Variable(name.clone(), line, column));
                 match var_type {
                     Type::List(ref item_type) => {
-                        // Check item type - should be text/unknown for pattern lists
-                        if **item_type != Type::Text
-                            && **item_type != Type::Unknown
-                            && **item_type != Type::Any
-                        {
+                        if **item_type != Type::Text {
                             self.type_error(
                                 format!("Pattern list reference '{name}' must contain Text, got List of {item_type}"),
                                 Some(Type::List(Box::new(Type::Text))),
@@ -272,13 +268,10 @@ impl TypeChecker {
                             );
                         }
                     }
-                    Type::Unknown | Type::Any | Type::Error => {
-                        // If Unknown/Error, Analyzer handles undefined errors; we skip extra constraints.
-                    }
                     _ => {
                         self.type_error(
                             format!(
-                                "Pattern list reference '{name}' must be a List, got {var_type}"
+                                "Pattern list reference '{name}' must be a List of Text, got {var_type}"
                             ),
                             Some(Type::List(Box::new(Type::Text))),
                             Some(var_type.clone()),
@@ -298,7 +291,7 @@ impl TypeChecker {
         column: usize,
     ) {
         let server_type = self.infer_expression_type(server_expr);
-        if server_type != Type::Text && server_type != Type::Unknown && server_type != Type::Error {
+        if server_type != Type::Text {
             self.type_error(
                 "Server must be a text string".to_string(),
                 Some(Type::Text),
@@ -1576,10 +1569,7 @@ impl TypeChecker {
 
                 if let Some(timeout_expr) = timeout {
                     let timeout_type = self.infer_expression_type(timeout_expr);
-                    if timeout_type != Type::Number
-                        && timeout_type != Type::Unknown
-                        && timeout_type != Type::Error
-                    {
+                    if timeout_type != Type::Number {
                         self.type_error(
                             "Timeout must be a number".to_string(),
                             Some(Type::Number),
