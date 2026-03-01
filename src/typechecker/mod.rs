@@ -1,6 +1,8 @@
 use crate::analyzer::{Analyzer, Symbol, SymbolKind};
 use crate::builtins;
-use crate::parser::ast::{Expression, Literal, Operator, Program, Statement, Type, UnaryOperator};
+use crate::parser::ast::{
+    Expression, Literal, Operator, PatternExpression, Program, Statement, Type, UnaryOperator,
+};
 use std::fmt;
 
 #[derive(Debug, Clone)]
@@ -210,6 +212,93 @@ impl TypeChecker {
             Ok(())
         } else {
             Err(self.errors.clone())
+        }
+    }
+
+    fn check_pattern_expression_types(
+        &mut self,
+        pattern: &PatternExpression,
+        line: usize,
+        column: usize,
+    ) {
+        match pattern {
+            PatternExpression::Literal(_)
+            | PatternExpression::CharacterClass(_)
+            | PatternExpression::Anchor(_)
+            | PatternExpression::Backreference(_) => {
+                // Leaf nodes are always valid
+            }
+            PatternExpression::Quantified {
+                pattern: inner_pattern,
+                ..
+            } => {
+                self.check_pattern_expression_types(inner_pattern, line, column);
+            }
+            PatternExpression::Sequence(patterns) | PatternExpression::Alternative(patterns) => {
+                for inner_pattern in patterns {
+                    self.check_pattern_expression_types(inner_pattern, line, column);
+                }
+            }
+            PatternExpression::Capture {
+                pattern: inner_pattern,
+                ..
+            } => {
+                self.check_pattern_expression_types(inner_pattern, line, column);
+            }
+            PatternExpression::Lookahead(inner_pattern)
+            | PatternExpression::NegativeLookahead(inner_pattern)
+            | PatternExpression::Lookbehind(inner_pattern)
+            | PatternExpression::NegativeLookbehind(inner_pattern) => {
+                self.check_pattern_expression_types(inner_pattern, line, column);
+            }
+            PatternExpression::ListReference(name) => {
+                // TypeChecker delegates undefined variable checks to Analyzer.
+                // If it can be inferred, we enforce List<Text> semantics.
+                let var_type =
+                    self.infer_expression_type(&Expression::Variable(name.clone(), line, column));
+                match var_type {
+                    Type::List(ref item_type) => {
+                        if **item_type != Type::Text {
+                            self.type_error(
+                                format!("Pattern list reference '{name}' must contain Text, got List of {item_type}"),
+                                Some(Type::List(Box::new(Type::Text))),
+                                Some(var_type.clone()),
+                                line,
+                                column,
+                            );
+                        }
+                    }
+                    _ => {
+                        self.type_error(
+                            format!(
+                                "Pattern list reference '{name}' must be a List of Text, got {var_type}"
+                            ),
+                            Some(Type::List(Box::new(Type::Text))),
+                            Some(var_type.clone()),
+                            line,
+                            column,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn check_server_expression_type(
+        &mut self,
+        server_expr: &Expression,
+        line: usize,
+        column: usize,
+    ) {
+        let server_type = self.infer_expression_type(server_expr);
+        if server_type != Type::Text {
+            self.type_error(
+                "Server must be a text string".to_string(),
+                Some(Type::Text),
+                Some(server_type),
+                line,
+                column,
+            );
         }
     }
 
@@ -1405,9 +1494,13 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {}
-            Statement::PatternDefinition { .. } => {
-                // TODO: Add type checking for pattern definitions
-                // For now, patterns are valid without additional type checking
+            Statement::PatternDefinition {
+                name: _name,
+                pattern,
+                line: _line,
+                column: _column,
+            } => {
+                self.check_pattern_expression_types(pattern, *_line, *_column);
             }
             Statement::MapCreation {
                 name: _name,
@@ -1466,14 +1559,26 @@ impl TypeChecker {
                 }
             }
             Statement::WaitForRequestStatement {
-                server: _server,
+                server,
                 request_name: _request_name,
-                timeout: _timeout,
-                line: _line,
-                column: _column,
+                timeout,
+                line,
+                column,
             } => {
-                // TODO: Add type checking for server expression
-                // For now, just accept any type
+                self.check_server_expression_type(server, *line, *column);
+
+                if let Some(timeout_expr) = timeout {
+                    let timeout_type = self.infer_expression_type(timeout_expr);
+                    if timeout_type != Type::Number {
+                        self.type_error(
+                            "Timeout must be a number".to_string(),
+                            Some(Type::Number),
+                            Some(timeout_type),
+                            *line,
+                            *column,
+                        );
+                    }
+                }
             }
             Statement::RespondStatement {
                 request: _request,
@@ -1539,20 +1644,18 @@ impl TypeChecker {
                 self.validate_signal_handler_statement(signal_type, handler_name, *line, *column);
             }
             Statement::StopAcceptingConnectionsStatement {
-                server: _server,
-                line: _line,
-                column: _column,
+                server,
+                line,
+                column,
             } => {
-                // TODO: Add type checking for server expression
-                // For now, just accept any type
+                self.check_server_expression_type(server, *line, *column);
             }
             Statement::CloseServerStatement {
-                server: _server,
-                line: _line,
-                column: _column,
+                server,
+                line,
+                column,
             } => {
-                // TODO: Add type checking for server expression
-                // For now, just accept any type
+                self.check_server_expression_type(server, *line, *column);
             }
             // Test framework statements
             Statement::DescribeBlock {
@@ -3618,5 +3721,218 @@ mod tests {
             e.message
                 .contains("Signal handler parameter must be a Number")
         }));
+    }
+
+    #[test]
+    fn test_web_server_statements_type_checking() {
+        // Test valid web server statements
+        let valid_program = Program {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: "my_server".to_string(),
+                    value: Expression::Literal(Literal::String(Arc::from("server_1")), 1, 1),
+                    is_constant: false,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::WaitForRequestStatement {
+                    server: Expression::Variable("my_server".to_string(), 2, 5),
+                    request_name: "req".to_string(),
+                    timeout: Some(Expression::Literal(Literal::Integer(5000), 2, 20)),
+                    line: 2,
+                    column: 1,
+                },
+                Statement::StopAcceptingConnectionsStatement {
+                    server: Expression::Variable("my_server".to_string(), 3, 5),
+                    line: 3,
+                    column: 1,
+                },
+                Statement::CloseServerStatement {
+                    server: Expression::Variable("my_server".to_string(), 4, 5),
+                    line: 4,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&valid_program);
+        assert!(
+            result.is_ok(),
+            "Expected valid web server statements to pass type checking"
+        );
+
+        // Test invalid server type (number instead of string)
+        let invalid_server_program = Program {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: "invalid_server".to_string(),
+                    value: Expression::Literal(Literal::Integer(123), 1, 1),
+                    is_constant: false,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::WaitForRequestStatement {
+                    server: Expression::Variable("invalid_server".to_string(), 2, 5),
+                    request_name: "req".to_string(),
+                    timeout: None,
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&invalid_server_program);
+        assert!(
+            result.is_err(),
+            "Expected type error for invalid server expression"
+        );
+        let errors = result.err().unwrap();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("Server must be a text string"))
+        );
+
+        // Test invalid timeout type (string instead of number)
+        let invalid_timeout_program = Program {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: "my_server".to_string(),
+                    value: Expression::Literal(Literal::String(Arc::from("server_1")), 1, 1),
+                    is_constant: false,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::WaitForRequestStatement {
+                    server: Expression::Variable("my_server".to_string(), 2, 5),
+                    request_name: "req".to_string(),
+                    timeout: Some(Expression::Literal(Literal::String(Arc::from("5s")), 2, 20)),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&invalid_timeout_program);
+        assert!(
+            result.is_err(),
+            "Expected type error for invalid timeout expression"
+        );
+        let errors = result.err().unwrap();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("Timeout must be a number"))
+        );
+    }
+
+    #[test]
+    fn test_pattern_definition_type_checking() {
+        let valid_program = Program {
+            statements: vec![Statement::PatternDefinition {
+                name: "my_pattern".to_string(),
+                pattern: PatternExpression::Literal("test".to_string()),
+                line: 1,
+                column: 1,
+            }],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&valid_program);
+        assert!(
+            result.is_ok(),
+            "Expected valid pattern to pass type checking"
+        );
+
+        // Test invalid list reference in pattern
+        let invalid_list_ref_program = Program {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: "not_a_list".to_string(),
+                    value: Expression::Literal(Literal::Integer(123), 1, 1),
+                    is_constant: false,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::PatternDefinition {
+                    name: "my_pattern".to_string(),
+                    pattern: PatternExpression::ListReference("not_a_list".to_string()),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&invalid_list_ref_program);
+        assert!(
+            result.is_err(),
+            "Expected type error for invalid list reference in pattern"
+        );
+        let errors = result.err().unwrap();
+        assert!(errors.iter().any(|e| e.message.contains("must be a List")));
+
+        // Test valid List<Text> reference
+        let valid_list_text_program = Program {
+            statements: vec![
+                Statement::CreateListStatement {
+                    name: "text_list".to_string(),
+                    initial_values: vec![Expression::Literal(
+                        Literal::String(Arc::from("abc")),
+                        1,
+                        1,
+                    )],
+                    line: 1,
+                    column: 1,
+                },
+                Statement::PatternDefinition {
+                    name: "my_pattern".to_string(),
+                    pattern: PatternExpression::ListReference("text_list".to_string()),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&valid_list_text_program);
+        assert!(
+            result.is_ok(),
+            "Expected valid List<Text> reference to pass type checking"
+        );
+
+        // Test invalid List<Number> reference
+        let invalid_list_number_program = Program {
+            statements: vec![
+                Statement::CreateListStatement {
+                    name: "number_list".to_string(),
+                    initial_values: vec![Expression::Literal(Literal::Integer(123), 1, 1)],
+                    line: 1,
+                    column: 1,
+                },
+                Statement::PatternDefinition {
+                    name: "my_pattern".to_string(),
+                    pattern: PatternExpression::ListReference("number_list".to_string()),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&invalid_list_number_program);
+        assert!(
+            result.is_err(),
+            "Expected type error for List<Number> reference in pattern"
+        );
+        let errors = result.err().unwrap();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("must contain Text"))
+        );
     }
 }

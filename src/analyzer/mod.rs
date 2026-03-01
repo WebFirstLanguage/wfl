@@ -1299,7 +1299,7 @@ impl Analyzer {
 
             Statement::PatternDefinition {
                 name,
-                pattern: _,
+                pattern,
                 line,
                 column,
             } => {
@@ -1315,6 +1315,9 @@ impl Analyzer {
                 if let Err(e) = self.current_scope.define(pattern_symbol) {
                     self.errors.push(e);
                 }
+
+                // Analyze the pattern expression to catch undefined list references
+                self.analyze_pattern_expression(pattern, *line, *column);
             }
 
             Statement::ListenStatement {
@@ -1555,6 +1558,50 @@ impl Analyzer {
 
             if let Err(error) = self.current_scope.define(symbol) {
                 self.errors.push(error);
+            }
+        }
+    }
+
+    fn analyze_pattern_expression(
+        &mut self,
+        pattern: &crate::parser::ast::PatternExpression,
+        line: usize,
+        column: usize,
+    ) {
+        use crate::parser::ast::PatternExpression;
+        match pattern {
+            PatternExpression::Literal(_)
+            | PatternExpression::CharacterClass(_)
+            | PatternExpression::Anchor(_)
+            | PatternExpression::Backreference(_) => {}
+            PatternExpression::Quantified { pattern: inner, .. } => {
+                self.analyze_pattern_expression(inner, line, column);
+            }
+            PatternExpression::Sequence(patterns) | PatternExpression::Alternative(patterns) => {
+                for inner in patterns {
+                    self.analyze_pattern_expression(inner, line, column);
+                }
+            }
+            PatternExpression::Capture { pattern: inner, .. } => {
+                self.analyze_pattern_expression(inner, line, column);
+            }
+            PatternExpression::Lookahead(inner)
+            | PatternExpression::NegativeLookahead(inner)
+            | PatternExpression::Lookbehind(inner)
+            | PatternExpression::NegativeLookbehind(inner) => {
+                self.analyze_pattern_expression(inner, line, column);
+            }
+            PatternExpression::ListReference(name) => {
+                // Same check as Expression::Variable to ensure it exists
+                if self.current_scope.resolve(name).is_none()
+                    && !self.action_parameters.contains(name)
+                {
+                    self.errors.push(SemanticError {
+                        message: format!("Undefined list reference '{name}' in pattern"),
+                        line,
+                        column,
+                    });
+                }
             }
         }
     }
