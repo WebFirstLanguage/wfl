@@ -1717,6 +1717,110 @@ impl Analyzer {
         }
     }
 
+    fn infer_expression_type(&self, expression: &Expression) -> Type {
+        match expression {
+            Expression::Literal(Literal::Integer(_), _, _) => Type::Number,
+            Expression::Literal(Literal::Float(_), _, _) => Type::Number,
+            Expression::Literal(Literal::String(_), _, _) => Type::Text,
+            Expression::Literal(Literal::Boolean(_), _, _) => Type::Boolean,
+            Expression::Literal(Literal::Nothing, _, _) => Type::Nothing,
+            Expression::Literal(Literal::Pattern(_), _, _) => Type::Pattern,
+            Expression::Literal(Literal::List(_), _, _) => Type::List(Box::new(Type::Unknown)),
+            Expression::Variable(name, _, _) => {
+                if let Some(symbol) = self.current_scope.resolve(name) {
+                    symbol.symbol_type.clone().unwrap_or(Type::Unknown)
+                } else {
+                    Type::Unknown
+                }
+            }
+            Expression::BinaryOperation { operator, .. } => {
+                // Determine the type based on the operator
+                match operator {
+                    crate::parser::ast::Operator::Plus
+                    | crate::parser::ast::Operator::Minus
+                    | crate::parser::ast::Operator::Multiply
+                    | crate::parser::ast::Operator::Divide
+                    | crate::parser::ast::Operator::Modulo => Type::Number,
+                    crate::parser::ast::Operator::Equals
+                    | crate::parser::ast::Operator::NotEquals
+                    | crate::parser::ast::Operator::GreaterThan
+                    | crate::parser::ast::Operator::LessThan
+                    | crate::parser::ast::Operator::GreaterThanOrEqual
+                    | crate::parser::ast::Operator::LessThanOrEqual
+                    | crate::parser::ast::Operator::And
+                    | crate::parser::ast::Operator::Or
+                    | crate::parser::ast::Operator::Contains => Type::Boolean,
+                }
+            }
+            Expression::UnaryOperation { operator, .. } => match operator {
+                crate::parser::ast::UnaryOperator::Not => Type::Boolean,
+                crate::parser::ast::UnaryOperator::Minus => Type::Number,
+            },
+            Expression::Concatenation { .. } => Type::Text,
+            Expression::FunctionCall { function, .. } => {
+                if let Expression::Variable(name, _, _) = &**function
+                    && let Some(symbol) = self.current_scope.resolve(name)
+                    && let SymbolKind::Function { signatures } = &symbol.kind
+                    && let Some(sig) = signatures.first()
+                {
+                    return sig.return_type.clone().unwrap_or(Type::Unknown);
+                }
+                Type::Unknown
+            }
+            Expression::ActionCall { name, .. } => {
+                if let Some(symbol) = self.current_scope.resolve(name)
+                    && let SymbolKind::Function { signatures } = &symbol.kind
+                    && let Some(sig) = signatures.first()
+                {
+                    return sig.return_type.clone().unwrap_or(Type::Unknown);
+                }
+                Type::Unknown
+            }
+            _ => Type::Unknown,
+        }
+    }
+
+    fn is_type_compatible(&self, actual: &Type, expected: &Type) -> bool {
+        if actual == expected {
+            return true;
+        }
+
+        match (actual, expected) {
+            (_, Type::Any) => true,
+            (_, Type::Unknown) => true,
+            (Type::Unknown, _) => true,
+
+            // Case-insensitive text type match due to parser mapping "Text" to Custom("Text") in some cases
+            (Type::Text, Type::Custom(name)) | (Type::Custom(name), Type::Text)
+                if name.eq_ignore_ascii_case("text") =>
+            {
+                true
+            }
+            (Type::Number, Type::Custom(name)) | (Type::Custom(name), Type::Number)
+                if name.eq_ignore_ascii_case("number") =>
+            {
+                true
+            }
+            (Type::Boolean, Type::Custom(name)) | (Type::Custom(name), Type::Boolean)
+                if name.eq_ignore_ascii_case("boolean") =>
+            {
+                true
+            }
+
+            // List type compatibility
+            (Type::List(actual_inner), Type::List(expected_inner)) => {
+                self.is_type_compatible(actual_inner, expected_inner)
+            }
+
+            // Allow implicitly resolving custom types
+            (Type::Custom(actual_name), Type::Custom(expected_name)) => {
+                actual_name == expected_name
+            }
+
+            _ => false,
+        }
+    }
+
     fn analyze_expression(&mut self, expression: &Expression) {
         match expression {
             Expression::AwaitExpression {
@@ -1927,7 +2031,36 @@ impl Analyzer {
                                     ));
                                 }
 
-                                // TODO: Add parameter type validation in future phases
+                                // Type validation
+                                for (i, (param, arg)) in first_signature
+                                    .parameters
+                                    .iter()
+                                    .zip(arguments.iter())
+                                    .enumerate()
+                                {
+                                    if let Some(expected_type) = &param.param_type {
+                                        let arg_type = self.infer_expression_type(&arg.value);
+
+                                        // Simple type compatibility check
+                                        if arg_type != Type::Unknown
+                                            && expected_type != &Type::Unknown
+                                            && expected_type != &Type::Any
+                                            && !self.is_type_compatible(&arg_type, expected_type)
+                                        {
+                                            self.errors.push(SemanticError::new(
+                                                format!(
+                                                    "Argument {} of action '{}' expects {:?}, but got {:?}",
+                                                    i + 1,
+                                                    name,
+                                                    expected_type,
+                                                    arg_type
+                                                ),
+                                                *line,
+                                                *column,
+                                            ));
+                                        }
+                                    }
+                                }
                             }
                         }
                         _ => {
@@ -2655,6 +2788,31 @@ call x with "test"
         assert!(
             result.is_ok(),
             "Expected no semantic errors for path expression"
+        );
+    }
+
+    #[test]
+    fn test_action_call_type_validation() {
+        let input = r#"
+define action called greet needs name as Text:
+    print with name
+end action
+
+call greet with 123
+        "#;
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        let program = crate::parser::Parser::new(&tokens).parse().unwrap();
+
+        let mut analyzer = Analyzer::new();
+        let _ = analyzer.analyze(&program);
+
+        assert!(!analyzer.errors.is_empty(), "Should have semantic errors");
+        assert!(
+            analyzer.errors.iter().any(|e| e
+                .message
+                .contains("expects Custom(\"Text\"), but got Number")),
+            "Should report type mismatch, got: {:?}",
+            analyzer.errors
         );
     }
 }
