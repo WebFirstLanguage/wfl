@@ -1876,10 +1876,25 @@ impl Analyzer {
             Type::Custom(name) if name.eq_ignore_ascii_case("nothing") => "Nothing".to_string(),
             Type::Custom(name) => name.clone(),
             Type::List(inner) => format!("List of {}", Self::format_type_for_display(inner)),
-            Type::Map(k, v) => format!("Map of {} to {}", Self::format_type_for_display(k), Self::format_type_for_display(v)),
-            Type::Function { parameters, return_type } => {
-                let params = parameters.iter().map(Self::format_type_for_display).collect::<Vec<_>>().join(", ");
-                format!("Action({}) -> {}", params, Self::format_type_for_display(return_type))
+            Type::Map(k, v) => format!(
+                "Map of {} to {}",
+                Self::format_type_for_display(k),
+                Self::format_type_for_display(v)
+            ),
+            Type::Function {
+                parameters,
+                return_type,
+            } => {
+                let params = parameters
+                    .iter()
+                    .map(Self::format_type_for_display)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "Action({}) -> {}",
+                    params,
+                    Self::format_type_for_display(return_type)
+                )
             }
             Type::Async(inner) => format!("Async {}", Self::format_type_for_display(inner)),
             _ => format!("{:?}", t).replace("Type::", ""),
@@ -2115,8 +2130,10 @@ impl Analyzer {
                                             && expected_type != &Type::Any
                                             && !self.is_type_compatible(&arg_type, expected_type)
                                         {
-                                            let expected_display = Self::format_type_for_display(expected_type);
-                                            let actual_display = Self::format_type_for_display(&arg_type);
+                                            let expected_display =
+                                                Self::format_type_for_display(expected_type);
+                                            let actual_display =
+                                                Self::format_type_for_display(&arg_type);
                                             self.errors.push(SemanticError::new(
                                                 format!(
                                                     "Argument {} of action '{}' expects {}, but got {}",
@@ -2878,9 +2895,10 @@ call greet with 123
 
         assert!(!analyzer.errors.is_empty(), "Should have semantic errors");
         assert!(
-            analyzer.errors.iter().any(|e| e
-                .message
-                .contains("expects Text, but got Number")),
+            analyzer
+                .errors
+                .iter()
+                .any(|e| e.message.contains("expects Text, but got Number")),
             "Should report type mismatch, got: {:?}",
             analyzer.errors
         );
