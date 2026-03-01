@@ -252,44 +252,19 @@ impl TypeChecker {
                 self.check_pattern_expression_types(inner_pattern, line, column);
             }
             PatternExpression::ListReference(name) => {
-                // Determine if we should check action parameters or local scope
-                // Action parameters don't exist directly in the local scope but are passed down
-                let mut symbol_type = None;
-
-                if let Some(symbol) = self.analyzer.get_symbol(name) {
-                    symbol_type = symbol.symbol_type.clone();
-                } else if self.analyzer.get_action_parameters().contains(name) {
-                    // It's an action parameter, so we assume it could be valid since parameters
-                    // can be essentially dynamically typed
-                    symbol_type = Some(Type::Unknown);
-                }
-
-                // Ensure the referenced list actually exists and is a List
-                if let Some(var_type) = symbol_type {
-                    match var_type {
-                        Type::List(ref item_type) => {
-                            // Check item type - should be text/unknown for pattern lists
-                            if **item_type != Type::Text
-                                && **item_type != Type::Unknown
-                                && **item_type != Type::Any
-                            {
-                                self.type_error(
-                                    format!("Pattern list reference '{name}' must contain Text, got List of {item_type}"),
-                                    Some(Type::List(Box::new(Type::Text))),
-                                    Some(var_type.clone()),
-                                    line,
-                                    column,
-                                );
-                            }
-                        }
-                        Type::Unknown | Type::Any => {
-                            // Valid - we can't statically guarantee the type, so we allow it
-                        }
-                        _ => {
+                // TypeChecker delegates undefined variable checks to Analyzer.
+                // If it can be inferred, we enforce List<Text> semantics.
+                let var_type =
+                    self.infer_expression_type(&Expression::Variable(name.clone(), line, column));
+                match var_type {
+                    Type::List(ref item_type) => {
+                        // Check item type - should be text/unknown for pattern lists
+                        if **item_type != Type::Text
+                            && **item_type != Type::Unknown
+                            && **item_type != Type::Any
+                        {
                             self.type_error(
-                                format!(
-                                    "Pattern list reference '{name}' must be a List, got {var_type}"
-                                ),
+                                format!("Pattern list reference '{name}' must contain Text, got List of {item_type}"),
                                 Some(Type::List(Box::new(Type::Text))),
                                 Some(var_type.clone()),
                                 line,
@@ -297,11 +272,21 @@ impl TypeChecker {
                             );
                         }
                     }
+                    Type::Unknown | Type::Any | Type::Error => {
+                        // If Unknown/Error, Analyzer handles undefined errors; we skip extra constraints.
+                    }
+                    _ => {
+                        self.type_error(
+                            format!(
+                                "Pattern list reference '{name}' must be a List, got {var_type}"
+                            ),
+                            Some(Type::List(Box::new(Type::Text))),
+                            Some(var_type.clone()),
+                            line,
+                            column,
+                        );
+                    }
                 }
-                // If it's completely undefined, we don't throw an error here.
-                // The Analyzer is responsible for catching and reporting undefined variables
-                // in patterns with correct lexical scope, ensuring we don't falsely
-                // flag valid local list references as undefined after scopes are popped.
             }
         }
     }

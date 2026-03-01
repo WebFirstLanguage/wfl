@@ -1,0 +1,2 @@
+store x as 10
+change x to "string"

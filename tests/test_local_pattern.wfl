@@ -1,5 +1,0 @@
-define action called test_action needs some_param:
-  create pattern p:
-    some_param
-  end pattern
-end action
