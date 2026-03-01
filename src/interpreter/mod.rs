@@ -44,8 +44,8 @@ use crate::exec_var_declare;
 #[cfg(debug_assertions)]
 use crate::logging::IndentGuard;
 use crate::parser::ast::{
-    PatternExpression,
-    Assertion, Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
+    Assertion, Expression, FileOpenMode, Literal, Operator, PatternExpression, Program, Statement,
+    UnaryOperator,
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
