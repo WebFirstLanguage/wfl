@@ -128,47 +128,9 @@ impl Environment {
             return Ok(());
         }
 
-        // Iteratively check parent scopes
-        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
-        let mut is_isolated_context = self.isolated;
-
-        while let Some(parent_rc) = current_parent {
-            let mut parent = parent_rc.borrow_mut();
-
-            // Optimization: check values and handle assignment in one pass
-            // We use get_mut but check constants first to avoid borrow checker errors
-            let is_parent_constant = parent.constants.contains(name);
-
-            if let Some(val_ref) = parent.values.get_mut(name) {
-                // If it exists in a parent scope, check WFL strict shadowing rules
-                if is_constant {
-                    return Err(format!(
-                        "Variable or constant '{name}' has already been defined in an outer scope."
-                    ));
-                } else if is_parent_constant {
-                    return Err(format!("Cannot modify constant '{name}'"));
-                }
-
-                // If we are in an isolated context (or passed through one), we cannot modify parent variable
-                if is_isolated_context {
-                    return Err(format!(
-                        "Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."
-                    ));
-                }
-
-                // Existing, mutable variable => re-assign
-                *val_ref = value;
-                return Ok(());
-            }
-
-            if parent.isolated {
-                is_isolated_context = true;
-            }
-
-            // Move to next parent
-            let next_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
-            drop(parent); // Release borrow
-            current_parent = next_parent;
+        // Check parent scopes using the helper
+        if let Some(result) = self.assign_in_parent_scope(name, value.clone(), is_constant) {
+            return result;
         }
 
         // Variable doesn't exist, use normal definition
@@ -250,11 +212,57 @@ impl Environment {
         false
     }
 
+    /// Common helper to find a mutable reference to a variable in parent scopes.
+    /// Handles traversal, isolated contexts, and checking constants.
+    /// Used by both `assign` and `declare_variable`.
+    fn assign_in_parent_scope(
+        &self,
+        name: &str,
+        value: Value,
+        enforce_constant_shadowing: bool,
+    ) -> Option<Result<(), String>> {
+        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut is_isolated_context = self.isolated;
+
+        while let Some(parent_rc) = current_parent {
+            let mut parent = parent_rc.borrow_mut();
+
+            let is_parent_constant = parent.constants.contains(name);
+
+            if let Some(val_ref) = parent.values.get_mut(name) {
+                if enforce_constant_shadowing {
+                    return Some(Err(format!(
+                        "Variable or constant '{name}' has already been defined in an outer scope."
+                    )));
+                } else if is_parent_constant {
+                    return Some(Err(format!("Cannot modify constant '{name}'")));
+                }
+
+                if is_isolated_context {
+                    return Some(Err(format!(
+                        "Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."
+                    )));
+                }
+
+                *val_ref = value;
+                return Some(Ok(()));
+            }
+
+            if parent.isolated {
+                is_isolated_context = true;
+            }
+
+            let next_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+            drop(parent);
+            current_parent = next_parent;
+        }
+
+        None
+    }
+
     pub fn assign(&mut self, name: &str, value: Value) -> Result<(), String> {
         // Check current scope
-        // Optimization: Use get_mut to update the value in place, avoiding a String allocation for the key.
         if let Some(val_ref) = self.values.get_mut(name) {
-            // Check if it's a constant in current scope AFTER confirming existence
             if self.constants.contains(name) {
                 return Err(format!("Cannot modify constant '{name}'"));
             }
@@ -262,40 +270,9 @@ impl Environment {
             return Ok(());
         }
 
-        // Iteratively check parent scopes
-        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
-        let mut is_isolated_context = self.isolated;
-
-        while let Some(parent_rc) = current_parent {
-            let mut parent = parent_rc.borrow_mut();
-
-            let is_constant = parent.constants.contains(name);
-
-            // Optimization: Use get_mut to update the value in place, avoiding a String allocation for the key.
-            if let Some(val_ref) = parent.values.get_mut(name) {
-                if is_constant {
-                    return Err(format!("Cannot modify constant '{name}'"));
-                }
-
-                // If we are in an isolated context (or passed through one), we cannot modify parent variable
-                if is_isolated_context {
-                    return Err(format!(
-                        "Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."
-                    ));
-                }
-
-                *val_ref = value;
-                return Ok(());
-            }
-
-            if parent.isolated {
-                is_isolated_context = true;
-            }
-
-            // Move to next parent
-            let next_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
-            drop(parent); // Release borrow
-            current_parent = next_parent;
+        // Check parent scopes using the helper
+        if let Some(result) = self.assign_in_parent_scope(name, value, false) {
+            return result;
         }
 
         Err(format!("Undefined variable '{name}'"))
