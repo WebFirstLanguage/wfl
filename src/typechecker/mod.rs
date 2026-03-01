@@ -3901,10 +3901,6 @@ mod tests {
             "Expected type error for invalid list reference in pattern"
         );
         let errors = result.err().unwrap();
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("must be a List"))
-        );
+        assert!(errors.iter().any(|e| e.message.contains("must be a List")));
     }
 }
