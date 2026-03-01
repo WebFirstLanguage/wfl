@@ -5804,11 +5804,9 @@ impl Interpreter {
             Literal::Boolean(b) => Ok(Some(Value::Bool(*b))),
             Literal::Nothing => Ok(Some(Value::Null)),
             // Pattern literals might error, so we can handle them here
-            Literal::Pattern(_ir_string) => Err(RuntimeError::new(
-                "Pattern literals not yet supported in new pattern system".to_string(),
-                line,
-                column,
-            )),
+            Literal::Pattern(ir_string) => self
+                .compile_pattern_literal(ir_string, env, line, column)
+                .map(Some),
             Literal::List(elements) => {
                 // First, pre-scan all elements to detect if any require async evaluation
                 // This prevents double execution of side effects
@@ -5833,6 +5831,29 @@ impl Interpreter {
                 }
                 Ok(Some(Value::List(Rc::new(RefCell::new(list_values)))))
             }
+        }
+    }
+
+    /// Compiles a pattern literal string into a Value::Pattern
+    fn compile_pattern_literal(
+        &self,
+        ir_string: &str,
+        env: &Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<Value, RuntimeError> {
+        let pattern_expr = crate::parser::ast::PatternExpression::Literal(ir_string.to_string());
+        let compiled_pattern = {
+            let env_borrow = env.borrow();
+            CompiledPattern::compile_with_env(&pattern_expr, &env_borrow)
+        };
+        match compiled_pattern {
+            Ok(compiled) => Ok(Value::Pattern(Rc::new(compiled))),
+            Err(e) => Err(RuntimeError::new(
+                format!("Failed to compile pattern literal: {}", e),
+                line,
+                column,
+            )),
         }
     }
 
@@ -6286,13 +6307,8 @@ impl Interpreter {
                 Literal::Float(f) => Ok(Value::Number(*f)),
                 Literal::Boolean(b) => Ok(Value::Bool(*b)),
                 Literal::Nothing => Ok(Value::Null),
-                Literal::Pattern(_ir_string) => {
-                    // TODO: Update to use new pattern system
-                    Err(RuntimeError::new(
-                        "Pattern literals not yet supported in new pattern system".to_string(),
-                        *_line,
-                        *_column,
-                    ))
+                Literal::Pattern(ir_string) => {
+                    self.compile_pattern_literal(ir_string, &env, *_line, *_column)
                 }
                 Literal::List(elements) => {
                     let mut list_values = Vec::new();
