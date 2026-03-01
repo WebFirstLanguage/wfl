@@ -103,6 +103,44 @@ impl Environment {
         Ok(())
     }
 
+    /// Handles variable declarations and re-assignments in a single scope chain traversal.
+    ///
+    /// This method optimizes variable declaration (`store x as y`) by consolidating what was
+    /// previously two separate operations (`has` followed by `define_direct` or `assign`).
+    pub fn declare_variable(
+        &mut self,
+        name: &str,
+        value: Value,
+        is_constant: bool,
+    ) -> Result<(), String> {
+        // Check current scope
+        if let Some(val_ref) = self.values.get_mut(name) {
+            if is_constant {
+                return Err(format!(
+                    "Variable or constant '{name}' has already been defined."
+                ));
+            }
+            if self.constants.contains(name) {
+                return Err(format!("Cannot modify constant '{name}'"));
+            }
+            // Use assignment instead of definition
+            *val_ref = value;
+            return Ok(());
+        }
+
+        // Check parent scopes using the helper
+        if let Some(result) = self.assign_in_parent_scope(name, value.clone(), is_constant) {
+            return result;
+        }
+
+        // Variable doesn't exist, use normal definition
+        self.values.insert(name.to_string(), value);
+        if is_constant {
+            self.constants.insert(name.to_string());
+        }
+        Ok(())
+    }
+
     pub fn define_constant(&mut self, name: &str, value: Value) -> Result<(), String> {
         // Check if the variable/constant already exists
         if self.values.contains_key(name) {
@@ -174,11 +212,57 @@ impl Environment {
         false
     }
 
+    /// Common helper to find a mutable reference to a variable in parent scopes.
+    /// Handles traversal, isolated contexts, and checking constants.
+    /// Used by both `assign` and `declare_variable`.
+    fn assign_in_parent_scope(
+        &self,
+        name: &str,
+        value: Value,
+        enforce_constant_shadowing: bool,
+    ) -> Option<Result<(), String>> {
+        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut is_isolated_context = self.isolated;
+
+        while let Some(parent_rc) = current_parent {
+            let mut parent = parent_rc.borrow_mut();
+
+            let is_parent_constant = parent.constants.contains(name);
+
+            if let Some(val_ref) = parent.values.get_mut(name) {
+                if enforce_constant_shadowing {
+                    return Some(Err(format!(
+                        "Variable or constant '{name}' has already been defined in an outer scope."
+                    )));
+                } else if is_parent_constant {
+                    return Some(Err(format!("Cannot modify constant '{name}'")));
+                }
+
+                if is_isolated_context {
+                    return Some(Err(format!(
+                        "Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."
+                    )));
+                }
+
+                *val_ref = value;
+                return Some(Ok(()));
+            }
+
+            if parent.isolated {
+                is_isolated_context = true;
+            }
+
+            let next_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+            drop(parent);
+            current_parent = next_parent;
+        }
+
+        None
+    }
+
     pub fn assign(&mut self, name: &str, value: Value) -> Result<(), String> {
         // Check current scope
-        // Optimization: Use get_mut to update the value in place, avoiding a String allocation for the key.
         if let Some(val_ref) = self.values.get_mut(name) {
-            // Check if it's a constant in current scope AFTER confirming existence
             if self.constants.contains(name) {
                 return Err(format!("Cannot modify constant '{name}'"));
             }
@@ -186,40 +270,9 @@ impl Environment {
             return Ok(());
         }
 
-        // Iteratively check parent scopes
-        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
-        let mut is_isolated_context = self.isolated;
-
-        while let Some(parent_rc) = current_parent {
-            let mut parent = parent_rc.borrow_mut();
-
-            let is_constant = parent.constants.contains(name);
-
-            // Optimization: Use get_mut to update the value in place, avoiding a String allocation for the key.
-            if let Some(val_ref) = parent.values.get_mut(name) {
-                if is_constant {
-                    return Err(format!("Cannot modify constant '{name}'"));
-                }
-
-                // If we are in an isolated context (or passed through one), we cannot modify parent variable
-                if is_isolated_context {
-                    return Err(format!(
-                        "Cannot modify parent variable '{name}' from module scope. Modules have read-only access to parent variables."
-                    ));
-                }
-
-                *val_ref = value;
-                return Ok(());
-            }
-
-            if parent.isolated {
-                is_isolated_context = true;
-            }
-
-            // Move to next parent
-            let next_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
-            drop(parent); // Release borrow
-            current_parent = next_parent;
+        // Check parent scopes using the helper
+        if let Some(result) = self.assign_in_parent_scope(name, value, false) {
+            return result;
         }
 
         Err(format!("Undefined variable '{name}'"))
