@@ -2028,7 +2028,10 @@ impl Interpreter {
 
                 // OPTIMIZATION: declare_variable handles scope traversal, shadowing detection,
                 // and definition/assignment in a single pass.
-                match env.borrow_mut().declare_variable(name, evaluated_value, *is_constant) {
+                match env
+                    .borrow_mut()
+                    .declare_variable(name, evaluated_value, *is_constant)
+                {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
                     Err(msg) => Err(RuntimeError::new(msg, line, column)),
                 }
