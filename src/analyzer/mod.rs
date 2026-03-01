@@ -1891,7 +1891,7 @@ impl Analyzer {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!(
-                    "Action({}) -> {}",
+                    "Function({}) -> {}",
                     params,
                     Self::format_type_for_display(return_type)
                 )
@@ -2114,17 +2114,73 @@ impl Analyzer {
                                     return;
                                 }
 
-                                // Type validation
-                                for (i, (param, arg)) in first_signature
-                                    .parameters
-                                    .iter()
-                                    .zip(arguments.iter())
-                                    .enumerate()
-                                {
-                                    if let Some(expected_type) = &param.param_type {
-                                        let arg_type = self.infer_expression_type(&arg.value);
+                                // Map arguments to parameters for type validation
+                                let mut matched_args: Vec<Option<&Expression>> =
+                                    vec![None; first_signature.parameters.len()];
+                                let mut has_mapping_error = false;
 
-                                        // Simple type compatibility check
+                                for (arg_idx, arg) in arguments.iter().enumerate() {
+                                    let mut param_idx_opt = None;
+
+                                    if let Some(arg_name) = &arg.name {
+                                        // Named argument
+                                        if let Some(idx) = first_signature
+                                            .parameters
+                                            .iter()
+                                            .position(|p| p.name == *arg_name)
+                                        {
+                                            param_idx_opt = Some(idx);
+                                        } else {
+                                            self.errors.push(SemanticError::new(
+                                                format!(
+                                                    "Unknown parameter '{}' for action '{}'",
+                                                    arg_name, name
+                                                ),
+                                                *line,
+                                                *column,
+                                            ));
+                                            has_mapping_error = true;
+                                        }
+                                    } else {
+                                        // Positional argument
+                                        if arg_idx < first_signature.parameters.len() {
+                                            param_idx_opt = Some(arg_idx);
+                                        }
+                                    }
+
+                                    if let Some(param_idx) = param_idx_opt {
+                                        if matched_args[param_idx].is_some() {
+                                            let param_name =
+                                                &first_signature.parameters[param_idx].name;
+                                            self.errors.push(SemanticError::new(
+                                                format!(
+                                                    "Duplicate argument for parameter '{}' in action '{}'",
+                                                    param_name, name
+                                                ),
+                                                *line,
+                                                *column,
+                                            ));
+                                            has_mapping_error = true;
+                                        } else {
+                                            matched_args[param_idx] = Some(&arg.value);
+                                        }
+                                    }
+                                }
+
+                                // Skip type validation if argument mapping failed
+                                if has_mapping_error {
+                                    return;
+                                }
+
+                                // Type validation
+                                for (param, arg_opt) in
+                                    first_signature.parameters.iter().zip(matched_args.iter())
+                                {
+                                    if let Some(arg_val) = arg_opt
+                                        && let Some(expected_type) = &param.param_type
+                                    {
+                                        let arg_type = self.infer_expression_type(arg_val);
+
                                         if arg_type != Type::Unknown
                                             && expected_type != &Type::Unknown
                                             && expected_type != &Type::Any
@@ -2136,8 +2192,8 @@ impl Analyzer {
                                                 Self::format_type_for_display(&arg_type);
                                             self.errors.push(SemanticError::new(
                                                 format!(
-                                                    "Argument {} of action '{}' expects {}, but got {}",
-                                                    i + 1,
+                                                    "Argument '{}' of action '{}' expects {}, but got {}",
+                                                    param.name,
                                                     name,
                                                     expected_display,
                                                     actual_display
@@ -2895,10 +2951,9 @@ call greet with 123
 
         assert!(!analyzer.errors.is_empty(), "Should have semantic errors");
         assert!(
-            analyzer
-                .errors
-                .iter()
-                .any(|e| e.message.contains("expects Text, but got Number")),
+            analyzer.errors.iter().any(|e| e
+                .message
+                .contains("Argument 'name' of action 'greet' expects Text, but got Number")),
             "Should report type mismatch, got: {:?}",
             analyzer.errors
         );
