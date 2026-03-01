@@ -141,12 +141,10 @@ impl Environment {
 
             if let Some(val_ref) = parent.values.get_mut(name) {
                 // If it exists in a parent scope, check WFL strict shadowing rules
-                if is_constant {
+                if is_constant || is_parent_constant {
                     return Err(format!(
                         "Variable or constant '{name}' has already been defined in an outer scope."
                     ));
-                } else if is_parent_constant {
-                    return Err(format!("Cannot modify constant '{name}'"));
                 }
 
                 // If we are in an isolated context (or passed through one), we cannot modify parent variable
