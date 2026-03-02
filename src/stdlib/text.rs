@@ -47,8 +47,13 @@ fn percent_decode(s: &str) -> String {
 }
 
 /// Parse key-value pairs with URL decoding
-/// Used by both query string and form data parsing
-fn parse_key_value_pairs(input: &str, delimiter: char) -> std::collections::HashMap<String, Value> {
+/// Used by query string, form data, and cookie parsing
+fn parse_key_value_pairs(
+    input: &str,
+    delimiter: char,
+    trim_parts: bool,
+    ignore_empty_values: bool,
+) -> std::collections::HashMap<String, Value> {
     use std::collections::HashMap;
 
     let mut params = HashMap::new();
@@ -58,13 +63,22 @@ fn parse_key_value_pairs(input: &str, delimiter: char) -> std::collections::Hash
     }
 
     for pair in input.split(delimiter) {
+        let pair = if trim_parts { pair.trim() } else { pair };
+        if pair.is_empty() {
+            continue;
+        }
+
         if let Some((key, value)) = pair.split_once('=') {
+            let key = if trim_parts { key.trim() } else { key };
+            let value = if trim_parts { value.trim() } else { value };
+
             let decoded_key = percent_decode(key);
             let decoded_value = percent_decode(value);
             params.insert(decoded_key, Value::Text(Arc::from(decoded_value)));
-        } else {
+        } else if !ignore_empty_values {
             // Key without value
-            let decoded_key = percent_decode(pair);
+            let key = if trim_parts { pair.trim() } else { pair };
+            let decoded_key = percent_decode(key);
             params.insert(decoded_key, Value::Text(Arc::from("")));
         }
     }
@@ -177,7 +191,7 @@ pub fn native_parse_query_string(args: Vec<Value>) -> Result<Value, RuntimeError
     let query_str = expect_text(&args[0])?;
     let query_str = query_str.trim_start_matches('?');
 
-    let params = parse_key_value_pairs(query_str, '&');
+    let params = parse_key_value_pairs(query_str, '&', false, false);
 
     Ok(Value::Object(Rc::new(RefCell::new(params))))
 }
@@ -185,26 +199,12 @@ pub fn native_parse_query_string(args: Vec<Value>) -> Result<Value, RuntimeError
 /// Parse Cookie header into WFL object
 /// Usage: parse_cookies("session_id=abc123; user=alice") -> {"session_id": "abc123", "user": "alice"}
 pub fn native_parse_cookies(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    use std::collections::HashMap;
-
     check_arg_count("parse_cookies", &args, 1)?;
 
     let cookie_header = expect_text(&args[0])?;
-    let mut cookies = HashMap::new();
 
-    if cookie_header.is_empty() {
-        return Ok(Value::Object(Rc::new(RefCell::new(cookies))));
-    }
-
-    // Split by ;
-    for cookie in cookie_header.split(';') {
-        let cookie = cookie.trim();
-        if let Some((key, value)) = cookie.split_once('=') {
-            let decoded_key = percent_decode(key.trim());
-            let decoded_value = percent_decode(value.trim());
-            cookies.insert(decoded_key, Value::Text(Arc::from(decoded_value)));
-        }
-    }
+    // Cookies are separated by ';', parts need trimming, and valueless pairs are typically ignored
+    let cookies = parse_key_value_pairs(cookie_header.as_ref(), ';', true, true);
 
     Ok(Value::Object(Rc::new(RefCell::new(cookies))))
 }
@@ -216,7 +216,7 @@ pub fn native_parse_form_urlencoded(args: Vec<Value>) -> Result<Value, RuntimeEr
 
     let form_data = expect_text(&args[0])?;
 
-    let params = parse_key_value_pairs(form_data.as_ref(), '&');
+    let params = parse_key_value_pairs(form_data.as_ref(), '&', false, false);
 
     Ok(Value::Object(Rc::new(RefCell::new(params))))
 }
