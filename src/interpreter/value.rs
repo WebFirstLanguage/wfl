@@ -22,7 +22,7 @@ pub enum Value {
     Time(Rc<chrono::NaiveTime>),
     DateTime(Rc<chrono::NaiveDateTime>),
     Pattern(Rc<CompiledPattern>),
-    Binary(Vec<u8>),
+    Binary(Arc<[u8]>),
     Null,
     Nothing, // Used for void returns
 
@@ -393,7 +393,12 @@ impl PartialEq for Value {
             (Value::Time(a), Value::Time(b)) => return a == b,
             (Value::DateTime(a), Value::DateTime(b)) => return a == b,
             (Value::Pattern(a), Value::Pattern(b)) => return Rc::ptr_eq(a, b),
-            (Value::Binary(a), Value::Binary(b)) => return a == b,
+            (Value::Binary(a), Value::Binary(b)) => {
+                if Arc::ptr_eq(a, b) {
+                    return true;
+                }
+                return a == b;
+            }
 
             // Optimization: Check for reference identity before full cycle-safe comparison
             // This avoids allocating the HashSet for identical objects/lists
@@ -513,7 +518,7 @@ fn eq_with_visited(
         }
         (Value::Future(a), Value::Future(b)) => Rc::ptr_eq(a, b),
         (Value::Pattern(a), Value::Pattern(b)) => Rc::ptr_eq(a, b),
-        (Value::Binary(a), Value::Binary(b)) => a == b,
+        (Value::Binary(a), Value::Binary(b)) => Arc::ptr_eq(a, b) || a == b,
 
         (Value::ContainerDefinition(a), Value::ContainerDefinition(b)) => a.name == b.name,
         (Value::ContainerInstance(a), Value::ContainerInstance(b)) => {
