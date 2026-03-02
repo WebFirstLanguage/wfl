@@ -3039,7 +3039,7 @@ impl Interpreter {
                                 }
                             }
                         }
-                        bytes
+                        Arc::from(bytes)
                     }
                     _ => {
                         return Err(RuntimeError::new(
@@ -6913,7 +6913,7 @@ impl Interpreter {
                 };
 
                 match self.io_client.read_binary(&handle_str).await {
-                    Ok(bytes) => Ok(Value::Binary(bytes)),
+                    Ok(bytes) => Ok(Value::Binary(Arc::from(bytes))),
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
@@ -6979,7 +6979,7 @@ impl Interpreter {
                 };
 
                 match self.io_client.read_binary_n(&handle_str, n).await {
-                    Ok(bytes) => Ok(Value::Binary(bytes)),
+                    Ok(bytes) => Ok(Value::Binary(Arc::from(bytes))),
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),
                 }
             }
