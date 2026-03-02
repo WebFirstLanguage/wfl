@@ -1,0 +1,115 @@
+<<<<<<< SEARCH
+    pub fn get(&self, name: &str) -> Option<Value> {
+        // Check local scope first
+        if let Some(value) = self.values.get(name) {
+            // Local values are returned as shallow clones.
+            // Note: We do NOT deep clone local values even if self.isolated is true.
+            // Isolation ensures we don't mutate PARENT variables, but local variables
+            // in a module should be fully mutable by the module itself.
+            return Some(value.clone());
+        }
+
+        // Iteratively check parent scopes
+        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut crossed_isolation_boundary = self.isolated;
+
+        while let Some(parent_rc) = current_parent {
+            let parent = parent_rc.borrow();
+
+            if let Some(value) = parent.values.get(name) {
+                // If we crossed an isolation boundary, deep clone the value
+                return if crossed_isolation_boundary {
+                    Some(value.deep_clone())
+                } else {
+                    Some(value.clone())
+                };
+            }
+
+            // If this parent is isolated, it means it's isolated from ITS parent.
+            // So any lookup further up the chain will cross an isolation boundary.
+            if parent.isolated {
+                crossed_isolation_boundary = true;
+            }
+
+            // Move to next parent
+            current_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+        }
+
+        None
+    }
+=======
+    pub fn get(&self, name: &str) -> Option<Value> {
+        // Check local scope first
+        if let Some(value) = self.values.get(name) {
+            // Local values are returned as shallow clones.
+            // Note: We do NOT deep clone local values even if self.isolated is true.
+            // Isolation ensures we don't mutate PARENT variables, but local variables
+            // in a module should be fully mutable by the module itself.
+            return Some(value.clone());
+        }
+
+        // Iteratively check parent scopes
+        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut crossed_isolation_boundary = self.isolated;
+
+        while let Some(parent_rc) = current_parent {
+            let parent = parent_rc.borrow();
+
+            if let Some(value) = parent.values.get(name) {
+                // If we crossed an isolation boundary, deep clone the value
+                return if crossed_isolation_boundary {
+                    Some(value.deep_clone())
+                } else {
+                    Some(value.clone())
+                };
+            }
+
+            // If this parent is isolated, it means it's isolated from ITS parent.
+            // So any lookup further up the chain will cross an isolation boundary.
+            if parent.isolated {
+                crossed_isolation_boundary = true;
+            }
+
+            // Move to next parent
+            current_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+        }
+
+        None
+    }
+
+    pub fn is_sync_auto_call(&self, name: &str) -> Option<bool> {
+        // Check local scope first
+        if let Some(value) = self.values.get(name) {
+            match value {
+                Value::Function(func) => return Some(func.params.is_empty()), // Zero-arg user functions auto-call (async)
+                Value::NativeFunction(_, _) => return Some(false), // Native functions evaluate sync
+                _ => return Some(false),
+            }
+        }
+
+        // Iteratively check parent scopes
+        let mut current_parent = self.parent.as_ref().and_then(|p| p.upgrade());
+        let mut crossed_isolation_boundary = self.isolated;
+
+        while let Some(parent_rc) = current_parent {
+            let parent = parent_rc.borrow();
+
+            if let Some(value) = parent.values.get(name) {
+                match value {
+                    Value::Function(func) => return Some(func.params.is_empty()), // Zero-arg user functions auto-call (async)
+                    Value::NativeFunction(_, _) => return Some(false), // Native functions evaluate sync
+                    _ => return Some(false),
+                }
+            }
+
+            if parent.isolated {
+                crossed_isolation_boundary = true;
+            }
+
+            // Move to next parent
+            current_parent = parent.parent.as_ref().and_then(|p| p.upgrade());
+        }
+
+        None
+    }
+>>>>>>> REPLACE
