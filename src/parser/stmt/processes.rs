@@ -268,10 +268,10 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "request"
 
                     // Optional "that"
-                    if let Some(token) = self.cursor.peek() {
-                        if token.token == Token::KeywordThat {
-                            self.bump_sync(); // Consume "that"
-                        }
+                    if let Some(token) = self.cursor.peek()
+                        && token.token == Token::KeywordThat
+                    {
+                        self.bump_sync(); // Consume "that"
                     }
 
                     // Expect "comes"
