@@ -56,12 +56,17 @@ Use `wait for request` to accept incoming HTTP requests:
 wait for request comes in on web_server as req
 ```
 
-**Syntax:**
+This can also be written with an optional `that` for readability:
 ```wfl
-wait for request comes in on <server> as <request_variable>
+wait for request that comes in on web_server as req
 ```
 
-This blocks until a request arrives, then stores the request in the variable.
+**Syntax:**
+```wfl
+wait for request [that] comes in on <server> as <request_variable>
+```
+
+This blocks until a request arrives, then stores the request in the variable. Both "comes in" and "that comes in" are supported.
 
 ### Responding to Requests
 
