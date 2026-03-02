@@ -580,7 +580,7 @@ fn test_wait_for_request() {
     let source = r#"
         listen on port 8080 as my_server
         wait for request comes in on my_server as req
-        wait for request comes in on my_server as req2 with timeout 5000
+        wait for request that comes in on my_server as req2 with timeout 5000
     "#;
 
     let js = transpile_wfl(source).unwrap();

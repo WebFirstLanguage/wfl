@@ -193,6 +193,8 @@ pub enum Token {
     KeywordInto, // (if needed for phrasing like "into variable")
     #[token("wait")]
     KeywordWait,
+    #[token("that")]
+    KeywordThat,
     #[token("try")]
     KeywordTry,
     #[token("when")]
@@ -652,6 +654,7 @@ impl Token {
                 | Token::KeywordDefaults
                 | Token::KeywordBinary
                 | Token::KeywordBytes
+                | Token::KeywordThat
         )
     }
 

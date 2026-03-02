@@ -253,7 +253,7 @@ random_boolean
 ```wfl
 listen on port 8080 as server
 
-wait for request comes in on server as req
+wait for request [that] comes in on server as req
 
 respond to req with content
 respond to req with content and status 200

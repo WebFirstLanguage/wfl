@@ -10,6 +10,10 @@ try:
     wait for request comes in on test_server as test_request
     display "Request received!"
     
+    display "About to wait for request with 'that'..."
+    wait for request that comes in on test_server as test_request2
+    display "Request 2 received!"
+
 catch:
     display "Caught error in wait request test"
     display "Error: " with error_message

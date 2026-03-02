@@ -264,8 +264,15 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
                     });
                 }
                 Token::KeywordRequest => {
-                    // Handle "wait for request comes in on server as request_name"
+                    // Handle "wait for request [that] comes in on server as request_name"
                     self.bump_sync(); // Consume "request"
+
+                    // Optional "that"
+                    if let Some(token) = self.cursor.peek() {
+                        if token.token == Token::KeywordThat {
+                            self.bump_sync(); // Consume "that"
+                        }
+                    }
 
                     // Expect "comes"
                     if let Some(token) = self.cursor.peek() {
@@ -273,7 +280,7 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
                             self.bump_sync(); // Consume "comes"
                         } else {
                             return Err(ParseError::from_token(
-                                "Expected 'comes' after 'request'".to_string(),
+                                "Expected 'comes' after 'request' (or 'request that')".to_string(),
                                 token,
                             ));
                         }

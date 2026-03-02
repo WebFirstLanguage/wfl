@@ -18,7 +18,7 @@ Create a file called `server.wfl`:
 ```wfl
 listen on port 8080 as web_server
 
-wait for request comes in on web_server as req
+wait for request [that] comes in on web_server as req
 respond to req with "Hello from WFL!"
 ```
 
@@ -56,12 +56,17 @@ Use `wait for request` to accept incoming HTTP requests:
 wait for request comes in on web_server as req
 ```
 
-**Syntax:**
+This should read as:
 ```wfl
-wait for request comes in on <server> as <request_variable>
+wait for request that comes in on web_server as req
 ```
 
-This blocks until a request arrives, then stores the request in the variable.
+**Syntax:**
+```wfl
+wait for request [that] comes in on <server> as <request_variable>
+```
+
+This blocks until a request arrives, then stores the request in the variable. Both "comes in" and "that comes in" are supported.
 
 ### Responding to Requests
 
@@ -137,7 +142,7 @@ The request variable contains information about the HTTP request:
 ### Path
 
 ```wfl
-wait for request comes in on server as req
+wait for request [that] comes in on server as req
 
 check if path is equal to "/":
     respond to req with "Home page"
@@ -225,7 +230,7 @@ Handle different paths with conditionals:
 ```wfl
 listen on port 8080 as server
 
-wait for request comes in on server as req
+wait for request [that] comes in on server as req
 
 check if path is equal to "/":
     respond to req with "Home Page"
@@ -266,7 +271,7 @@ Serve files from a directory:
 ```wfl
 listen on port 8080 as server
 
-wait for request comes in on server as req
+wait for request [that] comes in on server as req
 
 check if path starts with "/static/":
     // Extract filename: /static/file.html -> file.html
@@ -307,7 +312,7 @@ Build JSON responses for APIs:
 ```wfl
 listen on port 8080 as api_server
 
-wait for request comes in on api_server as req
+wait for request [that] comes in on api_server as req
 
 check if path is equal to "/api/status":
     store status_json as "{
@@ -339,7 +344,7 @@ Always handle errors in web servers:
 ```wfl
 listen on port 8080 as server
 
-wait for request comes in on server as req
+wait for request [that] comes in on server as req
 
 try:
     // Process request
@@ -365,7 +370,7 @@ store request_number as 0
 
 listen on port 8080 as server
 
-wait for request comes in on server as req
+wait for request [that] comes in on server as req
 
 add 1 to request_number
 display "Request #" with request_number with ": " with method with " " with path
@@ -383,7 +388,7 @@ listen on port 8080 as server
 register signal handler for "SIGINT" as shutdown_handler
 
 // Request loop
-wait for request comes in on server as req
+wait for request [that] comes in on server as req
 respond to req with "OK"
 
 // Shutdown handler
@@ -409,7 +414,7 @@ display ""
 store request_count as 0
 
 // Main request loop
-wait for request comes in on server as req
+wait for request [that] comes in on server as req
 
 add 1 to request_count
 display "Request #" with request_count with ": " with method with " " with path
@@ -545,7 +550,7 @@ end check
 listen on port 8080 as server
 
 repeat while server is running:
-    wait for request comes in on server as req
+    wait for request [that] comes in on server as req
     // Handle request
     respond to req with "OK"
 end repeat
