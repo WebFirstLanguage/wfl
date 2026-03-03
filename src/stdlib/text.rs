@@ -301,8 +301,15 @@ pub fn native_capitalize(args: Vec<Value>) -> Result<Value, RuntimeError> {
         let mut chars = text.chars();
         match chars.next() {
             Some(c) => {
-                let upper: String = c.to_uppercase().collect();
-                format!("{}{}", upper, chars.as_str())
+                // Optimization: Avoid intermediate String allocation from collect()
+                // and the overhead of the format! macro by pre-allocating the
+                // result string and pushing characters/slices directly.
+                let mut result = String::with_capacity(text.len());
+                for u in c.to_uppercase() {
+                    result.push(u);
+                }
+                result.push_str(chars.as_str());
+                result
             }
             None => String::new(),
         }
@@ -485,6 +492,12 @@ mod tests {
     fn test_capitalize_empty() {
         let result = native_capitalize(vec![Value::Text(Arc::from(""))]).unwrap();
         assert_eq!(result, Value::Text(Arc::from("")));
+    }
+
+    #[test]
+    fn test_capitalize_unicode_expansion() {
+        let result = native_capitalize(vec![Value::Text(Arc::from("ßeta"))]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("SSeta")));
     }
 
     #[test]
