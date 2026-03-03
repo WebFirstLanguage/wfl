@@ -44,7 +44,3 @@
 ## 2026-03-01 - [Avoid redundant scope lookups on variable assignment]
 **Learning:** Checking for variable existence in the `constants` map before attempting to access the `values` map leads to redundant `HashMap` lookups, significantly reducing execution speed in loops where environment scopes are checked recursively.
 **Action:** Always attempt the primary map update via `get_mut` first, then only check the secondary criteria (`constants`) if a match is found. This effectively halves the number of hash map lookups.
-
-## 2026-03-03 - [Optimize native_capitalize in stdlib/text.rs]
-**Learning:** `format!` macro overhead and intermediate allocations (like `.collect::<String>()`) can be significantly slower than directly building a pre-allocated string, especially when called frequently in loops.
-**Action:** Replaced `format!` and the temporary `String` collection with a pre-allocated `String::with_capacity(text.len())`, followed by direct `.push()` for the uppercased character(s) and `.push_str()` for the rest of the slice. This reduces heap allocations and eliminates `format!` overhead.
