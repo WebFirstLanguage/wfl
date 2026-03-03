@@ -181,6 +181,27 @@ mod tests {
     }
 
     #[test]
+    fn test_generate_uuid_validates_args() {
+        let result = native_generate_uuid(vec![Value::Number(1.0)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("generate_uuid expects 0 arguments"));
+    }
+
+    #[test]
+    fn test_generate_uuid_format() {
+        let result = native_generate_uuid(vec![]);
+        assert!(result.is_ok());
+
+        if let Ok(Value::Text(uuid_str)) = result {
+            // Very basic UUID format check: 36 chars, 4 hyphens
+            assert_eq!(uuid_str.len(), 36);
+            assert_eq!(uuid_str.chars().filter(|&c| c == '-').count(), 4);
+        } else {
+            panic!("Expected text from generate_uuid");
+        }
+    }
+
+    #[test]
     fn test_random_between_validates_range() {
         let result = native_random_between(vec![Value::Number(5.0), Value::Number(10.0)]);
         assert!(result.is_ok());
