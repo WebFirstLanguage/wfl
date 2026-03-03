@@ -184,7 +184,12 @@ mod tests {
     fn test_generate_uuid_validates_args() {
         let result = native_generate_uuid(vec![Value::Number(1.0)]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("generate_uuid expects 0 arguments"));
+        assert!(
+            result
+                .unwrap_err()
+                .message
+                .contains("generate_uuid expects 0 arguments")
+        );
     }
 
     #[test]
