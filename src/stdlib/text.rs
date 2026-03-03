@@ -495,6 +495,12 @@ mod tests {
     }
 
     #[test]
+    fn test_capitalize_unicode_expansion() {
+        let result = native_capitalize(vec![Value::Text(Arc::from("ßeta"))]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("SSeta")));
+    }
+
+    #[test]
     fn test_reverse_text() {
         let result = native_reverse_text(vec![Value::Text(Arc::from("hello"))]).unwrap();
         assert_eq!(result, Value::Text(Arc::from("olleh")));
