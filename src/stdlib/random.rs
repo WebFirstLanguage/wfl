@@ -35,6 +35,17 @@ pub fn native_random_between(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let min = expect_number(&args[0])?;
     let max = expect_number(&args[1])?;
 
+    if !min.is_finite() || !max.is_finite() {
+        return Err(RuntimeError::new(
+            format!(
+                "random_between: bounds must be finite numbers, got min: {}, max: {}",
+                min, max
+            ),
+            0,
+            0,
+        ));
+    }
+
     if min > max {
         return Err(RuntimeError::new(
             format!(
@@ -216,6 +227,20 @@ mod tests {
         } else {
             panic!("Expected number from random_between");
         }
+    }
+
+    #[test]
+    fn test_random_between_rejects_non_finite_bounds() {
+        let nan = f64::NAN;
+        let inf = f64::INFINITY;
+
+        let result_nan = native_random_between(vec![Value::Number(nan), Value::Number(10.0)]);
+        assert!(result_nan.is_err());
+        assert!(result_nan.unwrap_err().message.contains("finite numbers"));
+
+        let result_inf = native_random_between(vec![Value::Number(0.0), Value::Number(inf)]);
+        assert!(result_inf.is_err());
+        assert!(result_inf.unwrap_err().message.contains("finite numbers"));
     }
 
     #[test]
