@@ -71,7 +71,8 @@ impl Linter {
         }
 
         println!("Linting complete. Found {} issues", all_diagnostics.len());
-        (all_diagnostics.clone(), all_diagnostics.is_empty())
+        let is_empty = all_diagnostics.is_empty();
+        (all_diagnostics, is_empty)
     }
 
     pub fn load_config(&mut self, dir: &Path) {

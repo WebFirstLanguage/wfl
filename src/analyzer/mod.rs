@@ -1775,7 +1775,11 @@ impl Analyzer {
             Expression::Literal(Literal::List(_), _, _) => Type::List(Box::new(Type::Unknown)),
             Expression::Variable(name, _, _) => {
                 if let Some(symbol) = self.current_scope.resolve(name) {
-                    symbol.symbol_type.clone().unwrap_or(Type::Unknown)
+                    symbol
+                        .symbol_type
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or(Type::Unknown)
                 } else {
                     Type::Unknown
                 }
@@ -1810,7 +1814,7 @@ impl Analyzer {
                     && let SymbolKind::Function { signatures } = &symbol.kind
                     && let Some(sig) = signatures.first()
                 {
-                    return sig.return_type.clone().unwrap_or(Type::Unknown);
+                    return sig.return_type.as_ref().cloned().unwrap_or(Type::Unknown);
                 }
                 Type::Unknown
             }
@@ -1819,7 +1823,7 @@ impl Analyzer {
                     && let SymbolKind::Function { signatures } = &symbol.kind
                     && let Some(sig) = signatures.first()
                 {
-                    return sig.return_type.clone().unwrap_or(Type::Unknown);
+                    return sig.return_type.as_ref().cloned().unwrap_or(Type::Unknown);
                 }
                 Type::Unknown
             }
