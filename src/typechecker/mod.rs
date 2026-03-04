@@ -570,10 +570,10 @@ impl TypeChecker {
             } => {
                 let param_types = parameters
                     .iter()
-                    .map(|p| p.param_type.clone().unwrap_or(Type::Unknown))
+                    .map(|p| p.param_type.as_ref().cloned().unwrap_or(Type::Unknown))
                     .collect::<Vec<Type>>();
 
-                let return_type_value = return_type.clone().unwrap_or(Type::Nothing);
+                let return_type_value = return_type.as_ref().cloned().unwrap_or(Type::Nothing);
 
                 if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
                     symbol.symbol_type = Some(Type::Function {
