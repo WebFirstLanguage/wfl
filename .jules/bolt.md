@@ -41,6 +41,11 @@
 ## 2026-03-01 - [Avoid format! for simple string concatenation]
 **Learning:** The `format!` macro has significant overhead (parsing, dynamic dispatch) for simple string concatenation like `a + b`. In tight loops, this dominates execution time.
 **Action:** Replaced `format!("{a}{b}")` with `String::with_capacity` and `push_str` for the common case where both operands are strings. This yielded an ~18% performance improvement in string-heavy workloads.
+
 ## 2026-03-01 - [Avoid redundant scope lookups on variable assignment]
 **Learning:** Checking for variable existence in the `constants` map before attempting to access the `values` map leads to redundant `HashMap` lookups, significantly reducing execution speed in loops where environment scopes are checked recursively.
 **Action:** Always attempt the primary map update via `get_mut` first, then only check the secondary criteria (`constants`) if a match is found. This effectively halves the number of hash map lookups.
+
+## 2026-03-01 - [Optimize list concat with pre-allocation]
+**Learning:** Calling `clone()` on a list and then `extend()` with another list causes an unnecessary memory reallocation, making list concatenation inefficient for large lists.
+**Action:** Pre-calculate the combined length and use `Vec::with_capacity` followed by `extend()` from both iterators. This avoids reallocation and yields a performance improvement.

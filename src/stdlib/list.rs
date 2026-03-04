@@ -214,8 +214,12 @@ pub fn native_slice(args: Vec<Value>) -> Result<Value, RuntimeError> {
 pub fn native_concat(args: Vec<Value>) -> Result<Value, RuntimeError> {
     binary_list_val_op("concat", args, |list_a, list_b_val| {
         let list_b = super::helpers::expect_list(&list_b_val)?;
-        let mut result = list_a.borrow().clone();
-        result.extend(list_b.borrow().iter().cloned());
+        let list_a_ref = list_a.borrow();
+        let list_b_ref = list_b.borrow();
+        // Optimization: Pre-calculate total capacity to avoid intermediate allocations and re-allocations
+        let mut result = Vec::with_capacity(list_a_ref.len() + list_b_ref.len());
+        result.extend(list_a_ref.iter().cloned());
+        result.extend(list_b_ref.iter().cloned());
         Ok(Value::List(Rc::new(RefCell::new(result))))
     })
 }
