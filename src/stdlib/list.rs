@@ -217,7 +217,6 @@ pub fn native_concat(args: Vec<Value>) -> Result<Value, RuntimeError> {
         let list_a_ref = list_a.borrow();
         let list_b_ref = list_b.borrow();
         // Optimization: Pre-calculate total capacity to avoid intermediate allocations and re-allocations
-        // Performance impact: Makes concatenation ~1.3x faster for large lists compared to clone + extend
         let mut result = Vec::with_capacity(list_a_ref.len() + list_b_ref.len());
         result.extend(list_a_ref.iter().cloned());
         result.extend(list_b_ref.iter().cloned());
