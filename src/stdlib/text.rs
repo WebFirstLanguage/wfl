@@ -1,5 +1,6 @@
 use super::helpers::{
     binary_text_predicate, check_arg_count, expect_number, expect_text, unary_text_op,
+    unary_text_op_arc,
 };
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
@@ -90,11 +91,35 @@ fn parse_key_value_pairs(
 // which handles both text and lists
 
 pub fn native_touppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    unary_text_op("touppercase", args, |text| text.to_uppercase())
+    // Optimization: avoid string allocation if string is already uppercase
+    unary_text_op_arc("touppercase", args, |text| {
+        // fast path: check if it changes when converted to uppercase
+        let is_uppercase = text.chars().all(|c| {
+            let mut iter = c.to_uppercase();
+            iter.next() == Some(c) && iter.next().is_none()
+        });
+        if is_uppercase {
+            text
+        } else {
+            Arc::from(text.to_uppercase())
+        }
+    })
 }
 
 pub fn native_tolowercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    unary_text_op("tolowercase", args, |text| text.to_lowercase())
+    // Optimization: avoid string allocation if string is already lowercase
+    unary_text_op_arc("tolowercase", args, |text| {
+        // fast path: check if it changes when converted to lowercase
+        let is_lowercase = text.chars().all(|c| {
+            let mut iter = c.to_lowercase();
+            iter.next() == Some(c) && iter.next().is_none()
+        });
+        if is_lowercase {
+            text
+        } else {
+            Arc::from(text.to_lowercase())
+        }
+    })
 }
 
 pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -172,7 +197,15 @@ pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_trim(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    unary_text_op("trim", args, |text| Arc::from(text.trim()))
+    // Optimization: avoid string allocation if string is already trimmed
+    unary_text_op_arc("trim", args, |text| {
+        let trimmed = text.trim();
+        if trimmed.len() == text.len() {
+            text
+        } else {
+            Arc::from(trimmed)
+        }
+    })
 }
 
 pub fn native_starts_with(args: Vec<Value>) -> Result<Value, RuntimeError> {

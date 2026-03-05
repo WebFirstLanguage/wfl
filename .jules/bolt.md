@@ -49,3 +49,7 @@
 ## 2026-03-01 - [Optimize list concat with pre-allocation]
 **Learning:** Calling `clone()` on a list and then `extend()` with another list causes an unnecessary memory reallocation, making list concatenation inefficient for large lists.
 **Action:** Pre-calculate the combined length and use `Vec::with_capacity` followed by `extend()` from both iterators. This avoids reallocation and yields a performance improvement.
+
+## 2026-03-05 - [Optimize Unicode Text Casing Fast Paths]
+**Learning:** When trying to avoid string allocations for `touppercase` and `tolowercase` if the string is already in the target case, using a simple check like `!text.chars().any(char::is_lowercase)` is flawed due to complex Unicode casing rules (e.g., modifier marks or Titlecase characters like `ǅ`). These characters might not be lowercase, but they still change when uppercase is applied.
+**Action:** Always verify that every character actually remains identical under the casing transformation. Use `.chars().all(|c| { let mut iter = c.to_uppercase(); iter.next() == Some(c) && iter.next().is_none() })` to safely identify if an allocation-free fast path can be taken.
