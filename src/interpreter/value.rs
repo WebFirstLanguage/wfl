@@ -204,6 +204,25 @@ impl Value {
         }
     }
 
+    pub fn expect_text(
+        &self,
+        expected_desc: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<Arc<str>, RuntimeError> {
+        match self {
+            Value::Text(s) => Ok(Arc::clone(s)),
+            _ => Err(RuntimeError::new(
+                format!(
+                    "Expected string for {expected_desc}, got {}",
+                    self.type_name()
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
     /// Deep clone a value, creating independent copies of reference-counted containers.
     /// This is used for module isolation to prevent mutations from affecting parent scopes.
     pub fn deep_clone(&self) -> Self {
