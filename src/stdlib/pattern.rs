@@ -1,6 +1,7 @@
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use crate::stdlib::helpers::{check_arg_count, expect_pattern, expect_text};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -28,85 +29,35 @@ pub fn register(env: &mut Environment) {
 /// Native function: pattern_matches(text, pattern) -> boolean
 /// Tests if text matches the given compiled pattern
 pub fn pattern_matches_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            "pattern_matches requires exactly 2 arguments (text, pattern)".to_string(),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("pattern_matches", &args, 2)?;
 
-    let text_str = match &args[0] {
-        Value::Text(s) => s.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "First argument to pattern_matches must be text".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
+    let text_str = expect_text(&args[0])?;
+    let compiled_pattern = expect_pattern(&args[1])?;
 
-    let compiled_pattern = match &args[1] {
-        Value::Pattern(p) => p,
-        _ => {
-            return Err(RuntimeError::new(
-                "Second argument to pattern_matches must be a compiled pattern".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let matches = compiled_pattern.matches(text_str);
+    let matches = compiled_pattern.matches(&text_str);
     Ok(Value::Bool(matches))
 }
 
 /// Native function: pattern_find(text, pattern) -> object or null
 /// Finds the first match of pattern in text
 pub fn pattern_find_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            "pattern_find requires exactly 2 arguments (text, pattern)".to_string(),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("pattern_find", &args, 2)?;
 
-    let text_str = match &args[0] {
-        Value::Text(s) => s.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "First argument to pattern_find must be text".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
+    let text_str = expect_text(&args[0])?;
+    let compiled_pattern = expect_pattern(&args[1])?;
 
-    let compiled_pattern = match &args[1] {
-        Value::Pattern(p) => p,
-        _ => {
-            return Err(RuntimeError::new(
-                "Second argument to pattern_find must be a compiled pattern".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
-
-    match compiled_pattern.find(text_str) {
+    match compiled_pattern.find(&text_str) {
         Some(match_result) => {
             let mut result_map = HashMap::new();
             result_map.insert(
-                "matched_text".to_string(),
+                String::from("matched_text"),
                 Value::Text(Arc::from(match_result.matched_text.as_str())),
             );
             result_map.insert(
-                "start".to_string(),
+                String::from("start"),
                 Value::Number(match_result.start as f64),
             );
-            result_map.insert("end".to_string(), Value::Number(match_result.end as f64));
+            result_map.insert(String::from("end"), Value::Number(match_result.end as f64));
 
             // Add captures if any
             if !match_result.captures.is_empty() {
@@ -115,7 +66,7 @@ pub fn pattern_find_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
                     captures_map.insert(name, Value::Text(Arc::from(value.as_str())));
                 }
                 result_map.insert(
-                    "captures".to_string(),
+                    String::from("captures"),
                     Value::Object(Rc::new(RefCell::new(captures_map))),
                 );
             }
@@ -129,50 +80,25 @@ pub fn pattern_find_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
 /// Native function: pattern_find_all(text, pattern) -> list
 /// Finds all matches of pattern in text
 pub fn pattern_find_all_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            "pattern_find_all requires exactly 2 arguments (text, pattern)".to_string(),
-            0,
-            0,
-        ));
-    }
+    check_arg_count("pattern_find_all", &args, 2)?;
 
-    let text_str = match &args[0] {
-        Value::Text(s) => s.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "First argument to pattern_find_all must be text".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
+    let text_str = expect_text(&args[0])?;
+    let compiled_pattern = expect_pattern(&args[1])?;
 
-    let compiled_pattern = match &args[1] {
-        Value::Pattern(p) => p,
-        _ => {
-            return Err(RuntimeError::new(
-                "Second argument to pattern_find_all must be a compiled pattern".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
-
-    let matches = compiled_pattern.find_all(text_str);
+    let matches = compiled_pattern.find_all(&text_str);
     let mut result_list = Vec::new();
 
     for match_result in matches {
         let mut result_map = HashMap::new();
         result_map.insert(
-            "matched_text".to_string(),
+            String::from("matched_text"),
             Value::Text(Arc::from(match_result.matched_text.as_str())),
         );
         result_map.insert(
-            "start".to_string(),
+            String::from("start"),
             Value::Number(match_result.start as f64),
         );
-        result_map.insert("end".to_string(), Value::Number(match_result.end as f64));
+        result_map.insert(String::from("end"), Value::Number(match_result.end as f64));
 
         // Add captures if any
         if !match_result.captures.is_empty() {
@@ -181,7 +107,7 @@ pub fn pattern_find_all_native(args: Vec<Value>) -> Result<Value, RuntimeError> 
                 captures_map.insert(name, Value::Text(Arc::from(value.as_str())));
             }
             result_map.insert(
-                "captures".to_string(),
+                String::from("captures"),
                 Value::Object(Rc::new(RefCell::new(captures_map))),
             );
         }
@@ -198,49 +124,19 @@ pub fn native_pattern_replace(
     line: usize,
     column: usize,
 ) -> Result<Value, RuntimeError> {
-    if args.len() != 3 {
-        return Err(RuntimeError::new(
-            "pattern_replace requires exactly 3 arguments".to_string(),
-            line,
-            column,
-        ));
-    }
+    check_arg_count("pattern_replace", &args, 3)
+        .map_err(|e| RuntimeError::new(e.message, line, column))?;
 
-    let text = match &args[0] {
-        Value::Text(t) => t.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "First argument must be text".to_string(),
-                line,
-                column,
-            ));
-        }
-    };
+    let text = expect_text(&args[0]).map_err(|e| RuntimeError::new(e.message, line, column))?;
 
-    let _pattern = match &args[1] {
-        Value::Pattern(p) => p.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "Second argument must be a pattern".to_string(),
-                line,
-                column,
-            ));
-        }
-    };
+    let _pattern =
+        expect_pattern(&args[1]).map_err(|e| RuntimeError::new(e.message, line, column))?;
 
-    let _replacement = match &args[2] {
-        Value::Text(t) => t.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "Third argument must be text".to_string(),
-                line,
-                column,
-            ));
-        }
-    };
+    let _replacement =
+        expect_text(&args[2]).map_err(|e| RuntimeError::new(e.message, line, column))?;
 
     // TODO: Update to use new pattern system for replacement
-    Ok(Value::Text(Arc::from(text)))
+    Ok(Value::Text(Arc::clone(&text)))
 }
 
 /// Native function for pattern splitting (called by interpreter)
@@ -249,66 +145,49 @@ pub fn native_pattern_split(
     line: usize,
     column: usize,
 ) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            "pattern_split requires exactly 2 arguments".to_string(),
-            line,
-            column,
-        ));
-    }
+    check_arg_count("pattern_split", &args, 2)
+        .map_err(|e| RuntimeError::new(e.message, line, column))?;
 
-    let text = match &args[0] {
-        Value::Text(t) => t.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "First argument must be text".to_string(),
-                line,
-                column,
-            ));
-        }
-    };
+    let text = expect_text(&args[0]).map_err(|e| RuntimeError::new(e.message, line, column))?;
 
-    let pattern = match &args[1] {
-        Value::Pattern(p) => p,
-        _ => {
-            return Err(RuntimeError::new(
-                "Second argument must be a pattern".to_string(),
-                line,
-                column,
-            ));
-        }
-    };
+    let pattern =
+        expect_pattern(&args[1]).map_err(|e| RuntimeError::new(e.message, line, column))?;
 
     // Find all matches of the pattern in the text
-    let matches = pattern.find_all(text);
+    let matches = pattern.find_all(&text);
 
     // If no matches, return the entire text as a single element
     if matches.is_empty() {
-        let parts = vec![Value::Text(Arc::from(text))];
+        let parts = vec![Value::Text(Arc::clone(&text))];
         return Ok(Value::List(Rc::new(RefCell::new(parts))));
     }
 
-    // Build character-to-byte index mapping
-    let char_to_byte: Vec<usize> = text.char_indices().map(|(byte_idx, _)| byte_idx).collect();
-    let mut char_to_byte = char_to_byte;
-    char_to_byte.push(text.len()); // Add final byte position
-
-    // Split the text at match positions
+    // Extract matched text from match result directly using matched_text
+    // Or slice using byte offsets. However, MatchResult currently only has `start` and `end` character indices.
+    // In Rust, using `.char_indices()` incrementally is more efficient than building a full vector.
     let mut parts = Vec::new();
     let mut last_end_char = 0;
+    let mut last_end_byte = 0;
+
+    let mut char_indices = text.char_indices();
+    let mut current_char_idx = 0;
 
     for match_result in matches {
-        // Convert character indices to byte indices
-        let start_byte = if match_result.start < char_to_byte.len() {
-            char_to_byte[match_result.start]
-        } else {
-            text.len()
-        };
-        let last_end_byte = if last_end_char < char_to_byte.len() {
-            char_to_byte[last_end_char]
-        } else {
-            text.len()
-        };
+        // Find start_byte
+        let mut start_byte = last_end_byte;
+        while current_char_idx < match_result.start {
+            if let Some((b_idx, _)) = char_indices.next() {
+                start_byte = b_idx;
+                current_char_idx += 1;
+            } else {
+                start_byte = text.len();
+                break;
+            }
+        }
+        if current_char_idx == match_result.start {
+            // we are at the char, we need the byte index of this char
+            start_byte = char_indices.clone().next().map_or(text.len(), |(b, _)| b);
+        }
 
         // Add the text before this match
         if match_result.start > last_end_char
@@ -320,14 +199,30 @@ pub fn native_pattern_split(
             // Add empty string for consecutive matches
             parts.push(Value::Text(Arc::from("")));
         }
+
+        // Find last_end_byte
+        while current_char_idx < match_result.end {
+            if let Some((b_idx, _)) = char_indices.next() {
+                last_end_byte = b_idx;
+                current_char_idx += 1;
+            } else {
+                last_end_byte = text.len();
+                break;
+            }
+        }
+        if current_char_idx == match_result.end {
+            last_end_byte = char_indices.clone().next().map_or(text.len(), |(b, _)| b);
+        }
+
         last_end_char = match_result.end;
     }
 
     // Add any remaining text after the last match
-    if last_end_char < char_to_byte.len() {
-        let last_end_byte = char_to_byte[last_end_char];
+    if last_end_byte < text.len() {
         let part = &text[last_end_byte..];
         parts.push(Value::Text(Arc::from(part)));
+    } else if last_end_byte == text.len() && text.is_empty() {
+        // Should not happen, covered by is_empty check above, but for completeness
     }
 
     Ok(Value::List(Rc::new(RefCell::new(parts))))
