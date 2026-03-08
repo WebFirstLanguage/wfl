@@ -288,10 +288,28 @@ pub fn native_pattern_split(
         return Ok(Value::List(Rc::new(RefCell::new(parts))));
     }
 
-    // Build character-to-byte index mapping
-    let char_to_byte: Vec<usize> = text.char_indices().map(|(byte_idx, _)| byte_idx).collect();
-    let mut char_to_byte = char_to_byte;
-    char_to_byte.push(text.len()); // Add final byte position
+    // Optimization: Avoid O(N) allocation of char-to-byte index mapping
+    // by using an iterator that advances through the string on demand.
+    // Matches are processed strictly left-to-right, so we only need one pass.
+    let mut chars_iter = text.char_indices();
+    let mut current_char_idx = 0;
+    let mut current_byte_idx = 0;
+
+    let mut get_byte_idx = |target_char_idx: usize| -> usize {
+        while current_char_idx < target_char_idx {
+            if let Some((byte_idx, c)) = chars_iter.next() {
+                current_char_idx += 1;
+                current_byte_idx = byte_idx + c.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if target_char_idx == 0 {
+            0
+        } else {
+            current_byte_idx
+        }
+    };
 
     // Split the text at match positions
     let mut parts = Vec::new();
@@ -299,16 +317,8 @@ pub fn native_pattern_split(
 
     for match_result in matches {
         // Convert character indices to byte indices
-        let start_byte = if match_result.start < char_to_byte.len() {
-            char_to_byte[match_result.start]
-        } else {
-            text.len()
-        };
-        let last_end_byte = if last_end_char < char_to_byte.len() {
-            char_to_byte[last_end_char]
-        } else {
-            text.len()
-        };
+        let last_end_byte = get_byte_idx(last_end_char);
+        let start_byte = get_byte_idx(match_result.start);
 
         // Add the text before this match
         if match_result.start > last_end_char
@@ -324,11 +334,13 @@ pub fn native_pattern_split(
     }
 
     // Add any remaining text after the last match
-    if last_end_char < char_to_byte.len() {
-        let last_end_byte = char_to_byte[last_end_char];
-        let part = &text[last_end_byte..];
-        parts.push(Value::Text(Arc::from(part)));
-    }
+    // The previous implementation used `if last_end_char < char_to_byte.len()`.
+    // `char_to_byte.len()` is `text.chars().count() + 1`.
+    // Because matches are always bounded by the string length, this condition
+    // was effectively always true, guaranteeing a final append (even if empty `""`).
+    let last_end_byte = get_byte_idx(last_end_char);
+    let part = &text[last_end_byte..];
+    parts.push(Value::Text(Arc::from(part)));
 
     Ok(Value::List(Rc::new(RefCell::new(parts))))
 }
