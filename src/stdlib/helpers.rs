@@ -1,5 +1,6 @@
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use crate::pattern::CompiledPattern;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -332,6 +333,29 @@ pub fn expect_text(value: &Value) -> Result<Arc<str>, RuntimeError> {
         Value::Text(s) => Ok(Arc::clone(s)),
         _ => Err(RuntimeError::new(
             format!("Expected text, got {}", value.type_name()),
+            0,
+            0,
+        )),
+    }
+}
+
+/// Extracts a compiled pattern from a WFL Value, returning it as a reference-counted pattern.
+///
+/// Returns an `Rc<CompiledPattern>` to enable sharing of compiled patterns.
+///
+/// # Arguments
+///
+/// * `value` - The WFL Value to extract from
+///
+/// # Returns
+///
+/// * `Ok(Rc<CompiledPattern>)` if the value is a Pattern
+/// * `Err(RuntimeError)` otherwise
+pub fn expect_pattern(value: &Value) -> Result<Rc<CompiledPattern>, RuntimeError> {
+    match value {
+        Value::Pattern(p) => Ok(Rc::clone(p)),
+        _ => Err(RuntimeError::new(
+            format!("Expected a pattern, got {}", value.type_name()),
             0,
             0,
         )),
