@@ -53,3 +53,7 @@
 ## 2026-03-05 - [Optimize Unicode Text Casing Fast Paths]
 **Learning:** When trying to avoid string allocations for `touppercase` and `tolowercase` if the string is already in the target case, using a simple check like `!text.chars().any(char::is_lowercase)` is flawed due to complex Unicode casing rules (e.g., modifier marks or Titlecase characters like `ǅ`). These characters might not be lowercase, but they still change when uppercase is applied.
 **Action:** Always verify that every character actually remains identical under the casing transformation. Use `.chars().all(|c| { let mut iter = c.to_uppercase(); iter.next() == Some(c) && iter.next().is_none() })` to safely identify if an allocation-free fast path can be taken.
+
+## 2026-03-07 - [Optimize O(N) Array Mapping for Splits]
+**Learning:** For pattern splitting, pre-computing character-to-byte boundaries via `let char_to_byte: Vec<usize> = text.char_indices().map(|(byte_idx, _)| byte_idx).collect()` iterates the string and allocates an $O(N)$ sized vector which creates an artificial memory and performance bottleneck on long texts.
+**Action:** If matches or splits are naturally strictly ordered from left to right, we can lazily consume an iterator like `char_indices()` in step with the iteration to retrieve the respective byte indexes. This completely eliminates the extra allocation.
