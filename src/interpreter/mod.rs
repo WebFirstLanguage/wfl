@@ -3412,7 +3412,9 @@ impl Interpreter {
                             }
                         } else {
                             // Check if it exists in parent scope to provide better error message
-                            if env.borrow().get(name).is_some() {
+                            // PERFORMANCE: Use `has` instead of `get(...).is_some()` to avoid potentially expensive
+                            // value cloning across isolation boundaries when we only care about existence.
+                            if env.borrow().has(name) {
                                 Err(RuntimeError::new(
                                     format!(
                                         "Container '{}' is only defined in parent scope and cannot be exported",
@@ -3444,7 +3446,8 @@ impl Interpreter {
                             }
                         } else {
                             // Check if it exists in parent scope to provide better error message
-                            if env.borrow().get(name).is_some() {
+                            // PERFORMANCE: Use `has` instead of `get(...).is_some()` to avoid cloning the FunctionValue.
+                            if env.borrow().has(name) {
                                 Err(RuntimeError::new(
                                     format!(
                                         "Action '{}' is only defined in parent scope and cannot be exported",
@@ -3479,7 +3482,8 @@ impl Interpreter {
                             }
                         } else {
                             // Check if it exists in parent scope to provide better error message
-                            if env.borrow().get(name).is_some() {
+                            // PERFORMANCE: Use `has` instead of `get(...).is_some()` to avoid cloning the constant value.
+                            if env.borrow().has(name) {
                                 Err(RuntimeError::new(
                                     format!(
                                         "Constant '{}' is only defined in parent scope and cannot be exported",

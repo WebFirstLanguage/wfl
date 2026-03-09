@@ -53,3 +53,7 @@
 ## 2026-03-05 - [Optimize Unicode Text Casing Fast Paths]
 **Learning:** When trying to avoid string allocations for `touppercase` and `tolowercase` if the string is already in the target case, using a simple check like `!text.chars().any(char::is_lowercase)` is flawed due to complex Unicode casing rules (e.g., modifier marks or Titlecase characters like `ǅ`). These characters might not be lowercase, but they still change when uppercase is applied.
 **Action:** Always verify that every character actually remains identical under the casing transformation. Use `.chars().all(|c| { let mut iter = c.to_uppercase(); iter.next() == Some(c) && iter.next().is_none() })` to safely identify if an allocation-free fast path can be taken.
+
+## 2026-03-05 - [Avoid deep cloning on scope lookups for existence checks]
+**Learning:** Using `env.borrow().get(name).is_some()` to check if a variable exists in a parent scope is inefficient. The `get()` method recursively traverses the environment and clones the value (or deep clones it if crossing module isolation boundaries) just to satisfy the `Option` return type, even when we immediately discard it.
+**Action:** When you only need to check if a variable exists in a scope chain (e.g. for validation or error messaging), always use `env.borrow().has(name)`. This method traverses the chain but only performs HashMap key lookups, avoiding any value cloning or allocations.
