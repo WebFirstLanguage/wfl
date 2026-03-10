@@ -1,7 +1,7 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use wfl::stdlib::text::*;
-use wfl::interpreter::value::Value;
+use criterion::{Criterion, criterion_group, criterion_main};
 use std::sync::Arc;
+use wfl::interpreter::value::Value;
+use wfl::stdlib::text::*;
 
 fn bench_percent_decode(c: &mut Criterion) {
     let inputs = vec![

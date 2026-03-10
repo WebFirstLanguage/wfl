@@ -51,8 +51,10 @@ fn percent_decode(s: &str) -> Cow<'_, str> {
     }
 
     // Convert bytes to String, replacing invalid UTF-8 with replacement character
-    Cow::Owned(String::from_utf8(result)
-        .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned()))
+    Cow::Owned(
+        String::from_utf8(result)
+            .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned()),
+    )
 }
 
 /// Parse key-value pairs with URL decoding
