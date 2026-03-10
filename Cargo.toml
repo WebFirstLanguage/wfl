@@ -87,3 +87,7 @@ harness = false
 
 [profile.release]
 debug = true
+
+[[bench]]
+name = "text_parse_bench"
+harness = false
