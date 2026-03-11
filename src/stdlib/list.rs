@@ -388,68 +388,41 @@ pub fn native_some(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn register_list(env: &mut Environment) {
-    let _ = env.define("length", Value::NativeFunction("length", native_length));
-    let _ = env.define("push", Value::NativeFunction("push", native_push));
-    let _ = env.define("pop", Value::NativeFunction("pop", native_pop));
-    let _ = env.define(
-        "contains",
-        Value::NativeFunction("contains", native_contains),
-    );
-    let _ = env.define("indexof", Value::NativeFunction("indexof", native_indexof));
-    let _ = env.define(
-        "index_of",
-        Value::NativeFunction("index_of", native_indexof),
-    );
+    let _ = env.define_native("length", native_length);
+    let _ = env.define_native("push", native_push);
+    let _ = env.define_native("pop", native_pop);
+    let _ = env.define_native("contains", native_contains);
+    let _ = env.define_native("indexof", native_indexof);
+    let _ = env.define_native("index_of", native_indexof);
 
     // Batch 3: Basic List Manipulation
-    let _ = env.define("shift", Value::NativeFunction("shift", native_shift));
-    let _ = env.define("unshift", Value::NativeFunction("unshift", native_unshift));
-    let _ = env.define(
-        "remove_at",
-        Value::NativeFunction("remove_at", native_remove_at),
-    );
-    let _ = env.define(
-        "removeat",
-        Value::NativeFunction("removeat", native_remove_at),
-    );
-    let _ = env.define(
-        "insert_at",
-        Value::NativeFunction("insert_at", native_insert_at),
-    );
-    let _ = env.define(
-        "insertat",
-        Value::NativeFunction("insertat", native_insert_at),
-    );
-    let _ = env.define("clear", Value::NativeFunction("clear", native_clear));
-    let _ = env.define("slice", Value::NativeFunction("slice", native_slice));
-    let _ = env.define("concat", Value::NativeFunction("concat", native_concat));
-    let _ = env.define(
-        "includes",
-        Value::NativeFunction("includes", native_contains),
-    );
+    let _ = env.define_native("shift", native_shift);
+    let _ = env.define_native("unshift", native_unshift);
+    let _ = env.define_native("remove_at", native_remove_at);
+    let _ = env.define_native("removeat", native_remove_at);
+    let _ = env.define_native("insert_at", native_insert_at);
+    let _ = env.define_native("insertat", native_insert_at);
+    let _ = env.define_native("clear", native_clear);
+    let _ = env.define_native("slice", native_slice);
+    let _ = env.define_native("concat", native_concat);
+    let _ = env.define_native("includes", native_contains);
 
     // Batch 4: List Utilities
-    let _ = env.define("join", Value::NativeFunction("join", native_join));
-    let _ = env.define("unique", Value::NativeFunction("unique", native_unique));
-    let _ = env.define("count", Value::NativeFunction("count", native_count));
-    let _ = env.define("size", Value::NativeFunction("size", native_length));
-    let _ = env.define("fill", Value::NativeFunction("fill", native_fill));
+    let _ = env.define_native("join", native_join);
+    let _ = env.define_native("unique", native_unique);
+    let _ = env.define_native("count", native_count);
+    let _ = env.define_native("size", native_length);
+    let _ = env.define_native("fill", native_fill);
 
     // Batch 5: Sort & Reverse
-    let _ = env.define("sort", Value::NativeFunction("sort", native_sort));
-    let _ = env.define(
-        "reverse_list",
-        Value::NativeFunction("reverse_list", native_reverse_list),
-    );
+    let _ = env.define_native("sort", native_sort);
+    let _ = env.define_native("reverse_list", native_reverse_list);
 
     // Batch 6: List Search
-    let _ = env.define("find", Value::NativeFunction("find", native_find));
-    let _ = env.define(
-        "find_index",
-        Value::NativeFunction("find_index", native_indexof),
-    );
-    let _ = env.define("every", Value::NativeFunction("every", native_every));
-    let _ = env.define("some", Value::NativeFunction("some", native_some));
+    let _ = env.define_native("find", native_find);
+    let _ = env.define_native("find_index", native_indexof);
+    let _ = env.define_native("every", native_every);
+    let _ = env.define_native("some", native_some);
 }
 
 #[cfg(test)]
