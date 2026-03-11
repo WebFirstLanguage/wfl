@@ -490,70 +490,25 @@ pub fn native_remove_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn register_filesystem(env: &mut crate::interpreter::environment::Environment) {
-    let _ = env.define(
-        "list_dir",
-        Value::NativeFunction("list_dir", native_list_dir),
-    );
-    let _ = env.define("glob", Value::NativeFunction("glob", native_glob));
-    let _ = env.define("rglob", Value::NativeFunction("rglob", native_rglob));
-    let _ = env.define(
-        "path_join",
-        Value::NativeFunction("path_join", native_path_join),
-    );
-    let _ = env.define(
-        "path_basename",
-        Value::NativeFunction("path_basename", native_path_basename),
-    );
-    let _ = env.define(
-        "path_dirname",
-        Value::NativeFunction("path_dirname", native_path_dirname),
-    );
-    let _ = env.define(
-        "makedirs",
-        Value::NativeFunction("makedirs", native_makedirs),
-    );
-    let _ = env.define(
-        "file_mtime",
-        Value::NativeFunction("file_mtime", native_file_mtime),
-    );
-    let _ = env.define(
-        "path_exists",
-        Value::NativeFunction("path_exists", native_path_exists),
-    );
-    let _ = env.define("is_file", Value::NativeFunction("is_file", native_is_file));
-    let _ = env.define("is_dir", Value::NativeFunction("is_dir", native_is_dir));
-    let _ = env.define(
-        "count_lines",
-        Value::NativeFunction("count_lines", native_count_lines),
-    );
-    let _ = env.define(
-        "path_extension",
-        Value::NativeFunction("path_extension", native_path_extension),
-    );
-    let _ = env.define(
-        "path_stem",
-        Value::NativeFunction("path_stem", native_path_stem),
-    );
-    let _ = env.define(
-        "file_size",
-        Value::NativeFunction("file_size", native_file_size),
-    );
-    let _ = env.define(
-        "copy_file",
-        Value::NativeFunction("copy_file", native_copy_file),
-    );
-    let _ = env.define(
-        "move_file",
-        Value::NativeFunction("move_file", native_move_file),
-    );
-    let _ = env.define(
-        "remove_file",
-        Value::NativeFunction("remove_file", native_remove_file),
-    );
-    let _ = env.define(
-        "remove_dir",
-        Value::NativeFunction("remove_dir", native_remove_dir),
-    );
+    let _ = env.define_native("list_dir", native_list_dir);
+    let _ = env.define_native("glob", native_glob);
+    let _ = env.define_native("rglob", native_rglob);
+    let _ = env.define_native("path_join", native_path_join);
+    let _ = env.define_native("path_basename", native_path_basename);
+    let _ = env.define_native("path_dirname", native_path_dirname);
+    let _ = env.define_native("makedirs", native_makedirs);
+    let _ = env.define_native("file_mtime", native_file_mtime);
+    let _ = env.define_native("path_exists", native_path_exists);
+    let _ = env.define_native("is_file", native_is_file);
+    let _ = env.define_native("is_dir", native_is_dir);
+    let _ = env.define_native("count_lines", native_count_lines);
+    let _ = env.define_native("path_extension", native_path_extension);
+    let _ = env.define_native("path_stem", native_path_stem);
+    let _ = env.define_native("file_size", native_file_size);
+    let _ = env.define_native("copy_file", native_copy_file);
+    let _ = env.define_native("move_file", native_move_file);
+    let _ = env.define_native("remove_file", native_remove_file);
+    let _ = env.define_native("remove_dir", native_remove_dir);
 }
 
 #[cfg(test)]
