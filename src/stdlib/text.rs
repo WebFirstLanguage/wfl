@@ -5,6 +5,7 @@ use super::helpers::{
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -12,9 +13,16 @@ use std::sync::Arc;
 /// Decode percent-encoded URL string
 /// Converts '+' to space and decodes %HH hex sequences
 /// Invalid sequences are left as-is
-fn percent_decode(s: &str) -> String {
-    let mut result = Vec::new();
+fn percent_decode(s: &str) -> Cow<'_, str> {
     let bytes = s.as_bytes();
+
+    // Fast path: if no encoding characters are present, return the original string
+    if !bytes.iter().any(|&b| b == b'%' || b == b'+') {
+        return Cow::Borrowed(s);
+    }
+
+    // Pre-allocate vector based on input size, as decoded string will be at most this length
+    let mut result = Vec::with_capacity(bytes.len());
     let mut i = 0;
 
     while i < bytes.len() {
@@ -43,8 +51,10 @@ fn percent_decode(s: &str) -> String {
     }
 
     // Convert bytes to String, replacing invalid UTF-8 with replacement character
-    String::from_utf8(result)
-        .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned())
+    Cow::Owned(
+        String::from_utf8(result)
+            .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned()),
+    )
 }
 
 /// Parse key-value pairs with URL decoding
@@ -57,11 +67,14 @@ fn parse_key_value_pairs(
 ) -> std::collections::HashMap<String, Value> {
     use std::collections::HashMap;
 
-    let mut params = HashMap::new();
-
     if input.is_empty() {
-        return params;
+        return HashMap::new();
     }
+
+    // Optimization: pre-allocate HashMap based on a conservative heuristic.
+    // Assuming each pair is at least ~4 chars (e.g. `a=b&`), `input.len() / 4 + 1`
+    // avoids costly reallocations during insertion.
+    let mut params = HashMap::with_capacity((input.len() / 4) + 1);
 
     for pair in input.split(delimiter) {
         let pair = if trim_parts { pair.trim() } else { pair };
@@ -73,13 +86,13 @@ fn parse_key_value_pairs(
             let key = if trim_parts { key.trim() } else { key };
             let value = if trim_parts { value.trim() } else { value };
 
-            let decoded_key = percent_decode(key);
+            let decoded_key = percent_decode(key).into_owned();
             let decoded_value = percent_decode(value);
-            params.insert(decoded_key, Value::Text(Arc::from(decoded_value)));
+            params.insert(decoded_key, Value::Text(Arc::from(decoded_value.as_ref())));
         } else if !ignore_empty_values {
             // Key without value
             let key = if trim_parts { pair.trim() } else { pair };
-            let decoded_key = percent_decode(key);
+            let decoded_key = percent_decode(key).into_owned();
             params.insert(decoded_key, Value::Text(Arc::from("")));
         }
     }
