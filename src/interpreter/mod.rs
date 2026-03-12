@@ -848,18 +848,15 @@ impl IoClient {
         }
     }
 
-    // Subprocess management methods
-
-    /// Execute a command and wait for it to complete, returning (stdout, stderr, exit_code)
-    #[allow(dead_code)]
-    async fn execute_command(
+    /// Helper method to build a command with security validation and shell handling
+    fn build_command(
         &self,
         command: &str,
         args: &[&str],
         use_shell: bool,
         line: usize,
         column: usize,
-    ) -> Result<(String, String, i32), String> {
+    ) -> Result<tokio::process::Command, String> {
         use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
         use tokio::process::Command;
 
@@ -890,7 +887,7 @@ impl IoClient {
                         "Command blocked by security policy: {}\n\
                          To allow shell execution, update the configuration in .wflcfg:\n\
                          shell_execution_mode = \"sanitized\"  # or \"unrestricted\"\n\
-                         Or use safe execution: execute command \"program\" with arguments [\"arg1\", \"arg2\"]",
+                         Or use safe execution with arguments",
                         reason
                     ));
                 }
@@ -898,7 +895,7 @@ impl IoClient {
         }
 
         // Build the command
-        let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
+        let cmd = if needs_shell && (use_shell || args.is_empty()) {
             // Shell execution path
             #[cfg(target_os = "windows")]
             {
@@ -928,6 +925,23 @@ impl IoClient {
             cmd.args(parsed_args);
             cmd
         };
+
+        Ok(cmd)
+    }
+
+    // Subprocess management methods
+
+    /// Execute a command and wait for it to complete, returning (stdout, stderr, exit_code)
+    #[allow(dead_code)]
+    async fn execute_command(
+        &self,
+        command: &str,
+        args: &[&str],
+        use_shell: bool,
+        line: usize,
+        column: usize,
+    ) -> Result<(String, String, i32), String> {
+        let mut cmd = self.build_command(command, args, use_shell, line, column)?;
 
         // Execute the command
         let output = cmd
@@ -952,9 +966,7 @@ impl IoClient {
         line: usize,
         column: usize,
     ) -> Result<String, String> {
-        use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
         use tokio::io::AsyncReadExt;
-        use tokio::process::Command;
 
         // Clean up completed processes before spawning new one
         // self.cleanup_completed_processes().await;
@@ -972,71 +984,7 @@ impl IoClient {
             }
         }
 
-        // Determine if shell execution is needed
-        let needs_shell = use_shell
-            || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
-
-        // Security validation if shell is needed
-        if needs_shell {
-            let sanitizer = CommandSanitizer::new(Arc::clone(&self.config));
-            match sanitizer.validate_command(command)? {
-                ValidationResult::Safe => {
-                    // No shell needed after all
-                }
-                ValidationResult::RequiresShell { warnings, .. } => {
-                    // Shell is needed, show warnings if configured
-                    if self.config.warn_on_shell_execution {
-                        eprintln!("⚠️  Security Warning (line {}, column {}):", line, column);
-                        eprintln!("   Shell execution enabled for command: {}", command);
-                        for warning in warnings {
-                            eprintln!("   - {}", warning);
-                        }
-                        eprintln!("   Consider using 'with arguments' syntax for safer execution.");
-                    }
-                }
-                ValidationResult::Blocked { reason } => {
-                    return Err(format!(
-                        "Command blocked by security policy: {}\n\
-                         To allow shell execution, update the configuration in .wflcfg:\n\
-                         shell_execution_mode = \"sanitized\"  # or \"unrestricted\"\n\
-                         Or use safe execution: spawn command \"program\" with arguments [\"arg1\", \"arg2\"] as proc_id",
-                        reason
-                    ));
-                }
-            }
-        }
-
-        // Build the command
-        let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
-            // Shell execution path
-            #[cfg(target_os = "windows")]
-            {
-                let mut cmd = Command::new("cmd.exe");
-                cmd.args(["/C", command]);
-                cmd
-            }
-
-            #[cfg(not(target_os = "windows"))]
-            {
-                let mut cmd = Command::new("sh");
-                cmd.args(["-c", command]);
-                cmd
-            }
-        } else {
-            // Safe path: parse and execute directly
-            let (program, parsed_args) = if args.is_empty() {
-                CommandSanitizer::parse_command(command)?
-            } else {
-                (
-                    command.to_string(),
-                    args.iter().map(|s| s.to_string()).collect(),
-                )
-            };
-
-            let mut cmd = Command::new(program);
-            cmd.args(parsed_args);
-            cmd
-        };
+        let mut cmd = self.build_command(command, args, use_shell, line, column)?;
 
         let mut child = cmd
             .stdout(std::process::Stdio::piped())
