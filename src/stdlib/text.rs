@@ -9,12 +9,20 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use std::borrow::Cow;
+
 /// Decode percent-encoded URL string
 /// Converts '+' to space and decodes %HH hex sequences
 /// Invalid sequences are left as-is
-fn percent_decode(s: &str) -> String {
-    let mut result = Vec::new();
+fn percent_decode(s: &str) -> Cow<'_, str> {
     let bytes = s.as_bytes();
+
+    // Fast path: if there are no characters to decode, return a borrowed slice
+    if !bytes.iter().any(|&b| b == b'%' || b == b'+') {
+        return Cow::Borrowed(s);
+    }
+
+    let mut result = Vec::with_capacity(bytes.len());
     let mut i = 0;
 
     while i < bytes.len() {
@@ -43,8 +51,9 @@ fn percent_decode(s: &str) -> String {
     }
 
     // Convert bytes to String, replacing invalid UTF-8 with replacement character
-    String::from_utf8(result)
-        .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned())
+    let decoded = String::from_utf8(result)
+        .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned());
+    Cow::Owned(decoded)
 }
 
 /// Parse key-value pairs with URL decoding
@@ -57,11 +66,11 @@ fn parse_key_value_pairs(
 ) -> std::collections::HashMap<String, Value> {
     use std::collections::HashMap;
 
-    let mut params = HashMap::new();
-
     if input.is_empty() {
-        return params;
+        return HashMap::new();
     }
+
+    let mut params = HashMap::new();
 
     for pair in input.split(delimiter) {
         let pair = if trim_parts { pair.trim() } else { pair };
@@ -73,13 +82,13 @@ fn parse_key_value_pairs(
             let key = if trim_parts { key.trim() } else { key };
             let value = if trim_parts { value.trim() } else { value };
 
-            let decoded_key = percent_decode(key);
+            let decoded_key = percent_decode(key).into_owned();
             let decoded_value = percent_decode(value);
-            params.insert(decoded_key, Value::Text(Arc::from(decoded_value)));
+            params.insert(decoded_key, Value::Text(Arc::from(decoded_value.as_ref())));
         } else if !ignore_empty_values {
             // Key without value
             let key = if trim_parts { pair.trim() } else { pair };
-            let decoded_key = percent_decode(key);
+            let decoded_key = percent_decode(key).into_owned();
             params.insert(decoded_key, Value::Text(Arc::from("")));
         }
     }
