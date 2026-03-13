@@ -53,3 +53,7 @@
 ## 2026-03-05 - [Optimize Unicode Text Casing Fast Paths]
 **Learning:** When trying to avoid string allocations for `touppercase` and `tolowercase` if the string is already in the target case, using a simple check like `!text.chars().any(char::is_lowercase)` is flawed due to complex Unicode casing rules (e.g., modifier marks or Titlecase characters like `ǅ`). These characters might not be lowercase, but they still change when uppercase is applied.
 **Action:** Always verify that every character actually remains identical under the casing transformation. Use `.chars().all(|c| { let mut iter = c.to_uppercase(); iter.next() == Some(c) && iter.next().is_none() })` to safely identify if an allocation-free fast path can be taken.
+
+## 2026-03-05 - [Optimize percent_decode using Cow for fast paths]
+**Learning:** `percent_decode` was allocating a new `Vec` and `String` for every string parsed, even when the string contained no `%` or `+` characters. This happens frequently when parsing URLs or keys/values.
+**Action:** Use `std::borrow::Cow` in `percent_decode` to perform an initial single pass (`bytes.iter().any(|&b| b == b'%' || b == b'+')`) and return `Cow::Borrowed(s)` if no escaping is found. This avoids intermediate allocations on fast paths, reducing heap usage significantly in standard library parsing routines.
