@@ -1,4 +1,4 @@
-use super::value::Value;
+use super::value::{NativeFunction, Value};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
@@ -87,6 +87,15 @@ impl Environment {
 
         self.values.insert(name.to_string(), value);
         Ok(())
+    }
+
+    /// Registers a native function directly in the current scope.
+    pub fn define_native(
+        &mut self,
+        name: &'static str,
+        func: NativeFunction,
+    ) -> Result<(), String> {
+        self.define(name, Value::NativeFunction(name, func))
     }
 
     /// Defines a variable in the current scope without checking parent scopes for shadowing.
