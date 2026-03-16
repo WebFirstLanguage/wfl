@@ -53,3 +53,7 @@
 ## 2026-03-05 - [Optimize Unicode Text Casing Fast Paths]
 **Learning:** When trying to avoid string allocations for `touppercase` and `tolowercase` if the string is already in the target case, using a simple check like `!text.chars().any(char::is_lowercase)` is flawed due to complex Unicode casing rules (e.g., modifier marks or Titlecase characters like `ǅ`). These characters might not be lowercase, but they still change when uppercase is applied.
 **Action:** Always verify that every character actually remains identical under the casing transformation. Use `.chars().all(|c| { let mut iter = c.to_uppercase(); iter.next() == Some(c) && iter.next().is_none() })` to safely identify if an allocation-free fast path can be taken.
+
+## 2024-03-16 - [Optimize percent_decode using fast-path and Cow]
+**Learning:** In WFL's `src/stdlib/text.rs`, `percent_decode` returns an owned `String` and performs allocations for every input, even unencoded strings. The fast-path scan for `%` and `+` along with returning `Cow<'_, str>` avoids allocations on unencoded strings, heavily optimizing `parse_key_value_pairs` and reducing decoding time.
+**Action:** Implement fast-path scans using `.iter().any(...)` before applying transformations, and use `Cow` to return borrowed strings when no modification is needed.
