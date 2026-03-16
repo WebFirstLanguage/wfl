@@ -67,6 +67,14 @@ impl Environment {
         }))
     }
 
+    pub fn define_native(
+        &mut self,
+        name: &'static str,
+        func: super::value::NativeFunction,
+    ) -> Result<(), String> {
+        self.define(name, Value::NativeFunction(name, func))
+    }
+
     pub fn define(&mut self, name: &str, value: Value) -> Result<(), String> {
         // Check if the variable already exists in current scope
         if self.values.contains_key(name) {
