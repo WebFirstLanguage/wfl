@@ -53,3 +53,7 @@
 ## 2026-03-05 - [Optimize Unicode Text Casing Fast Paths]
 **Learning:** When trying to avoid string allocations for `touppercase` and `tolowercase` if the string is already in the target case, using a simple check like `!text.chars().any(char::is_lowercase)` is flawed due to complex Unicode casing rules (e.g., modifier marks or Titlecase characters like `ǅ`). These characters might not be lowercase, but they still change when uppercase is applied.
 **Action:** Always verify that every character actually remains identical under the casing transformation. Use `.chars().all(|c| { let mut iter = c.to_uppercase(); iter.next() == Some(c) && iter.next().is_none() })` to safely identify if an allocation-free fast path can be taken.
+
+## 2026-03-05 - [Optimize Percent Decoding Allocations]
+**Learning:** `percent_decode` previously allocated a `Vec` and a `String` for every parsed key-value pair, even when the key or value did not contain any percent encodings.
+**Action:** When working with potentially encoded strings, use a fast-path scan (e.g., `!bytes.iter().any(|&b| b == b'%' || b == b'+')`) to determine if decoding is necessary. If not, return a `Cow::Borrowed` to avoid allocation entirely.
