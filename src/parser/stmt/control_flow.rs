@@ -571,7 +571,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
 
         let mut body = Vec::with_capacity(10);
 
-        while let Some(token) = self.cursor.peek().cloned() {
+        while let Some(token) = self.cursor.peek() {
             if matches!(&token.token, Token::KeywordEnd) {
                 break;
             }
@@ -701,7 +701,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                     self.skip_eol();
 
                     let mut body = Vec::new();
-                    while let Some(token) = self.cursor.peek().cloned() {
+                    while let Some(token) = self.cursor.peek() {
                         if matches!(&token.token, Token::KeywordEnd) {
                             break;
                         }
@@ -730,7 +730,7 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                     self.skip_eol();
 
                     let mut body = Vec::new();
-                    while let Some(token) = self.cursor.peek().cloned() {
+                    while let Some(token) = self.cursor.peek() {
                         if matches!(&token.token, Token::KeywordEnd) {
                             break;
                         }
