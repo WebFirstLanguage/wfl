@@ -1,4 +1,6 @@
-use super::helpers::{check_arg_count, check_arg_range, expect_text};
+use super::helpers::{
+    check_arg_count, check_arg_range, expect_text, unary_path_bool_op, unary_path_string_op,
+};
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use std::cell::RefCell;
@@ -123,31 +125,23 @@ pub fn native_path_join(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_basename(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("path_basename", &args, 1)?;
-
-    let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
-
-    let basename = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("");
-
-    Ok(Value::Text(Arc::from(basename)))
+    unary_path_string_op("path_basename", args, |path| {
+        Arc::from(
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(""),
+        )
+    })
 }
 
 pub fn native_path_dirname(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("path_dirname", &args, 1)?;
-
-    let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
-
-    let dirname = path
-        .parent()
-        .and_then(|parent| parent.to_str())
-        .unwrap_or("");
-
-    Ok(Value::Text(Arc::from(dirname)))
+    unary_path_string_op("path_dirname", args, |path| {
+        Arc::from(
+            path.parent()
+                .and_then(|parent| parent.to_str())
+                .unwrap_or(""),
+        )
+    })
 }
 
 pub fn native_makedirs(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -211,30 +205,15 @@ pub fn native_file_mtime(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_exists(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("path_exists", &args, 1)?;
-
-    let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
-
-    Ok(Value::Bool(path.exists()))
+    unary_path_bool_op("path_exists", args, |path| path.exists())
 }
 
 pub fn native_is_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("is_file", &args, 1)?;
-
-    let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
-
-    Ok(Value::Bool(path.is_file()))
+    unary_path_bool_op("is_file", args, |path| path.is_file())
 }
 
 pub fn native_is_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("is_dir", &args, 1)?;
-
-    let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
-
-    Ok(Value::Bool(path.is_dir()))
+    unary_path_bool_op("is_dir", args, |path| path.is_dir())
 }
 
 pub fn native_count_lines(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -281,25 +260,15 @@ pub fn native_count_lines(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_extension(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("path_extension", &args, 1)?;
-
-    let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
-
-    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
-
-    Ok(Value::Text(Arc::from(extension)))
+    unary_path_string_op("path_extension", args, |path| {
+        Arc::from(path.extension().and_then(|ext| ext.to_str()).unwrap_or(""))
+    })
 }
 
 pub fn native_path_stem(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("path_stem", &args, 1)?;
-
-    let path_str = expect_text(&args[0])?;
-    let path = Path::new(path_str.as_ref());
-
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-
-    Ok(Value::Text(Arc::from(stem)))
+    unary_path_string_op("path_stem", args, |path| {
+        Arc::from(path.file_stem().and_then(|s| s.to_str()).unwrap_or(""))
+    })
 }
 
 pub fn native_file_size(args: Vec<Value>) -> Result<Value, RuntimeError> {

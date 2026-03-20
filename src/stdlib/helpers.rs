@@ -581,3 +581,52 @@ where
     let list = expect_list(&args[0])?;
     op(list, val)
 }
+
+/// Helper for unary path operations that return a boolean (&Path -> bool).
+///
+/// Centralizes argument validation, text extraction, Path conversion, and result wrapping.
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The boolean operation to perform on the path
+pub fn unary_path_bool_op<F>(
+    func_name: &str,
+    args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: FnOnce(&std::path::Path) -> bool,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let path_str = expect_text(&args[0])?;
+    let path = std::path::Path::new(path_str.as_ref());
+    Ok(Value::Bool(op(path)))
+}
+
+/// Helper for unary path operations that return a string (&Path -> Result<Arc<str>, RuntimeError>).
+///
+/// Centralizes argument validation, text extraction, Path conversion, and result wrapping.
+/// Note that the path operation itself may return an empty string or an error if the operation
+/// fails (e.g., getting parent of root).
+///
+/// # Arguments
+///
+/// * `func_name` - Name of the function for error messages
+/// * `args` - Arguments passed to the function
+/// * `op` - The operation to perform on the path that yields a string representation
+pub fn unary_path_string_op<F, R>(
+    func_name: &str,
+    args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: FnOnce(&std::path::Path) -> R,
+    R: Into<Arc<str>>,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let path_str = expect_text(&args[0])?;
+    let path = std::path::Path::new(path_str.as_ref());
+    Ok(Value::Text(op(path).into()))
+}
