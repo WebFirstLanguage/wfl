@@ -53,3 +53,6 @@
 ## 2026-03-05 - [Optimize Unicode Text Casing Fast Paths]
 **Learning:** When trying to avoid string allocations for `touppercase` and `tolowercase` if the string is already in the target case, using a simple check like `!text.chars().any(char::is_lowercase)` is flawed due to complex Unicode casing rules (e.g., modifier marks or Titlecase characters like `ǅ`). These characters might not be lowercase, but they still change when uppercase is applied.
 **Action:** Always verify that every character actually remains identical under the casing transformation. Use `.chars().all(|c| { let mut iter = c.to_uppercase(); iter.next() == Some(c) && iter.next().is_none() })` to safely identify if an allocation-free fast path can be taken.
+## 2026-03-21 - [Optimize percent_decode String Returns]
+**Learning:** The internal `percent_decode` utility in `src/stdlib/text.rs` blindly allocates a `Vec` and a `String` for all query param values regardless of whether they contain percent-encoded data. A simple fast-path using `Cow<'_, str>` drastically cuts allocation overhead.
+**Action:** When decoding data streams or parsing queries, prefer returning `Cow` by immediately returning `Cow::Borrowed` if a quick linear scan reveals no encodable characters (e.g. `!\bytes.iter().any(|&b| b == b'%' || b == b'+')`). This prevents unnecessary O(N) allocation and stringification steps.
