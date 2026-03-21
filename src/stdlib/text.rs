@@ -12,9 +12,15 @@ use std::sync::Arc;
 /// Decode percent-encoded URL string
 /// Converts '+' to space and decodes %HH hex sequences
 /// Invalid sequences are left as-is
-fn percent_decode(s: &str) -> String {
-    let mut result = Vec::new();
+fn percent_decode(s: &str) -> std::borrow::Cow<'_, str> {
     let bytes = s.as_bytes();
+
+    // Fast-path scan for characters that need decoding
+    if !bytes.iter().any(|&b| b == b'%' || b == b'+') {
+        return std::borrow::Cow::Borrowed(s);
+    }
+
+    let mut result = Vec::with_capacity(bytes.len());
     let mut i = 0;
 
     while i < bytes.len() {
@@ -43,8 +49,9 @@ fn percent_decode(s: &str) -> String {
     }
 
     // Convert bytes to String, replacing invalid UTF-8 with replacement character
-    String::from_utf8(result)
-        .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned())
+    let s = String::from_utf8(result)
+        .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned());
+    std::borrow::Cow::Owned(s)
 }
 
 /// Parse key-value pairs with URL decoding
@@ -75,12 +82,15 @@ fn parse_key_value_pairs(
 
             let decoded_key = percent_decode(key);
             let decoded_value = percent_decode(value);
-            params.insert(decoded_key, Value::Text(Arc::from(decoded_value)));
+            params.insert(
+                decoded_key.into_owned(),
+                Value::Text(Arc::from(decoded_value.as_ref())),
+            );
         } else if !ignore_empty_values {
             // Key without value
             let key = if trim_parts { pair.trim() } else { pair };
             let decoded_key = percent_decode(key);
-            params.insert(decoded_key, Value::Text(Arc::from("")));
+            params.insert(decoded_key.into_owned(), Value::Text(Arc::from("")));
         }
     }
 
