@@ -206,6 +206,35 @@ pub fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
 /// * `func_name` - Name of the function for error messages
 /// * `args` - Arguments passed to the function
 /// * `op` - The text operation to perform. Returns any type that can be converted into Arc<str> (e.g. String, &str)
+pub fn unary_path_string_op<F, R>(
+    func_name: &str,
+    args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: Fn(&std::path::Path) -> R,
+    R: Into<Arc<str>>,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let path_str = expect_text(&args[0])?;
+    let path = std::path::Path::new(path_str.as_ref());
+    Ok(Value::Text(op(path).into()))
+}
+
+pub fn unary_path_bool_op<F>(
+    func_name: &str,
+    args: Vec<Value>,
+    op: F,
+) -> Result<Value, RuntimeError>
+where
+    F: Fn(&std::path::Path) -> bool,
+{
+    check_arg_count(func_name, &args, 1)?;
+    let path_str = expect_text(&args[0])?;
+    let path = std::path::Path::new(path_str.as_ref());
+    Ok(Value::Bool(op(path)))
+}
+
 pub fn unary_text_op<F, R>(func_name: &str, args: Vec<Value>, op: F) -> Result<Value, RuntimeError>
 where
     F: Fn(&str) -> R,
