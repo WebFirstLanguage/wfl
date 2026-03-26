@@ -158,6 +158,25 @@ pub fn check_arg_range(
     Ok(())
 }
 
+macro_rules! generate_expect {
+    (
+        $(#[$meta:meta])*
+        $func_name:ident, $variant:ident, $ret_type:ty, $expected_name:expr
+    ) => {
+        $(#[$meta])*
+        pub fn $func_name(value: &Value) -> Result<$ret_type, RuntimeError> {
+            match value {
+                Value::$variant(v) => Ok(v.clone()),
+                _ => Err(RuntimeError::new(
+                    format!("Expected {}, got {}", $expected_name, value.type_name()),
+                    0,
+                    0,
+                )),
+            }
+        }
+    };
+}
+generate_expect!(
 /// Extracts a number value from a WFL Value, returning it as a primitive f64.
 ///
 /// This is the most common type extractor for numeric operations. Returns a copy
@@ -185,16 +204,8 @@ pub fn check_arg_range(
 ///     Ok(Value::Number(num.abs()))
 /// }
 /// ```
-pub fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
-    match value {
-        Value::Number(n) => Ok(*n),
-        _ => Err(RuntimeError::new(
-            format!("Expected a number, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
+    expect_number, Number, f64, "a number"
+);
 
 /// Helper for unary text operations (String -> String)
 ///
@@ -408,6 +419,7 @@ pub fn expect_list(value: &Value) -> Result<Rc<RefCell<Vec<Value>>>, RuntimeErro
     }
 }
 
+generate_expect!(
 /// Extracts a boolean value from a WFL Value, returning it as a primitive bool.
 ///
 /// Returns a copy of the bool value rather than a reference since bool implements Copy.
@@ -435,16 +447,8 @@ pub fn expect_list(value: &Value) -> Result<Rc<RefCell<Vec<Value>>>, RuntimeErro
 ///     Ok(Value::Bool(!b))
 /// }
 /// ```
-pub fn expect_bool(value: &Value) -> Result<bool, RuntimeError> {
-    match value {
-        Value::Bool(b) => Ok(*b),
-        _ => Err(RuntimeError::new(
-            format!("Expected a boolean, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
+    expect_bool, Bool, bool, "a boolean"
+);
 
 /// Extracts a Date value from a WFL Value, returning it as a reference-counted NaiveDate.
 ///
