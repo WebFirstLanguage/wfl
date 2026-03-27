@@ -185,16 +185,63 @@ pub fn check_arg_range(
 ///     Ok(Value::Number(num.abs()))
 /// }
 /// ```
-pub fn expect_number(value: &Value) -> Result<f64, RuntimeError> {
-    match value {
-        Value::Number(n) => Ok(*n),
-        _ => Err(RuntimeError::new(
-            format!("Expected a number, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
+macro_rules! generate_expect {
+    (
+        $(#[$meta:meta])*
+        $func_name:ident,
+        $variant:ident,
+        $return_type:ty,
+        $type_str:expr,
+        $extract:expr
+    ) => {
+        $(#[$meta])*
+        pub fn $func_name(value: &Value) -> Result<$return_type, RuntimeError> {
+            match value {
+                Value::$variant(v) => Ok($extract(v)),
+                _ => Err(RuntimeError::new(
+                    format!("Expected {}, got {}", $type_str, value.type_name()),
+                    0,
+                    0,
+                )),
+            }
+        }
+    };
 }
+
+generate_expect!(
+    /// Extracts a number value from a WFL Value, returning it as a primitive f64.
+    ///
+    /// This is the most common type extractor for numeric operations. Returns a copy
+    /// of the f64 value rather than a reference since f64 implements Copy.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns the f64 number if the value is a Number variant.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not a Number, with an error message
+    /// indicating the expected type and the actual type received.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// pub fn native_abs(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    ///     check_arg_count("abs", &args, 1)?;
+    ///     let num = expect_number(&args[0])?;
+    ///     Ok(Value::Number(num.abs()))
+    /// }
+    /// ```
+    expect_number,
+    Number,
+    f64,
+    "a number",
+    |n: &f64| *n
+);
 
 /// Helper for unary text operations (String -> String)
 ///
@@ -328,244 +375,226 @@ where
     Ok(Value::Number(op(a, b)))
 }
 
-/// Extracts a text value from a WFL Value, returning it as a reference-counted string.
-///
-/// Returns an `Rc<str>` to enable efficient memory sharing without copying the string
-/// data. This is the standard way to extract text values in the WFL runtime.
-///
-/// # Arguments
-///
-/// * `value` - The WFL Value to extract from
-///
-/// # Returns
-///
-/// Returns an `Rc<str>` clone (incrementing the reference count) if the value is a Text variant.
-/// The underlying string data is not copied, only the reference count is incremented.
-///
-/// # Errors
-///
-/// Returns `RuntimeError` if the value is not a Text, with an error message
-/// indicating the expected type and the actual type received.
-///
-/// # Examples
-///
-/// ```ignore
-/// pub fn native_uppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
-///     check_arg_count("uppercase", &args, 1)?;
-///     let text = expect_text(&args[0])?;
-///     Ok(Value::Text(Rc::from(text.to_uppercase())))
-/// }
-/// ```
-pub fn expect_text(value: &Value) -> Result<Arc<str>, RuntimeError> {
-    match value {
-        Value::Text(s) => Ok(Arc::clone(s)),
-        _ => Err(RuntimeError::new(
-            format!("Expected text, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
+generate_expect!(
+    /// Extracts a text value from a WFL Value, returning it as a reference-counted string.
+    ///
+    /// Returns an `Rc<str>` to enable efficient memory sharing without copying the string
+    /// data. This is the standard way to extract text values in the WFL runtime.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns an `Rc<str>` clone (incrementing the reference count) if the value is a Text variant.
+    /// The underlying string data is not copied, only the reference count is incremented.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not a Text, with an error message
+    /// indicating the expected type and the actual type received.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// pub fn native_uppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    ///     check_arg_count("uppercase", &args, 1)?;
+    ///     let text = expect_text(&args[0])?;
+    ///     Ok(Value::Text(Rc::from(text.to_uppercase())))
+    /// }
+    /// ```
+    expect_text,
+    Text,
+    Arc<str>,
+    "text",
+    |s: &Arc<str>| Arc::clone(s)
+);
 
-/// Extracts a list value from a WFL Value, returning it as a reference-counted mutable vector.
-///
-/// Returns an `Rc<RefCell<Vec<Value>>>` to enable efficient memory sharing with interior
-/// mutability. The RefCell allows mutation of the list contents even through shared references,
-/// which is essential for list operations like push, pop, and element modification.
-///
-/// # Arguments
-///
-/// * `value` - The WFL Value to extract from
-///
-/// # Returns
-///
-/// Returns an `Rc<RefCell<Vec<Value>>>` clone (incrementing the reference count) if the value
-/// is a List variant. Multiple references to the same list share the underlying data.
-///
-/// # Errors
-///
-/// Returns `RuntimeError` if the value is not a List, with an error message
-/// indicating the expected type and the actual type received.
-///
-/// # Examples
-///
-/// ```ignore
-/// pub fn native_push(args: Vec<Value>) -> Result<Value, RuntimeError> {
-///     check_arg_count("push", &args, 2)?;
-///     let list = expect_list(&args[0])?;
-///     list.borrow_mut().push(args[1].clone());
-///     Ok(Value::Nothing)
-/// }
-/// ```
-pub fn expect_list(value: &Value) -> Result<Rc<RefCell<Vec<Value>>>, RuntimeError> {
-    match value {
-        Value::List(list) => Ok(Rc::clone(list)),
-        _ => Err(RuntimeError::new(
-            format!("Expected a list, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
+generate_expect!(
+    /// Extracts a list value from a WFL Value, returning it as a reference-counted mutable vector.
+    ///
+    /// Returns an `Rc<RefCell<Vec<Value>>>` to enable efficient memory sharing with interior
+    /// mutability. The RefCell allows mutation of the list contents even through shared references,
+    /// which is essential for list operations like push, pop, and element modification.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns an `Rc<RefCell<Vec<Value>>>` clone (incrementing the reference count) if the value
+    /// is a List variant. Multiple references to the same list share the underlying data.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not a List, with an error message
+    /// indicating the expected type and the actual type received.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// pub fn native_push(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    ///     check_arg_count("push", &args, 2)?;
+    ///     let list = expect_list(&args[0])?;
+    ///     list.borrow_mut().push(args[1].clone());
+    ///     Ok(Value::Nothing)
+    /// }
+    /// ```
+    expect_list,
+    List,
+    Rc<RefCell<Vec<Value>>>,
+    "a list",
+    |l: &Rc<RefCell<Vec<Value>>>| Rc::clone(l)
+);
 
-/// Extracts a boolean value from a WFL Value, returning it as a primitive bool.
-///
-/// Returns a copy of the bool value rather than a reference since bool implements Copy.
-/// This is commonly used in conditional logic and boolean operations.
-///
-/// # Arguments
-///
-/// * `value` - The WFL Value to extract from
-///
-/// # Returns
-///
-/// Returns the bool if the value is a Bool variant.
-///
-/// # Errors
-///
-/// Returns `RuntimeError` if the value is not a Bool, with an error message
-/// indicating the expected type and the actual type received.
-///
-/// # Examples
-///
-/// ```ignore
-/// pub fn native_not(args: Vec<Value>) -> Result<Value, RuntimeError> {
-///     check_arg_count("not", &args, 1)?;
-///     let b = expect_bool(&args[0])?;
-///     Ok(Value::Bool(!b))
-/// }
-/// ```
-pub fn expect_bool(value: &Value) -> Result<bool, RuntimeError> {
-    match value {
-        Value::Bool(b) => Ok(*b),
-        _ => Err(RuntimeError::new(
-            format!("Expected a boolean, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
+generate_expect!(
+    /// Extracts a boolean value from a WFL Value, returning it as a primitive bool.
+    ///
+    /// Returns a copy of the bool value rather than a reference since bool implements Copy.
+    /// This is commonly used in conditional logic and boolean operations.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns the bool if the value is a Bool variant.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not a Bool, with an error message
+    /// indicating the expected type and the actual type received.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// pub fn native_not(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    ///     check_arg_count("not", &args, 1)?;
+    ///     let b = expect_bool(&args[0])?;
+    ///     Ok(Value::Bool(!b))
+    /// }
+    /// ```
+    expect_bool,
+    Bool,
+    bool,
+    "a boolean",
+    |b: &bool| *b
+);
 
-/// Extracts a Date value from a WFL Value, returning it as a reference-counted NaiveDate.
-///
-/// Returns an `Rc<chrono::NaiveDate>` to enable efficient memory sharing of date values.
-/// NaiveDate represents a date without timezone information (year, month, day only).
-///
-/// # Arguments
-///
-/// * `value` - The WFL Value to extract from
-///
-/// # Returns
-///
-/// Returns an `Rc<NaiveDate>` clone (incrementing the reference count) if the value
-/// is a Date variant. The underlying date data is shared, not copied.
-///
-/// # Errors
-///
-/// Returns `RuntimeError` if the value is not a Date, with an error message
-/// indicating the expected type and the actual type received.
-///
-/// # Examples
-///
-/// ```ignore
-/// pub fn native_date_year(args: Vec<Value>) -> Result<Value, RuntimeError> {
-///     check_arg_count("date_year", &args, 1)?;
-///     let date = expect_date(&args[0])?;
-///     Ok(Value::Number(date.year() as f64))
-/// }
-/// ```
-pub fn expect_date(value: &Value) -> Result<Rc<chrono::NaiveDate>, RuntimeError> {
-    match value {
-        Value::Date(d) => Ok(Rc::clone(d)),
-        _ => Err(RuntimeError::new(
-            format!("Expected a Date, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
+generate_expect!(
+    /// Extracts a Date value from a WFL Value, returning it as a reference-counted NaiveDate.
+    ///
+    /// Returns an `Rc<chrono::NaiveDate>` to enable efficient memory sharing of date values.
+    /// NaiveDate represents a date without timezone information (year, month, day only).
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns an `Rc<NaiveDate>` clone (incrementing the reference count) if the value
+    /// is a Date variant. The underlying date data is shared, not copied.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not a Date, with an error message
+    /// indicating the expected type and the actual type received.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// pub fn native_date_year(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    ///     check_arg_count("date_year", &args, 1)?;
+    ///     let date = expect_date(&args[0])?;
+    ///     Ok(Value::Number(date.year() as f64))
+    /// }
+    /// ```
+    expect_date,
+    Date,
+    Rc<chrono::NaiveDate>,
+    "a Date",
+    |d: &Rc<chrono::NaiveDate>| Rc::clone(d)
+);
 
-/// Extracts a Time value from a WFL Value, returning it as a reference-counted NaiveTime.
-///
-/// Returns an `Rc<chrono::NaiveTime>` to enable efficient memory sharing of time values.
-/// NaiveTime represents a time of day without timezone information (hour, minute, second, nanosecond).
-///
-/// # Arguments
-///
-/// * `value` - The WFL Value to extract from
-///
-/// # Returns
-///
-/// Returns an `Rc<NaiveTime>` clone (incrementing the reference count) if the value
-/// is a Time variant. The underlying time data is shared, not copied.
-///
-/// # Errors
-///
-/// Returns `RuntimeError` if the value is not a Time, with an error message
-/// indicating the expected type and the actual type received.
-///
-/// # Examples
-///
-/// ```ignore
-/// pub fn native_time_hour(args: Vec<Value>) -> Result<Value, RuntimeError> {
-///     check_arg_count("time_hour", &args, 1)?;
-///     let time = expect_time(&args[0])?;
-///     Ok(Value::Number(time.hour() as f64))
-/// }
-/// ```
-pub fn expect_time(value: &Value) -> Result<Rc<chrono::NaiveTime>, RuntimeError> {
-    match value {
-        Value::Time(t) => Ok(Rc::clone(t)),
-        _ => Err(RuntimeError::new(
-            format!("Expected a Time, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
+generate_expect!(
+    /// Extracts a Time value from a WFL Value, returning it as a reference-counted NaiveTime.
+    ///
+    /// Returns an `Rc<chrono::NaiveTime>` to enable efficient memory sharing of time values.
+    /// NaiveTime represents a time of day without timezone information (hour, minute, second, nanosecond).
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns an `Rc<NaiveTime>` clone (incrementing the reference count) if the value
+    /// is a Time variant. The underlying time data is shared, not copied.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not a Time, with an error message
+    /// indicating the expected type and the actual type received.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// pub fn native_time_hour(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    ///     check_arg_count("time_hour", &args, 1)?;
+    ///     let time = expect_time(&args[0])?;
+    ///     Ok(Value::Number(time.hour() as f64))
+    /// }
+    /// ```
+    expect_time,
+    Time,
+    Rc<chrono::NaiveTime>,
+    "a Time",
+    |t: &Rc<chrono::NaiveTime>| Rc::clone(t)
+);
 
-/// Extracts a DateTime value from a WFL Value, returning it as a reference-counted NaiveDateTime.
-///
-/// Returns an `Rc<chrono::NaiveDateTime>` to enable efficient memory sharing of datetime values.
-/// NaiveDateTime represents a date and time without timezone information, combining both
-/// date (year, month, day) and time (hour, minute, second, nanosecond) components.
-///
-/// # Arguments
-///
-/// * `value` - The WFL Value to extract from
-///
-/// # Returns
-///
-/// Returns an `Rc<NaiveDateTime>` clone (incrementing the reference count) if the value
-/// is a DateTime variant. The underlying datetime data is shared, not copied.
-///
-/// # Errors
-///
-/// Returns `RuntimeError` if the value is not a DateTime, with an error message
-/// indicating the expected type and the actual type received.
-///
-/// # Examples
-///
-/// ```ignore
-/// pub fn native_datetime_add_days(args: Vec<Value>) -> Result<Value, RuntimeError> {
-///     check_arg_count("datetime_add_days", &args, 2)?;
-///     let dt = expect_datetime(&args[0])?;
-///     let days = expect_number(&args[1])? as i64;
-///     let new_dt = dt.checked_add_signed(Duration::days(days))
-///         .ok_or_else(|| RuntimeError::new("Date overflow".to_string(), 0, 0))?;
-///     Ok(Value::DateTime(Rc::new(new_dt)))
-/// }
-/// ```
-pub fn expect_datetime(value: &Value) -> Result<Rc<chrono::NaiveDateTime>, RuntimeError> {
-    match value {
-        Value::DateTime(dt) => Ok(Rc::clone(dt)),
-        _ => Err(RuntimeError::new(
-            format!("Expected a DateTime, got {}", value.type_name()),
-            0,
-            0,
-        )),
-    }
-}
+generate_expect!(
+    /// Extracts a DateTime value from a WFL Value, returning it as a reference-counted NaiveDateTime.
+    ///
+    /// Returns an `Rc<chrono::NaiveDateTime>` to enable efficient memory sharing of datetime values.
+    /// NaiveDateTime represents a date and time without timezone information, combining both
+    /// date (year, month, day) and time (hour, minute, second, nanosecond) components.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns an `Rc<NaiveDateTime>` clone (incrementing the reference count) if the value
+    /// is a DateTime variant. The underlying datetime data is shared, not copied.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not a DateTime, with an error message
+    /// indicating the expected type and the actual type received.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// pub fn native_datetime_add_days(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    ///     check_arg_count("datetime_add_days", &args, 2)?;
+    ///     let dt = expect_datetime(&args[0])?;
+    ///     let days = expect_number(&args[1])? as i64;
+    ///     let new_dt = dt.checked_add_signed(Duration::days(days))
+    ///         .ok_or_else(|| RuntimeError::new("Date overflow".to_string(), 0, 0))?;
+    ///     Ok(Value::DateTime(Rc::new(new_dt)))
+    /// }
+    /// ```
+    expect_datetime,
+    DateTime,
+    Rc<chrono::NaiveDateTime>,
+    "a DateTime",
+    |dt: &Rc<chrono::NaiveDateTime>| Rc::clone(dt)
+);
 
 /// Helper for unary list operations (List -> Value)
 ///
