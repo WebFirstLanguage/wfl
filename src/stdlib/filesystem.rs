@@ -7,25 +7,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-fn unary_path_bool_op<F>(func_name: &str, args: &[Value], op: F) -> Result<Value, RuntimeError>
-where
-    F: FnOnce(&Path) -> bool,
-{
-    check_arg_count(func_name, args, 1)?;
-    let path_str = expect_text(&args[0])?;
-    Ok(Value::Bool(op(Path::new(path_str.as_ref()))))
-}
-
-fn unary_path_string_op<F>(func_name: &str, args: &[Value], op: F) -> Result<Value, RuntimeError>
-where
-    F: FnOnce(&Path) -> Option<&str>,
-{
-    check_arg_count(func_name, args, 1)?;
-    let path_str = expect_text(&args[0])?;
-    let result = op(Path::new(path_str.as_ref())).unwrap_or("");
-    Ok(Value::Text(Arc::from(result)))
-}
-
 pub fn native_list_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("list_dir", &args, 1)?;
 
@@ -142,15 +123,31 @@ pub fn native_path_join(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_basename(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    unary_path_string_op("path_basename", &args, |p| {
-        p.file_name().and_then(|n| n.to_str())
-    })
+    check_arg_count("path_basename", &args, 1)?;
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str.as_ref());
+
+    let basename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+
+    Ok(Value::Text(Arc::from(basename)))
 }
 
 pub fn native_path_dirname(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    unary_path_string_op("path_dirname", &args, |p| {
-        p.parent().and_then(|n| n.to_str())
-    })
+    check_arg_count("path_dirname", &args, 1)?;
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str.as_ref());
+
+    let dirname = path
+        .parent()
+        .and_then(|parent| parent.to_str())
+        .unwrap_or("");
+
+    Ok(Value::Text(Arc::from(dirname)))
 }
 
 pub fn native_makedirs(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -214,15 +211,30 @@ pub fn native_file_mtime(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_exists(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    unary_path_bool_op("path_exists", &args, |p| p.exists())
+    check_arg_count("path_exists", &args, 1)?;
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str.as_ref());
+
+    Ok(Value::Bool(path.exists()))
 }
 
 pub fn native_is_file(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    unary_path_bool_op("is_file", &args, |p| p.is_file())
+    check_arg_count("is_file", &args, 1)?;
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str.as_ref());
+
+    Ok(Value::Bool(path.is_file()))
 }
 
 pub fn native_is_dir(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    unary_path_bool_op("is_dir", &args, |p| p.is_dir())
+    check_arg_count("is_dir", &args, 1)?;
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str.as_ref());
+
+    Ok(Value::Bool(path.is_dir()))
 }
 
 pub fn native_count_lines(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -269,15 +281,25 @@ pub fn native_count_lines(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn native_path_extension(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    unary_path_string_op("path_extension", &args, |p| {
-        p.extension().and_then(|n| n.to_str())
-    })
+    check_arg_count("path_extension", &args, 1)?;
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str.as_ref());
+
+    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+
+    Ok(Value::Text(Arc::from(extension)))
 }
 
 pub fn native_path_stem(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    unary_path_string_op("path_stem", &args, |p| {
-        p.file_stem().and_then(|n| n.to_str())
-    })
+    check_arg_count("path_stem", &args, 1)?;
+
+    let path_str = expect_text(&args[0])?;
+    let path = Path::new(path_str.as_ref());
+
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+
+    Ok(Value::Text(Arc::from(stem)))
 }
 
 pub fn native_file_size(args: Vec<Value>) -> Result<Value, RuntimeError> {
