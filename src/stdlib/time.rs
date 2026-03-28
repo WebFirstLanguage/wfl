@@ -220,50 +220,17 @@ pub fn native_current_date(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Register all time-related functions in the environment
 pub fn register_time(env: &mut Environment) {
-    let _ = env.define("today", Value::NativeFunction("today", native_today));
-    let _ = env.define("now", Value::NativeFunction("now", native_now));
-    let _ = env.define(
-        "datetime_now",
-        Value::NativeFunction("datetime_now", native_datetime_now),
-    );
-    let _ = env.define(
-        "format_date",
-        Value::NativeFunction("format_date", native_format_date),
-    );
-    let _ = env.define(
-        "format_time",
-        Value::NativeFunction("format_time", native_format_time),
-    );
-    let _ = env.define(
-        "format_datetime",
-        Value::NativeFunction("format_datetime", native_format_datetime),
-    );
-    let _ = env.define(
-        "parse_date",
-        Value::NativeFunction("parse_date", native_parse_date),
-    );
-    let _ = env.define(
-        "parse_time",
-        Value::NativeFunction("parse_time", native_parse_time),
-    );
-    let _ = env.define(
-        "create_time",
-        Value::NativeFunction("create_time", native_create_time),
-    );
-    let _ = env.define(
-        "create_date",
-        Value::NativeFunction("create_date", native_create_date),
-    );
-    let _ = env.define(
-        "add_days",
-        Value::NativeFunction("add_days", native_add_days),
-    );
-    let _ = env.define(
-        "days_between",
-        Value::NativeFunction("days_between", native_days_between),
-    );
-    let _ = env.define(
-        "current_date",
-        Value::NativeFunction("current_date", native_current_date),
-    );
+    env.define_native("today", native_today);
+    env.define_native("now", native_now);
+    env.define_native("datetime_now", native_datetime_now);
+    env.define_native("format_date", native_format_date);
+    env.define_native("format_time", native_format_time);
+    env.define_native("format_datetime", native_format_datetime);
+    env.define_native("parse_date", native_parse_date);
+    env.define_native("parse_time", native_parse_time);
+    env.define_native("create_time", native_create_time);
+    env.define_native("create_date", native_create_date);
+    env.define_native("add_days", native_add_days);
+    env.define_native("days_between", native_days_between);
+    env.define_native("current_date", native_current_date);
 }

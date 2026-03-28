@@ -89,6 +89,17 @@ impl Environment {
         Ok(())
     }
 
+    pub fn define_native(
+        &mut self,
+        name: &'static str,
+        func: crate::interpreter::value::NativeFunction,
+    ) {
+        let _ = self.define(
+            name,
+            crate::interpreter::value::Value::NativeFunction(name, func),
+        );
+    }
+
     /// Defines a variable in the current scope without checking parent scopes for shadowing.
     /// This is an optimization for when existence in parent scopes has already been checked.
     pub fn define_direct(&mut self, name: &str, value: Value) -> Result<(), String> {

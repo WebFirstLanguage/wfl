@@ -8,18 +8,9 @@ use std::sync::Arc;
 
 pub fn register(env: &mut Environment) {
     // Register new pattern functions that work with our pattern system
-    let _ = env.define(
-        "pattern_matches",
-        Value::NativeFunction("pattern_matches", pattern_matches_native),
-    );
-    let _ = env.define(
-        "pattern_find",
-        Value::NativeFunction("pattern_find", pattern_find_native),
-    );
-    let _ = env.define(
-        "pattern_find_all",
-        Value::NativeFunction("pattern_find_all", pattern_find_all_native),
-    );
+    env.define_native("pattern_matches", pattern_matches_native);
+    env.define_native("pattern_find", pattern_find_native);
+    env.define_native("pattern_find_all", pattern_find_all_native);
     // Register pattern_split - this was missing!
     // Note: pattern_split is called directly from the interpreter for PatternSplit expressions,
     // but we don't register it as a standalone function since it uses special syntax

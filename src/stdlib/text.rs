@@ -368,95 +368,38 @@ pub fn native_reverse_text(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 pub fn register_text(env: &mut Environment) {
     // Note: length function is registered by the list module instead
-    let _ = env.define(
-        "touppercase",
-        Value::NativeFunction("touppercase", native_touppercase),
-    );
-    let _ = env.define(
-        "tolowercase",
-        Value::NativeFunction("tolowercase", native_tolowercase),
-    );
-    let _ = env.define(
-        "substring",
-        Value::NativeFunction("substring", native_substring),
-    );
-    let _ = env.define(
-        "string_split",
-        Value::NativeFunction("string_split", native_string_split),
-    );
+    env.define_native("touppercase", native_touppercase);
+    env.define_native("tolowercase", native_tolowercase);
+    env.define_native("substring", native_substring);
+    env.define_native("string_split", native_string_split);
 
-    let _ = env.define(
-        "to_uppercase",
-        Value::NativeFunction("to_uppercase", native_touppercase),
-    );
-    let _ = env.define(
-        "to_lowercase",
-        Value::NativeFunction("to_lowercase", native_tolowercase),
-    );
+    env.define_native("to_uppercase", native_touppercase);
+    env.define_native("to_lowercase", native_tolowercase);
 
     // New string manipulation functions
-    let _ = env.define("trim", Value::NativeFunction("trim", native_trim));
-    let _ = env.define(
-        "starts_with",
-        Value::NativeFunction("starts_with", native_starts_with),
-    );
-    let _ = env.define(
-        "ends_with",
-        Value::NativeFunction("ends_with", native_ends_with),
-    );
+    env.define_native("trim", native_trim);
+    env.define_native("starts_with", native_starts_with);
+    env.define_native("ends_with", native_ends_with);
 
     // Aliases for split, startswith, endswith
-    let _ = env.define("split", Value::NativeFunction("split", native_string_split));
-    let _ = env.define(
-        "startswith",
-        Value::NativeFunction("startswith", native_starts_with),
-    );
-    let _ = env.define(
-        "endswith",
-        Value::NativeFunction("endswith", native_ends_with),
-    );
+    env.define_native("split", native_string_split);
+    env.define_native("startswith", native_starts_with);
+    env.define_native("endswith", native_ends_with);
 
     // New text manipulation functions
-    let _ = env.define("replace", Value::NativeFunction("replace", native_replace));
-    let _ = env.define(
-        "last_index_of",
-        Value::NativeFunction("last_index_of", native_last_index_of),
-    );
-    let _ = env.define(
-        "lastindexof",
-        Value::NativeFunction("lastindexof", native_last_index_of),
-    );
-    let _ = env.define("padleft", Value::NativeFunction("padleft", native_padleft));
-    let _ = env.define(
-        "padright",
-        Value::NativeFunction("padright", native_padright),
-    );
-    let _ = env.define(
-        "capitalize",
-        Value::NativeFunction("capitalize", native_capitalize),
-    );
-    let _ = env.define(
-        "reverse",
-        Value::NativeFunction("reverse", native_reverse_text),
-    );
-    let _ = env.define(
-        "reverse_text",
-        Value::NativeFunction("reverse_text", native_reverse_text),
-    );
+    env.define_native("replace", native_replace);
+    env.define_native("last_index_of", native_last_index_of);
+    env.define_native("lastindexof", native_last_index_of);
+    env.define_native("padleft", native_padleft);
+    env.define_native("padright", native_padright);
+    env.define_native("capitalize", native_capitalize);
+    env.define_native("reverse", native_reverse_text);
+    env.define_native("reverse_text", native_reverse_text);
 
     // Query string and form parsing
-    let _ = env.define(
-        "parse_query_string",
-        Value::NativeFunction("parse_query_string", native_parse_query_string),
-    );
-    let _ = env.define(
-        "parse_cookies",
-        Value::NativeFunction("parse_cookies", native_parse_cookies),
-    );
-    let _ = env.define(
-        "parse_form_urlencoded",
-        Value::NativeFunction("parse_form_urlencoded", native_parse_form_urlencoded),
-    );
+    env.define_native("parse_query_string", native_parse_query_string);
+    env.define_native("parse_cookies", native_parse_cookies);
+    env.define_native("parse_form_urlencoded", native_parse_form_urlencoded);
 }
 
 #[cfg(test)]
