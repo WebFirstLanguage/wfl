@@ -181,11 +181,10 @@ impl LintRule for IndentationRule {
 
         if let Ok(file) = reporter.files.get(file_id) {
             let source = file.source();
-            let lines: Vec<&str> = source.lines().collect();
 
             let mut expected_indent = 0;
 
-            for (line_idx, line) in lines.iter().enumerate() {
+            for (line_idx, line) in source.lines().enumerate() {
                 let line_num = line_idx + 1;
                 let trimmed = line.trim_start();
 
@@ -349,9 +348,8 @@ impl LintRule for TrailingWhitespaceRule {
 
         if let Ok(file) = reporter.files.get(file_id) {
             let source = file.source();
-            let lines: Vec<&str> = source.lines().collect();
 
-            for (line_idx, line) in lines.iter().enumerate() {
+            for (line_idx, line) in source.lines().enumerate() {
                 let line_num = line_idx + 1;
 
                 if line.trim_end().len() < line.len() {
@@ -397,9 +395,8 @@ impl LintRule for LineLengthRule {
 
         if let Ok(file) = reporter.files.get(file_id) {
             let source = file.source();
-            let lines: Vec<&str> = source.lines().collect();
 
-            for (line_idx, line) in lines.iter().enumerate() {
+            for (line_idx, line) in source.lines().enumerate() {
                 let line_num = line_idx + 1;
 
                 if line.len() > max_length {
