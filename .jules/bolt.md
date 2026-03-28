@@ -53,3 +53,7 @@
 ## 2026-03-05 - [Optimize Unicode Text Casing Fast Paths]
 **Learning:** When trying to avoid string allocations for `touppercase` and `tolowercase` if the string is already in the target case, using a simple check like `!text.chars().any(char::is_lowercase)` is flawed due to complex Unicode casing rules (e.g., modifier marks or Titlecase characters like `ǅ`). These characters might not be lowercase, but they still change when uppercase is applied.
 **Action:** Always verify that every character actually remains identical under the casing transformation. Use `.chars().all(|c| { let mut iter = c.to_uppercase(); iter.next() == Some(c) && iter.next().is_none() })` to safely identify if an allocation-free fast path can be taken.
+
+## 2026-03-28 - [Remove intermediate Vec allocations in Linter]
+**Learning:** The linter was splitting the source string into lines and collecting them into a new `Vec<&str>` (`source.lines().collect()`) just to iterate over them sequentially for simple rule checks (e.g., indentation, line length, trailing whitespace). This O(n) memory allocation is completely unnecessary and adds overhead.
+**Action:** Always prefer iterating directly over iterators (e.g., `source.lines().enumerate()`) instead of collecting them into intermediate collections like `Vec` when only sequential access is required. This avoids unnecessary memory allocations and improves performance.
