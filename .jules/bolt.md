@@ -53,3 +53,7 @@
 ## 2026-03-05 - [Optimize Unicode Text Casing Fast Paths]
 **Learning:** When trying to avoid string allocations for `touppercase` and `tolowercase` if the string is already in the target case, using a simple check like `!text.chars().any(char::is_lowercase)` is flawed due to complex Unicode casing rules (e.g., modifier marks or Titlecase characters like `ǅ`). These characters might not be lowercase, but they still change when uppercase is applied.
 **Action:** Always verify that every character actually remains identical under the casing transformation. Use `.chars().all(|c| { let mut iter = c.to_uppercase(); iter.next() == Some(c) && iter.next().is_none() })` to safely identify if an allocation-free fast path can be taken.
+
+## 2026-03-29 - [Avoid collect::<String>() on Chars iterator]
+**Learning:** Using `.collect::<String>()` on a `Chars` iterator (e.g. from `.chars().rev()`) is inefficient because the iterator's `size_hint()` provides a loose lower bound. This forces `String` to guess its required capacity, leading to multiple intermediate reallocations as the string is built up.
+**Action:** For string operations where the exact byte capacity is known (like reversing a string, which preserves the number of bytes), pre-allocate a string using `String::with_capacity(text.len())` and `.push()` characters manually. This guarantees exactly one allocation.
