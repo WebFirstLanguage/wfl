@@ -222,14 +222,13 @@ fn generate_report_content(
 }
 
 fn add_source_snippet(report: &mut String, source: &str, error_line: usize) {
-    let lines: Vec<&str> = source.lines().collect();
     let err_line_index = error_line.saturating_sub(1); // 0-based index
 
     let start_line = err_line_index.saturating_sub(2);
-    let end_line = std::cmp::min(err_line_index + 2, lines.len().saturating_sub(1));
+    let end_line = err_line_index + 2;
 
-    lines
-        .iter()
+    source
+        .lines()
         .enumerate()
         .skip(start_line)
         .take(end_line - start_line + 1)
@@ -240,12 +239,10 @@ fn add_source_snippet(report: &mut String, source: &str, error_line: usize) {
 }
 
 fn extract_function_body(report: &mut String, source: &str, func_name: &str) {
-    let lines: Vec<&str> = source.lines().collect();
-
     let mut start_line = None;
     let mut end_line = None;
 
-    for (i, line) in lines.iter().enumerate() {
+    for (i, line) in source.lines().enumerate() {
         if line.contains(&format!("define action called {func_name}"))
             || line.contains(&format!("action called {func_name}"))
         {
@@ -257,8 +254,8 @@ fn extract_function_body(report: &mut String, source: &str, func_name: &str) {
     }
 
     if let (Some(start), Some(end)) = (start_line, end_line) {
-        lines
-            .iter()
+        source
+            .lines()
             .enumerate()
             .skip(start)
             .take(end - start + 1)
