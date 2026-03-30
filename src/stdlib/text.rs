@@ -362,7 +362,15 @@ pub fn native_capitalize(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 pub fn native_reverse_text(args: Vec<Value>) -> Result<Value, RuntimeError> {
     unary_text_op("reverse", args, |text| {
-        text.chars().rev().collect::<String>()
+        // Optimization: Avoid intermediate String allocation from collect()
+        // since the iterator's size_hint() cannot determine the exact byte capacity
+        // needed for variable-width chars, causing intermediate re-allocations.
+        // Pre-allocate using the byte length of the original string.
+        let mut result = String::with_capacity(text.len());
+        for c in text.chars().rev() {
+            result.push(c);
+        }
+        result
     })
 }
 
