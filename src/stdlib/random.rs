@@ -148,31 +148,13 @@ pub fn native_generate_uuid(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
 /// Register all random functions in the environment
 pub fn register_random(env: &mut Environment) {
-    let _ = env.define("random", Value::NativeFunction("random", native_random));
-    let _ = env.define(
-        "random_between",
-        Value::NativeFunction("random_between", native_random_between),
-    );
-    let _ = env.define(
-        "random_int",
-        Value::NativeFunction("random_int", native_random_int),
-    );
-    let _ = env.define(
-        "random_boolean",
-        Value::NativeFunction("random_boolean", native_random_boolean),
-    );
-    let _ = env.define(
-        "random_from",
-        Value::NativeFunction("random_from", native_random_from),
-    );
-    let _ = env.define(
-        "random_seed",
-        Value::NativeFunction("random_seed", native_random_seed),
-    );
-    let _ = env.define(
-        "generate_uuid",
-        Value::NativeFunction("generate_uuid", native_generate_uuid),
-    );
+    env.define_native("random", native_random);
+    env.define_native("random_between", native_random_between);
+    env.define_native("random_int", native_random_int);
+    env.define_native("random_boolean", native_random_boolean);
+    env.define_native("random_from", native_random_from);
+    env.define_native("random_seed", native_random_seed);
+    env.define_native("generate_uuid", native_generate_uuid);
 }
 
 #[cfg(test)]

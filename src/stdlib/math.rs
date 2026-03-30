@@ -77,18 +77,18 @@ pub fn native_tan(args: Vec<Value>) -> Result<Value, RuntimeError> {
 }
 
 pub fn register_math(env: &mut Environment) {
-    let _ = env.define("abs", Value::NativeFunction("abs", native_abs));
-    let _ = env.define("round", Value::NativeFunction("round", native_round));
-    let _ = env.define("floor", Value::NativeFunction("floor", native_floor));
-    let _ = env.define("ceil", Value::NativeFunction("ceil", native_ceil));
-    let _ = env.define("clamp", Value::NativeFunction("clamp", native_clamp));
-    let _ = env.define("min", Value::NativeFunction("min", native_min));
-    let _ = env.define("max", Value::NativeFunction("max", native_max));
-    let _ = env.define("power", Value::NativeFunction("power", native_power));
-    let _ = env.define("sqrt", Value::NativeFunction("sqrt", native_sqrt));
-    let _ = env.define("sin", Value::NativeFunction("sin", native_sin));
-    let _ = env.define("cos", Value::NativeFunction("cos", native_cos));
-    let _ = env.define("tan", Value::NativeFunction("tan", native_tan));
+    env.define_native("abs", native_abs);
+    env.define_native("round", native_round);
+    env.define_native("floor", native_floor);
+    env.define_native("ceil", native_ceil);
+    env.define_native("clamp", native_clamp);
+    env.define_native("min", native_min);
+    env.define_native("max", native_max);
+    env.define_native("power", native_power);
+    env.define_native("sqrt", native_sqrt);
+    env.define_native("sin", native_sin);
+    env.define_native("cos", native_cos);
+    env.define_native("tan", native_tan);
 }
 
 #[cfg(test)]
