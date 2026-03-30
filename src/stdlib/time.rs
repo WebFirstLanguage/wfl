@@ -234,3 +234,110 @@ pub fn register_time(env: &mut Environment) {
     env.define_native("days_between", native_days_between);
     env.define_native("current_date", native_current_date);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    #[test]
+    fn test_native_today() {
+        let result = native_today(vec![]);
+        assert!(result.is_ok());
+        if let Value::Date(d) = result.unwrap() {
+            let expected = Local::now().date_naive();
+            assert_eq!(*d, expected);
+        } else {
+            panic!("Expected Date variant");
+        }
+    }
+
+    #[test]
+    fn test_native_create_date_valid() {
+        let args = vec![
+            Value::Number(2023.0),
+            Value::Number(10.0),
+            Value::Number(25.0),
+        ];
+        let result = native_create_date(args);
+        assert!(result.is_ok());
+        if let Value::Date(d) = result.unwrap() {
+            assert_eq!(*d, NaiveDate::from_ymd_opt(2023, 10, 25).unwrap());
+        } else {
+            panic!("Expected Date variant");
+        }
+    }
+
+    #[test]
+    fn test_native_create_date_invalid_month() {
+        let args = vec![
+            Value::Number(2023.0),
+            Value::Number(13.0), // Invalid month
+            Value::Number(25.0),
+        ];
+        let result = native_create_date(args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_native_create_date_invalid_day() {
+        let args = vec![
+            Value::Number(2023.0),
+            Value::Number(10.0),
+            Value::Number(32.0), // Invalid day
+        ];
+        let result = native_create_date(args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_native_add_days() {
+        let start_date = Rc::new(NaiveDate::from_ymd_opt(2023, 10, 25).unwrap());
+        let args = vec![
+            Value::Date(start_date),
+            Value::Number(5.0),
+        ];
+        let result = native_add_days(args);
+        assert!(result.is_ok());
+        if let Value::Date(d) = result.unwrap() {
+            assert_eq!(*d, NaiveDate::from_ymd_opt(2023, 10, 30).unwrap());
+        } else {
+            panic!("Expected Date variant");
+        }
+    }
+
+    #[test]
+    fn test_native_add_days_negative() {
+        let start_date = Rc::new(NaiveDate::from_ymd_opt(2023, 10, 25).unwrap());
+        let args = vec![
+            Value::Date(start_date),
+            Value::Number(-5.0),
+        ];
+        let result = native_add_days(args);
+        assert!(result.is_ok());
+        if let Value::Date(d) = result.unwrap() {
+            assert_eq!(*d, NaiveDate::from_ymd_opt(2023, 10, 20).unwrap());
+        } else {
+            panic!("Expected Date variant");
+        }
+    }
+
+    #[test]
+    fn test_native_days_between() {
+        let date1 = Rc::new(NaiveDate::from_ymd_opt(2023, 10, 20).unwrap());
+        let date2 = Rc::new(NaiveDate::from_ymd_opt(2023, 10, 25).unwrap());
+
+        // date1 is older, date2 is newer
+        let args = vec![
+            Value::Date(date1),
+            Value::Date(date2),
+        ];
+        let result = native_days_between(args);
+        assert!(result.is_ok());
+        if let Value::Number(n) = result.unwrap() {
+            assert_eq!(n, 5.0);
+        } else {
+            panic!("Expected Number variant");
+        }
+    }
+}
