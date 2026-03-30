@@ -293,10 +293,7 @@ mod tests {
     #[test]
     fn test_native_add_days() {
         let start_date = Rc::new(NaiveDate::from_ymd_opt(2023, 10, 25).unwrap());
-        let args = vec![
-            Value::Date(start_date),
-            Value::Number(5.0),
-        ];
+        let args = vec![Value::Date(start_date), Value::Number(5.0)];
         let result = native_add_days(args);
         assert!(result.is_ok());
         if let Value::Date(d) = result.unwrap() {
@@ -309,10 +306,7 @@ mod tests {
     #[test]
     fn test_native_add_days_negative() {
         let start_date = Rc::new(NaiveDate::from_ymd_opt(2023, 10, 25).unwrap());
-        let args = vec![
-            Value::Date(start_date),
-            Value::Number(-5.0),
-        ];
+        let args = vec![Value::Date(start_date), Value::Number(-5.0)];
         let result = native_add_days(args);
         assert!(result.is_ok());
         if let Value::Date(d) = result.unwrap() {
@@ -328,10 +322,7 @@ mod tests {
         let date2 = Rc::new(NaiveDate::from_ymd_opt(2023, 10, 25).unwrap());
 
         // date1 is older, date2 is newer
-        let args = vec![
-            Value::Date(date1),
-            Value::Date(date2),
-        ];
+        let args = vec![Value::Date(date1), Value::Date(date2)];
         let result = native_days_between(args);
         assert!(result.is_ok());
         if let Value::Number(n) = result.unwrap() {
