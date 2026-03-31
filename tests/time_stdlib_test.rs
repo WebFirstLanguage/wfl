@@ -141,6 +141,14 @@ fn test_native_create_date_invalid_day() {
     ];
     let result = native_create_date(args);
     assert!(result.is_err());
+
+    let args_zero = vec![
+        Value::Number(2023.0),
+        Value::Number(10.0),
+        Value::Number(0.0), // Invalid day (too low)
+    ];
+    let result_zero = native_create_date(args_zero);
+    assert!(result_zero.is_err());
 }
 
 #[test]
