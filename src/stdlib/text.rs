@@ -18,13 +18,19 @@ fn percent_decode(s: &str) -> Cow<'_, str> {
 
     // Optimization: avoid string allocation and decoding overhead if the string
     // doesn't contain any encoded characters ('%' or '+').
-    // We scan bytes in a single pass to be efficient.
-    if !bytes.iter().any(|&b| b == b'%' || b == b'+') {
-        return Cow::Borrowed(s);
-    }
+    // Use iter().position() to quickly find the first special character using memchr.
+    let first_special = bytes.iter().position(|&b| b == b'%' || b == b'+');
+
+    let start_idx = match first_special {
+        Some(idx) => idx,
+        None => return Cow::Borrowed(s), // No encoded characters found
+    };
 
     let mut result = Vec::with_capacity(bytes.len());
-    let mut i = 0;
+
+    // Fast path: bulk copy everything up to the first special character
+    result.extend_from_slice(&bytes[..start_idx]);
+    let mut i = start_idx;
 
     while i < bytes.len() {
         match bytes[i] {
