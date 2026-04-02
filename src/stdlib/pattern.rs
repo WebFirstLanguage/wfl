@@ -279,27 +279,29 @@ pub fn native_pattern_split(
         return Ok(Value::List(Rc::new(RefCell::new(parts))));
     }
 
-    // Build character-to-byte index mapping
-    let char_to_byte: Vec<usize> = text.char_indices().map(|(byte_idx, _)| byte_idx).collect();
-    let mut char_to_byte = char_to_byte;
-    char_to_byte.push(text.len()); // Add final byte position
-
     // Split the text at match positions
     let mut parts = Vec::new();
     let mut last_end_char = 0;
+    let mut last_end_byte = 0;
 
-    for match_result in matches {
-        // Convert character indices to byte indices
-        let start_byte = if match_result.start < char_to_byte.len() {
-            char_to_byte[match_result.start]
-        } else {
-            text.len()
-        };
-        let last_end_byte = if last_end_char < char_to_byte.len() {
-            char_to_byte[last_end_char]
-        } else {
-            text.len()
-        };
+    // Use on-demand char iterator to track byte offsets instead of collecting
+    // all char-to-byte mappings into an O(N) memory allocation Vec<usize>.
+    let mut current_char_idx = 0;
+    let mut char_indices = text.char_indices();
+    let mut current_byte_idx = 0;
+
+    for match_result in &matches {
+        // Advance iterator to find the start byte
+        while current_char_idx < match_result.start {
+            if let Some((_, c)) = char_indices.next() {
+                current_char_idx += 1;
+                current_byte_idx += c.len_utf8();
+            } else {
+                break;
+            }
+        }
+
+        let start_byte = current_byte_idx;
 
         // Add the text before this match
         if match_result.start > last_end_char
@@ -311,14 +313,27 @@ pub fn native_pattern_split(
             // Add empty string for consecutive matches
             parts.push(Value::Text(Arc::from("")));
         }
+
+        // Advance iterator to find the end byte
+        while current_char_idx < match_result.end {
+            if let Some((_, c)) = char_indices.next() {
+                current_char_idx += 1;
+                current_byte_idx += c.len_utf8();
+            } else {
+                break;
+            }
+        }
+
         last_end_char = match_result.end;
+        last_end_byte = current_byte_idx;
     }
 
     // Add any remaining text after the last match
-    if last_end_char < char_to_byte.len() {
-        let last_end_byte = char_to_byte[last_end_char];
+    if last_end_byte < text.len() {
         let part = &text[last_end_byte..];
         parts.push(Value::Text(Arc::from(part)));
+    } else if last_end_byte == text.len() && !matches.is_empty() {
+        parts.push(Value::Text(Arc::from("")));
     }
 
     Ok(Value::List(Rc::new(RefCell::new(parts))))
