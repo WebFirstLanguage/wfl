@@ -57,3 +57,6 @@
 ## 2026-03-29 - [Avoid collect::<String>() on Chars iterator]
 **Learning:** Using `.collect::<String>()` on a `Chars` iterator (e.g. from `.chars().rev()`) is inefficient because the iterator's `size_hint()` provides a loose lower bound. This forces `String` to guess its required capacity, leading to multiple intermediate reallocations as the string is built up.
 **Action:** For string operations where the exact byte capacity is known (like reversing a string, which preserves the number of bytes), pre-allocate a string using `String::with_capacity(text.len())` and `.push()` characters manually. This guarantees exactly one allocation.
+## 2024-04-02 - Optimize pattern split byte offset mapping
+**Learning:** In WFL's pattern matching (`native_pattern_split`), `pattern.find_all` returns match boundaries as character indices. When converting these to byte indices for string slicing, avoid collecting `text.char_indices()` into a `Vec<usize>` because it causes a significant O(N) memory allocation and overhead.
+**Action:** Instead, track byte offsets with O(1) space complexity by using an on-demand `char_indices` iterator and summing the byte offsets directly (or using `char.len_utf8()`).
