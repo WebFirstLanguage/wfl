@@ -182,6 +182,22 @@ impl Value {
         }
     }
 
+    pub fn expect_text(
+        &self,
+        expected_desc: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<Arc<str>, RuntimeError> {
+        match self {
+            Value::Text(s) => Ok(Arc::clone(s)),
+            _ => Err(RuntimeError::new(
+                format!("Expected string for {}, got {:?}", expected_desc, self),
+                line,
+                column,
+            )),
+        }
+    }
+
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Bool(b) => *b,

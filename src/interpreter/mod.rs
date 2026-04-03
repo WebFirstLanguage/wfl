@@ -2688,16 +2688,7 @@ impl Interpreter {
                 column,
             } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let path_str = path_value.expect_text("file path", *line, *column)?;
 
                 // Use the appropriate file open mode
                 match self
@@ -2724,16 +2715,7 @@ impl Interpreter {
                 column,
             } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file path or handle, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let path_str = path_value.expect_text("file path or handle", *line, *column)?;
 
                 let is_file_path = matches!(path, Expression::Literal(Literal::String(_), _, _));
 
@@ -2787,27 +2769,9 @@ impl Interpreter {
                 let file_value = self.evaluate_expression(file, Rc::clone(&env)).await?;
                 let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
 
-                let file_str = match &file_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {file_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let file_str = file_value.expect_text("file handle", *line, *column)?;
 
-                let content_str = match &content_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file content, got {content_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let content_str = content_value.expect_text("file content", *line, *column)?;
 
                 match mode {
                     crate::parser::ast::WriteMode::Append => {
@@ -2827,16 +2791,7 @@ impl Interpreter {
             Statement::CloseFileStatement { file, line, column } => {
                 let file_value = self.evaluate_expression(file, Rc::clone(&env)).await?;
 
-                let file_str = match &file_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {file_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let file_str = file_value.expect_text("file handle", *line, *column)?;
 
                 match self.io_client.close_file(&file_str).await {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
@@ -2845,16 +2800,7 @@ impl Interpreter {
             }
             Statement::CreateDirectoryStatement { path, line, column } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for directory path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let path_str = path_value.expect_text("directory path", *line, *column)?;
 
                 match self.io_client.create_directory(&path_str).await {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
@@ -2870,16 +2816,7 @@ impl Interpreter {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
                 let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
 
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let path_str = path_value.expect_text("file path", *line, *column)?;
 
                 let content_str = format!("{content_value}");
 
@@ -2890,16 +2827,7 @@ impl Interpreter {
             }
             Statement::DeleteFileStatement { path, line, column } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let path_str = path_value.expect_text("file path", *line, *column)?;
 
                 match self.io_client.delete_file(&path_str).await {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
@@ -2915,16 +2843,7 @@ impl Interpreter {
                 let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
                 let file_value = self.evaluate_expression(file, Rc::clone(&env)).await?;
 
-                let file_str = match &file_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {file_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let file_str = file_value.expect_text("file handle", *line, *column)?;
 
                 let content_str = format!("{content_value}");
 
@@ -2942,16 +2861,7 @@ impl Interpreter {
                 let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
                 let target_value = self.evaluate_expression(target, Rc::clone(&env)).await?;
 
-                let target_str = match &target_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {target_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let target_str = target_value.expect_text("file handle", *line, *column)?;
 
                 let content_str = format!("{content_value}");
 
@@ -2979,19 +2889,7 @@ impl Interpreter {
                 let content_value = self.evaluate_expression(content, Rc::clone(&env)).await?;
                 let target_value = self.evaluate_expression(target, Rc::clone(&env)).await?;
 
-                let target_str = match &target_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!(
-                                "Expected string for file handle, got {}",
-                                target_value.type_name()
-                            ),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let target_str = target_value.expect_text("file handle", *line, *column)?;
 
                 // 50MB limit to prevent memory exhaustion
                 const MAX_BINARY_WRITE: usize = 50 * 1024 * 1024;
@@ -3060,16 +2958,7 @@ impl Interpreter {
             }
             Statement::DeleteDirectoryStatement { path, line, column } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for directory path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let path_str = path_value.expect_text("directory path", *line, *column)?;
 
                 match self.io_client.delete_directory(&path_str).await {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
@@ -3541,29 +3430,10 @@ impl Interpreter {
                         let content_value =
                             self.evaluate_expression(content, Rc::clone(&env)).await?;
 
-                        let file_str = match &file_value {
-                            Value::Text(s) => s.clone(),
-                            _ => {
-                                return Err(RuntimeError::new(
-                                    format!("Expected string for file handle, got {file_value:?}"),
-                                    *line,
-                                    *column,
-                                ));
-                            }
-                        };
+                        let file_str = file_value.expect_text("file handle", *line, *column)?;
 
-                        let content_str = match &content_value {
-                            Value::Text(s) => s.clone(),
-                            _ => {
-                                return Err(RuntimeError::new(
-                                    format!(
-                                        "Expected string for file content, got {content_value:?}"
-                                    ),
-                                    *line,
-                                    *column,
-                                ));
-                            }
-                        };
+                        let content_str =
+                            content_value.expect_text("file content", *line, *column)?;
 
                         exec_trace!("Writing to file: {}, content: {}", file_str, content_str);
                         match mode {
@@ -3601,18 +3471,8 @@ impl Interpreter {
                     } => {
                         exec_trace!("Executing wait for read file statement");
                         let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                        let path_str = match &path_value {
-                            Value::Text(s) => s.clone(),
-                            _ => {
-                                return Err(RuntimeError::new(
-                                    format!(
-                                        "Expected string for file path or handle, got {path_value:?}"
-                                    ),
-                                    *line,
-                                    *column,
-                                ));
-                            }
-                        };
+                        let path_str =
+                            path_value.expect_text("file path or handle", *line, *column)?;
 
                         let is_file_path =
                             matches!(path, Expression::Literal(Literal::String(_), _, _));
@@ -3762,16 +3622,7 @@ impl Interpreter {
                 column,
             } => {
                 let url_val = self.evaluate_expression(url, Rc::clone(&env)).await?;
-                let url_str = match &url_val {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for URL, got {url_val:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let url_str = url_val.expect_text("URL", *line, *column)?;
 
                 match self.io_client.http_get(&url_str).await {
                     Ok(body) => {
@@ -3796,27 +3647,9 @@ impl Interpreter {
                 let url_val = self.evaluate_expression(url, Rc::clone(&env)).await?;
                 let data_val = self.evaluate_expression(data, Rc::clone(&env)).await?;
 
-                let url_str = match &url_val {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for URL, got {url_val:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let url_str = url_val.expect_text("URL", *line, *column)?;
 
-                let data_str = match &data_val {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for data, got {data_val:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let data_str = data_val.expect_text("data", *line, *column)?;
 
                 match self.io_client.http_post(&url_str, &data_str).await {
                     Ok(body) => {
@@ -6805,31 +6638,13 @@ impl Interpreter {
             }
             Expression::FileExists { path, line, column } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let path_str = path_value.expect_text("file path", *line, *column)?;
 
                 Ok(Value::Bool(tokio::fs::metadata(&*path_str).await.is_ok()))
             }
             Expression::DirectoryExists { path, line, column } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for directory path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let path_str = path_value.expect_text("directory path", *line, *column)?;
 
                 match tokio::fs::metadata(&*path_str).await {
                     Ok(metadata) => Ok(Value::Bool(metadata.is_dir())),
@@ -6838,16 +6653,7 @@ impl Interpreter {
             }
             Expression::ListFiles { path, line, column } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for directory path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let path_str = path_value.expect_text("directory path", *line, *column)?;
 
                 match tokio::fs::read_dir(&*path_str).await {
                     Ok(mut entries) => {
@@ -6874,16 +6680,7 @@ impl Interpreter {
                 let handle_value = self
                     .evaluate_expression(file_handle, Rc::clone(&env))
                     .await?;
-                let handle_str = match &handle_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for file handle, got {handle_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let handle_str = handle_value.expect_text("file handle", *line, *column)?;
 
                 match self.io_client.read_file(&handle_str).await {
                     Ok(content) => Ok(Value::Text(content.into())),
@@ -6898,19 +6695,7 @@ impl Interpreter {
                 let handle_value = self
                     .evaluate_expression(file_handle, Rc::clone(&env))
                     .await?;
-                let handle_str = match &handle_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!(
-                                "Expected string for file handle, got {}",
-                                handle_value.type_name()
-                            ),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let handle_str = handle_value.expect_text("file handle", *line, *column)?;
 
                 match self.io_client.read_binary(&handle_str).await {
                     Ok(bytes) => Ok(Value::Binary(Arc::from(bytes))),
@@ -6926,19 +6711,7 @@ impl Interpreter {
                 let handle_value = self
                     .evaluate_expression(file_handle, Rc::clone(&env))
                     .await?;
-                let handle_str = match &handle_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!(
-                                "Expected string for file handle, got {}",
-                                handle_value.type_name()
-                            ),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let handle_str = handle_value.expect_text("file handle", *line, *column)?;
 
                 let count_value = self.evaluate_expression(count, Rc::clone(&env)).await?;
                 let n = match &count_value {
@@ -6991,19 +6764,7 @@ impl Interpreter {
                 let handle_value = self
                     .evaluate_expression(file_handle, Rc::clone(&env))
                     .await?;
-                let handle_str = match &handle_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!(
-                                "Expected string for file handle, got {}",
-                                handle_value.type_name()
-                            ),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let handle_str = handle_value.expect_text("file handle", *line, *column)?;
 
                 match self.io_client.file_size(&handle_str).await {
                     Ok(size) => Ok(Value::Number(size as f64)),
@@ -7017,16 +6778,7 @@ impl Interpreter {
                 column,
             } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for directory path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let path_str = path_value.expect_text("directory path", *line, *column)?;
 
                 // Evaluate extensions if provided
                 let ext_filters = if let Some(ext_exprs) = extensions {
@@ -7086,16 +6838,7 @@ impl Interpreter {
                 column,
             } => {
                 let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
-                let path_str = match &path_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected string for directory path, got {path_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
+                let path_str = path_value.expect_text("directory path", *line, *column)?;
 
                 // Evaluate extensions
                 let mut ext_filters = Vec::new();
