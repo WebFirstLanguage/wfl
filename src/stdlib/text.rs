@@ -201,7 +201,16 @@ pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
     // Split the text by the delimiter
     let parts: Vec<Value> = text
         .split(delimiter.as_ref())
-        .map(|s| Value::Text(Arc::from(s)))
+        .map(|s| {
+            // Optimization: If the delimiter wasn't found, the yielded slice
+            // matches the original text length. Reuse the original Arc to
+            // avoid allocating a new string.
+            if s.len() == text.len() {
+                Value::Text(Arc::clone(&text))
+            } else {
+                Value::Text(Arc::from(s))
+            }
+        })
         .collect();
 
     Ok(Value::List(Rc::new(RefCell::new(parts))))
