@@ -157,6 +157,111 @@ pub struct ActionSignature {
 }
 
 impl Value {
+    pub fn expect_number(
+        &self,
+        expected_desc: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<f64, RuntimeError> {
+        match self {
+            Value::Number(n) => Ok(*n),
+            _ => Err(RuntimeError::new(
+                format!(
+                    "Expected {} for {}, got {}",
+                    "a number",
+                    expected_desc,
+                    self.type_name()
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
+    pub fn expect_text(
+        &self,
+        expected_desc: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<&Arc<str>, RuntimeError> {
+        match self {
+            Value::Text(s) => Ok(s),
+            _ => Err(RuntimeError::new(
+                format!(
+                    "Expected {} for {}, got {}",
+                    "text",
+                    expected_desc,
+                    self.type_name()
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
+    pub fn expect_bool(
+        &self,
+        expected_desc: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<bool, RuntimeError> {
+        match self {
+            Value::Bool(b) => Ok(*b),
+            _ => Err(RuntimeError::new(
+                format!(
+                    "Expected {} for {}, got {}",
+                    "a boolean",
+                    expected_desc,
+                    self.type_name()
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
+    pub fn expect_list(
+        &self,
+        expected_desc: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<&Rc<RefCell<Vec<Value>>>, RuntimeError> {
+        match self {
+            Value::List(l) => Ok(l),
+            _ => Err(RuntimeError::new(
+                format!(
+                    "Expected {} for {}, got {}",
+                    "a list",
+                    expected_desc,
+                    self.type_name()
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
+    pub fn expect_object(
+        &self,
+        expected_desc: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<&Rc<RefCell<HashMap<String, Value>>>, RuntimeError> {
+        match self {
+            Value::Object(o) => Ok(o),
+            _ => Err(RuntimeError::new(
+                format!(
+                    "Expected {} for {}, got {}",
+                    "an object",
+                    expected_desc,
+                    self.type_name()
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Number(_) => "Number",
