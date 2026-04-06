@@ -57,3 +57,7 @@
 ## 2026-03-29 - [Avoid collect::<String>() on Chars iterator]
 **Learning:** Using `.collect::<String>()` on a `Chars` iterator (e.g. from `.chars().rev()`) is inefficient because the iterator's `size_hint()` provides a loose lower bound. This forces `String` to guess its required capacity, leading to multiple intermediate reallocations as the string is built up.
 **Action:** For string operations where the exact byte capacity is known (like reversing a string, which preserves the number of bytes), pre-allocate a string using `String::with_capacity(text.len())` and `.push()` characters manually. This guarantees exactly one allocation.
+
+## 2026-04-06 - [Avoid allocations when splitting strings with no matches]
+**Learning:** When using `.split()` on a string where the delimiter is not found, mapping over the results and calling `Arc::from(s)` forces an unnecessary O(N) memory allocation to copy the entire string.
+**Action:** When mapping over `.split()` results from a reference-counted string (like `Arc<str>`), check if the split chunk is the same length as the original string (`s.len() == text.len()`). If so, the delimiter wasn't found, and you can safely return a cheap reference count increment `Arc::clone(&text)` instead of a new allocation.
