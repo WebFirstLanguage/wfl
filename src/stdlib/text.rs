@@ -227,42 +227,45 @@ pub fn native_ends_with(args: Vec<Value>) -> Result<Value, RuntimeError> {
     binary_text_predicate("ends_with", args, |text, suffix| text.ends_with(suffix))
 }
 
+fn parse_text_to_object(
+    name: &str,
+    args: Vec<Value>,
+    delimiter: char,
+    trim_parts: bool,
+    ignore_empty_values: bool,
+    trim_start: Option<char>,
+) -> Result<Value, RuntimeError> {
+    check_arg_count(name, &args, 1)?;
+
+    let text = expect_text(&args[0])?;
+    let text_ref = if let Some(prefix) = trim_start {
+        text.trim_start_matches(prefix)
+    } else {
+        text.as_ref()
+    };
+
+    let params = parse_key_value_pairs(text_ref, delimiter, trim_parts, ignore_empty_values);
+
+    Ok(Value::Object(Rc::new(RefCell::new(params))))
+}
+
 /// Parse query string into WFL object
 /// Usage: parse_query_string("?page=1&limit=10") -> {"page": "1", "limit": "10"}
 pub fn native_parse_query_string(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("parse_query_string", &args, 1)?;
-
-    let query_str = expect_text(&args[0])?;
-    let query_str = query_str.trim_start_matches('?');
-
-    let params = parse_key_value_pairs(query_str, '&', false, false);
-
-    Ok(Value::Object(Rc::new(RefCell::new(params))))
+    parse_text_to_object("parse_query_string", args, '&', false, false, Some('?'))
 }
 
 /// Parse Cookie header into WFL object
 /// Usage: parse_cookies("session_id=abc123; user=alice") -> {"session_id": "abc123", "user": "alice"}
 pub fn native_parse_cookies(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("parse_cookies", &args, 1)?;
-
-    let cookie_header = expect_text(&args[0])?;
-
     // Cookies are separated by ';', parts need trimming, and valueless pairs are typically ignored
-    let cookies = parse_key_value_pairs(cookie_header.as_ref(), ';', true, true);
-
-    Ok(Value::Object(Rc::new(RefCell::new(cookies))))
+    parse_text_to_object("parse_cookies", args, ';', true, true, None)
 }
 
 /// Parse URL-encoded form data
 /// Usage: parse_form_urlencoded("name=Alice&age=30") -> {"name": "Alice", "age": "30"}
 pub fn native_parse_form_urlencoded(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    check_arg_count("parse_form_urlencoded", &args, 1)?;
-
-    let form_data = expect_text(&args[0])?;
-
-    let params = parse_key_value_pairs(form_data.as_ref(), '&', false, false);
-
-    Ok(Value::Object(Rc::new(RefCell::new(params))))
+    parse_text_to_object("parse_form_urlencoded", args, '&', false, false, None)
 }
 
 pub fn native_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
