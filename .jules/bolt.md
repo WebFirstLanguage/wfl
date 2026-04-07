@@ -57,3 +57,6 @@
 ## 2026-03-29 - [Avoid collect::<String>() on Chars iterator]
 **Learning:** Using `.collect::<String>()` on a `Chars` iterator (e.g. from `.chars().rev()`) is inefficient because the iterator's `size_hint()` provides a loose lower bound. This forces `String` to guess its required capacity, leading to multiple intermediate reallocations as the string is built up.
 **Action:** For string operations where the exact byte capacity is known (like reversing a string, which preserves the number of bytes), pre-allocate a string using `String::with_capacity(text.len())` and `.push()` characters manually. This guarantees exactly one allocation.
+## 2024-04-07 - Optimization Fast-Path Regression in Iterator Collection
+**Learning:** When trying to return early in a `.split()` fast-path by comparing `first.len() == text.len()`, it creates a silent behavioral change on empty strings (`""`). In Rust, `"".split("")` returns two empty strings `["", ""]`, but a fast-path that just checks lengths and returns the original string yields `[""]`. Even simple algebraic length checks in iterators have edge-cases around empty input strings.
+**Action:** Always include an explicit `&& !text.is_empty()` guard when using iterator length comparisons to bypass standard library collection logic, ensuring edge cases like empty inputs behave identically to the unoptimized code.

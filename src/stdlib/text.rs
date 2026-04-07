@@ -198,13 +198,26 @@ pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
         ));
     }
 
-    // Split the text by the delimiter
-    let parts: Vec<Value> = text
-        .split(delimiter.as_ref())
-        .map(|s| Value::Text(Arc::from(s)))
-        .collect();
+    // Optimization: Avoid allocation when delimiter is not found
+    let mut iter = text.split(delimiter.as_ref());
+    if let Some(first) = iter.next() {
+        if first.len() == text.len() && !text.is_empty() {
+            // Fast path: Delimiter not found, reuse the original string allocation
+            return Ok(Value::List(Rc::new(RefCell::new(vec![Value::Text(
+                Arc::clone(&text),
+            )]))));
+        }
 
-    Ok(Value::List(Rc::new(RefCell::new(parts))))
+        let mut parts = Vec::new();
+        parts.push(Value::Text(Arc::from(first)));
+        for s in iter {
+            parts.push(Value::Text(Arc::from(s)));
+        }
+
+        Ok(Value::List(Rc::new(RefCell::new(parts))))
+    } else {
+        Ok(Value::List(Rc::new(RefCell::new(Vec::new()))))
+    }
 }
 
 pub fn native_trim(args: Vec<Value>) -> Result<Value, RuntimeError> {
