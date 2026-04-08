@@ -150,10 +150,12 @@ pub fn native_pattern_replace(
     let text_arc = expect_text(&args[0]).map_err(|e| RuntimeError::new(e.message, line, column))?;
     let text = text_arc.as_ref();
 
-    let _pattern_rc = expect_pattern(&args[1]).map_err(|e| RuntimeError::new(e.message, line, column))?;
+    let _pattern_rc =
+        expect_pattern(&args[1]).map_err(|e| RuntimeError::new(e.message, line, column))?;
     let _pattern = _pattern_rc.as_ref();
 
-    let _replacement_arc = expect_text(&args[2]).map_err(|e| RuntimeError::new(e.message, line, column))?;
+    let _replacement_arc =
+        expect_text(&args[2]).map_err(|e| RuntimeError::new(e.message, line, column))?;
     let _replacement = _replacement_arc.as_ref();
 
     // TODO: Update to use new pattern system for replacement
@@ -177,7 +179,8 @@ pub fn native_pattern_split(
     let text_arc = expect_text(&args[0]).map_err(|e| RuntimeError::new(e.message, line, column))?;
     let text = text_arc.as_ref();
 
-    let pattern = expect_pattern(&args[1]).map_err(|e| RuntimeError::new(e.message, line, column))?;
+    let pattern =
+        expect_pattern(&args[1]).map_err(|e| RuntimeError::new(e.message, line, column))?;
 
     // Find all matches of the pattern in the text
     let matches = pattern.find_all(text);
