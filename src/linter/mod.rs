@@ -281,17 +281,17 @@ impl LintRule for KeywordCasingRule {
 
             for keyword in keywords.iter() {
                 let uppercase_keyword = keyword.to_uppercase();
-                let mixed_case_keyword = keyword
-                    .chars()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        if i == 0 {
-                            c.to_uppercase().next().unwrap()
-                        } else {
-                            c
+                let mixed_case_keyword = {
+                    let mut s = String::with_capacity(keyword.len());
+                    let mut chars = keyword.chars();
+                    if let Some(c) = chars.next() {
+                        for u in c.to_uppercase() {
+                            s.push(u);
                         }
-                    })
-                    .collect::<String>();
+                        s.push_str(chars.as_str());
+                    }
+                    s
+                };
 
                 if let Some(pos) = source.find(&uppercase_keyword) {
                     let line_col = line_col_from_pos(source, pos);
