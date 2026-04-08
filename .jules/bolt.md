@@ -57,3 +57,7 @@
 ## 2026-03-29 - [Avoid collect::<String>() on Chars iterator]
 **Learning:** Using `.collect::<String>()` on a `Chars` iterator (e.g. from `.chars().rev()`) is inefficient because the iterator's `size_hint()` provides a loose lower bound. This forces `String` to guess its required capacity, leading to multiple intermediate reallocations as the string is built up.
 **Action:** For string operations where the exact byte capacity is known (like reversing a string, which preserves the number of bytes), pre-allocate a string using `String::with_capacity(text.len())` and `.push()` characters manually. This guarantees exactly one allocation.
+
+## 2026-04-08 - [Avoid `collect::<String>()` when capitalizing keywords]
+**Learning:** In the linter's `KeywordCasingRule`, capitalizing the first letter of keywords using `.chars().enumerate().map(...).collect::<String>()` was inefficient. It iterates over all characters and creates multiple intermediate allocations due to the iterator's imprecise `size_hint()`.
+**Action:** Replace `.collect::<String>()` with an exact-capacity allocation `String::with_capacity(len)` and push the capitalized first character(s), followed by appending the rest of the string using `push_str(chars.as_str())`. This avoids per-character iteration for the unchanged suffix and ensures only a single memory allocation.
