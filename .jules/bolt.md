@@ -57,3 +57,7 @@
 ## 2026-03-29 - [Avoid collect::<String>() on Chars iterator]
 **Learning:** Using `.collect::<String>()` on a `Chars` iterator (e.g. from `.chars().rev()`) is inefficient because the iterator's `size_hint()` provides a loose lower bound. This forces `String` to guess its required capacity, leading to multiple intermediate reallocations as the string is built up.
 **Action:** For string operations where the exact byte capacity is known (like reversing a string, which preserves the number of bytes), pre-allocate a string using `String::with_capacity(text.len())` and `.push()` characters manually. This guarantees exactly one allocation.
+
+## 2026-04-09 - [Avoid per-character iteration and collect::<String>() in string casing]
+**Learning:** Using `.chars().enumerate().map(...).collect::<String>()` to change the case of a single character and leave the rest unchanged is highly inefficient. It iterates over every character, unnecessarily evaluates conditionals on each step, and relies on an iterator `size_hint` that may force `String` to reallocate multiple times during construction.
+**Action:** When applying a partial transformation to a string (like capitalizing the first letter), use `String::with_capacity(text.len())` to allocate exactly once. Transform only the necessary characters using the `.chars()` iterator (e.g., `chars.next()`), then push the remaining unchanged string slice all at once using `.push_str(chars.as_str())`.
