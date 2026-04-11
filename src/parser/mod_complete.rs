@@ -27,10 +27,12 @@ impl<'a> Parser<'a> {
 
     pub fn parse(&mut self) -> Result<Program, Vec<ParseError>> {
         let mut program = Program::new();
-        program.statements.reserve(self.tokens.clone().count() / 5);
+        // ⚡ Bolt: Replace O(N) .clone().count() with O(1) .len()
+        program.statements.reserve(self.tokens.len() / 5);
 
         while self.tokens.peek().is_some() {
-            let start_len = self.tokens.clone().count();
+            // ⚡ Bolt: Replace O(N) .clone().count() with O(1) .len()
+            let start_len = self.tokens.len();
 
             // Comprehensive handling of "end" tokens that might be left unconsumed
             // Check first two tokens to avoid borrow checker issues
@@ -115,7 +117,8 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            let end_len = self.tokens.clone().count();
+            // ⚡ Bolt: Replace O(N) .clone().count() with O(1) .len()
+            let end_len = self.tokens.len();
 
             // Special case for end of file - if we have processed all meaningful tokens,
             // and only trailing tokens remain (if any), just break
