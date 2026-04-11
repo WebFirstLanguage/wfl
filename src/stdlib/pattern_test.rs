@@ -57,6 +57,6 @@ mod tests {
         ];
         let result = pattern_matches_native(args);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("First argument"));
+        assert!(result.unwrap_err().to_string().contains("Expected text"));
     }
 }
