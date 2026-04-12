@@ -279,10 +279,23 @@ pub fn native_pattern_split(
         return Ok(Value::List(Rc::new(RefCell::new(parts))));
     }
 
-    // Build character-to-byte index mapping
-    let char_to_byte: Vec<usize> = text.char_indices().map(|(byte_idx, _)| byte_idx).collect();
-    let mut char_to_byte = char_to_byte;
-    char_to_byte.push(text.len()); // Add final byte position
+    // Build character-to-byte index tracking
+    let mut current_char_idx = 0;
+    let mut current_byte_idx = 0;
+    let mut chars = text.chars();
+
+    let text_len = text.len();
+    let mut get_byte_idx = |target_char_idx: usize| -> usize {
+        while current_char_idx < target_char_idx {
+            if let Some(c) = chars.next() {
+                current_byte_idx += c.len_utf8();
+                current_char_idx += 1;
+            } else {
+                break;
+            }
+        }
+        current_byte_idx.min(text_len)
+    };
 
     // Split the text at match positions
     let mut parts = Vec::new();
@@ -290,16 +303,8 @@ pub fn native_pattern_split(
 
     for match_result in matches {
         // Convert character indices to byte indices
-        let start_byte = if match_result.start < char_to_byte.len() {
-            char_to_byte[match_result.start]
-        } else {
-            text.len()
-        };
-        let last_end_byte = if last_end_char < char_to_byte.len() {
-            char_to_byte[last_end_char]
-        } else {
-            text.len()
-        };
+        let last_end_byte = get_byte_idx(last_end_char);
+        let start_byte = get_byte_idx(match_result.start);
 
         // Add the text before this match
         if match_result.start > last_end_char
@@ -314,12 +319,10 @@ pub fn native_pattern_split(
         last_end_char = match_result.end;
     }
 
-    // Add any remaining text after the last match
-    if last_end_char < char_to_byte.len() {
-        let last_end_byte = char_to_byte[last_end_char];
-        let part = &text[last_end_byte..];
-        parts.push(Value::Text(Arc::from(part)));
-    }
+    // Add any remaining text after the last match unconditionally
+    let last_end_byte = get_byte_idx(last_end_char);
+    let part = &text[last_end_byte..];
+    parts.push(Value::Text(Arc::from(part)));
 
     Ok(Value::List(Rc::new(RefCell::new(parts))))
 }
