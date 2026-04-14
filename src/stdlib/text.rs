@@ -146,6 +146,12 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
         return Ok(Value::Text(Arc::from("")));
     }
 
+    // Optimization: If start is 0 and length >= byte length, it's definitely the whole string.
+    // Since num_chars <= num_bytes, length >= text.len() guarantees we want the whole string.
+    if start == 0 && length >= text.len() {
+        return Ok(Value::Text(Arc::clone(&text)));
+    }
+
     // Optimization: Use chars() iterator which is highly optimized for skipping
     // and as_str() to get slices without allocating intermediate strings.
     let mut chars = text.chars();
@@ -168,6 +174,9 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     // nth(length - 1) will consume 'length' items.
     if chars.nth(length - 1).is_none() {
         // Length exceeds remaining string, return everything from start
+        if start == 0 {
+            return Ok(Value::Text(Arc::clone(&text)));
+        }
         return Ok(Value::Text(Arc::from(start_slice)));
     }
 
@@ -565,6 +574,27 @@ mod tests {
         } else {
             panic!("Expected text");
         }
+    }
+
+    #[test]
+    fn test_substring_full_string() {
+        // Fast path coverage: exactly full length
+        let result = native_substring(vec![
+            Value::Text(Arc::from("hello world")),
+            Value::Number(0.0),
+            Value::Number(11.0),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("hello world")));
+
+        // Fast path coverage: requested length exceeds string length
+        let result = native_substring(vec![
+            Value::Text(Arc::from("hello world")),
+            Value::Number(0.0),
+            Value::Number(100.0),
+        ])
+        .unwrap();
+        assert_eq!(result, Value::Text(Arc::from("hello world")));
     }
 
     #[test]
