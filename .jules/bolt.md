@@ -57,3 +57,7 @@
 ## 2026-03-29 - [Avoid collect::<String>() on Chars iterator]
 **Learning:** Using `.collect::<String>()` on a `Chars` iterator (e.g. from `.chars().rev()`) is inefficient because the iterator's `size_hint()` provides a loose lower bound. This forces `String` to guess its required capacity, leading to multiple intermediate reallocations as the string is built up.
 **Action:** For string operations where the exact byte capacity is known (like reversing a string, which preserves the number of bytes), pre-allocate a string using `String::with_capacity(text.len())` and `.push()` characters manually. This guarantees exactly one allocation.
+
+## 2026-04-14 - [Optimize Full Substring Selection]
+**Learning:** In string manipulation, requests for a substring that covers the entire string (`start=0` and `length >= text.len()`) can be optimized by cloning the reference-counted string (`Arc::clone`) rather than slicing and reallocating.
+**Action:** Always check for full-string boundary cases when dealing with substrings of reference-counted strings to avoid unnecessary allocation overhead.
