@@ -201,7 +201,17 @@ pub fn native_string_split(args: Vec<Value>) -> Result<Value, RuntimeError> {
     // Split the text by the delimiter
     let parts: Vec<Value> = text
         .split(delimiter.as_ref())
-        .map(|s| Value::Text(Arc::from(s)))
+        .map(|s| {
+            // Optimization: If the delimiter wasn't found, the split result is exactly the original text.
+            // By checking the length (and ensuring it's not an empty string edge case), we can
+            // reuse the original `Arc<str>` via a cheap atomic reference count increment (`Arc::clone`)
+            // rather than doing an expensive O(N) heap allocation and memory copy via `Arc::from(s)`.
+            if s.len() == text.len() && !text.is_empty() {
+                Value::Text(Arc::clone(&text))
+            } else {
+                Value::Text(Arc::from(s))
+            }
+        })
         .collect();
 
     Ok(Value::List(Rc::new(RefCell::new(parts))))
