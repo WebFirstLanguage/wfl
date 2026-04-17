@@ -57,3 +57,6 @@
 ## 2026-03-29 - [Avoid collect::<String>() on Chars iterator]
 **Learning:** Using `.collect::<String>()` on a `Chars` iterator (e.g. from `.chars().rev()`) is inefficient because the iterator's `size_hint()` provides a loose lower bound. This forces `String` to guess its required capacity, leading to multiple intermediate reallocations as the string is built up.
 **Action:** For string operations where the exact byte capacity is known (like reversing a string, which preserves the number of bytes), pre-allocate a string using `String::with_capacity(text.len())` and `.push()` characters manually. This guarantees exactly one allocation.
+## 2025-04-17 - [Arc String Split Fast-Path Optimization]
+**Learning:** When using `.split()` on an `Arc<str>`, if the delimiter isn't found, the resulting string slice has the same length as the original string. This allows for a fast path that reuses the original `Arc` instead of allocating a new string.
+**Action:** When mapping over `.split()` results from a reference-counted string (like `Arc<str>`), optimize the fast-path by checking `if s.len() == text.len() && !text.is_empty()`. If true, reuse the original reference via `Arc::clone(&text)` instead of allocating a new string.
