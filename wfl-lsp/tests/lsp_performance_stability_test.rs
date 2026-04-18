@@ -4,11 +4,7 @@
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
-use tower_lsp::lsp_types::{
-    CompletionParams, HoverParams, Position, TextDocumentIdentifier, TextDocumentPositionParams,
-    Url,
-};
+use tower_lsp::lsp_types::Position;
 use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
@@ -27,7 +23,7 @@ fn generate_large_wfl_program(
         program.push_str(&format!("store variable_{} as {}\n", i, i));
     }
 
-    program.push_str("\n");
+    program.push('\n');
 
     // Generate many function definitions
     for i in 0..num_functions {

@@ -4,10 +4,7 @@
 
 use std::fs;
 use std::path::Path;
-use tower_lsp::lsp_types::{
-    CompletionParams, HoverParams, Position, TextDocumentIdentifier, TextDocumentPositionParams,
-    Url,
-};
+use tower_lsp::lsp_types::Position;
 use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
@@ -174,10 +171,11 @@ fn simulate_hover_request(document_text: &str, position: Position) -> bool {
 
     // If there's a word at the position, we can likely provide hover info
     let chars: Vec<char> = line.chars().collect();
-    chars.get(char_pos).map_or(false, |c| c.is_alphabetic())
+    chars.get(char_pos).is_some_and(|c| c.is_alphabetic())
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct LSPWorkflowResult {
     filename: String,
     lexing_success: bool,
