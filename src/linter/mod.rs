@@ -281,17 +281,20 @@ impl LintRule for KeywordCasingRule {
 
             for keyword in keywords.iter() {
                 let uppercase_keyword = keyword.to_uppercase();
-                let mixed_case_keyword = keyword
-                    .chars()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        if i == 0 {
-                            c.to_uppercase().next().unwrap()
-                        } else {
-                            c
+                let mixed_case_keyword = {
+                    let mut chars = keyword.chars();
+                    match chars.next() {
+                        Some(c) => {
+                            let mut result = String::with_capacity(keyword.len());
+                            for u in c.to_uppercase() {
+                                result.push(u);
+                            }
+                            result.push_str(chars.as_str());
+                            result
                         }
-                    })
-                    .collect::<String>();
+                        None => String::new(),
+                    }
+                };
 
                 if let Some(pos) = source.find(&uppercase_keyword) {
                     let line_col = line_col_from_pos(source, pos);
@@ -508,26 +511,39 @@ fn check_nesting_depth(
 }
 
 fn is_snake_case(s: &str) -> bool {
-    !s.contains(char::is_uppercase) && !s.contains(' ')
+    // Optimization: Fast path for ASCII strings avoids UTF-8 character iteration overhead
+    if s.is_ascii() {
+        !s.bytes().any(|b| b.is_ascii_uppercase() || b == b' ')
+    } else {
+        !s.contains(char::is_uppercase) && !s.contains(' ')
+    }
 }
 
 fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
+    // Optimization: Pre-allocate capacity, as the string will be at least the same length
+    let mut result = String::with_capacity(s.len() + 4);
     let mut previous_char_is_lowercase = false;
 
     for (i, c) in s.char_indices() {
-        if c.is_uppercase() {
+        if c.is_ascii_uppercase() {
+            if i > 0 && previous_char_is_lowercase {
+                result.push('_');
+            }
+            result.push(c.to_ascii_lowercase());
+            previous_char_is_lowercase = false;
+        } else if c.is_uppercase() {
             if i > 0 && previous_char_is_lowercase {
                 result.push('_');
             }
             result.push(c.to_lowercase().next().unwrap());
+            previous_char_is_lowercase = c.is_lowercase();
         } else if c == ' ' {
             result.push('_');
+            previous_char_is_lowercase = false;
         } else {
             result.push(c);
+            previous_char_is_lowercase = c.is_lowercase();
         }
-
-        previous_char_is_lowercase = c.is_lowercase();
     }
 
     result
