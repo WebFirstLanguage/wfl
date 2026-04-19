@@ -2,9 +2,6 @@
 // These tests validate that the LSP server provides meaningful hover information
 // for WFL symbols including variables, functions, and built-in constructs
 
-use tower_lsp::lsp_types::{
-    HoverParams, Position, TextDocumentIdentifier, TextDocumentPositionParams, Url,
-};
 use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::{Parser, ast::Program};
@@ -34,6 +31,7 @@ fn extract_hover_info_at_position(
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 enum SymbolInfo {
     Variable {
         name: String,
@@ -56,7 +54,7 @@ enum SymbolInfo {
     },
 }
 
-fn find_symbol_at_position(program: &Program, line: u32, character: u32) -> Option<SymbolInfo> {
+fn find_symbol_at_position(program: &Program, _line: u32, _character: u32) -> Option<SymbolInfo> {
     use wfl::parser::ast::Statement;
 
     // This is a simplified implementation - real implementation would be more sophisticated
@@ -116,7 +114,7 @@ fn format_hover_info(symbol_info: &SymbolInfo) -> String {
             format!("**WFL Keyword:** `{}`\n\n{}", name, description)
         }
         SymbolInfo::StdlibFunction {
-            name,
+            name: _,
             description,
             signature,
         } => {
@@ -189,7 +187,7 @@ call greet with "Alice" and "Ms."
 #[tokio::test]
 async fn test_hover_should_show_stdlib_function_information() {
     // Test that hover shows standard library function documentation
-    let document_text = r#"
+    let _document_text = r#"
 store my_list as [1, 2, 3, 4, 5]
 store list_size as length of my_list
 store first_item as first of my_list
@@ -233,7 +231,7 @@ display "List size: " with list_size
 #[tokio::test]
 async fn test_hover_should_show_keyword_information() {
     // Test that hover shows WFL keyword documentation
-    let document_text = r#"
+    let _document_text = r#"
 if age is greater than 18 then
     display "Adult"
 otherwise

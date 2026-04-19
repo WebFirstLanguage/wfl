@@ -4,11 +4,7 @@
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
-use tower_lsp::lsp_types::{
-    CompletionParams, HoverParams, Position, TextDocumentIdentifier, TextDocumentPositionParams,
-    Url,
-};
+use tower_lsp::lsp_types::Position;
 use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
