@@ -57,3 +57,7 @@
 ## 2026-03-29 - [Avoid collect::<String>() on Chars iterator]
 **Learning:** Using `.collect::<String>()` on a `Chars` iterator (e.g. from `.chars().rev()`) is inefficient because the iterator's `size_hint()` provides a loose lower bound. This forces `String` to guess its required capacity, leading to multiple intermediate reallocations as the string is built up.
 **Action:** For string operations where the exact byte capacity is known (like reversing a string, which preserves the number of bytes), pre-allocate a string using `String::with_capacity(text.len())` and `.push()` characters manually. This guarantees exactly one allocation.
+
+## 2026-04-15 - [Optimize string split fast paths]
+**Learning:** When a string or pattern split doesn't find any matches, returning a newly allocated `Arc::from(text)` creates an unnecessary allocation and copy. Because WFL strings are immutable `Arc<str>`, we can reuse the existing reference for the unmatched case.
+**Action:** Always check if a substring or split result spans the entire original string length, and if so, return an `Arc::clone(&original_arc)` instead of allocating a new string.

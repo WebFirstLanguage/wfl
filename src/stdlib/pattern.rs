@@ -197,8 +197,8 @@ pub fn native_pattern_replace(
         ));
     }
 
-    let text = match &args[0] {
-        Value::Text(t) => t.as_ref(),
+    let text_arc = match &args[0] {
+        Value::Text(t) => t,
         _ => {
             return Err(RuntimeError::new(
                 "First argument must be text".to_string(),
@@ -231,7 +231,7 @@ pub fn native_pattern_replace(
     };
 
     // TODO: Update to use new pattern system for replacement
-    Ok(Value::Text(Arc::from(text)))
+    Ok(Value::Text(Arc::clone(text_arc)))
 }
 
 /// Native function for pattern splitting (called by interpreter)
@@ -248,8 +248,8 @@ pub fn native_pattern_split(
         ));
     }
 
-    let text = match &args[0] {
-        Value::Text(t) => t.as_ref(),
+    let text_arc = match &args[0] {
+        Value::Text(t) => t,
         _ => {
             return Err(RuntimeError::new(
                 "First argument must be text".to_string(),
@@ -258,6 +258,7 @@ pub fn native_pattern_split(
             ));
         }
     };
+    let text = text_arc.as_ref();
 
     let pattern = match &args[1] {
         Value::Pattern(p) => p,
@@ -275,7 +276,7 @@ pub fn native_pattern_split(
 
     // If no matches, return the entire text as a single element
     if matches.is_empty() {
-        let parts = vec![Value::Text(Arc::from(text))];
+        let parts = vec![Value::Text(Arc::clone(text_arc))];
         return Ok(Value::List(Rc::new(RefCell::new(parts))));
     }
 
