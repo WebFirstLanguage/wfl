@@ -4,10 +4,7 @@
 
 use std::fs;
 use std::path::Path;
-use tower_lsp::lsp_types::{
-    CompletionParams, HoverParams, Position, TextDocumentIdentifier, TextDocumentPositionParams,
-    Url,
-};
+use tower_lsp::lsp_types::Position;
 use wfl::analyzer::Analyzer;
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
@@ -178,6 +175,7 @@ fn simulate_hover_request(document_text: &str, position: Position) -> bool {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct LSPWorkflowResult {
     filename: String,
     lexing_success: bool,

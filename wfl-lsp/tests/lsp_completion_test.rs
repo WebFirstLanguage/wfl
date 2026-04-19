@@ -70,7 +70,7 @@ display username
 #[tokio::test]
 async fn test_completion_should_include_wfl_keywords() {
     // Test that completion includes WFL language keywords
-    let document_text = r#"
+    let _document_text = r#"
 // Completion should suggest WFL keywords here
 
 "#;
@@ -116,7 +116,7 @@ async fn test_completion_should_include_wfl_keywords() {
 #[tokio::test]
 async fn test_completion_should_include_stdlib_functions() {
     // Test that completion includes standard library functions
-    let document_text = r#"
+    let _document_text = r#"
 store text as "hello world"
 store numbers as [1, 2, 3, 4, 5]
 
@@ -163,7 +163,7 @@ store numbers as [1, 2, 3, 4, 5]
 #[tokio::test]
 async fn test_completion_context_awareness() {
     // Test that completion is context-aware (different suggestions in different contexts)
-    let document_text = r#"
+    let _document_text = r#"
 store user as {
     "name": "Alice",
     "age": 25,
