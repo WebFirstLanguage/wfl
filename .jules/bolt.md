@@ -57,3 +57,7 @@
 ## 2026-03-29 - [Avoid collect::<String>() on Chars iterator]
 **Learning:** Using `.collect::<String>()` on a `Chars` iterator (e.g. from `.chars().rev()`) is inefficient because the iterator's `size_hint()` provides a loose lower bound. This forces `String` to guess its required capacity, leading to multiple intermediate reallocations as the string is built up.
 **Action:** For string operations where the exact byte capacity is known (like reversing a string, which preserves the number of bytes), pre-allocate a string using `String::with_capacity(text.len())` and `.push()` characters manually. This guarantees exactly one allocation.
+
+## 2026-04-20 - [O(1) Memory Space for Pattern Split Iteration]
+**Learning:** In `src/stdlib/pattern.rs`, `native_pattern_split` converted character indices to byte indices by pre-allocating an entire vector of byte offsets for the string: `text.char_indices().map(|(byte_idx, _)| byte_idx).collect()`. This forces an `O(N)` memory allocation for every string split operation, even if the string is large and only has a few splits.
+**Action:** When tracking string slice positions based on character indices from regex/pattern matches, use an iterator (`char_indices()`) on demand inside a stateful closure (e.g. `advance_to_char`) to traverse boundaries incrementally. This changes the space complexity from `O(N)` to `O(1)` since splitting happens sequentially.
