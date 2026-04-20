@@ -1287,15 +1287,14 @@ impl Analyzer {
                 list_name,
                 line,
                 column,
-            } => {
-                if self.get_symbol(list_name).is_none() {
-                    self.errors.push(SemanticError::new(
-                        format!("Variable '{list_name}' is not defined"),
-                        *line,
-                        *column,
-                    ));
-                }
+            } if self.get_symbol(list_name).is_none() => {
+                self.errors.push(SemanticError::new(
+                    format!("Variable '{list_name}' is not defined"),
+                    *line,
+                    *column,
+                ));
             }
+            Statement::ClearListStatement { .. } => {}
 
             Statement::PatternDefinition {
                 name,
@@ -1415,16 +1414,14 @@ impl Analyzer {
                 line,
                 column,
                 ..
-            } => {
-                // Check if the handler is defined in the current scope
-                if self.current_scope.resolve(handler_name).is_none() {
-                    self.errors.push(SemanticError::new(
-                        format!("Undefined signal handler '{handler_name}'"),
-                        *line,
-                        *column,
-                    ));
-                }
+            } if self.current_scope.resolve(handler_name).is_none() => {
+                self.errors.push(SemanticError::new(
+                    format!("Undefined signal handler '{handler_name}'"),
+                    *line,
+                    *column,
+                ));
             }
+            Statement::RegisterSignalHandlerStatement { .. } => {}
 
             Statement::ExecuteCommandStatement {
                 command,
