@@ -20,7 +20,8 @@ fn extract_hover_info_at_position(
     match parser.parse() {
         Ok(program) => {
             // Find the symbol at the given position
-            find_symbol_at_position(&program, line, character).map(|symbol_info| format_hover_info(&symbol_info))
+            find_symbol_at_position(&program, line, character)
+                .map(|symbol_info| format_hover_info(&symbol_info))
         }
         Err(_) => None,
     }
