@@ -393,7 +393,7 @@ impl Analyzer {
                 is_constant,
                 line,
                 column,
-            }=> {
+            } => {
                 self.analyze_expression(value);
 
                 if name == "list" {
@@ -460,12 +460,12 @@ impl Analyzer {
                 value,
                 line,
                 column,
-            }=> {
+            } => {
                 let mut skip_value_analysis = false;
 
                 if let Some(symbol) = self.current_scope.resolve(name) {
                     match &symbol.kind {
-                        SymbolKind::Variable { mutable }=> {
+                        SymbolKind::Variable { mutable } => {
                             if !mutable {
                                 self.errors.push(SemanticError::new(
                                     format!("Cannot modify constant '{name}' - constants are immutable once defined"),
@@ -507,7 +507,7 @@ impl Analyzer {
                     self.analyze_expression(value);
                 }
             }
-            Statement::ActionDefinition { .. }=> {
+            Statement::ActionDefinition { .. } => {
                 // Signature was already registered in Pass 1
                 // Now analyze the body in Pass 2
                 self.analyze_action_body(statement);
@@ -517,7 +517,7 @@ impl Analyzer {
                 then_block,
                 else_block,
                 ..
-            }=> {
+            } => {
                 self.analyze_expression(condition);
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
@@ -584,7 +584,7 @@ impl Analyzer {
                 then_stmt,
                 else_stmt,
                 ..
-            }=> {
+            } => {
                 self.analyze_expression(condition);
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
@@ -614,7 +614,7 @@ impl Analyzer {
                 collection,
                 body,
                 ..
-            }=> {
+            } => {
                 self.analyze_expression(collection);
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
@@ -654,7 +654,7 @@ impl Analyzer {
                 variable_name,
                 body,
                 ..
-            }=> {
+            } => {
                 self.analyze_expression(start);
                 self.analyze_expression(end);
                 if let Some(step_expr) = step {
@@ -696,7 +696,7 @@ impl Analyzer {
             }
             Statement::WhileLoop {
                 condition, body, ..
-            }=> {
+            } => {
                 self.analyze_expression(condition);
 
                 let outer_scope = std::mem::take(&mut self.current_scope);
@@ -711,10 +711,10 @@ impl Analyzer {
                     self.current_scope = *parent;
                 }
             }
-            Statement::DisplayStatement { value, .. }=> {
+            Statement::DisplayStatement { value, .. } => {
                 self.analyze_expression(value);
             }
-            Statement::ExpressionStatement { expression, .. }=> {
+            Statement::ExpressionStatement { expression, .. } => {
                 if let Expression::FunctionCall {
                     function,
                     arguments,
@@ -741,20 +741,20 @@ impl Analyzer {
             }
             Statement::ReturnStatement {
                 value: Some(expr), ..
-            }=> {
+            } => {
                 self.analyze_expression(expr);
             }
-            Statement::ReturnStatement { value: None, .. }=> {}
+            Statement::ReturnStatement { value: None, .. } => {}
             Statement::WaitForStatement {
                 inner,
                 line,
                 column,
-            }=> {
+            } => {
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
                 match &**inner {
-                    Statement::ReadFileStatement { variable_name, .. }=> {
+                    Statement::ReadFileStatement { variable_name, .. } => {
                         let symbol = Symbol {
                             name: variable_name.clone(),
                             kind: SymbolKind::Variable { mutable: true },
@@ -767,7 +767,7 @@ impl Analyzer {
                             self.errors.push(error);
                         }
                     }
-                    Statement::OpenFileStatement { variable_name, .. }=> {
+                    Statement::OpenFileStatement { variable_name, .. } => {
                         let symbol = Symbol {
                             name: variable_name.clone(),
                             kind: SymbolKind::Variable { mutable: true },
@@ -797,7 +797,7 @@ impl Analyzer {
                 }
             }
 
-            Statement::WaitForDurationStatement { duration, .. }=> {
+            Statement::WaitForDurationStatement { duration, .. } => {
                 self.analyze_expression(duration);
             }
 
@@ -806,7 +806,7 @@ impl Analyzer {
                 when_clauses,
                 otherwise_block,
                 ..
-            }=> {
+            } => {
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
@@ -860,7 +860,7 @@ impl Analyzer {
                     }
                 }
             }
-            Statement::ReadFileStatement { variable_name, .. }=> {
+            Statement::ReadFileStatement { variable_name, .. } => {
                 let symbol = Symbol {
                     name: variable_name.clone(),
                     kind: SymbolKind::Variable { mutable: true },
@@ -873,7 +873,7 @@ impl Analyzer {
                     self.errors.push(error);
                 }
             }
-            Statement::OpenFileStatement { variable_name, .. }=> {
+            Statement::OpenFileStatement { variable_name, .. } => {
                 let symbol = Symbol {
                     name: variable_name.clone(),
                     kind: SymbolKind::Variable { mutable: true },
@@ -886,7 +886,7 @@ impl Analyzer {
                     self.errors.push(error);
                 }
             }
-            Statement::HttpGetStatement { variable_name, .. }=> {
+            Statement::HttpGetStatement { variable_name, .. } => {
                 let symbol = Symbol {
                     name: variable_name.clone(),
                     kind: SymbolKind::Variable { mutable: true },
@@ -899,7 +899,7 @@ impl Analyzer {
                     self.errors.push(error);
                 }
             }
-            Statement::HttpPostStatement { variable_name, .. }=> {
+            Statement::HttpPostStatement { variable_name, .. } => {
                 let symbol = Symbol {
                     name: variable_name.clone(),
                     kind: SymbolKind::Variable { mutable: true },
@@ -913,51 +913,51 @@ impl Analyzer {
                 }
             }
 
-            Statement::CreateDirectoryStatement { path, .. }=> {
+            Statement::CreateDirectoryStatement { path, .. } => {
                 self.analyze_expression(path);
             }
 
-            Statement::CreateFileStatement { path, content, .. }=> {
+            Statement::CreateFileStatement { path, content, .. } => {
                 self.analyze_expression(path);
                 self.analyze_expression(content);
             }
 
-            Statement::DeleteFileStatement { path, .. }=> {
+            Statement::DeleteFileStatement { path, .. } => {
                 self.analyze_expression(path);
             }
 
-            Statement::DeleteDirectoryStatement { path, .. }=> {
+            Statement::DeleteDirectoryStatement { path, .. } => {
                 self.analyze_expression(path);
             }
 
-            Statement::LoadModuleStatement { path, .. }=> {
+            Statement::LoadModuleStatement { path, .. } => {
                 self.analyze_expression(path);
             }
 
-            Statement::CloseFileStatement { file, .. }=> {
+            Statement::CloseFileStatement { file, .. } => {
                 self.analyze_expression(file);
             }
 
-            Statement::WriteFileStatement { file, content, .. }=> {
+            Statement::WriteFileStatement { file, content, .. } => {
                 self.analyze_expression(file);
                 self.analyze_expression(content);
             }
 
-            Statement::WriteToStatement { content, file, .. }=> {
+            Statement::WriteToStatement { content, file, .. } => {
                 self.analyze_expression(content);
                 self.analyze_expression(file);
             }
 
             Statement::WriteContentStatement {
                 content, target, ..
-            }=> {
+            } => {
                 self.analyze_expression(content);
                 self.analyze_expression(target);
             }
 
             Statement::WriteBinaryStatement {
                 content, target, ..
-            }=> {
+            } => {
                 self.analyze_expression(content);
                 self.analyze_expression(target);
             }
@@ -973,7 +973,7 @@ impl Analyzer {
                 line,
                 column,
                 ..
-            }=> {
+            } => {
                 // Create container info
                 let mut container_info = ContainerInfo {
                     name: name.clone(),
@@ -1191,7 +1191,7 @@ impl Analyzer {
                 property_initializers: _,
                 line,
                 column,
-            }=> {
+            } => {
                 // Register the instance as a variable with ContainerInstance type
                 let instance_symbol = Symbol {
                     name: instance_name.clone(),
@@ -1212,7 +1212,7 @@ impl Analyzer {
                 required_actions: _,
                 line,
                 column,
-            }=> {
+            } => {
                 // Register the interface as a type symbol
                 let interface_symbol = Symbol {
                     name: name.clone(),
@@ -1232,7 +1232,7 @@ impl Analyzer {
                 initial_values,
                 line,
                 column,
-            }=> {
+            } => {
                 // Analyze initial values
                 for value in initial_values {
                     self.analyze_expression(value);
@@ -1256,7 +1256,7 @@ impl Analyzer {
                 list_name,
                 line,
                 column,
-            }=> {
+            } => {
                 self.analyze_expression(value);
                 if self.get_symbol(list_name).is_none() {
                     self.errors.push(SemanticError::new(
@@ -1272,7 +1272,7 @@ impl Analyzer {
                 list_name,
                 line,
                 column,
-            }=> {
+            } => {
                 self.analyze_expression(value);
                 if self.get_symbol(list_name).is_none() {
                     self.errors.push(SemanticError::new(
@@ -1287,7 +1287,7 @@ impl Analyzer {
                 list_name,
                 line,
                 column,
-            }=> {
+            } => {
                 if self.get_symbol(list_name).is_none() {
                     self.errors.push(SemanticError::new(
                         format!("Variable '{list_name}' is not defined"),
@@ -1302,7 +1302,7 @@ impl Analyzer {
                 pattern,
                 line,
                 column,
-            }=> {
+            } => {
                 // Register the pattern as a symbol
                 let pattern_symbol = Symbol {
                     name: name.clone(),
@@ -1325,7 +1325,7 @@ impl Analyzer {
                 server_name,
                 line,
                 column,
-            }=> {
+            } => {
                 // Analyze the port expression
                 self.analyze_expression(port);
 
@@ -1349,7 +1349,7 @@ impl Analyzer {
                 timeout: _,
                 line,
                 column,
-            }=> {
+            } => {
                 // Analyze the server expression
                 self.analyze_expression(server);
 
@@ -1396,7 +1396,7 @@ impl Analyzer {
                 status,
                 content_type,
                 ..
-            }=> {
+            } => {
                 // Analyze all expressions
                 self.analyze_expression(request);
                 self.analyze_expression(content);
@@ -1415,7 +1415,7 @@ impl Analyzer {
                 line,
                 column,
                 ..
-            }=> {
+            } => {
                 // Check if the handler is defined in the current scope
                 if self.current_scope.resolve(handler_name).is_none() {
                     self.errors.push(SemanticError::new(
@@ -1433,7 +1433,7 @@ impl Analyzer {
                 use_shell: _,
                 line,
                 column,
-            }=> {
+            } => {
                 self.analyze_expression(command);
                 if let Some(args) = arguments {
                     self.analyze_expression(args);
@@ -1462,7 +1462,7 @@ impl Analyzer {
                 use_shell: _,
                 line,
                 column,
-            }=> {
+            } => {
                 self.analyze_expression(command);
                 if let Some(args) = arguments {
                     self.analyze_expression(args);
@@ -1486,7 +1486,7 @@ impl Analyzer {
                 variable_name,
                 line,
                 column,
-            }=> {
+            } => {
                 self.analyze_expression(process_id);
 
                 let symbol = Symbol {
@@ -1502,7 +1502,7 @@ impl Analyzer {
                 }
             }
 
-            Statement::KillProcessStatement { process_id, .. }=> {
+            Statement::KillProcessStatement { process_id, .. } => {
                 self.analyze_expression(process_id);
             }
 
@@ -1511,7 +1511,7 @@ impl Analyzer {
                 variable_name,
                 line,
                 column,
-            }=> {
+            } => {
                 self.analyze_expression(process_id);
 
                 if let Some(var_name) = variable_name {
@@ -1574,7 +1574,7 @@ impl Analyzer {
             | PatternExpression::CharacterClass(_)
             | PatternExpression::Anchor(_)
             | PatternExpression::Backreference(_) => {}
-            PatternExpression::Quantified { pattern: inner, .. }=> {
+            PatternExpression::Quantified { pattern: inner, .. } => {
                 self.analyze_pattern_expression(inner, line, column);
             }
             PatternExpression::Sequence(patterns) | PatternExpression::Alternative(patterns) => {
@@ -1582,7 +1582,7 @@ impl Analyzer {
                     self.analyze_pattern_expression(inner, line, column);
                 }
             }
-            PatternExpression::Capture { pattern: inner, .. }=> {
+            PatternExpression::Capture { pattern: inner, .. } => {
                 self.analyze_pattern_expression(inner, line, column);
             }
             PatternExpression::Lookahead(inner)
@@ -1784,7 +1784,7 @@ impl Analyzer {
                     Type::Unknown
                 }
             }
-            Expression::BinaryOperation { operator, .. }=> {
+            Expression::BinaryOperation { operator, .. } => {
                 // Determine the type based on the operator
                 match operator {
                     crate::parser::ast::Operator::Plus
@@ -1808,7 +1808,7 @@ impl Analyzer {
                 crate::parser::ast::UnaryOperator::Minus => Type::Number,
             },
             Expression::Concatenation { .. } => Type::Text,
-            Expression::FunctionCall { function, .. }=> {
+            Expression::FunctionCall { function, .. } => {
                 if let Expression::Variable(name, _, _) = &**function
                     && let Some(symbol) = self.current_scope.resolve(name)
                     && let SymbolKind::Function { signatures } = &symbol.kind
@@ -1818,7 +1818,7 @@ impl Analyzer {
                 }
                 Type::Unknown
             }
-            Expression::ActionCall { name, .. }=> {
+            Expression::ActionCall { name, .. } => {
                 if let Some(symbol) = self.current_scope.resolve(name)
                     && let SymbolKind::Function { signatures } = &symbol.kind
                     && let Some(sig) = signatures.first()
@@ -1935,7 +1935,7 @@ impl Analyzer {
             Type::Function {
                 parameters,
                 return_type,
-            }=> {
+            } => {
                 let params = parameters
                     .iter()
                     .map(Self::format_type_for_display)
@@ -1958,7 +1958,7 @@ impl Analyzer {
                 expression,
                 line: _,
                 column: _,
-            }=> {
+            } => {
                 self.analyze_expression(expression);
             }
             Expression::Variable(name, line, column) => {
@@ -2005,13 +2005,13 @@ impl Analyzer {
                 arguments,
                 line,
                 column,
-            }=> {
+            } => {
                 self.analyze_expression(function);
 
                 if let Expression::Variable(name, _, _) = &**function {
                     if let Some(symbol) = self.current_scope.resolve(name) {
                         match &symbol.kind {
-                            SymbolKind::Function { signatures }=> {
+                            SymbolKind::Function { signatures } => {
                                 // For now, just check the first signature for compatibility
                                 // TODO: Implement proper overload resolution based on argument types and count
                                 if let Some(first_signature) = signatures.first()
@@ -2060,7 +2060,7 @@ impl Analyzer {
                 right,
                 line: _,
                 column: _,
-            }=> {
+            } => {
                 self.analyze_expression(left);
                 self.analyze_expression(right);
             }
@@ -2069,7 +2069,7 @@ impl Analyzer {
                 expression,
                 line: _,
                 column: _,
-            }=> {
+            } => {
                 self.analyze_expression(expression);
             }
             Expression::MemberAccess {
@@ -2077,7 +2077,7 @@ impl Analyzer {
                 property: _,
                 line: _,
                 column: _,
-            }=> {
+            } => {
                 self.analyze_expression(object);
             }
             Expression::IndexAccess {
@@ -2085,7 +2085,7 @@ impl Analyzer {
                 index,
                 line: _,
                 column: _,
-            }=> {
+            } => {
                 self.analyze_expression(collection);
                 self.analyze_expression(index);
             }
@@ -2094,15 +2094,15 @@ impl Analyzer {
                 right,
                 line: _,
                 column: _,
-            }=> {
+            } => {
                 self.analyze_expression(left);
                 self.analyze_expression(right);
             }
-            Expression::PatternMatch { text, pattern, .. }=> {
+            Expression::PatternMatch { text, pattern, .. } => {
                 self.analyze_expression(text);
                 self.analyze_expression(pattern);
             }
-            Expression::PatternFind { text, pattern, .. }=> {
+            Expression::PatternFind { text, pattern, .. } => {
                 self.analyze_expression(text);
                 self.analyze_expression(pattern);
             }
@@ -2111,18 +2111,18 @@ impl Analyzer {
                 pattern,
                 replacement,
                 ..
-            }=> {
+            } => {
                 self.analyze_expression(text);
                 self.analyze_expression(pattern);
                 self.analyze_expression(replacement);
             }
-            Expression::PatternSplit { text, pattern, .. }=> {
+            Expression::PatternSplit { text, pattern, .. } => {
                 self.analyze_expression(text);
                 self.analyze_expression(pattern);
             }
             Expression::StringSplit {
                 text, delimiter, ..
-            }=> {
+            } => {
                 self.analyze_expression(text);
                 self.analyze_expression(delimiter);
             }
@@ -2131,7 +2131,7 @@ impl Analyzer {
                 arguments,
                 line,
                 column,
-            }=> {
+            } => {
                 // Analyze argument expressions first
                 for arg in arguments {
                     self.analyze_expression(&arg.value);
@@ -2145,7 +2145,7 @@ impl Analyzer {
                 // Validate user-defined action exists and has correct signature
                 if let Some(symbol) = self.current_scope.resolve(name) {
                     match &symbol.kind {
-                        SymbolKind::Function { signatures }=> {
+                        SymbolKind::Function { signatures } => {
                             // Get first signature (actions have single signature)
                             if let Some(first_signature) = signatures.first() {
                                 // Validate argument count
@@ -2281,7 +2281,7 @@ impl Analyzer {
                 container: _container,
                 member: _member,
                 ..
-            }=> {
+            } => {
                 // For now, just a stub implementation
                 // This will be expanded later
             }
@@ -2290,7 +2290,7 @@ impl Analyzer {
                 method: _method,
                 arguments,
                 ..
-            }=> {
+            } => {
                 // Analyze the object expression
                 self.analyze_expression(object);
 
@@ -2299,36 +2299,36 @@ impl Analyzer {
                     self.analyze_expression(&arg.value);
                 }
             }
-            Expression::PropertyAccess { object, .. }=> {
+            Expression::PropertyAccess { object, .. } => {
                 self.analyze_expression(object);
             }
-            Expression::FileExists { path, .. }=> {
+            Expression::FileExists { path, .. } => {
                 self.analyze_expression(path);
             }
-            Expression::DirectoryExists { path, .. }=> {
+            Expression::DirectoryExists { path, .. } => {
                 self.analyze_expression(path);
             }
-            Expression::ListFiles { path, .. }=> {
+            Expression::ListFiles { path, .. } => {
                 self.analyze_expression(path);
             }
-            Expression::ReadContent { file_handle, .. }=> {
+            Expression::ReadContent { file_handle, .. } => {
                 self.analyze_expression(file_handle);
             }
-            Expression::ReadBinaryContent { file_handle, .. }=> {
+            Expression::ReadBinaryContent { file_handle, .. } => {
                 self.analyze_expression(file_handle);
             }
             Expression::ReadBinaryN {
                 file_handle, count, ..
-            }=> {
+            } => {
                 self.analyze_expression(file_handle);
                 self.analyze_expression(count);
             }
-            Expression::FileSizeOf { file_handle, .. }=> {
+            Expression::FileSizeOf { file_handle, .. } => {
                 self.analyze_expression(file_handle);
             }
             Expression::ListFilesRecursive {
                 path, extensions, ..
-            }=> {
+            } => {
                 self.analyze_expression(path);
                 if let Some(exts) = extensions {
                     for ext in exts {
@@ -2338,7 +2338,7 @@ impl Analyzer {
             }
             Expression::ListFilesFiltered {
                 path, extensions, ..
-            }=> {
+            } => {
                 self.analyze_expression(path);
                 for ext in extensions {
                     self.analyze_expression(ext);
@@ -2349,24 +2349,24 @@ impl Analyzer {
                 request,
                 line: _line,
                 column: _column,
-            }=> {
+            } => {
                 self.analyze_expression(request);
             }
-            Expression::CurrentTimeMilliseconds { line: _, column: _ }=> {
+            Expression::CurrentTimeMilliseconds { line: _, column: _ } => {
                 // No sub-expressions to analyze
             }
             Expression::CurrentTimeFormatted {
                 format: _,
                 line: _,
                 column: _,
-            }=> {
+            } => {
                 // No sub-expressions to analyze
             }
             Expression::ProcessRunning {
                 process_id,
                 line: _,
                 column: _,
-            }=> {
+            } => {
                 self.analyze_expression(process_id);
             }
         }

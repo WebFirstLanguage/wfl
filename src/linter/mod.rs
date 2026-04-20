@@ -109,7 +109,7 @@ impl LintRule for NamingConventionRule {
                 }
                 | Statement::Assignment {
                     name, line, column, ..
-                }=> {
+                } => {
                     if !is_snake_case(name) {
                         let snake_case_name = to_snake_case(name);
                         let diagnostic = WflDiagnostic::new(
@@ -127,7 +127,7 @@ impl LintRule for NamingConventionRule {
                 }
                 Statement::ActionDefinition {
                     name, line, column, ..
-                }=> {
+                } => {
                     if !is_snake_case(name) {
                         let snake_case_name = to_snake_case(name);
                         let diagnostic = WflDiagnostic::new(
@@ -460,7 +460,7 @@ fn check_nesting_depth(
             Statement::IfStatement { line, column, .. }
             | Statement::WhileLoop { line, column, .. }
             | Statement::ForEachLoop { line, column, .. }
-            | Statement::CountLoop { line, column, .. }=> {
+            | Statement::CountLoop { line, column, .. } => {
                 diagnostics.push(WflDiagnostic::new(
                     Severity::Warning,
                     format!("Nesting depth exceeds maximum of {max_depth}"),
@@ -481,7 +481,7 @@ fn check_nesting_depth(
             then_block,
             else_block,
             ..
-        }=> {
+        } => {
             for stmt in then_block {
                 check_nesting_depth(stmt, current_depth + 1, max_depth, diagnostics, file_id);
             }
@@ -493,12 +493,12 @@ fn check_nesting_depth(
         }
         Statement::WhileLoop { body, .. }
         | Statement::ForEachLoop { body, .. }
-        | Statement::CountLoop { body, .. }=> {
+        | Statement::CountLoop { body, .. } => {
             for stmt in body {
                 check_nesting_depth(stmt, current_depth + 1, max_depth, diagnostics, file_id);
             }
         }
-        Statement::ActionDefinition { body, .. }=> {
+        Statement::ActionDefinition { body, .. } => {
             for stmt in body {
                 check_nesting_depth(stmt, current_depth, max_depth, diagnostics, file_id);
             }
