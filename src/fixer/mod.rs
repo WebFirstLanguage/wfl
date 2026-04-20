@@ -146,7 +146,7 @@ impl CodeFixer {
                 else_block,
                 line,
                 column,
-            } => {
+            }=> {
                 let simplified_condition = self.simplify_boolean_expression(condition);
 
                 let mut simplified_then = Vec::new();
@@ -184,7 +184,7 @@ impl CodeFixer {
                 right,
                 line,
                 column,
-            } => {
+            }=> {
                 let simplified_left = self.simplify_boolean_expression(left);
                 let simplified_right = self.simplify_boolean_expression(right);
 
@@ -222,7 +222,7 @@ impl CodeFixer {
         let indent = " ".repeat(indent_level * self.indent_size);
 
         match statement {
-            Statement::VariableDeclaration { name, value, .. } => {
+            Statement::VariableDeclaration { name, value, .. }=> {
                 let fixed_name = self.fix_identifier_name(name, summary);
                 output.push_str(&indent);
                 output.push_str("store ");
@@ -232,7 +232,7 @@ impl CodeFixer {
                 output.push('\n');
                 summary.lines_reformatted += 1;
             }
-            Statement::Assignment { name, value, .. } => {
+            Statement::Assignment { name, value, .. }=> {
                 let fixed_name = self.fix_identifier_name(name, summary);
                 output.push_str(&indent);
                 output.push_str("change ");
@@ -248,7 +248,7 @@ impl CodeFixer {
                 body,
                 return_type,
                 ..
-            } => {
+            }=> {
                 let fixed_name = self.fix_identifier_name(name, summary);
                 output.push_str(&indent);
                 output.push_str("define action called ");
@@ -300,7 +300,7 @@ impl CodeFixer {
                 then_block,
                 else_block,
                 ..
-            } => {
+            }=> {
                 output.push_str(&indent);
                 output.push_str("check if ");
                 self.pretty_print_expression(condition, output, indent_level, summary);
@@ -328,7 +328,7 @@ impl CodeFixer {
                 then_stmt,
                 else_stmt,
                 ..
-            } => {
+            }=> {
                 output.push_str(&indent);
                 output.push_str("if ");
                 self.pretty_print_expression(condition, output, indent_level, summary);
@@ -356,7 +356,7 @@ impl CodeFixer {
                 collection,
                 body,
                 ..
-            } => {
+            }=> {
                 let fixed_item_name = self.fix_identifier_name(item_name, summary);
                 output.push_str(&indent);
                 output.push_str("for each ");
@@ -380,7 +380,7 @@ impl CodeFixer {
                 variable_name,
                 body,
                 ..
-            } => {
+            }=> {
                 output.push_str(&indent);
                 output.push_str("count from ");
                 self.pretty_print_expression(start, output, indent_level, summary);
@@ -410,7 +410,7 @@ impl CodeFixer {
             }
             Statement::WhileLoop {
                 condition, body, ..
-            } => {
+            }=> {
                 output.push_str(&indent);
                 output.push_str("while ");
                 self.pretty_print_expression(condition, output, indent_level, summary);
@@ -424,14 +424,14 @@ impl CodeFixer {
                 output.push_str("end while\n");
                 summary.lines_reformatted += 1;
             }
-            Statement::DisplayStatement { value, .. } => {
+            Statement::DisplayStatement { value, .. }=> {
                 output.push_str(&indent);
                 output.push_str("display ");
                 self.pretty_print_expression(value, output, indent_level, summary);
                 output.push('\n');
                 summary.lines_reformatted += 1;
             }
-            Statement::ReturnStatement { value, .. } => {
+            Statement::ReturnStatement { value, .. }=> {
                 output.push_str(&indent);
                 output.push_str("return");
 
@@ -443,7 +443,7 @@ impl CodeFixer {
                 output.push('\n');
                 summary.lines_reformatted += 1;
             }
-            Statement::ExpressionStatement { expression, .. } => {
+            Statement::ExpressionStatement { expression, .. }=> {
                 output.push_str(&indent);
                 self.pretty_print_expression(expression, output, indent_level, summary);
                 output.push('\n');
@@ -459,7 +459,7 @@ impl CodeFixer {
                 static_properties,
                 static_methods,
                 ..
-            } => {
+            }=> {
                 output.push_str(&indent);
                 output.push_str("create container ");
                 output.push_str(name);
@@ -661,7 +661,7 @@ impl CodeFixer {
                 arguments,
                 property_initializers,
                 ..
-            } => {
+            }=> {
                 output.push_str(&indent);
                 output.push_str("create new ");
                 output.push_str(container_type);
@@ -711,7 +711,7 @@ impl CodeFixer {
                 extends,
                 required_actions,
                 ..
-            } => {
+            }=> {
                 output.push_str(&indent);
                 output.push_str("create interface ");
                 output.push_str(name);
@@ -760,7 +760,7 @@ impl CodeFixer {
             }
             Statement::EventDefinition {
                 name, parameters, ..
-            } => {
+            }=> {
                 output.push_str(&indent);
                 output.push_str("event ");
                 output.push_str(name);
@@ -843,7 +843,7 @@ impl CodeFixer {
                 operator,
                 right,
                 ..
-            } => {
+            }=> {
                 output.push('(');
                 self.pretty_print_expression(left, output, indent_level, summary);
 
@@ -871,7 +871,7 @@ impl CodeFixer {
                 operator,
                 expression: expr,
                 ..
-            } => {
+            }=> {
                 match operator {
                     UnaryOperator::Minus => output.push('-'),
                     UnaryOperator::Not => output.push_str("not "),
@@ -883,7 +883,7 @@ impl CodeFixer {
                 function,
                 arguments,
                 ..
-            } => {
+            }=> {
                 self.pretty_print_expression(function, output, indent_level, summary);
                 output.push('(');
 
@@ -905,20 +905,20 @@ impl CodeFixer {
             }
             Expression::MemberAccess {
                 object, property, ..
-            } => {
+            }=> {
                 self.pretty_print_expression(object, output, indent_level, summary);
                 output.push('.');
                 output.push_str(property);
             }
             Expression::IndexAccess {
                 collection, index, ..
-            } => {
+            }=> {
                 self.pretty_print_expression(collection, output, indent_level, summary);
                 output.push('[');
                 self.pretty_print_expression(index, output, indent_level, summary);
                 output.push(']');
             }
-            Expression::Concatenation { left, right, .. } => {
+            Expression::Concatenation { left, right, .. }=> {
                 if self.should_reformat_concatenation(expression) {
                     let chain_length = self.count_concatenation_chain(expression);
                     let is_multiline = chain_length > 3;
@@ -931,12 +931,12 @@ impl CodeFixer {
                     self.pretty_print_expression(right, output, indent_level, summary);
                 }
             }
-            Expression::PatternMatch { text, pattern, .. } => {
+            Expression::PatternMatch { text, pattern, .. }=> {
                 self.pretty_print_expression(text, output, indent_level, summary);
                 output.push_str(" matches ");
                 self.pretty_print_expression(pattern, output, indent_level, summary);
             }
-            Expression::PatternFind { text, pattern, .. } => {
+            Expression::PatternFind { text, pattern, .. }=> {
                 output.push_str("find ");
                 self.pretty_print_expression(pattern, output, indent_level, summary);
                 output.push_str(" in ");
@@ -947,7 +947,7 @@ impl CodeFixer {
                 pattern,
                 replacement,
                 ..
-            } => {
+            }=> {
                 output.push_str("replace ");
                 self.pretty_print_expression(pattern, output, indent_level, summary);
                 output.push_str(" with ");
@@ -955,7 +955,7 @@ impl CodeFixer {
                 output.push_str(" in ");
                 self.pretty_print_expression(text, output, indent_level, summary);
             }
-            Expression::PatternSplit { text, pattern, .. } => {
+            Expression::PatternSplit { text, pattern, .. }=> {
                 output.push_str("split ");
                 self.pretty_print_expression(text, output, indent_level, summary);
                 output.push_str(" on pattern ");
@@ -963,7 +963,7 @@ impl CodeFixer {
             }
             Expression::StringSplit {
                 text, delimiter, ..
-            } => {
+            }=> {
                 output.push_str("split ");
                 self.pretty_print_expression(text, output, indent_level, summary);
                 output.push_str(" by ");
@@ -971,7 +971,7 @@ impl CodeFixer {
             }
             Expression::AwaitExpression {
                 expression: expr, ..
-            } => {
+            }=> {
                 output.push_str("await ");
                 self.pretty_print_expression(expr, output, indent_level, summary);
             }
@@ -980,7 +980,7 @@ impl CodeFixer {
                 method,
                 arguments,
                 ..
-            } => {
+            }=> {
                 self.pretty_print_expression(object, output, indent_level, summary);
                 output.push('.');
                 output.push_str(method);
@@ -1056,7 +1056,7 @@ impl CodeFixer {
     #[allow(clippy::only_used_in_recursion)]
     fn count_concatenation_chain(&self, expr: &Expression) -> usize {
         match expr {
-            Expression::Concatenation { left, right, .. } => {
+            Expression::Concatenation { left, right, .. }=> {
                 1 + self.count_concatenation_chain(left) + self.count_concatenation_chain(right)
             }
             _ => 0,
@@ -1066,7 +1066,7 @@ impl CodeFixer {
     /// Checks if concatenation has genuinely poor formatting that needs fixing
     fn has_genuinely_poor_formatting(&self, expr: &Expression) -> bool {
         match expr {
-            Expression::Concatenation { .. } => {
+            Expression::Concatenation { .. }=> {
                 // Look for very specific poor patterns like the original problematic case:
                 // multiline strings with embedded newlines that span multiple actual lines
                 self.has_problematic_multiline_pattern(expr)
@@ -1078,7 +1078,7 @@ impl CodeFixer {
     /// Detects specific problematic patterns like the original wfl_combiner.wfl issue
     fn has_problematic_multiline_pattern(&self, expr: &Expression) -> bool {
         match expr {
-            Expression::Concatenation { .. } => {
+            Expression::Concatenation { .. }=> {
                 // Look for patterns where we have multiple string literals with newlines
                 // concatenated in a way that suggests the original multiline format
                 self.count_newline_literals(expr) > 4 // More than 4 "\n" literals suggests poor formatting
@@ -1091,14 +1091,8 @@ impl CodeFixer {
     #[allow(clippy::only_used_in_recursion)]
     fn count_newline_literals(&self, expr: &Expression) -> usize {
         match expr {
-            Expression::Literal(Literal::String(s), ..) => {
-                if &**s == "\n" {
-                    1
-                } else {
-                    0
-                }
-            }
-            Expression::Concatenation { left, right, .. } => {
+            Expression::Literal(Literal::String(s), ..) if &**s == "\n" => { 1 } Expression::Literal(Literal::String(_), ..) => { 0 }
+            Expression::Concatenation { left, right, .. }=> {
                 self.count_newline_literals(left) + self.count_newline_literals(right)
             }
             _ => 0,
@@ -1108,16 +1102,16 @@ impl CodeFixer {
     /// Formats a concatenation chain in a more readable way
     fn format_concatenation_chain(&self, expr: &Expression, is_multiline: bool) -> String {
         match expr {
-            Expression::Concatenation { left, right, .. } => {
+            Expression::Concatenation { left, right, .. }=> {
                 let left_str = match **left {
-                    Expression::Concatenation { .. } => {
+                    Expression::Concatenation { .. }=> {
                         self.format_concatenation_chain(left, is_multiline)
                     }
                     _ => self.format_single_expression_for_concatenation(left),
                 };
 
                 let right_str = match **right {
-                    Expression::Concatenation { .. } => {
+                    Expression::Concatenation { .. }=> {
                         self.format_concatenation_chain(right, is_multiline)
                     }
                     _ => self.format_single_expression_for_concatenation(right),
@@ -1163,7 +1157,7 @@ impl CodeFixer {
             Type::Function {
                 parameters,
                 return_type,
-            } => {
+            }=> {
                 let params = parameters
                     .iter()
                     .map(|t| self.format_type(t))
