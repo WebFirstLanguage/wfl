@@ -1287,15 +1287,14 @@ impl Analyzer {
                 list_name,
                 line,
                 column,
-            } => {
-                if self.get_symbol(list_name).is_none() {
-                    self.errors.push(SemanticError::new(
-                        format!("Variable '{list_name}' is not defined"),
-                        *line,
-                        *column,
-                    ));
-                }
+            } if self.get_symbol(list_name).is_none() => {
+                self.errors.push(SemanticError::new(
+                    format!("Variable '{list_name}' is not defined"),
+                    *line,
+                    *column,
+                ));
             }
+            Statement::ClearListStatement { .. } => {}
 
             Statement::PatternDefinition {
                 name,
