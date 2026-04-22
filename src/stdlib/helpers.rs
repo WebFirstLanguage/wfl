@@ -1,5 +1,6 @@
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use crate::pattern::CompiledPattern;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -639,3 +640,20 @@ where
     let list = expect_list(&args[0])?;
     op(list, val)
 }
+
+generate_expect!(
+    /// Extracts a Pattern value from a WFL Value, returning it as a reference-counted CompiledPattern.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns an `Rc<CompiledPattern>` clone if the value is a Pattern variant.
+    expect_pattern,
+    Pattern,
+    Rc<CompiledPattern>,
+    "pattern",
+    Rc::clone
+);

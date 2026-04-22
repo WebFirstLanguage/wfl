@@ -1091,13 +1091,8 @@ impl CodeFixer {
     #[allow(clippy::only_used_in_recursion)]
     fn count_newline_literals(&self, expr: &Expression) -> usize {
         match expr {
-            Expression::Literal(Literal::String(s), ..) => {
-                if &**s == "\n" {
-                    1
-                } else {
-                    0
-                }
-            }
+            Expression::Literal(Literal::String(s), ..) if &**s == "\n" => 1,
+            Expression::Literal(Literal::String(_), ..) => 0,
             Expression::Concatenation { left, right, .. } => {
                 self.count_newline_literals(left) + self.count_newline_literals(right)
             }

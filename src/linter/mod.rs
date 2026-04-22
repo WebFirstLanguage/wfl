@@ -109,40 +109,37 @@ impl LintRule for NamingConventionRule {
                 }
                 | Statement::Assignment {
                     name, line, column, ..
-                } => {
-                    if !is_snake_case(name) {
-                        let snake_case_name = to_snake_case(name);
-                        let diagnostic = WflDiagnostic::new(
-                            Severity::Warning,
-                            format!("Variable name '{name}' should be snake_case"),
-                            Some(format!("Rename to '{snake_case_name}'")),
-                            "LINT-NAME".to_string(),
-                            file_id,
-                            *line,
-                            *column,
-                            None,
-                        );
-                        diagnostics.push(diagnostic);
-                    }
+                } if !is_snake_case(name) => {
+                    let snake_case_name = to_snake_case(name);
+                    let diagnostic = WflDiagnostic::new(
+                        Severity::Warning,
+                        format!("Variable name '{name}' should be snake_case"),
+                        Some(format!("Rename to '{snake_case_name}'")),
+                        "LINT-NAME".to_string(),
+                        file_id,
+                        *line,
+                        *column,
+                        None,
+                    );
+                    diagnostics.push(diagnostic);
                 }
                 Statement::ActionDefinition {
                     name, line, column, ..
-                } => {
-                    if !is_snake_case(name) {
-                        let snake_case_name = to_snake_case(name);
-                        let diagnostic = WflDiagnostic::new(
-                            Severity::Warning,
-                            format!("Action name '{name}' should be snake_case"),
-                            Some(format!("Rename to '{snake_case_name}'")),
-                            "LINT-NAME".to_string(),
-                            file_id,
-                            *line,
-                            *column,
-                            None,
-                        );
-                        diagnostics.push(diagnostic);
-                    }
+                } if !is_snake_case(name) => {
+                    let snake_case_name = to_snake_case(name);
+                    let diagnostic = WflDiagnostic::new(
+                        Severity::Warning,
+                        format!("Action name '{name}' should be snake_case"),
+                        Some(format!("Rename to '{snake_case_name}'")),
+                        "LINT-NAME".to_string(),
+                        file_id,
+                        *line,
+                        *column,
+                        None,
+                    );
+                    diagnostics.push(diagnostic);
                 }
+                Statement::VariableDeclaration { .. } | Statement::Assignment { .. } | Statement::ActionDefinition { .. } => {}
                 _ => {}
             }
         }
