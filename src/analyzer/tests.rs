@@ -251,3 +251,75 @@ call x with "test"
         analyzer.errors
     );
 }
+
+// ===== Tests for ANALYZE-UNUSED false positives (issue #468) =====
+
+#[test]
+fn test_arithmetic_assign_counts_as_use() {
+    // `add N to X` is parsed as Assignment{name:X, value:X+N}.
+    // The analyzer must mark X as used, not flag it as ANALYZE-UNUSED.
+    let input = "store req_count as 0\nadd 1 to req_count\ndisplay req_count";
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let mut analyzer = Analyzer::new();
+    let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+    let unused: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code == "ANALYZE-UNUSED")
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "Expected no ANALYZE-UNUSED warnings, got: {unused:?}"
+    );
+}
+
+#[test]
+fn test_variable_used_in_main_loop_body_not_flagged() {
+    // Variables declared outside a `main loop:..end loop` block and used
+    // inside it must not be flagged as unused (issue #468).
+    let input = r#"store req_count as 0
+store greeting as "hello"
+forever loop:
+    add 1 to req_count
+    display greeting
+end loop"#;
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let mut analyzer = Analyzer::new();
+    let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+    let unused: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code == "ANALYZE-UNUSED")
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "Expected no ANALYZE-UNUSED warnings for variables used inside forever loop, got: {unused:?}"
+    );
+}
+
+#[test]
+fn test_add_to_list_counts_as_use() {
+    // `add X to my_list` must count as a use of my_list.
+    let input = r#"store my_list as []
+store item as "hello"
+add item to my_list
+display my_list"#;
+    let tokens = lex_wfl_with_positions(input);
+    let program = Parser::new(&tokens).parse().unwrap();
+
+    let mut analyzer = Analyzer::new();
+    let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+    let unused: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code == "ANALYZE-UNUSED")
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "Expected no ANALYZE-UNUSED warnings, got: {unused:?}"
+    );
+}
