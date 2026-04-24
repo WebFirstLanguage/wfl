@@ -461,12 +461,24 @@ impl Analyzer {
                 body,
                 when_clauses,
                 otherwise_block,
-                ..
+                line,
+                column,
             } => {
                 for stmt in body {
                     self.collect_variable_declarations(stmt, usages);
                 }
                 for clause in when_clauses {
+                    // Register the error variable binding for this catch clause
+                    if !clause.error_name.is_empty() {
+                        usages.insert(
+                            clause.error_name.clone(),
+                            VariableUsage {
+                                name: clause.error_name.clone(),
+                                defined_at: (*line, *column),
+                                used: false,
+                            },
+                        );
+                    }
                     for stmt in &clause.body {
                         self.collect_variable_declarations(stmt, usages);
                     }
@@ -895,6 +907,12 @@ impl Analyzer {
                     self.mark_used_variables(stmt, usages);
                 }
                 for clause in when_clauses {
+                    // Mark the error variable as used (it's implicitly declared in the catch scope)
+                    if !clause.error_name.is_empty() {
+                        if let Some(usage) = usages.get_mut(&clause.error_name) {
+                            usage.used = true;
+                        }
+                    }
                     for stmt in &clause.body {
                         self.mark_used_variables(stmt, usages);
                     }
