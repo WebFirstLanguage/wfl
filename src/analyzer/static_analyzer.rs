@@ -1,6 +1,6 @@
 use super::Analyzer;
 use crate::diagnostics::{Severity, WflDiagnostic};
-use crate::parser::ast::{Expression, Program, Statement, Type};
+use crate::parser::ast::{Assertion, Expression, Program, Statement, Type};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
@@ -436,11 +436,266 @@ impl Analyzer {
                 }
             }
             Statement::WhileLoop { body, .. }
+            | Statement::RepeatWhileLoop { body, .. }
+            | Statement::RepeatUntilLoop { body, .. }
             | Statement::ForEachLoop { body, .. }
-            | Statement::CountLoop { body, .. } => {
+            | Statement::CountLoop { body, .. }
+            | Statement::ForeverLoop { body, .. }
+            | Statement::MainLoop { body, .. }
+            | Statement::TestBlock { body, .. } => {
                 for stmt in body {
                     self.collect_variable_declarations(stmt, usages);
                 }
+            }
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                self.collect_variable_declarations(then_stmt, usages);
+                if let Some(else_s) = else_stmt {
+                    self.collect_variable_declarations(else_s, usages);
+                }
+            }
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                line,
+                column,
+            } => {
+                for stmt in body {
+                    self.collect_variable_declarations(stmt, usages);
+                }
+                for clause in when_clauses {
+                    // Register the error variable binding for this catch clause
+                    if !clause.error_name.is_empty() {
+                        usages.insert(
+                            clause.error_name.clone(),
+                            VariableUsage {
+                                name: clause.error_name.clone(),
+                                defined_at: (*line, *column),
+                                used: false,
+                            },
+                        );
+                    }
+                    for stmt in &clause.body {
+                        self.collect_variable_declarations(stmt, usages);
+                    }
+                }
+                if let Some(otherwise) = otherwise_block {
+                    for stmt in otherwise {
+                        self.collect_variable_declarations(stmt, usages);
+                    }
+                }
+            }
+            Statement::EventHandler { handler_body, .. } => {
+                for stmt in handler_body {
+                    self.collect_variable_declarations(stmt, usages);
+                }
+            }
+            Statement::DescribeBlock {
+                setup,
+                teardown,
+                tests,
+                ..
+            } => {
+                if let Some(stmts) = setup {
+                    for stmt in stmts {
+                        self.collect_variable_declarations(stmt, usages);
+                    }
+                }
+                if let Some(stmts) = teardown {
+                    for stmt in stmts {
+                        self.collect_variable_declarations(stmt, usages);
+                    }
+                }
+                for stmt in tests {
+                    self.collect_variable_declarations(stmt, usages);
+                }
+            }
+            Statement::HttpGetStatement {
+                variable_name,
+                line,
+                column,
+                ..
+            } => {
+                usages.insert(
+                    variable_name.clone(),
+                    VariableUsage {
+                        name: variable_name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::HttpPostStatement {
+                variable_name,
+                line,
+                column,
+                ..
+            } => {
+                usages.insert(
+                    variable_name.clone(),
+                    VariableUsage {
+                        name: variable_name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::ExecuteCommandStatement {
+                variable_name: Some(variable_name),
+                line,
+                column,
+                ..
+            } => {
+                usages.insert(
+                    variable_name.clone(),
+                    VariableUsage {
+                        name: variable_name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::SpawnProcessStatement {
+                variable_name,
+                line,
+                column,
+                ..
+            } => {
+                usages.insert(
+                    variable_name.clone(),
+                    VariableUsage {
+                        name: variable_name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::ReadProcessOutputStatement {
+                variable_name,
+                line,
+                column,
+                ..
+            } => {
+                usages.insert(
+                    variable_name.clone(),
+                    VariableUsage {
+                        name: variable_name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::WaitForProcessStatement {
+                variable_name: Some(variable_name),
+                line,
+                column,
+                ..
+            } => {
+                usages.insert(
+                    variable_name.clone(),
+                    VariableUsage {
+                        name: variable_name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::CreateListStatement {
+                name, line, column, ..
+            } => {
+                usages.insert(
+                    name.clone(),
+                    VariableUsage {
+                        name: name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::MapCreation {
+                name, line, column, ..
+            } => {
+                usages.insert(
+                    name.clone(),
+                    VariableUsage {
+                        name: name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::CreateDateStatement {
+                name, line, column, ..
+            } => {
+                usages.insert(
+                    name.clone(),
+                    VariableUsage {
+                        name: name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::CreateTimeStatement {
+                name, line, column, ..
+            } => {
+                usages.insert(
+                    name.clone(),
+                    VariableUsage {
+                        name: name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::WaitForRequestStatement {
+                request_name,
+                line,
+                column,
+                ..
+            } => {
+                usages.insert(
+                    request_name.clone(),
+                    VariableUsage {
+                        name: request_name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::ListenStatement {
+                server_name,
+                line,
+                column,
+                ..
+            } => {
+                usages.insert(
+                    server_name.clone(),
+                    VariableUsage {
+                        name: server_name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
+            }
+            Statement::ContainerInstantiation {
+                instance_name,
+                line,
+                column,
+                ..
+            } => {
+                usages.insert(
+                    instance_name.clone(),
+                    VariableUsage {
+                        name: instance_name.clone(),
+                        defined_at: (*line, *column),
+                        used: false,
+                    },
+                );
             }
             Statement::PatternDefinition {
                 name, line, column, ..
@@ -623,6 +878,331 @@ impl Analyzer {
                         self.mark_used_in_expression(content, usages);
                     }
                     _ => {}
+                }
+            }
+            Statement::MainLoop { body, .. } | Statement::ForeverLoop { body, .. } => {
+                for stmt in body {
+                    self.mark_used_variables(stmt, usages);
+                }
+            }
+            Statement::SingleLineIf {
+                condition,
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                self.mark_used_in_expression(condition, usages);
+                self.mark_used_variables(then_stmt, usages);
+                if let Some(else_s) = else_stmt {
+                    self.mark_used_variables(else_s, usages);
+                }
+            }
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                ..
+            } => {
+                for stmt in body {
+                    self.mark_used_variables(stmt, usages);
+                }
+                for clause in when_clauses {
+                    // Mark the error variable as used (it's implicitly declared in the catch scope)
+                    if !clause.error_name.is_empty() {
+                        if let Some(usage) = usages.get_mut(&clause.error_name) {
+                            usage.used = true;
+                        }
+                    }
+                    for stmt in &clause.body {
+                        self.mark_used_variables(stmt, usages);
+                    }
+                }
+                if let Some(otherwise) = otherwise_block {
+                    for stmt in otherwise {
+                        self.mark_used_variables(stmt, usages);
+                    }
+                }
+            }
+            Statement::RespondStatement {
+                request,
+                content,
+                status,
+                content_type,
+                ..
+            } => {
+                self.mark_used_in_expression(request, usages);
+                self.mark_used_in_expression(content, usages);
+                if let Some(status_expr) = status {
+                    self.mark_used_in_expression(status_expr, usages);
+                }
+                if let Some(ct_expr) = content_type {
+                    self.mark_used_in_expression(ct_expr, usages);
+                }
+            }
+            Statement::ListenStatement {
+                port, server_name, ..
+            } => {
+                self.mark_used_in_expression(port, usages);
+                if let Some(usage) = usages.get_mut(server_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::WaitForRequestStatement {
+                server,
+                request_name,
+                timeout,
+                ..
+            } => {
+                self.mark_used_in_expression(server, usages);
+                if let Some(usage) = usages.get_mut(request_name) {
+                    usage.used = true;
+                }
+                if let Some(timeout_expr) = timeout {
+                    self.mark_used_in_expression(timeout_expr, usages);
+                }
+            }
+            Statement::AddToListStatement {
+                value, list_name, ..
+            } => {
+                self.mark_used_in_expression(value, usages);
+                if let Some(usage) = usages.get_mut(list_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::RemoveFromListStatement {
+                value, list_name, ..
+            } => {
+                self.mark_used_in_expression(value, usages);
+                if let Some(usage) = usages.get_mut(list_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::ClearListStatement { list_name, .. } => {
+                if let Some(usage) = usages.get_mut(list_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::HttpGetStatement {
+                url, variable_name, ..
+            } => {
+                self.mark_used_in_expression(url, usages);
+                if let Some(usage) = usages.get_mut(variable_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::HttpPostStatement {
+                url,
+                data,
+                variable_name,
+                ..
+            } => {
+                self.mark_used_in_expression(url, usages);
+                self.mark_used_in_expression(data, usages);
+                if let Some(usage) = usages.get_mut(variable_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::PushStatement { list, value, .. } => {
+                self.mark_used_in_expression(list, usages);
+                self.mark_used_in_expression(value, usages);
+            }
+            Statement::CreateListStatement {
+                name,
+                initial_values,
+                ..
+            } => {
+                if let Some(usage) = usages.get_mut(name) {
+                    usage.used = true;
+                }
+                for val in initial_values {
+                    self.mark_used_in_expression(val, usages);
+                }
+            }
+            Statement::MapCreation { name, entries, .. } => {
+                if let Some(usage) = usages.get_mut(name) {
+                    usage.used = true;
+                }
+                for (_, val) in entries {
+                    self.mark_used_in_expression(val, usages);
+                }
+            }
+            Statement::WaitForDurationStatement { duration, .. } => {
+                self.mark_used_in_expression(duration, usages);
+            }
+            Statement::ExecuteCommandStatement {
+                command,
+                arguments,
+                variable_name,
+                ..
+            } => {
+                self.mark_used_in_expression(command, usages);
+                if let Some(args_expr) = arguments {
+                    self.mark_used_in_expression(args_expr, usages);
+                }
+                if let Some(var) = variable_name {
+                    if let Some(usage) = usages.get_mut(var) {
+                        usage.used = true;
+                    }
+                }
+            }
+            Statement::SpawnProcessStatement {
+                command,
+                arguments,
+                variable_name,
+                ..
+            } => {
+                self.mark_used_in_expression(command, usages);
+                if let Some(args_expr) = arguments {
+                    self.mark_used_in_expression(args_expr, usages);
+                }
+                if let Some(usage) = usages.get_mut(variable_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::ReadProcessOutputStatement {
+                process_id,
+                variable_name,
+                ..
+            } => {
+                self.mark_used_in_expression(process_id, usages);
+                if let Some(usage) = usages.get_mut(variable_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::KillProcessStatement { process_id, .. } => {
+                self.mark_used_in_expression(process_id, usages);
+            }
+            Statement::WaitForProcessStatement {
+                process_id,
+                variable_name,
+                ..
+            } => {
+                self.mark_used_in_expression(process_id, usages);
+                if let Some(var) = variable_name {
+                    if let Some(usage) = usages.get_mut(var) {
+                        usage.used = true;
+                    }
+                }
+            }
+            Statement::EventHandler {
+                event_source,
+                handler_body,
+                ..
+            } => {
+                self.mark_used_in_expression(event_source, usages);
+                for stmt in handler_body {
+                    self.mark_used_variables(stmt, usages);
+                }
+            }
+            Statement::EventTrigger { arguments, .. }
+            | Statement::ParentMethodCall { arguments, .. } => {
+                for arg in arguments {
+                    self.mark_used_in_expression(&arg.value, usages);
+                }
+            }
+            Statement::ContainerInstantiation {
+                instance_name,
+                arguments,
+                property_initializers,
+                ..
+            } => {
+                if let Some(usage) = usages.get_mut(instance_name) {
+                    usage.used = true;
+                }
+                for arg in arguments {
+                    self.mark_used_in_expression(&arg.value, usages);
+                }
+                for init in property_initializers {
+                    self.mark_used_in_expression(&init.value, usages);
+                }
+            }
+            Statement::StopAcceptingConnectionsStatement { server, .. }
+            | Statement::CloseServerStatement { server, .. } => {
+                self.mark_used_in_expression(server, usages);
+            }
+            Statement::WriteContentStatement {
+                content, target, ..
+            }
+            | Statement::WriteBinaryStatement {
+                content, target, ..
+            } => {
+                self.mark_used_in_expression(content, usages);
+                self.mark_used_in_expression(target, usages);
+            }
+            Statement::WriteToStatement { content, file, .. } => {
+                self.mark_used_in_expression(content, usages);
+                self.mark_used_in_expression(file, usages);
+            }
+            Statement::CreateDirectoryStatement { path, .. }
+            | Statement::DeleteFileStatement { path, .. }
+            | Statement::DeleteDirectoryStatement { path, .. }
+            | Statement::LoadModuleStatement { path, .. }
+            | Statement::IncludeStatement { path, .. } => {
+                self.mark_used_in_expression(path, usages);
+            }
+            Statement::CreateFileStatement { path, content, .. } => {
+                self.mark_used_in_expression(path, usages);
+                self.mark_used_in_expression(content, usages);
+            }
+            Statement::CreateDateStatement { name, value, .. } => {
+                if let Some(usage) = usages.get_mut(name) {
+                    usage.used = true;
+                }
+                if let Some(val_expr) = value {
+                    self.mark_used_in_expression(val_expr, usages);
+                }
+            }
+            Statement::CreateTimeStatement { name, value, .. } => {
+                if let Some(usage) = usages.get_mut(name) {
+                    usage.used = true;
+                }
+                if let Some(val_expr) = value {
+                    self.mark_used_in_expression(val_expr, usages);
+                }
+            }
+            Statement::DescribeBlock {
+                setup,
+                teardown,
+                tests,
+                ..
+            } => {
+                if let Some(stmts) = setup {
+                    for stmt in stmts {
+                        self.mark_used_variables(stmt, usages);
+                    }
+                }
+                if let Some(stmts) = teardown {
+                    for stmt in stmts {
+                        self.mark_used_variables(stmt, usages);
+                    }
+                }
+                for stmt in tests {
+                    self.mark_used_variables(stmt, usages);
+                }
+            }
+            Statement::TestBlock { body, .. } => {
+                for stmt in body {
+                    self.mark_used_variables(stmt, usages);
+                }
+            }
+            Statement::ExpectStatement {
+                subject, assertion, ..
+            } => {
+                self.mark_used_in_expression(subject, usages);
+                match assertion {
+                    Assertion::Equal(expr)
+                    | Assertion::Be(expr)
+                    | Assertion::GreaterThan(expr)
+                    | Assertion::LessThan(expr)
+                    | Assertion::Contain(expr)
+                    | Assertion::HaveLength(expr) => {
+                        self.mark_used_in_expression(expr, usages);
+                    }
+                    Assertion::BeYes
+                    | Assertion::BeNo
+                    | Assertion::Exist
+                    | Assertion::BeEmpty
+                    | Assertion::BeOfType(_) => {}
                 }
             }
             _ => {}
