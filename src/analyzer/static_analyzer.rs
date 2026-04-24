@@ -921,7 +921,9 @@ impl Analyzer {
                     self.mark_used_in_expression(ct_expr, usages);
                 }
             }
-            Statement::ListenStatement { port, server_name, .. } => {
+            Statement::ListenStatement {
+                port, server_name, ..
+            } => {
                 self.mark_used_in_expression(port, usages);
                 if let Some(usage) = usages.get_mut(server_name) {
                     usage.used = true;
@@ -941,13 +943,17 @@ impl Analyzer {
                     self.mark_used_in_expression(timeout_expr, usages);
                 }
             }
-            Statement::AddToListStatement { value, list_name, .. } => {
+            Statement::AddToListStatement {
+                value, list_name, ..
+            } => {
                 self.mark_used_in_expression(value, usages);
                 if let Some(usage) = usages.get_mut(list_name) {
                     usage.used = true;
                 }
             }
-            Statement::RemoveFromListStatement { value, list_name, .. } => {
+            Statement::RemoveFromListStatement {
+                value, list_name, ..
+            } => {
                 self.mark_used_in_expression(value, usages);
                 if let Some(usage) = usages.get_mut(list_name) {
                     usage.used = true;
@@ -958,7 +964,9 @@ impl Analyzer {
                     usage.used = true;
                 }
             }
-            Statement::HttpGetStatement { url, variable_name, .. } => {
+            Statement::HttpGetStatement {
+                url, variable_name, ..
+            } => {
                 self.mark_used_in_expression(url, usages);
                 if let Some(usage) = usages.get_mut(variable_name) {
                     usage.used = true;
@@ -980,7 +988,11 @@ impl Analyzer {
                 self.mark_used_in_expression(list, usages);
                 self.mark_used_in_expression(value, usages);
             }
-            Statement::CreateListStatement { name, initial_values, .. } => {
+            Statement::CreateListStatement {
+                name,
+                initial_values,
+                ..
+            } => {
                 if let Some(usage) = usages.get_mut(name) {
                     usage.used = true;
                 }
@@ -1064,7 +1076,8 @@ impl Analyzer {
                     self.mark_used_variables(stmt, usages);
                 }
             }
-            Statement::EventTrigger { arguments, .. } | Statement::ParentMethodCall { arguments, .. } => {
+            Statement::EventTrigger { arguments, .. }
+            | Statement::ParentMethodCall { arguments, .. } => {
                 for arg in arguments {
                     self.mark_used_in_expression(&arg.value, usages);
                 }
@@ -1089,8 +1102,12 @@ impl Analyzer {
             | Statement::CloseServerStatement { server, .. } => {
                 self.mark_used_in_expression(server, usages);
             }
-            Statement::WriteContentStatement { content, target, .. }
-            | Statement::WriteBinaryStatement { content, target, .. } => {
+            Statement::WriteContentStatement {
+                content, target, ..
+            }
+            | Statement::WriteBinaryStatement {
+                content, target, ..
+            } => {
                 self.mark_used_in_expression(content, usages);
                 self.mark_used_in_expression(target, usages);
             }
@@ -1150,7 +1167,9 @@ impl Analyzer {
                     self.mark_used_variables(stmt, usages);
                 }
             }
-            Statement::ExpectStatement { subject, assertion, .. } => {
+            Statement::ExpectStatement {
+                subject, assertion, ..
+            } => {
                 self.mark_used_in_expression(subject, usages);
                 match assertion {
                     Assertion::Equal(expr)
