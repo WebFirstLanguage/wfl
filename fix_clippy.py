@@ -1,0 +1,38 @@
+import re
+
+with open('src/analyzer/mod.rs', 'r') as f:
+    analyzer_content = f.read()
+
+analyzer_content = re.sub(
+    r'Statement::ClearListStatement \{\s*list_name,\s*line,\s*column,\s*\}\s*=>\s*\{\s*if self\.get_symbol\(list_name\)\.is_none\(\)\s*\{([^}]+)\}\s*\}',
+    r'Statement::ClearListStatement { list_name, line, column, .. } if self.get_symbol(list_name).is_none() => {\1}',
+    analyzer_content
+)
+
+analyzer_content = re.sub(
+    r'Statement::ConnectSignal \{\s*signal_name: _,\s*handler_name,\s*line,\s*column,\s*\}\s*=>\s*\{\s*// Check if the handler is defined in the current scope\s*if self\.current_scope\.resolve\(handler_name\)\.is_none\(\)\s*\{([^}]+)\}\s*\}',
+    r'Statement::ConnectSignal { handler_name, line, column, .. } if self.current_scope.resolve(handler_name).is_none() => {\1}',
+    analyzer_content
+)
+
+with open('src/analyzer/mod.rs', 'w') as f:
+    f.write(analyzer_content)
+
+
+with open('src/linter/mod.rs', 'r') as f:
+    linter_content = f.read()
+
+linter_content = re.sub(
+    r'Statement::FunctionDefinition \{\s*name,\s*\.\.\s*\}\s*=>\s*\{\s*if !is_snake_case\(name\)\s*\{([^\}]+)\}\s*\}',
+    r'Statement::FunctionDefinition { name, .. } if !is_snake_case(name) => {\1}',
+    linter_content
+)
+
+linter_content = re.sub(
+    r'Statement::VariableDeclaration \{\s*name,\s*\.\.\s*\}\s*=>\s*\{\s*if !is_snake_case\(name\)\s*\{([^\}]+)\}\s*\}',
+    r'Statement::VariableDeclaration { name, .. } if !is_snake_case(name) => {\1}',
+    linter_content
+)
+
+with open('src/linter/mod.rs', 'w') as f:
+    f.write(linter_content)
