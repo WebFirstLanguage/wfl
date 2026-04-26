@@ -412,6 +412,32 @@ generate_expect!(
 );
 
 generate_expect!(
+    /// Extracts an object value from a WFL Value, returning it as a reference-counted mutable hashmap.
+    ///
+    /// Returns an `Rc<RefCell<HashMap<String, Value>>>` to enable efficient memory sharing with interior
+    /// mutability.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns an `Rc<RefCell<HashMap<String, Value>>>` clone (incrementing the reference count) if the value
+    /// is an Object variant. Multiple references to the same object share the underlying data.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not an Object, with an error message
+    /// indicating the expected type and the actual type received.
+    expect_object,
+    Object,
+    Rc<RefCell<std::collections::HashMap<String, Value>>>,
+    "an object",
+    |o: &Rc<RefCell<std::collections::HashMap<String, Value>>>| Rc::clone(o)
+);
+
+generate_expect!(
     /// Extracts a list value from a WFL Value, returning it as a reference-counted mutable vector.
     ///
     /// Returns an `Rc<RefCell<Vec<Value>>>` to enable efficient memory sharing with interior
