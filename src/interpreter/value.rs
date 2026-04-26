@@ -204,6 +204,15 @@ impl Value {
         }
     }
 
+    /// Fast string conversion that avoids allocations when the value is already a string.
+    /// This is significantly faster than the Display trait `to_string()` method.
+    pub fn to_string_fast(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Value::Text(s) => std::borrow::Cow::Borrowed(s.as_ref()),
+            _ => std::borrow::Cow::Owned(self.to_string()),
+        }
+    }
+
     /// Deep clone a value, creating independent copies of reference-counted containers.
     /// This is used for module isolation to prevent mutations from affecting parent scopes.
     pub fn deep_clone(&self) -> Self {
