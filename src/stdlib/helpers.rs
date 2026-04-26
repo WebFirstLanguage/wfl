@@ -639,3 +639,12 @@ where
     let list = expect_list(&args[0])?;
     op(list, val)
 }
+
+generate_expect!(
+    /// Extracts a compiled pattern from a WFL Value, returning it as a reference-counted CompiledPattern.
+    expect_pattern,
+    Pattern,
+    Rc<crate::pattern::CompiledPattern>,
+    "a pattern",
+    |p: &Rc<crate::pattern::CompiledPattern>| Rc::clone(p)
+);
