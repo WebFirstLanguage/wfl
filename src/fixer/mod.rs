@@ -5,6 +5,7 @@ use crate::parser::ast::{
     Expression, Literal, Operator, Program, Statement, Type, UnaryOperator, ValidationRuleType,
     Visibility,
 };
+use crate::utils::string::{is_snake_case, to_snake_case};
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
@@ -1010,38 +1011,12 @@ impl CodeFixer {
     }
 
     fn fix_identifier_name(&self, name: &str, summary: &mut FixerSummary) -> String {
-        if !self.is_snake_case(name) {
+        if !is_snake_case(name) {
             summary.vars_renamed += 1;
-            self.to_snake_case(name)
+            to_snake_case(name)
         } else {
             name.to_string()
         }
-    }
-
-    fn is_snake_case(&self, s: &str) -> bool {
-        !s.contains(char::is_uppercase) && !s.contains(' ')
-    }
-
-    fn to_snake_case(&self, s: &str) -> String {
-        let mut result = String::new();
-        let mut previous_char_is_lowercase = false;
-
-        for (i, c) in s.char_indices() {
-            if c.is_uppercase() {
-                if i > 0 && previous_char_is_lowercase {
-                    result.push('_');
-                }
-                result.push(c.to_lowercase().next().unwrap());
-            } else if c == ' ' {
-                result.push('_');
-            } else {
-                result.push(c);
-            }
-
-            previous_char_is_lowercase = c.is_lowercase();
-        }
-
-        result
     }
 
     /// Analyzes a concatenation expression to determine if it needs reformatting

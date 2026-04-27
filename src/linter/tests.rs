@@ -1,6 +1,7 @@
 use super::*;
 use crate::lexer::lex_wfl_with_positions;
 use crate::parser::Parser;
+use crate::utils::string::to_snake_case;
 
 #[test]
 fn test_naming_convention_rule() {
@@ -26,16 +27,6 @@ fn test_snake_case_conversion() {
     assert_eq!(to_snake_case("snake_case"), "snake_case");
     assert_eq!(to_snake_case("with space"), "with_space");
     assert_eq!(to_snake_case("Mixed_Style"), "mixed_style");
-}
-
-#[test]
-fn test_is_snake_case() {
-    assert!(is_snake_case("snake_case"));
-    assert!(is_snake_case("simple"));
-    assert!(!is_snake_case("camelCase"));
-    assert!(!is_snake_case("PascalCase"));
-    assert!(!is_snake_case("with space"));
-    assert!(!is_snake_case("Mixed_Style"));
 }
 
 #[test]
