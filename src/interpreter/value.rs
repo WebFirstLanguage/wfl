@@ -157,6 +157,18 @@ pub struct ActionSignature {
 }
 
 impl Value {
+    pub fn to_string_fast(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Value::Text(s) => std::borrow::Cow::Borrowed(s.as_ref()),
+            Value::Number(n) => std::borrow::Cow::Owned(n.to_string()),
+            Value::Bool(b) => std::borrow::Cow::Borrowed(if *b { "yes" } else { "no" }),
+            Value::Null => std::borrow::Cow::Borrowed("null"),
+            Value::Nothing => std::borrow::Cow::Borrowed("nothing"),
+            // For complex types, just fallback to format!
+            _ => std::borrow::Cow::Owned(format!("{}", self)),
+        }
+    }
+
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Number(_) => "Number",
