@@ -61,3 +61,7 @@
 ## 2026-04-22 - [Avoid string allocation on single-part split]
 **Learning:** Calling `.split(delimiter)` on a reference-counted string (`Arc<str>`) and `.map()`ing the results into `Arc::from(s)` unconditionally creates a new allocation for every chunk. If the delimiter doesn't exist, the entire string is re-allocated unnecessarily.
 **Action:** When iterating over a split of a reference-counted string, explicitly check if `s.len() == text.len() && !text.is_empty()`. If it is, use `Arc::clone(&text)` to return another reference to the existing string, bypassing the allocation.
+
+## 2026-05-18 - [Optimize string concatenation in interpreter]
+**Learning:** Using `format!("{a}{b}")` for string concatenation in the interpreter causes unnecessary allocations and overhead due to the `Display` trait implementation.
+**Action:** Implement a `to_string_fast` method on the `Value` enum to return a `std::borrow::Cow<'_, str>` for fast path string conversions. Use `String::with_capacity` and `push_str` with the `to_string_fast` outputs to concatenate strings efficiently.

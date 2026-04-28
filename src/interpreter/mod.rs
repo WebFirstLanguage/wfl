@@ -7564,11 +7564,17 @@ impl Interpreter {
                 Ok(Value::Text(Arc::from(s)))
             }
             (Value::Text(a), b) => {
-                let result = format!("{a}{b}");
+                let b_str = b.to_string_fast();
+                let mut result = String::with_capacity(a.len() + b_str.len());
+                result.push_str(a.as_ref());
+                result.push_str(b_str.as_ref());
                 Ok(Value::Text(Arc::from(result.as_str())))
             }
             (a, Value::Text(b)) => {
-                let result = format!("{a}{b}");
+                let a_str = a.to_string_fast();
+                let mut result = String::with_capacity(a_str.len() + b.len());
+                result.push_str(a_str.as_ref());
+                result.push_str(b.as_ref());
                 Ok(Value::Text(Arc::from(result.as_str())))
             }
             (a, b) => Err(RuntimeError::new(
