@@ -1019,11 +1019,35 @@ impl CodeFixer {
     }
 
     fn is_snake_case(&self, s: &str) -> bool {
-        !s.contains(char::is_uppercase) && !s.contains(' ')
+        if s.is_ascii() {
+            !s.bytes().any(|b| b.is_ascii_uppercase() || b == b' ')
+        } else {
+            !s.contains(char::is_uppercase) && !s.contains(' ')
+        }
     }
 
     fn to_snake_case(&self, s: &str) -> String {
-        let mut result = String::new();
+        if s.is_ascii() {
+            let mut result = String::with_capacity(s.len() + 4);
+            let mut previous_char_is_lowercase = false;
+
+            for (i, &b) in s.as_bytes().iter().enumerate() {
+                if b.is_ascii_uppercase() {
+                    if i > 0 && previous_char_is_lowercase {
+                        result.push('_');
+                    }
+                    result.push(b.to_ascii_lowercase() as char);
+                } else if b == b' ' {
+                    result.push('_');
+                } else {
+                    result.push(b as char);
+                }
+                previous_char_is_lowercase = b.is_ascii_lowercase();
+            }
+            return result;
+        }
+
+        let mut result = String::with_capacity(s.len() + 4);
         let mut previous_char_is_lowercase = false;
 
         for (i, c) in s.char_indices() {
@@ -1031,7 +1055,7 @@ impl CodeFixer {
                 if i > 0 && previous_char_is_lowercase {
                     result.push('_');
                 }
-                result.push(c.to_lowercase().next().unwrap());
+                result.extend(c.to_lowercase());
             } else if c == ' ' {
                 result.push('_');
             } else {
