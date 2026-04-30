@@ -61,3 +61,6 @@
 ## 2026-04-22 - [Avoid string allocation on single-part split]
 **Learning:** Calling `.split(delimiter)` on a reference-counted string (`Arc<str>`) and `.map()`ing the results into `Arc::from(s)` unconditionally creates a new allocation for every chunk. If the delimiter doesn't exist, the entire string is re-allocated unnecessarily.
 **Action:** When iterating over a split of a reference-counted string, explicitly check if `s.len() == text.len() && !text.is_empty()`. If it is, use `Arc::clone(&text)` to return another reference to the existing string, bypassing the allocation.
+## 2026-05-01 - [Avoid O(N) evaluation on iterators before pre-allocating]
+**Learning:** `program.statements.reserve(self.tokens.clone().count() / 5)` inside `mod_complete.rs` iterates through the cloned token stream to calculate the length, taking O(N) time for every function invocation, increasing parser times significantly. The tokens stream should use the O(1) length from the vector or iterator length method if available.
+**Action:** Replace `self.tokens.clone().count()` with `self.tokens.len()` when `self.tokens` implements `ExactSizeIterator` (e.g. over a `Vec` or slice).
