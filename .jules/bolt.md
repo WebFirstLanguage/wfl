@@ -61,3 +61,7 @@
 ## 2026-04-22 - [Avoid string allocation on single-part split]
 **Learning:** Calling `.split(delimiter)` on a reference-counted string (`Arc<str>`) and `.map()`ing the results into `Arc::from(s)` unconditionally creates a new allocation for every chunk. If the delimiter doesn't exist, the entire string is re-allocated unnecessarily.
 **Action:** When iterating over a split of a reference-counted string, explicitly check if `s.len() == text.len() && !text.is_empty()`. If it is, use `Arc::clone(&text)` to return another reference to the existing string, bypassing the allocation.
+
+## 2024-05-01 - [O(1) Memory Optimization in Text Slicing]
+**Learning:** In WFL, converting character indices to byte indices using `.char_indices().map(...).collect::<Vec<usize>>()` is an O(N) memory allocation and O(N) time traversal that is entirely unnecessary for sequential match traversal.
+**Action:** Replace intermediate array mapping with a fast `chars()` tracking iterator that iterates through the string while keeping a running `current_byte_idx` (by adding `.len_utf8()`). This yields O(1) space complexity and improves performance significantly.
