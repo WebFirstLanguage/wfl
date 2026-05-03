@@ -1,5 +1,6 @@
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use crate::pattern::CompiledPattern;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -594,6 +595,42 @@ generate_expect!(
     Rc<chrono::NaiveDateTime>,
     "a DateTime",
     |dt: &Rc<chrono::NaiveDateTime>| Rc::clone(dt)
+);
+
+generate_expect!(
+    /// Extracts a Pattern value from a WFL Value, returning it as a reference-counted CompiledPattern.
+    ///
+    /// Returns an `Rc<CompiledPattern>` to enable efficient memory sharing of compiled patterns.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns an `Rc<CompiledPattern>` clone (incrementing the reference count) if the value
+    /// is a Pattern variant. The underlying pattern data is shared, not copied.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not a Pattern, with an error message
+    /// indicating the expected type and the actual type received.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// pub fn native_pattern_matches(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    ///     check_arg_count("pattern_matches", &args, 2)?;
+    ///     let _pattern = expect_pattern(&args[1])?;
+    ///     // ...
+    ///     Ok(Value::Bool(true))
+    /// }
+    /// ```
+    expect_pattern,
+    Pattern,
+    Rc<CompiledPattern>,
+    "a pattern",
+    |p: &Rc<CompiledPattern>| Rc::clone(p)
 );
 
 /// Helper for unary list operations (List -> Value)

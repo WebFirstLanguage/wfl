@@ -1,3 +1,4 @@
+use super::helpers::expect_pattern;
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
@@ -19,35 +20,12 @@ pub fn register(env: &mut Environment) {
 /// Native function: pattern_matches(text, pattern) -> boolean
 /// Tests if text matches the given compiled pattern
 pub fn pattern_matches_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            "pattern_matches requires exactly 2 arguments (text, pattern)".to_string(),
-            0,
-            0,
-        ));
-    }
+    super::helpers::check_arg_count("pattern_matches", &args, 2)?;
 
-    let text_str = match &args[0] {
-        Value::Text(s) => s.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "First argument to pattern_matches must be text".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
+    let text = super::helpers::expect_text(&args[0])?;
+    let compiled_pattern = expect_pattern(&args[1])?;
 
-    let compiled_pattern = match &args[1] {
-        Value::Pattern(p) => p,
-        _ => {
-            return Err(RuntimeError::new(
-                "Second argument to pattern_matches must be a compiled pattern".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
+    let text_str = text.as_ref();
 
     let matches = compiled_pattern.matches(text_str);
     Ok(Value::Bool(matches))
@@ -56,35 +34,12 @@ pub fn pattern_matches_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
 /// Native function: pattern_find(text, pattern) -> object or null
 /// Finds the first match of pattern in text
 pub fn pattern_find_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            "pattern_find requires exactly 2 arguments (text, pattern)".to_string(),
-            0,
-            0,
-        ));
-    }
+    super::helpers::check_arg_count("pattern_find", &args, 2)?;
 
-    let text_str = match &args[0] {
-        Value::Text(s) => s.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "First argument to pattern_find must be text".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
+    let text = super::helpers::expect_text(&args[0])?;
+    let compiled_pattern = expect_pattern(&args[1])?;
 
-    let compiled_pattern = match &args[1] {
-        Value::Pattern(p) => p,
-        _ => {
-            return Err(RuntimeError::new(
-                "Second argument to pattern_find must be a compiled pattern".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
+    let text_str = text.as_ref();
 
     match compiled_pattern.find(text_str) {
         Some(match_result) => {
@@ -120,35 +75,12 @@ pub fn pattern_find_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
 /// Native function: pattern_find_all(text, pattern) -> list
 /// Finds all matches of pattern in text
 pub fn pattern_find_all_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
-    if args.len() != 2 {
-        return Err(RuntimeError::new(
-            "pattern_find_all requires exactly 2 arguments (text, pattern)".to_string(),
-            0,
-            0,
-        ));
-    }
+    super::helpers::check_arg_count("pattern_find_all", &args, 2)?;
 
-    let text_str = match &args[0] {
-        Value::Text(s) => s.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "First argument to pattern_find_all must be text".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
+    let text = super::helpers::expect_text(&args[0])?;
+    let compiled_pattern = expect_pattern(&args[1])?;
 
-    let compiled_pattern = match &args[1] {
-        Value::Pattern(p) => p,
-        _ => {
-            return Err(RuntimeError::new(
-                "Second argument to pattern_find_all must be a compiled pattern".to_string(),
-                0,
-                0,
-            ));
-        }
-    };
+    let text_str = text.as_ref();
 
     let matches = compiled_pattern.find_all(text_str);
     let mut result_list = Vec::new();
@@ -197,27 +129,12 @@ pub fn native_pattern_replace(
         ));
     }
 
-    let text = match &args[0] {
-        Value::Text(t) => t.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "First argument must be text".to_string(),
-                line,
-                column,
-            ));
-        }
-    };
-
-    let _pattern = match &args[1] {
-        Value::Pattern(p) => p.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "Second argument must be a pattern".to_string(),
-                line,
-                column,
-            ));
-        }
-    };
+    let text_arc = super::helpers::expect_text(&args[0])
+        .map_err(|e| RuntimeError::new(e.message, line, column))?;
+    let text = text_arc.as_ref();
+    let _pattern =
+        expect_pattern(&args[1]).map_err(|e| RuntimeError::new(e.message, line, column))?;
+    let _pattern = _pattern.as_ref();
 
     let _replacement = match &args[2] {
         Value::Text(t) => t.as_ref(),
@@ -248,27 +165,11 @@ pub fn native_pattern_split(
         ));
     }
 
-    let text = match &args[0] {
-        Value::Text(t) => t.as_ref(),
-        _ => {
-            return Err(RuntimeError::new(
-                "First argument must be text".to_string(),
-                line,
-                column,
-            ));
-        }
-    };
-
-    let pattern = match &args[1] {
-        Value::Pattern(p) => p,
-        _ => {
-            return Err(RuntimeError::new(
-                "Second argument must be a pattern".to_string(),
-                line,
-                column,
-            ));
-        }
-    };
+    let text_arc = super::helpers::expect_text(&args[0])
+        .map_err(|e| RuntimeError::new(e.message, line, column))?;
+    let text = text_arc.as_ref();
+    let pattern =
+        expect_pattern(&args[1]).map_err(|e| RuntimeError::new(e.message, line, column))?;
 
     // Find all matches of the pattern in the text
     let matches = pattern.find_all(text);
