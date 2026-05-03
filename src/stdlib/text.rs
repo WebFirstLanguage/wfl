@@ -167,6 +167,10 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     // We want to consume 'length' items.
     // nth(length - 1) will consume 'length' items.
     if chars.nth(length - 1).is_none() {
+        // Optimization: Avoid allocation when requesting the full string
+        if start == 0 {
+            return Ok(Value::Text(Arc::clone(&text)));
+        }
         // Length exceeds remaining string, return everything from start
         return Ok(Value::Text(Arc::from(start_slice)));
     }
