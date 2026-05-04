@@ -61,3 +61,6 @@
 ## 2026-04-22 - [Avoid string allocation on single-part split]
 **Learning:** Calling `.split(delimiter)` on a reference-counted string (`Arc<str>`) and `.map()`ing the results into `Arc::from(s)` unconditionally creates a new allocation for every chunk. If the delimiter doesn't exist, the entire string is re-allocated unnecessarily.
 **Action:** When iterating over a split of a reference-counted string, explicitly check if `s.len() == text.len() && !text.is_empty()`. If it is, use `Arc::clone(&text)` to return another reference to the existing string, bypassing the allocation.
+## 2025-05-04 - Fast Path Checks in String Manipulations
+**Learning:** Adding short-circuit validations against exact matches in `substring` and `replace` significantly avoids memory allocations for immutable Arc<str> structs. Instead of allocating memory for a new String when the input effectively goes unmodified (e.g., getting a substring that maps to the whole string, or replacing something that doesn't exist), we can just `Arc::clone()` it.
+**Action:** When implementing any text manipulation logic returning `Arc<str>`, check for these no-op conditions (`!text.contains()`, `length >= text.len()`, `s.len() == text.len()`) to implement fast paths that leverage atomic reference counting instead of allocating strings.
