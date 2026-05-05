@@ -61,3 +61,6 @@
 ## 2026-04-22 - [Avoid string allocation on single-part split]
 **Learning:** Calling `.split(delimiter)` on a reference-counted string (`Arc<str>`) and `.map()`ing the results into `Arc::from(s)` unconditionally creates a new allocation for every chunk. If the delimiter doesn't exist, the entire string is re-allocated unnecessarily.
 **Action:** When iterating over a split of a reference-counted string, explicitly check if `s.len() == text.len() && !text.is_empty()`. If it is, use `Arc::clone(&text)` to return another reference to the existing string, bypassing the allocation.
+## 2025-05-05 - Avoid Unnecessary String Allocations in Replace
+**Learning:** In Rust, `str::replace` always allocates a new `String` even if the target substring is not found in the source string.
+**Action:** When performing `replace` on `Arc<str>` or `Cow<str>` where the target substring might frequently be missing, first check `.contains()` to avoid the O(N) allocation and instead fast-path by returning an `Arc::clone`.
