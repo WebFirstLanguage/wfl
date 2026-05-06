@@ -7535,16 +7535,12 @@ impl Interpreter {
     }
 
     fn perform_concatenation(&self, left_val: Value, right_val: Value) -> Value {
-        // Optimization: Fast path for string concatenation to avoid format! machinery overhead
-        if let (Value::Text(left), Value::Text(right)) = (&left_val, &right_val) {
-            let mut s = String::with_capacity(left.len() + right.len());
-            s.push_str(left);
-            s.push_str(right);
-            return Value::Text(Arc::from(s));
-        }
-
-        let result = format!("{left_val}{right_val}");
-        Value::Text(Arc::from(result.as_str()))
+        let left_str = left_val.to_string_fast();
+        let right_str = right_val.to_string_fast();
+        let mut result = String::with_capacity(left_str.len() + right_str.len());
+        result.push_str(&left_str);
+        result.push_str(&right_str);
+        Value::Text(Arc::from(result))
     }
 
     fn add(
