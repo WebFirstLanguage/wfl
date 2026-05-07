@@ -140,6 +140,14 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let start = expect_number(&args[1])? as usize;
     let length = expect_number(&args[2])? as usize;
 
+    // Optimization: If the requested substring starts at 0 and its length
+    // covers or exceeds the length of the string, we can just clone the Arc
+    // to avoid allocating a new string.
+    if start == 0 && (length >= text.len() || text.chars().nth(length.saturating_sub(1)).is_none())
+    {
+        return Ok(Value::Text(Arc::clone(&text)));
+    }
+
     // Optimization: If start index is larger than the byte length, it's definitely
     // out of bounds (since num_chars <= num_bytes). This avoids iterating for very large starts.
     if start >= text.len() {
