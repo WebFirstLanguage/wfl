@@ -1,5 +1,6 @@
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use crate::pattern::CompiledPattern;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -594,6 +595,28 @@ generate_expect!(
     Rc<chrono::NaiveDateTime>,
     "a DateTime",
     |dt: &Rc<chrono::NaiveDateTime>| Rc::clone(dt)
+);
+
+generate_expect!(
+    /// Extracts a Pattern value from a WFL Value, returning it as a reference-counted CompiledPattern.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns an `Rc<CompiledPattern>` clone (incrementing the reference count) if the value
+    /// is a Pattern variant.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not a Pattern.
+    expect_pattern,
+    Pattern,
+    Rc<CompiledPattern>,
+    "a Pattern",
+    |p: &Rc<CompiledPattern>| Rc::clone(p)
 );
 
 /// Helper for unary list operations (List -> Value)
