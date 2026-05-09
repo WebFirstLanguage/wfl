@@ -279,8 +279,16 @@ pub fn native_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let text = expect_text(&args[0])?;
     let old = expect_text(&args[1])?;
     let new = expect_text(&args[2])?;
-    let result = text.replace(old.as_ref(), new.as_ref());
-    Ok(Value::Text(Arc::from(result)))
+
+    // Optimization: str::replace always allocates a new String even if the substring is not found.
+    // By checking contains first, we can reuse the Arc reference when no replacement is needed,
+    // avoiding a memory allocation.
+    if !text.contains(old.as_ref()) {
+        Ok(Value::Text(Arc::clone(&text)))
+    } else {
+        let result = text.replace(old.as_ref(), new.as_ref());
+        Ok(Value::Text(Arc::from(result)))
+    }
 }
 
 pub fn native_last_index_of(args: Vec<Value>) -> Result<Value, RuntimeError> {
