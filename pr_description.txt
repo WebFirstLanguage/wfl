@@ -1,0 +1,25 @@
+💡 What
+Added `expect_pattern` using `generate_expect!` in `src/stdlib/helpers.rs` and refactored multiple functions in `src/stdlib/pattern.rs` to use this new helper. Also merged `Value::Null` and `Value::Nothing` checks in `src/stdlib/core.rs`.
+
+🎯 Why
+This eliminates a significant amount of manual matching boiler-plate logic that was replicated throughout `src/stdlib/pattern.rs`, standardizing argument extraction to the pattern expected across the project (improving maintainability).
+This also ensures better encapsulation and reduces technical debt.
+
+📊 Impact
+- Reduced binary size and duplicate code paths in pattern execution logic.
+- Avoided unnecessary string conversions by passing references directly to pattern functions.
+
+🔬 Measurement
+Running `cargo test` confirms 100% pass rate. Reduced lines of code in `pattern.rs`.
+
+### **Summary of Changes**
+
+* **The Issue:** The `src/stdlib/pattern.rs` file contained repetitive manual pattern matching logic to extract `CompiledPattern` from the `Value::Pattern` enum variant.
+* **The Rational:** Improved maintainability and eliminated redundancy.
+* **The Solution:** Implemented `expect_pattern` using the `generate_expect!` macro in `src/stdlib/helpers.rs` and refactored multiple functions in `src/stdlib/pattern.rs` to use it.
+
+### **Verification Checklist**
+
+* [x] `cargo fmt` executed and passed.
+* [x] `cargo clippy` returned no warnings or errors.
+* [x] All `cargo test` suites passed (100% success rate).
