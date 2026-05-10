@@ -167,8 +167,16 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     // We want to consume 'length' items.
     // nth(length - 1) will consume 'length' items.
     if chars.nth(length - 1).is_none() {
-        // Length exceeds remaining string, return everything from start
-        return Ok(Value::Text(Arc::from(start_slice)));
+        // Optimization: When extracting a substring from a reference-counted string,
+        // if the request covers the entire string from the start, we can clone the Arc
+        // to avoid allocating a new string slice. This check is done after the iteration
+        // to ensure zero overhead for true substring requests.
+        if start == 0 {
+            return Ok(Value::Text(Arc::clone(&text)));
+        } else {
+            // Length exceeds remaining string, return everything from start
+            return Ok(Value::Text(Arc::from(start_slice)));
+        }
     }
 
     // The iterator is now positioned after the substring
