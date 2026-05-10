@@ -36,6 +36,28 @@ impl Default for ReplState {
     }
 }
 
+fn emit_diagnostic(
+    reporter: &DiagnosticReporter,
+    file_id: usize,
+    diagnostic: &crate::diagnostics::WflDiagnostic,
+    fallback_message: String,
+) -> String {
+    let mut buffer = Buffer::ansi();
+    let config = term::Config::default();
+    if term::emit(
+        &mut buffer,
+        &config,
+        &reporter.files,
+        &diagnostic.to_codespan_diagnostic(file_id),
+    )
+    .is_err()
+    {
+        fallback_message
+    } else {
+        String::from_utf8_lossy(buffer.as_slice()).into_owned()
+    }
+}
+
 impl ReplState {
     pub fn new() -> Self {
         let config = WflConfig::default();
@@ -145,23 +167,15 @@ impl ReplState {
                 for error in &errors {
                     let diagnostic = reporter.convert_parse_error(file_id, error);
 
-                    let mut buffer = Buffer::ansi();
-                    let config = term::Config::default();
-                    if let Err(_e) = term::emit(
-                        &mut buffer,
-                        &config,
-                        &reporter.files,
-                        &diagnostic.to_codespan_diagnostic(file_id),
-                    ) {
-                        error_messages.push(format!(
+                    error_messages.push(emit_diagnostic(
+                        &reporter,
+                        file_id,
+                        &diagnostic,
+                        format!(
                             "Parse error at line {}, column {}: {}",
                             error.line, error.column, error.message
-                        ));
-                        continue;
-                    }
-
-                    let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                    error_messages.push(output);
+                        ),
+                    ));
                 }
 
                 return Ok(Some(error_messages.join("\n")));
@@ -180,20 +194,12 @@ impl ReplState {
         if !sema_diags.is_empty() {
             let mut error_messages = Vec::new();
             for diagnostic in &sema_diags {
-                let mut buffer = Buffer::ansi();
-                let config = term::Config::default();
-                if let Err(_e) = term::emit(
-                    &mut buffer,
-                    &config,
-                    &reporter.files,
-                    &diagnostic.to_codespan_diagnostic(file_id),
-                ) {
-                    error_messages.push(format!("Semantic error: {}", diagnostic.message));
-                    continue;
-                }
-
-                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                error_messages.push(output);
+                error_messages.push(emit_diagnostic(
+                    &reporter,
+                    file_id,
+                    diagnostic,
+                    format!("Semantic error: {}", diagnostic.message),
+                ));
             }
 
             return Ok(Some(error_messages.join("\n")));
