@@ -7543,8 +7543,10 @@ impl Interpreter {
             return Value::Text(Arc::from(s));
         }
 
-        let result = format!("{left_val}{right_val}");
-        Value::Text(Arc::from(result.as_str()))
+        let mut s = String::with_capacity(32);
+        s.push_str(&left_val.to_string_fast());
+        s.push_str(&right_val.to_string_fast());
+        Value::Text(Arc::from(s))
     }
 
     fn add(
@@ -7564,12 +7566,16 @@ impl Interpreter {
                 Ok(Value::Text(Arc::from(s)))
             }
             (Value::Text(a), b) => {
-                let result = format!("{a}{b}");
-                Ok(Value::Text(Arc::from(result.as_str())))
+                let mut s = String::with_capacity(a.len() + 16);
+                s.push_str(&a);
+                s.push_str(&b.to_string_fast());
+                Ok(Value::Text(Arc::from(s)))
             }
             (a, Value::Text(b)) => {
-                let result = format!("{a}{b}");
-                Ok(Value::Text(Arc::from(result.as_str())))
+                let mut s = String::with_capacity(b.len() + 16);
+                s.push_str(&a.to_string_fast());
+                s.push_str(&b);
+                Ok(Value::Text(Arc::from(s)))
             }
             (a, b) => Err(RuntimeError::new(
                 format!("Cannot add {} and {}", a.type_name(), b.type_name()),
