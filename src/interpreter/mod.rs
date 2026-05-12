@@ -935,8 +935,8 @@ impl IoClient {
             .await
             .map_err(|e| format!("Failed to execute command '{}': {}", command, e))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         let exit_code = output.status.code().unwrap_or(-1);
 
         Ok((stdout, stderr, exit_code))
@@ -1176,7 +1176,7 @@ impl IoClient {
             .ok_or_else(|| format!("Invalid process ID: {}", process_id))?;
 
         let mut buffer = handle.stdout_buffer.lock().await;
-        let output = String::from_utf8_lossy(&buffer.read_all()).to_string();
+        let output = String::from_utf8_lossy(&buffer.read_all()).into_owned();
         Ok(output)
     }
 
@@ -4665,7 +4665,7 @@ impl Interpreter {
                                 }
 
                                 // Convert body to string
-                                let body_str = String::from_utf8_lossy(&body).to_string();
+                                let body_str = String::from_utf8_lossy(&body).into_owned();
 
                                 // Create response channel
                                 let (response_sender, response_receiver) =
@@ -6431,9 +6431,7 @@ impl Interpreter {
 
                 #[cfg(debug_assertions)]
                 let func_name = match &function_val {
-                    Value::Function(f) => {
-                        f.name.clone().unwrap_or_else(|| "<anonymous>".to_string())
-                    }
+                    Value::Function(f) => f.name.as_deref().unwrap_or("<anonymous>").to_string(),
                     _ => format!("{function_val:?}"),
                 };
 
@@ -7691,7 +7689,7 @@ impl Interpreter {
 
             while let Some(entry) = entries.next_entry().await? {
                 let path = entry.path();
-                let path_str = path.to_string_lossy().to_string();
+                let path_str = path.to_string_lossy().into_owned();
 
                 if path.is_dir() {
                     dirs_to_process.push(path_str);
@@ -7732,7 +7730,7 @@ impl Interpreter {
             let path = entry.path();
 
             if path.is_file() {
-                let path_str = path.to_string_lossy().to_string();
+                let path_str = path.to_string_lossy().into_owned();
 
                 // Check extension filter
                 let file_ext = path
