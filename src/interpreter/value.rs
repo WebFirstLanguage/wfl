@@ -250,6 +250,16 @@ impl Value {
             _ => self.clone(),
         }
     }
+
+    pub fn to_string_fast(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Value::Text(s) => std::borrow::Cow::Borrowed(s.as_ref()),
+            Value::Number(n) => std::borrow::Cow::Owned(n.to_string()),
+            Value::Bool(b) => std::borrow::Cow::Borrowed(if *b { "yes" } else { "no" }),
+            Value::Nothing | Value::Null => std::borrow::Cow::Borrowed("nothing"),
+            _ => std::borrow::Cow::Owned(format!("{self}")),
+        }
+    }
 }
 
 impl fmt::Debug for Value {
