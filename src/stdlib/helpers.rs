@@ -557,6 +557,21 @@ generate_expect!(
 );
 
 generate_expect!(
+    /// Extracts a compiled pattern from a WFL Value.
+    ///
+    /// # Arguments
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    /// Returns an `Rc<CompiledPattern>` clone if the value is a Pattern variant.
+    expect_pattern,
+    Pattern,
+    Rc<crate::pattern::CompiledPattern>,
+    "a compiled pattern",
+    |p: &Rc<crate::pattern::CompiledPattern>| Rc::clone(p)
+);
+
+generate_expect!(
     /// Extracts a DateTime value from a WFL Value, returning it as a reference-counted NaiveDateTime.
     ///
     /// Returns an `Rc<chrono::NaiveDateTime>` to enable efficient memory sharing of datetime values.
