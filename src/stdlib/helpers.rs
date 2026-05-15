@@ -596,6 +596,31 @@ generate_expect!(
     |dt: &Rc<chrono::NaiveDateTime>| Rc::clone(dt)
 );
 
+generate_expect!(
+    /// Extracts a Pattern value from a WFL Value, returning it as a reference-counted CompiledPattern.
+    ///
+    /// Returns an `Rc<crate::pattern::CompiledPattern>` to enable efficient memory sharing.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Returns
+    ///
+    /// Returns an `Rc<crate::pattern::CompiledPattern>` clone (incrementing the reference count) if the value
+    /// is a Pattern variant.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not a Pattern, with an error message
+    /// indicating the expected type and the actual type received.
+    expect_pattern,
+    Pattern,
+    Rc<crate::pattern::CompiledPattern>,
+    "a pattern",
+    |p: &Rc<crate::pattern::CompiledPattern>| Rc::clone(p)
+);
+
 /// Helper for unary list operations (List -> Value)
 ///
 /// Handles argument count checking, type extraction, and operation execution.
