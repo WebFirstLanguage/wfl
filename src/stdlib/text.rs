@@ -140,6 +140,11 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let start = expect_number(&args[1])? as usize;
     let length = expect_number(&args[2])? as usize;
 
+    // Optimization: If the substring covers the entire string, avoid slicing and return the original Arc.
+    if start == 0 && (length >= text.len() || text.chars().nth(length).is_none()) {
+        return Ok(Value::Text(Arc::clone(&text)));
+    }
+
     // Optimization: If start index is larger than the byte length, it's definitely
     // out of bounds (since num_chars <= num_bytes). This avoids iterating for very large starts.
     if start >= text.len() {
@@ -279,6 +284,13 @@ pub fn native_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let text = expect_text(&args[0])?;
     let old = expect_text(&args[1])?;
     let new = expect_text(&args[2])?;
+    // Optimization: Avoid allocating a new string if the substring is not found.
+    // We use .contains() as a fast-path check, which is much faster than replace()
+    // when there are no matches, and return a clone of the original Arc reference.
+    if !text.contains(old.as_ref()) {
+        return Ok(Value::Text(Arc::clone(&text)));
+    }
+
     let result = text.replace(old.as_ref(), new.as_ref());
     Ok(Value::Text(Arc::from(result)))
 }
