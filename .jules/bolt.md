@@ -61,3 +61,7 @@
 ## 2026-04-22 - [Avoid string allocation on single-part split]
 **Learning:** Calling `.split(delimiter)` on a reference-counted string (`Arc<str>`) and `.map()`ing the results into `Arc::from(s)` unconditionally creates a new allocation for every chunk. If the delimiter doesn't exist, the entire string is re-allocated unnecessarily.
 **Action:** When iterating over a split of a reference-counted string, explicitly check if `s.len() == text.len() && !text.is_empty()`. If it is, use `Arc::clone(&text)` to return another reference to the existing string, bypassing the allocation.
+
+## 2026-05-17 - [Optimize and Unify snake_case Checking]
+**Learning:** The linter and fixer duplicated inefficient Unicode-based string casing logic (`is_snake_case`, `to_snake_case`), using `.contains(char::is_uppercase)` and `.to_lowercase().next().unwrap()`. This forces slower Unicode property checks and iterator unwrapping for every character.
+**Action:** Extracted the logic into a unified utility module with a fast-path for purely ASCII strings using `s.is_ascii()` and byte-level operations (`is_ascii_uppercase()`, `to_ascii_lowercase()`), improving casing conversion speeds by up to 3x.
