@@ -61,3 +61,6 @@
 ## 2026-04-22 - [Avoid string allocation on single-part split]
 **Learning:** Calling `.split(delimiter)` on a reference-counted string (`Arc<str>`) and `.map()`ing the results into `Arc::from(s)` unconditionally creates a new allocation for every chunk. If the delimiter doesn't exist, the entire string is re-allocated unnecessarily.
 **Action:** When iterating over a split of a reference-counted string, explicitly check if `s.len() == text.len() && !text.is_empty()`. If it is, use `Arc::clone(&text)` to return another reference to the existing string, bypassing the allocation.
+## 2024-05-18 - [Optimize Text Replace Fast Path]
+**Learning:** Performing a string `.replace()` operation unconditionally allocates memory if the target substring is not found.
+**Action:** Before replacing on reference-counted strings (`Arc<str>`), use `.contains()` to check if the target exists. If absent, `Arc::clone` the original reference to bypass unnecessary standard library allocations.
