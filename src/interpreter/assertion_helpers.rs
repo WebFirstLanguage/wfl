@@ -226,9 +226,9 @@ impl Interpreter {
         match value {
             Value::Number(n) => {
                 if n.fract() == 0.0 {
-                    format!("{}", *n as i64)
+                    (*n as i64).to_string()
                 } else {
-                    format!("{}", n)
+                    n.to_string()
                 }
             }
             Value::Text(s) => format!("\"{}\"", s),
