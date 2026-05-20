@@ -279,6 +279,12 @@ pub fn native_replace(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let text = expect_text(&args[0])?;
     let old = expect_text(&args[1])?;
     let new = expect_text(&args[2])?;
+
+    // Optimization: avoid string allocation if the text doesn't contain the old string
+    if !text.contains(old.as_ref()) {
+        return Ok(Value::Text(Arc::clone(&text)));
+    }
+
     let result = text.replace(old.as_ref(), new.as_ref());
     Ok(Value::Text(Arc::from(result)))
 }
