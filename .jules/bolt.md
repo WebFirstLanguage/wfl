@@ -61,3 +61,6 @@
 ## 2026-04-22 - [Avoid string allocation on single-part split]
 **Learning:** Calling `.split(delimiter)` on a reference-counted string (`Arc<str>`) and `.map()`ing the results into `Arc::from(s)` unconditionally creates a new allocation for every chunk. If the delimiter doesn't exist, the entire string is re-allocated unnecessarily.
 **Action:** When iterating over a split of a reference-counted string, explicitly check if `s.len() == text.len() && !text.is_empty()`. If it is, use `Arc::clone(&text)` to return another reference to the existing string, bypassing the allocation.
+## 2026-05-15 - [Optimize Pattern Split Byte Index Mapping]
+**Learning:** In pattern splitting, allocating a `Vec<usize>` to map every character index to its byte offset causes unnecessary O(N) memory allocation and overhead.
+**Action:** Replace the array mapping with a stateful streaming O(1) iterator over `.chars()` that increments byte offsets by `c.len_utf8()` to compute indices on demand.
