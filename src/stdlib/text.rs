@@ -101,35 +101,37 @@ fn parse_key_value_pairs(
 // Note: The length function is now provided by the list module
 // which handles both text and lists
 
+fn change_case_if_needed<I, C>(
+    text: Arc<str>,
+    transform_char: C,
+    transform_text: fn(&str) -> String,
+) -> Arc<str>
+where
+    I: Iterator<Item = char>,
+    C: Fn(char) -> I,
+{
+    let is_unchanged = text.chars().all(|c| {
+        let mut iter = transform_char(c);
+        iter.next() == Some(c) && iter.next().is_none()
+    });
+    if is_unchanged {
+        text
+    } else {
+        Arc::from(transform_text(&text))
+    }
+}
+
 pub fn native_touppercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
     // Optimization: avoid string allocation if string is already uppercase
     unary_text_op_arc("touppercase", args, |text| {
-        // fast path: check if it changes when converted to uppercase
-        let is_uppercase = text.chars().all(|c| {
-            let mut iter = c.to_uppercase();
-            iter.next() == Some(c) && iter.next().is_none()
-        });
-        if is_uppercase {
-            text
-        } else {
-            Arc::from(text.to_uppercase())
-        }
+        change_case_if_needed(text, char::to_uppercase, str::to_uppercase)
     })
 }
 
 pub fn native_tolowercase(args: Vec<Value>) -> Result<Value, RuntimeError> {
     // Optimization: avoid string allocation if string is already lowercase
     unary_text_op_arc("tolowercase", args, |text| {
-        // fast path: check if it changes when converted to lowercase
-        let is_lowercase = text.chars().all(|c| {
-            let mut iter = c.to_lowercase();
-            iter.next() == Some(c) && iter.next().is_none()
-        });
-        if is_lowercase {
-            text
-        } else {
-            Arc::from(text.to_lowercase())
-        }
+        change_case_if_needed(text, char::to_lowercase, str::to_lowercase)
     })
 }
 
