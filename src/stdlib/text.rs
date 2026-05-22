@@ -146,6 +146,14 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
         return Ok(Value::Text(Arc::from("")));
     }
 
+    // Optimization: Fast path for requesting the entire string.
+    // We first check if length >= text.len() (byte length check, O(1)).
+    // If not, it still might be requesting the full string if it contains multi-byte chars,
+    // so we safely fall back to checking char count.
+    if start == 0 && length >= text.len() {
+        return Ok(Value::Text(Arc::clone(&text)));
+    }
+
     // Optimization: Use chars() iterator which is highly optimized for skipping
     // and as_str() to get slices without allocating intermediate strings.
     let mut chars = text.chars();
@@ -168,6 +176,9 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
     // nth(length - 1) will consume 'length' items.
     if chars.nth(length - 1).is_none() {
         // Length exceeds remaining string, return everything from start
+        if start == 0 {
+            return Ok(Value::Text(Arc::clone(&text)));
+        }
         return Ok(Value::Text(Arc::from(start_slice)));
     }
 

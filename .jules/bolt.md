@@ -61,3 +61,7 @@
 ## 2026-04-22 - [Avoid string allocation on single-part split]
 **Learning:** Calling `.split(delimiter)` on a reference-counted string (`Arc<str>`) and `.map()`ing the results into `Arc::from(s)` unconditionally creates a new allocation for every chunk. If the delimiter doesn't exist, the entire string is re-allocated unnecessarily.
 **Action:** When iterating over a split of a reference-counted string, explicitly check if `s.len() == text.len() && !text.is_empty()`. If it is, use `Arc::clone(&text)` to return another reference to the existing string, bypassing the allocation.
+
+## 2026-05-22 - [Optimize Substring with Fast-Path for Full String Requests]
+**Learning:** Requesting a substring that covers the entire string was iterating over all characters and allocating a new string slice, resulting in O(N) memory allocation and O(N) iteration instead of O(1) cloning of the `Arc<str>`.
+**Action:** When extracting a substring from a reference-counted string (`Arc<str>`), optimize the fast path where the requested length covers the entire string. Use the condition `start == 0 && (length >= text.len() || text.chars().nth(length).is_none())` to first perform an O(1) byte-length check, safely falling back to O(N) character iteration. If matched, clone the reference (`Arc::clone(&text)`) instead of allocating a new string slice.
