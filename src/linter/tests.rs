@@ -20,25 +20,6 @@ fn test_naming_convention_rule() {
 }
 
 #[test]
-fn test_snake_case_conversion() {
-    assert_eq!(to_snake_case("camelCase"), "camel_case");
-    assert_eq!(to_snake_case("PascalCase"), "pascal_case");
-    assert_eq!(to_snake_case("snake_case"), "snake_case");
-    assert_eq!(to_snake_case("with space"), "with_space");
-    assert_eq!(to_snake_case("Mixed_Style"), "mixed_style");
-}
-
-#[test]
-fn test_is_snake_case() {
-    assert!(is_snake_case("snake_case"));
-    assert!(is_snake_case("simple"));
-    assert!(!is_snake_case("camelCase"));
-    assert!(!is_snake_case("PascalCase"));
-    assert!(!is_snake_case("with space"));
-    assert!(!is_snake_case("Mixed_Style"));
-}
-
-#[test]
 fn test_linter_integration() {
     let input = "store Counter as 5\nstore snakecase as 10";
     let tokens = lex_wfl_with_positions(input);

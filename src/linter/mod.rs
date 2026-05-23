@@ -1,5 +1,6 @@
 use crate::diagnostics::{DiagnosticReporter, Severity, WflDiagnostic};
 use crate::parser::ast::{Program, Statement};
+use crate::utils::string::{is_snake_case, to_snake_case};
 use std::path::Path;
 
 pub trait LintRule {
@@ -503,32 +504,6 @@ fn check_nesting_depth(
         }
         _ => {}
     }
-}
-
-fn is_snake_case(s: &str) -> bool {
-    !s.contains(char::is_uppercase) && !s.contains(' ')
-}
-
-fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    let mut previous_char_is_lowercase = false;
-
-    for (i, c) in s.char_indices() {
-        if c.is_uppercase() {
-            if i > 0 && previous_char_is_lowercase {
-                result.push('_');
-            }
-            result.push(c.to_lowercase().next().unwrap());
-        } else if c == ' ' {
-            result.push('_');
-        } else {
-            result.push(c);
-        }
-
-        previous_char_is_lowercase = c.is_lowercase();
-    }
-
-    result
 }
 
 fn line_col_from_pos(source: &str, pos: usize) -> (usize, usize) {
