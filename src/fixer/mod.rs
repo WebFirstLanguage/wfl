@@ -1019,29 +1019,51 @@ impl CodeFixer {
     }
 
     fn is_snake_case(&self, s: &str) -> bool {
-        !s.contains(char::is_uppercase) && !s.contains(' ')
+        if s.is_ascii() {
+            !s.bytes().any(|b| b.is_ascii_uppercase() || b == b' ')
+        } else {
+            !s.contains(char::is_uppercase) && !s.contains(' ')
+        }
     }
 
     fn to_snake_case(&self, s: &str) -> String {
-        let mut result = String::new();
-        let mut previous_char_is_lowercase = false;
-
-        for (i, c) in s.char_indices() {
-            if c.is_uppercase() {
-                if i > 0 && previous_char_is_lowercase {
+        if s.is_ascii() {
+            let mut result = String::with_capacity(s.len() + s.len() / 4);
+            let mut previous_char_is_lowercase = false;
+            for b in s.bytes() {
+                if b.is_ascii_uppercase() {
+                    if !result.is_empty() && previous_char_is_lowercase {
+                        result.push('_');
+                    }
+                    result.push(b.to_ascii_lowercase() as char);
+                    previous_char_is_lowercase = false;
+                } else if b == b' ' {
                     result.push('_');
+                    previous_char_is_lowercase = false;
+                } else {
+                    result.push(b as char);
+                    previous_char_is_lowercase = b.is_ascii_lowercase();
                 }
-                result.push(c.to_lowercase().next().unwrap());
-            } else if c == ' ' {
-                result.push('_');
-            } else {
-                result.push(c);
             }
-
-            previous_char_is_lowercase = c.is_lowercase();
+            result
+        } else {
+            let mut result = String::with_capacity(s.len() + s.len() / 4);
+            let mut previous_char_is_lowercase = false;
+            for (i, c) in s.char_indices() {
+                if c.is_uppercase() {
+                    if i > 0 && previous_char_is_lowercase {
+                        result.push('_');
+                    }
+                    result.extend(c.to_lowercase());
+                } else if c == ' ' {
+                    result.push('_');
+                } else {
+                    result.push(c);
+                }
+                previous_char_is_lowercase = c.is_lowercase();
+            }
+            result
         }
-
-        result
     }
 
     /// Analyzes a concatenation expression to determine if it needs reformatting
