@@ -127,7 +127,7 @@ jobs:
 
       # ---------- Rust toolchain ----------
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
           targets: ${{ env.TARGET }}
           components: rustfmt, clippy
