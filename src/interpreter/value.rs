@@ -182,6 +182,16 @@ impl Value {
         }
     }
 
+    pub fn to_string_fast(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Value::Text(s) => std::borrow::Cow::Borrowed(s),
+            Value::Number(n) => std::borrow::Cow::Owned(n.to_string()),
+            Value::Bool(b) => std::borrow::Cow::Borrowed(if *b { "yes" } else { "no" }),
+            Value::Null | Value::Nothing => std::borrow::Cow::Borrowed("nothing"),
+            _ => std::borrow::Cow::Owned(self.to_string()),
+        }
+    }
+
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Bool(b) => *b,

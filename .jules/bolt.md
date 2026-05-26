@@ -61,3 +61,6 @@
 ## 2026-04-22 - [Avoid string allocation on single-part split]
 **Learning:** Calling `.split(delimiter)` on a reference-counted string (`Arc<str>`) and `.map()`ing the results into `Arc::from(s)` unconditionally creates a new allocation for every chunk. If the delimiter doesn't exist, the entire string is re-allocated unnecessarily.
 **Action:** When iterating over a split of a reference-counted string, explicitly check if `s.len() == text.len() && !text.is_empty()`. If it is, use `Arc::clone(&text)` to return another reference to the existing string, bypassing the allocation.
+## 2026-05-26 - [Avoid format! via to_string_fast for mixed type string concatenation]
+**Learning:** Using `format!("{a}{b}")` for concatenating a string with a non-string `Value` (like a number) incurs significant `Display` trait formatting and dynamic dispatch overhead.
+**Action:** Implement a `.to_string_fast()` method on the `Value` enum returning `Cow<'_, str>`, and use `String::with_capacity` followed by `.push_str()` to efficiently concatenate strings and values, avoiding `format!` overhead.
