@@ -407,8 +407,10 @@ fn test_manifest_find_dependency() {
 
 #[test]
 fn test_manifest_add_and_remove_dependency() {
-    let mut manifest = wflpkg::ProjectManifest::default();
-    manifest.name = "test".to_string();
+    let mut manifest = wflpkg::ProjectManifest {
+        name: "test".to_string(),
+        ..Default::default()
+    };
 
     let dep = wflpkg::manifest::Dependency {
         name: "my-dep".to_string(),
