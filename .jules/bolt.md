@@ -61,3 +61,7 @@
 ## 2026-04-22 - [Avoid string allocation on single-part split]
 **Learning:** Calling `.split(delimiter)` on a reference-counted string (`Arc<str>`) and `.map()`ing the results into `Arc::from(s)` unconditionally creates a new allocation for every chunk. If the delimiter doesn't exist, the entire string is re-allocated unnecessarily.
 **Action:** When iterating over a split of a reference-counted string, explicitly check if `s.len() == text.len() && !text.is_empty()`. If it is, use `Arc::clone(&text)` to return another reference to the existing string, bypassing the allocation.
+
+## 2024-05-28 - [Avoid format! machinery overhead for simple string concatenation]
+**Learning:** `format!("{a}{b}")` has significant dynamic dispatch and allocation overhead when concatenating primitives inside the interpreter's hot loops. Converting values through the Display trait allocates unnecessary memory.
+**Action:** Implemented `to_string_fast(&self) -> std::borrow::Cow<'_, str>` to bypass `Display` trait overhead, returning a borrowed `Cow` for string-like primitives and falling back to owned allocations only when necessary. Concatenations now compute exact capacities and use `push_str`.

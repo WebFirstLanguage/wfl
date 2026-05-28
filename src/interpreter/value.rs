@@ -2,6 +2,7 @@ use super::environment::Environment;
 use super::error::RuntimeError;
 use crate::parser::ast::Statement;
 use crate::pattern::CompiledPattern;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -157,6 +158,19 @@ pub struct ActionSignature {
 }
 
 impl Value {
+    /// Fast conversion to a string for primitives without Display overhead
+    pub fn to_string_fast(&self) -> Cow<'_, str> {
+        match self {
+            Value::Text(s) => Cow::Borrowed(s.as_ref()),
+            Value::Number(n) => Cow::Owned(n.to_string()),
+            Value::Bool(true) => Cow::Borrowed("yes"),
+            Value::Bool(false) => Cow::Borrowed("no"),
+            Value::Null => Cow::Borrowed("null"),
+            Value::Nothing => Cow::Borrowed("nothing"),
+            _ => Cow::Owned(self.to_string()),
+        }
+    }
+
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Number(_) => "Number",
