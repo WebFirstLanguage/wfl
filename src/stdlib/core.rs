@@ -26,7 +26,7 @@ pub fn native_isnothing(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("isnothing", &args, 1)?;
 
     match &args[0] {
-        Value::Null => Ok(Value::Bool(true)),
+        Value::Null | Value::Nothing => Ok(Value::Bool(true)),
         _ => Ok(Value::Bool(false)),
     }
 }
