@@ -28,8 +28,8 @@ fn run_wfl_in(dir: &std::path::Path, source: &str) -> (String, String, bool) {
         .output()
         .expect("failed to run wfl");
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     (stdout, stderr, output.status.success())
 }
 

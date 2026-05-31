@@ -3,7 +3,7 @@ use crate::registry::auth::AuthManager;
 
 /// Default token reader that uses rpassword to hide input.
 fn default_token_reader(prompt: &str) -> Result<String, PackageError> {
-    rpassword::prompt_password_stdout(prompt)
+    rpassword::prompt_password(prompt)
         .map_err(|e| PackageError::General(format!("Input error: {}", e)))
 }
 

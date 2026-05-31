@@ -12,7 +12,7 @@ impl TempWflFile {
     fn new(code: &str) -> Result<Self, std::io::Error> {
         let file = NamedTempFile::with_suffix(".wfl")?;
         fs::write(file.path(), code)?;
-        let path = file.path().to_string_lossy().to_string();
+        let path = file.path().to_string_lossy().into_owned();
         Ok(TempWflFile { _file: file, path })
     }
 
