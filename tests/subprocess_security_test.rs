@@ -14,7 +14,7 @@ impl TempWflFile {
     fn new(code: &str) -> Result<Self, std::io::Error> {
         let file = NamedTempFile::with_suffix(".wfl")?;
         fs::write(file.path(), code)?;
-        let path = file.path().to_string_lossy().to_string();
+        let path = file.path().to_string_lossy().into_owned();
         Ok(TempWflFile { _file: file, path })
     }
 
@@ -37,8 +37,8 @@ fn run_wfl(code: &str) -> Result<String, String> {
         .output()
         .expect("Failed to execute WFL");
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
 
     if !stderr.is_empty() && stderr.contains("error") || stderr.contains("Error") {
         Err(stderr)
