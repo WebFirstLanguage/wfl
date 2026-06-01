@@ -182,6 +182,20 @@ impl Value {
         }
     }
 
+    pub fn to_string_fast(&self) -> String {
+        match self {
+            Value::Text(s) => s.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Null => "null".to_string(),
+            Value::Nothing => "nothing".to_string(),
+            Value::Date(d) => d.format("%Y-%m-%d").to_string(),
+            Value::Time(t) => t.format("%H:%M:%S").to_string(),
+            Value::DateTime(dt) => dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            _ => self.to_string(),
+        }
+    }
+
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Bool(b) => *b,
@@ -285,7 +299,7 @@ impl fmt::Debug for Value {
                 write!(
                     f,
                     "Function({})",
-                    func.name.as_ref().unwrap_or(&"anonymous".to_string())
+                    func.name.as_deref().unwrap_or("anonymous")
                 )
             }
             Value::NativeFunction(name, _) => write!(f, "NativeFunction({name})"),
@@ -348,11 +362,7 @@ impl fmt::Display for Value {
                 }
             }
             Value::Function(func) => {
-                write!(
-                    f,
-                    "action {}",
-                    func.name.as_ref().unwrap_or(&"anonymous".to_string())
-                )
+                write!(f, "action {}", func.name.as_deref().unwrap_or("anonymous"))
             }
             Value::NativeFunction(name, _) => write!(f, "native {name}"),
             Value::Future(_) => write!(f, "[Future]"),
