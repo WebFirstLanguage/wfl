@@ -146,6 +146,14 @@ pub fn native_substring(args: Vec<Value>) -> Result<Value, RuntimeError> {
         return Ok(Value::Text(Arc::from("")));
     }
 
+    // Optimization: Fast path for when the requested substring covers the entire string.
+    // We check byte length first (O(1)). This may occasionally miss cases where the requested
+    // length in characters is between the string's character count and byte count, but avoids
+    // an O(N) check that would penalize valid smaller substring extractions.
+    if start == 0 && length >= text.len() {
+        return Ok(Value::Text(Arc::clone(&text)));
+    }
+
     // Optimization: Use chars() iterator which is highly optimized for skipping
     // and as_str() to get slices without allocating intermediate strings.
     let mut chars = text.chars();
