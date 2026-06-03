@@ -76,7 +76,8 @@ impl RegistryClient {
 
         let results = body
             .as_array()
-            .unwrap_or(&vec![])
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
             .iter()
             .filter_map(|v| {
                 Some(SearchResult {
@@ -120,7 +121,8 @@ impl RegistryClient {
 
         let versions: Vec<Version> = body["versions"]
             .as_array()
-            .unwrap_or(&vec![])
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
             .iter()
             .filter_map(|v| Version::parse(v.as_str()?).ok())
             .collect();

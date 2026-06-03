@@ -58,7 +58,8 @@ pub async fn check_advisories(
 
     let advisories = body
         .as_array()
-        .unwrap_or(&vec![])
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
         .iter()
         .filter_map(|v| {
             Some(Advisory {

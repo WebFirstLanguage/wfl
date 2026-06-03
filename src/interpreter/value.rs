@@ -285,7 +285,7 @@ impl fmt::Debug for Value {
                 write!(
                     f,
                     "Function({})",
-                    func.name.as_ref().unwrap_or(&"anonymous".to_string())
+                    func.name.as_deref().unwrap_or("anonymous")
                 )
             }
             Value::NativeFunction(name, _) => write!(f, "NativeFunction({name})"),
@@ -348,11 +348,7 @@ impl fmt::Display for Value {
                 }
             }
             Value::Function(func) => {
-                write!(
-                    f,
-                    "action {}",
-                    func.name.as_ref().unwrap_or(&"anonymous".to_string())
-                )
+                write!(f, "action {}", func.name.as_deref().unwrap_or("anonymous"))
             }
             Value::NativeFunction(name, _) => write!(f, "native {name}"),
             Value::Future(_) => write!(f, "[Future]"),
