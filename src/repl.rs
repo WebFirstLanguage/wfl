@@ -257,7 +257,8 @@ impl ReplState {
                                     continue;
                                 }
 
-                                let output = String::from_utf8_lossy(buffer.as_slice()).into_owned();
+                                let output =
+                                    String::from_utf8_lossy(buffer.as_slice()).into_owned();
                                 error_messages.push(output);
                             }
 

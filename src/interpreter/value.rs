@@ -348,11 +348,7 @@ impl fmt::Display for Value {
                 }
             }
             Value::Function(func) => {
-                write!(
-                    f,
-                    "action {}",
-                    func.name.as_deref().unwrap_or("anonymous")
-                )
+                write!(f, "action {}", func.name.as_deref().unwrap_or("anonymous"))
             }
             Value::NativeFunction(name, _) => write!(f, "native {name}"),
             Value::Future(_) => write!(f, "[Future]"),
