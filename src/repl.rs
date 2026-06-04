@@ -160,7 +160,7 @@ impl ReplState {
                         continue;
                     }
 
-                    let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
+                    let output = String::from_utf8_lossy(buffer.as_slice()).into_owned();
                     error_messages.push(output);
                 }
 
@@ -192,7 +192,7 @@ impl ReplState {
                     continue;
                 }
 
-                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
+                let output = String::from_utf8_lossy(buffer.as_slice()).into_owned();
                 error_messages.push(output);
             }
 
@@ -217,7 +217,7 @@ impl ReplState {
                     continue;
                 }
 
-                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
+                let output = String::from_utf8_lossy(buffer.as_slice()).into_owned();
                 error_messages.push(output);
             }
 
@@ -257,7 +257,7 @@ impl ReplState {
                                     continue;
                                 }
 
-                                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
+                                let output = String::from_utf8_lossy(buffer.as_slice()).into_owned();
                                 error_messages.push(output);
                             }
 
@@ -287,7 +287,7 @@ impl ReplState {
                                 continue;
                             }
 
-                            let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
+                            let output = String::from_utf8_lossy(buffer.as_slice()).into_owned();
                             error_messages.push(output);
                         }
 
@@ -318,7 +318,7 @@ impl ReplState {
                             continue;
                         }
 
-                        let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
+                        let output = String::from_utf8_lossy(buffer.as_slice()).into_owned();
                         error_messages.push(output);
                     }
 
