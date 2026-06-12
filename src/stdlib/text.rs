@@ -13,7 +13,7 @@ use std::sync::Arc;
 /// Decode percent-encoded URL string
 /// Converts '+' to space and decodes %HH hex sequences
 /// Invalid sequences are left as-is
-fn percent_decode(s: &str) -> Cow<'_, str> {
+pub(crate) fn percent_decode(s: &str) -> Cow<'_, str> {
     let bytes = s.as_bytes();
 
     // Optimization: avoid string allocation and decoding overhead if the string

@@ -44,6 +44,9 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "parse_query_string",
     "parse_cookies",
     "parse_form_urlencoded",
+    // Web routing helpers (implemented in stdlib/web.rs)
+    "path_params",
+    "path_matches",
     // Math functions (implemented in stdlib/math.rs)
     "min",
     "max",
@@ -263,6 +266,10 @@ pub fn get_function_arity(name: &str) -> usize {
         // === QUERY AND FORM PARSING ===
         // Single argument functions
         "parse_query_string" | "parse_cookies" | "parse_form_urlencoded" => 1,
+
+        // === WEB ROUTING HELPERS ===
+        // Two argument functions: (path, template)
+        "path_params" | "path_matches" => 2,
 
         // === TEXT FUNCTIONS ===
         // Single argument functions
