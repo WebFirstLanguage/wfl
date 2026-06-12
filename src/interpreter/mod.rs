@@ -3,6 +3,7 @@ mod assertion_helpers;
 pub mod bounded_buffer;
 pub mod command_sanitizer;
 pub mod control_flow;
+pub mod database;
 pub mod environment;
 pub mod error;
 pub(crate) mod io_capture;
@@ -431,6 +432,8 @@ pub struct IoClient {
     next_file_id: Mutex<usize>,
     process_handles: Mutex<HashMap<String, ProcessHandle>>,
     next_process_id: Mutex<usize>,
+    db_handles: Mutex<HashMap<String, database::DbPool>>,
+    next_db_id: Mutex<usize>,
     config: Arc<WflConfig>,
 }
 
@@ -442,8 +445,47 @@ impl IoClient {
             next_file_id: Mutex::new(1),
             process_handles: Mutex::new(HashMap::new()),
             next_process_id: Mutex::new(1),
+            db_handles: Mutex::new(HashMap::new()),
+            next_db_id: Mutex::new(1),
             config,
         }
+    }
+
+    /// Open a database connection pool and return its WFL handle ("db1", ...).
+    async fn open_database(&self, url: &str) -> Result<String, String> {
+        let pool = database::connect(url).await?;
+
+        let handle_id = {
+            let mut next_id = self.next_db_id.lock().await;
+            let id = format!("db{}", *next_id);
+            *next_id += 1;
+            id
+        };
+
+        self.db_handles.lock().await.insert(handle_id.clone(), pool);
+        Ok(handle_id)
+    }
+
+    /// Look up a database pool by handle; pools are cheap to clone (Arc inside).
+    async fn get_database(&self, handle_id: &str) -> Result<database::DbPool, String> {
+        self.db_handles
+            .lock()
+            .await
+            .get(handle_id)
+            .cloned()
+            .ok_or_else(|| format!("Invalid or closed database handle: {handle_id}"))
+    }
+
+    /// Close a database pool and drop its handle.
+    async fn close_database(&self, handle_id: &str) -> Result<(), String> {
+        let pool = self
+            .db_handles
+            .lock()
+            .await
+            .remove(handle_id)
+            .ok_or_else(|| format!("Invalid or closed database handle: {handle_id}"))?;
+        database::close(pool).await;
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -2746,21 +2788,141 @@ impl Interpreter {
                     Err(e) => Err(e),
                 }
             }
-            Statement::OpenDatabaseStatement { line, column, .. } => Err(RuntimeError::new(
-                "Database support is not yet implemented".to_string(),
-                *line,
-                *column,
-            )),
-            Statement::DatabaseQueryStatement { line, column, .. } => Err(RuntimeError::new(
-                "Database support is not yet implemented".to_string(),
-                *line,
-                *column,
-            )),
-            Statement::CloseDatabaseStatement { line, column, .. } => Err(RuntimeError::new(
-                "Database support is not yet implemented".to_string(),
-                *line,
-                *column,
-            )),
+            Statement::OpenDatabaseStatement {
+                url,
+                variable_name,
+                line,
+                column,
+            } => {
+                let url_value = self.evaluate_expression(url, Rc::clone(&env)).await?;
+                let url_str = match &url_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected text for database URL, got {url_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.open_database(&url_str).await {
+                    Ok(handle) => {
+                        match env
+                            .borrow_mut()
+                            .define(variable_name, Value::Text(handle.into()))
+                        {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                        }
+                    }
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Statement::DatabaseQueryStatement {
+                db,
+                sql,
+                parameters,
+                variable_name,
+                kind,
+                line,
+                column,
+            } => {
+                let db_value = self.evaluate_expression(db, Rc::clone(&env)).await?;
+                let handle = match &db_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected a database handle, got {db_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let sql_value = self.evaluate_expression(sql, Rc::clone(&env)).await?;
+                let sql_str = match &sql_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected text for SQL statement, got {sql_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let params = match parameters {
+                    Some(params_expr) => {
+                        let params_value = self
+                            .evaluate_expression(params_expr, Rc::clone(&env))
+                            .await?;
+                        match &params_value {
+                            Value::List(list) => {
+                                let mut sql_params = Vec::new();
+                                for value in list.borrow().iter() {
+                                    sql_params.push(
+                                        database::value_to_sql_param(value)
+                                            .map_err(|e| RuntimeError::new(e, *line, *column))?,
+                                    );
+                                }
+                                sql_params
+                            }
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Expected a list of query parameters, got {params_value:?}"
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => Vec::new(),
+                };
+
+                let pool = self
+                    .io_client
+                    .get_database(&handle)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                let result = match kind {
+                    crate::parser::ast::DatabaseQueryKind::Query => {
+                        database::run_query(&pool, &sql_str, &params).await
+                    }
+                    crate::parser::ast::DatabaseQueryKind::Execute => {
+                        database::run_execute(&pool, &sql_str, &params).await
+                    }
+                }
+                .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                match env.borrow_mut().define(variable_name, result) {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                }
+            }
+            Statement::CloseDatabaseStatement { db, line, column } => {
+                let db_value = self.evaluate_expression(db, Rc::clone(&env)).await?;
+                let handle = match &db_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected a database handle, got {db_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                self.io_client
+                    .close_database(&handle)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                Ok((Value::Null, ControlFlow::None))
+            }
             Statement::ReadFileStatement {
                 path,
                 variable_name,
