@@ -5417,9 +5417,14 @@ impl Interpreter {
                         .map(|dir| dir.join(&path_str))
                         .unwrap_or_else(|| PathBuf::from(&path_str))
                 } else {
-                    std::env::current_dir()
-                        .map(|cwd| cwd.join(&path_str))
-                        .unwrap_or_else(|_| PathBuf::from(&path_str))
+                    let cwd = std::env::current_dir().map_err(|e| {
+                        RuntimeError::new(
+                            format!("Cannot determine current directory: {e}"),
+                            *line,
+                            *column,
+                        )
+                    })?;
+                    cwd.join(&path_str)
                 };
                 let map_io_error = |e: std::io::Error| {
                     let kind = match e.kind() {

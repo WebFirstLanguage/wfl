@@ -590,6 +590,22 @@ impl Analyzer {
             Statement::CloseFileStatement { file, .. } => {
                 self.mark_used_in_expression(file, usages);
             }
+            Statement::ExecuteFileStatement {
+                path,
+                request,
+                variable_name,
+                ..
+            } => {
+                self.mark_used_in_expression(path, usages);
+                if let Some(request_expr) = request {
+                    self.mark_used_in_expression(request_expr, usages);
+                }
+                if let Some(var_name) = variable_name
+                    && let Some(usage) = usages.get_mut(var_name)
+                {
+                    usage.used = true;
+                }
+            }
             Statement::WaitForStatement { inner, .. } => {
                 // Mark variables used in the inner statement
                 self.mark_used_variables(inner, usages);
