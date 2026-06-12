@@ -232,6 +232,26 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    OpenDatabaseStatement {
+        url: Expression,
+        variable_name: String,
+        line: usize,
+        column: usize,
+    },
+    DatabaseQueryStatement {
+        db: Expression,
+        sql: Expression,
+        parameters: Option<Expression>,
+        variable_name: String,
+        kind: DatabaseQueryKind,
+        line: usize,
+        column: usize,
+    },
+    CloseDatabaseStatement {
+        db: Expression,
+        line: usize,
+        column: usize,
+    },
     CreateDirectoryStatement {
         path: Expression,
         line: usize,
@@ -937,6 +957,14 @@ pub enum FileOpenMode {
     Append,
     ReadBinary,
     WriteBinary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatabaseQueryKind {
+    /// SELECT-style statement returning rows as a list of objects
+    Query,
+    /// INSERT/UPDATE/DELETE/DDL returning {affected_rows, last_insert_id}
+    Execute,
 }
 
 #[derive(Debug, Clone, PartialEq)]

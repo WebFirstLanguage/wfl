@@ -11,6 +11,7 @@ pub mod random;
 pub mod text;
 pub mod time;
 pub mod typechecker;
+pub mod web;
 
 use crate::interpreter::environment::Environment;
 
@@ -25,4 +26,5 @@ pub fn register_stdlib(env: &mut Environment) {
     list::register_list(env);
     pattern::register(env);
     time::register_time(env);
+    web::register_web(env);
 }

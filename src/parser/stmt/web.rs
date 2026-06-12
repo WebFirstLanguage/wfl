@@ -68,7 +68,10 @@ impl<'a> WebParser<'a> for Parser<'a> {
                     if next_token.token == Token::KeywordStatus {
                         self.bump_sync(); // Consume "and"
                         self.bump_sync(); // Consume "status"
-                        status = Some(self.parse_expression()?);
+                        // Primary expression only: a full expression would
+                        // swallow a following "and content_type ..." clause
+                        // as a boolean operation.
+                        status = Some(self.parse_primary_expression()?);
                         continue;
                     } else if let Token::Identifier(id) = &next_token.token
                         && (id == "content_type" || id == "content")
@@ -85,7 +88,9 @@ impl<'a> WebParser<'a> for Parser<'a> {
                             self.bump_sync(); // Consume "type"
                         }
 
-                        content_type = Some(self.parse_expression()?);
+                        // Primary expression only, so a following "and
+                        // status ..." clause stays available.
+                        content_type = Some(self.parse_primary_expression()?);
                         continue;
                     }
                 }

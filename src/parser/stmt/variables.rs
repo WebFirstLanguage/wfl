@@ -1,6 +1,7 @@
 //! Variable declaration and assignment statement parsing
 
 use super::super::{Expression, Literal, Operator, ParseError, Parser, Statement};
+use super::database::DatabaseParser;
 use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::ExprParser;
 
@@ -97,6 +98,13 @@ impl<'a> VariableParser<'a> for Parser<'a> {
         }
 
         self.bump_sync(); // Consume the 'as' token
+
+        // Database forms: "store <name> as query <db> with <sql> [and parameters <list>]"
+        // and the same with "execute". The strict lookahead (handle expression directly
+        // followed by 'with') keeps plain variables named "query" parsing as expressions.
+        if let Some(kind) = self.peek_database_query_kind() {
+            return self.parse_database_query_value(name, kind, token_pos.line, token_pos.column);
+        }
 
         let value = self.parse_expression()?;
 

@@ -13,6 +13,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Request objects from `wait for request` now carry `method`, `path`, `client_ip`, `body` and `headers` properties (in addition to the existing standalone variables)
 - Errors in executed files (missing file, parse errors, runtime errors) are catchable in the parent with `try`/`when`, including `when file not found`
 - Nesting depth guard (4 levels) protects against a file that executes itself
+- Built-in database support for SQLite, PostgreSQL, and MariaDB/MySQL backed by sqlx connection pooling:
+  - `open database at "<url>" as db` (alias: `connect to database at ... as ...`) routed by URL scheme (`sqlite://`, `sqlite::memory:`, `postgres://`, `postgresql://`, `mysql://`, `mariadb://`)
+  - `store rows as query db with "<sql>" [and parameters [...]]` returns a list of row objects keyed by column name
+  - `store result as execute db with "<sql>" [and parameters [...]]` returns `{affected_rows, last_insert_id}` (`last_insert_id` is `nothing` on PostgreSQL — use `RETURNING`)
+  - `close database db`
+  - Parameters always bind through the database driver (never string interpolation), so SQL injection via values is not possible; placeholders are driver-native (`?` for SQLite/MariaDB, `$1` for PostgreSQL)
+  - Type-aware decoding: integers/floats/decimals → number, `NULL` → `nothing`, `BOOLEAN` → boolean, `BLOB`/`BYTEA` → binary, `DATE`/`TIME`/`TIMESTAMP` → date/time/datetime
+  - Database errors are catchable with `try`/`when error`
+  - Note: `store <name> as query <handle> with ...` and `store <name> as execute <handle> with ...` are now reserved statement shapes; a multi-word variable whose name starts with the word `query`, followed by a `with` concatenation, would previously have parsed as an expression
+- Web route parameter helpers in the standard library:
+  - `path_params of <path> and "<template>"` extracts `:name` segment captures (plus trailing `*name` wildcards) as an object, or returns `nothing` on no match; captures are percent-decoded and query strings are ignored
+  - `path_matches of <path> and "<template>"` returns a boolean for routing conditionals
+- CI job running the database test suite against live PostgreSQL 16 and MariaDB 11 service containers (`WFL_TEST_POSTGRES_URL` / `WFL_TEST_MYSQL_URL` gate the backend-specific tests)
+- New documentation: `Docs/04-advanced-features/databases.md`; route-parameters section in `Docs/04-advanced-features/web-servers.md`
+
+### Fixed
+- `respond to ... with <content> and status <code> and content_type <type>` previously parsed the status as the boolean expression `<code> and content_type`, which failed at runtime and left the HTTP request unanswered; status/content_type values now parse as primary expressions
+- `header "<Name>" of <request>` is now case-insensitive; warp normalizes header names to lowercase, so canonically-spelled names like `User-Agent` always returned nothing on real requests. Absent headers now compare equal to `nothing`
+- The static analyzer now marks variables inside list literals (e.g. `parameters [user_name]`) as used
+- `scripts/run_web_tests.sh` exited before running any test due to `set -e` combined with `((var++))` arithmetic increments
 
 ## [25.9.1] - 2025-09-20
 

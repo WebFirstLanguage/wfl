@@ -608,6 +608,18 @@ impl JavaScriptTranspiler {
                 Ok(format!("{}// File closed (no-op in JS)\n", self.indent()))
             }
 
+            Statement::OpenDatabaseStatement { line, column, .. }
+            | Statement::DatabaseQueryStatement { line, column, .. }
+            | Statement::CloseDatabaseStatement { line, column, .. } => {
+                // Silently dropping database operations would produce broken
+                // JS, so fail like the other interpreter-only statements.
+                Err(TranspileError {
+                    message: "Database statements are not supported in JavaScript transpilation. They require the WFL interpreter.".to_string(),
+                    line: *line,
+                    column: *column,
+                })
+            }
+
             Statement::WriteContentStatement {
                 content, target, ..
             } => {

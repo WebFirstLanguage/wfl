@@ -9,6 +9,7 @@ mod actions;
 mod collections;
 mod containers;
 mod control_flow;
+mod database;
 mod errors;
 mod io;
 mod module;
@@ -22,6 +23,7 @@ pub(crate) use actions::ActionParser;
 pub(crate) use collections::CollectionParser;
 pub(crate) use containers::ContainerParser;
 pub(crate) use control_flow::ControlFlowParser;
+pub(crate) use database::DatabaseParser;
 pub(crate) use errors::ErrorHandlingParser;
 pub(crate) use io::IoParser;
 pub(crate) use module::ModuleParser;
@@ -50,6 +52,7 @@ pub(crate) trait StmtParser<'a>:
     + ActionParser<'a>
     + ErrorHandlingParser<'a>
     + ControlFlowParser<'a>
+    + DatabaseParser<'a>
     + PatternParser<'a>
     + ContainerParser<'a>
     + ModuleParser<'a>

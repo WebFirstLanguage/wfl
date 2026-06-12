@@ -935,6 +935,109 @@ impl TypeChecker {
                     );
                 }
             }
+            Statement::OpenDatabaseStatement {
+                url,
+                variable_name,
+                line: _line,
+                column: _column,
+            } => {
+                let url_type = self.infer_expression_type(url);
+                if url_type != Type::Text && url_type != Type::Unknown && url_type != Type::Error {
+                    self.type_error(
+                        "Database URL must be a text string".to_string(),
+                        Some(Type::Text),
+                        Some(url_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+
+                if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
+                    symbol.symbol_type = Some(Type::Custom("Database".to_string()));
+                }
+            }
+            Statement::DatabaseQueryStatement {
+                db,
+                sql,
+                parameters,
+                variable_name,
+                kind,
+                line: _line,
+                column: _column,
+            } => {
+                let db_type = self.infer_expression_type(db);
+                if db_type != Type::Custom("Database".to_string())
+                    && db_type != Type::Unknown
+                    && db_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected a Database connection".to_string(),
+                        Some(Type::Custom("Database".to_string())),
+                        Some(db_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+
+                let sql_type = self.infer_expression_type(sql);
+                if sql_type != Type::Text && sql_type != Type::Unknown && sql_type != Type::Error {
+                    self.type_error(
+                        "SQL statement must be a text string".to_string(),
+                        Some(Type::Text),
+                        Some(sql_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+
+                if let Some(params) = parameters {
+                    let params_type = self.infer_expression_type(params);
+                    if !matches!(params_type, Type::List(_))
+                        && params_type != Type::Unknown
+                        && params_type != Type::Error
+                    {
+                        self.type_error(
+                            "Query parameters must be a list".to_string(),
+                            Some(Type::List(Box::new(Type::Any))),
+                            Some(params_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+
+                // Rows are objects keyed by column name; execute results are
+                // {affected_rows, last_insert_id}. Typing them as text-keyed
+                // maps lets downstream indexing typecheck cleanly.
+                let row_type = Type::Map(Box::new(Type::Text), Box::new(Type::Any));
+                if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
+                    symbol.symbol_type = Some(match kind {
+                        crate::parser::ast::DatabaseQueryKind::Query => {
+                            Type::List(Box::new(row_type))
+                        }
+                        crate::parser::ast::DatabaseQueryKind::Execute => row_type,
+                    });
+                }
+            }
+            Statement::CloseDatabaseStatement {
+                db,
+                line: _line,
+                column: _column,
+            } => {
+                let db_type = self.infer_expression_type(db);
+                if db_type != Type::Custom("Database".to_string())
+                    && db_type != Type::Unknown
+                    && db_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected a Database connection".to_string(),
+                        Some(Type::Custom("Database".to_string())),
+                        Some(db_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+            }
             Statement::CreateDirectoryStatement {
                 path,
                 line: _line,

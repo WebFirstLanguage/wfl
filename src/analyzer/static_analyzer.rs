@@ -590,6 +590,29 @@ impl Analyzer {
             Statement::CloseFileStatement { file, .. } => {
                 self.mark_used_in_expression(file, usages);
             }
+            Statement::OpenDatabaseStatement {
+                url, variable_name, ..
+            } => {
+                self.mark_used_in_expression(url, usages);
+                if let Some(usage) = usages.get_mut(variable_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::DatabaseQueryStatement {
+                db,
+                sql,
+                parameters,
+                ..
+            } => {
+                self.mark_used_in_expression(db, usages);
+                self.mark_used_in_expression(sql, usages);
+                if let Some(params) = parameters {
+                    self.mark_used_in_expression(params, usages);
+                }
+            }
+            Statement::CloseDatabaseStatement { db, .. } => {
+                self.mark_used_in_expression(db, usages);
+            }
             Statement::ExecuteFileStatement {
                 path,
                 request,
@@ -660,6 +683,11 @@ impl Analyzer {
 
                 if let Some(usage) = usages.get_mut(name) {
                     usage.used = true;
+                }
+            }
+            Expression::Literal(crate::parser::ast::Literal::List(elements), ..) => {
+                for element in elements {
+                    self.mark_used_in_expression(element, usages);
                 }
             }
             Expression::BinaryOperation { left, right, .. } => {

@@ -12,9 +12,9 @@ use ast::*;
 pub use cursor::Cursor; // Re-export Cursor publicly for doctests
 use expr::ExprParser;
 use stmt::{
-    ActionParser, CollectionParser, ContainerParser, ControlFlowParser, ErrorHandlingParser,
-    IoParser, ModuleParser, PatternParser, ProcessParser, StmtParser, TestingParser,
-    VariableParser, WebParser,
+    ActionParser, CollectionParser, ContainerParser, ControlFlowParser, DatabaseParser,
+    ErrorHandlingParser, IoParser, ModuleParser, PatternParser, ProcessParser, StmtParser,
+    TestingParser, VariableParser, WebParser,
 };
 
 pub struct Parser<'a> {
@@ -512,10 +512,12 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                     }
                 }
                 Token::KeywordClose => {
-                    // Check if it's "close server" or regular "close file"
+                    // Check if it's "close server", "close database", or regular "close file"
                     if let Some(next_token) = self.cursor.peek_next() {
                         if matches!(next_token.token, Token::KeywordServer) {
                             self.parse_close_server_statement()
+                        } else if matches!(next_token.token, Token::KeywordDatabase) {
+                            self.parse_close_database_statement()
                         } else {
                             self.parse_close_file_statement()
                         }
@@ -531,6 +533,19 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                 Token::KeywordRegister => self.parse_register_signal_handler_statement(),
                 Token::KeywordStop => self.parse_stop_accepting_connections_statement(),
                 Token::KeywordGive | Token::KeywordReturn => self.parse_return_statement(),
+                Token::Identifier(id)
+                    if id == "connect"
+                        && self
+                            .cursor
+                            .peek_next()
+                            .is_some_and(|t| t.token == Token::KeywordTo)
+                        && self
+                            .cursor
+                            .peek_n(2)
+                            .is_some_and(|t| t.token == Token::KeywordDatabase) =>
+                {
+                    self.parse_connect_to_database_statement()
+                }
                 Token::Identifier(id) if id == "main" => {
                     // Check if next token is "loop"
                     if let Some(next_token) = self.cursor.peek_next() {

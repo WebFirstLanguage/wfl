@@ -3,6 +3,7 @@ mod assertion_helpers;
 pub mod bounded_buffer;
 pub mod command_sanitizer;
 pub mod control_flow;
+pub mod database;
 pub mod environment;
 pub mod error;
 pub(crate) mod io_capture;
@@ -178,6 +179,13 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::WriteContentStatement { .. } => "WriteContentStatement".to_string(),
         Statement::WriteBinaryStatement { .. } => "WriteBinaryStatement".to_string(),
         Statement::CloseFileStatement { .. } => "CloseFileStatement".to_string(),
+        Statement::OpenDatabaseStatement { variable_name, .. } => {
+            format!("OpenDatabaseStatement '{variable_name}'")
+        }
+        Statement::DatabaseQueryStatement { variable_name, .. } => {
+            format!("DatabaseQueryStatement '{variable_name}'")
+        }
+        Statement::CloseDatabaseStatement { .. } => "CloseDatabaseStatement".to_string(),
         Statement::CreateDirectoryStatement { .. } => "CreateDirectoryStatement".to_string(),
         Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
         Statement::DeleteFileStatement { .. } => "DeleteFileStatement".to_string(),
@@ -424,6 +432,8 @@ pub struct IoClient {
     next_file_id: Mutex<usize>,
     process_handles: Mutex<HashMap<String, ProcessHandle>>,
     next_process_id: Mutex<usize>,
+    db_handles: Mutex<HashMap<String, database::DbPool>>,
+    next_db_id: Mutex<usize>,
     config: Arc<WflConfig>,
 }
 
@@ -435,8 +445,47 @@ impl IoClient {
             next_file_id: Mutex::new(1),
             process_handles: Mutex::new(HashMap::new()),
             next_process_id: Mutex::new(1),
+            db_handles: Mutex::new(HashMap::new()),
+            next_db_id: Mutex::new(1),
             config,
         }
+    }
+
+    /// Open a database connection pool and return its WFL handle ("db1", ...).
+    async fn open_database(&self, url: &str) -> Result<String, String> {
+        let pool = database::connect(url).await?;
+
+        let handle_id = {
+            let mut next_id = self.next_db_id.lock().await;
+            let id = format!("db{}", *next_id);
+            *next_id += 1;
+            id
+        };
+
+        self.db_handles.lock().await.insert(handle_id.clone(), pool);
+        Ok(handle_id)
+    }
+
+    /// Look up a database pool by handle; pools are cheap to clone (Arc inside).
+    async fn get_database(&self, handle_id: &str) -> Result<database::DbPool, String> {
+        self.db_handles
+            .lock()
+            .await
+            .get(handle_id)
+            .cloned()
+            .ok_or_else(|| format!("Invalid or closed database handle: {handle_id}"))
+    }
+
+    /// Close a database pool and drop its handle.
+    async fn close_database(&self, handle_id: &str) -> Result<(), String> {
+        let pool = self
+            .db_handles
+            .lock()
+            .await
+            .remove(handle_id)
+            .ok_or_else(|| format!("Invalid or closed database handle: {handle_id}"))?;
+        database::close(pool).await;
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -1979,6 +2028,9 @@ impl Interpreter {
             Statement::WriteContentStatement { line, column, .. } => (*line, *column),
             Statement::WriteBinaryStatement { line, column, .. } => (*line, *column),
             Statement::CloseFileStatement { line, column, .. } => (*line, *column),
+            Statement::OpenDatabaseStatement { line, column, .. } => (*line, *column),
+            Statement::DatabaseQueryStatement { line, column, .. } => (*line, *column),
+            Statement::CloseDatabaseStatement { line, column, .. } => (*line, *column),
             Statement::CreateDirectoryStatement { line, column, .. } => (*line, *column),
             Statement::CreateFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteFileStatement { line, column, .. } => (*line, *column),
@@ -2735,6 +2787,146 @@ impl Interpreter {
                     }
                     Err(e) => Err(e),
                 }
+            }
+            Statement::OpenDatabaseStatement {
+                url,
+                variable_name,
+                line,
+                column,
+            } => {
+                let url_value = self.evaluate_expression(url, Rc::clone(&env)).await?;
+                let url_str = match &url_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected text for database URL, got {url_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match self.io_client.open_database(&url_str).await {
+                    Ok(handle) => {
+                        let define_result = env
+                            .borrow_mut()
+                            .define(variable_name, Value::Text(handle.as_str().into()));
+                        match define_result {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => {
+                                // Don't leave an unreachable pool behind when
+                                // the variable binding fails.
+                                let _ = self.io_client.close_database(&handle).await;
+                                Err(RuntimeError::new(msg, *line, *column))
+                            }
+                        }
+                    }
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Statement::DatabaseQueryStatement {
+                db,
+                sql,
+                parameters,
+                variable_name,
+                kind,
+                line,
+                column,
+            } => {
+                let db_value = self.evaluate_expression(db, Rc::clone(&env)).await?;
+                let handle = match &db_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected a database handle, got {db_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let sql_value = self.evaluate_expression(sql, Rc::clone(&env)).await?;
+                let sql_str = match &sql_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected text for SQL statement, got {sql_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let params = match parameters {
+                    Some(params_expr) => {
+                        let params_value = self
+                            .evaluate_expression(params_expr, Rc::clone(&env))
+                            .await?;
+                        match &params_value {
+                            Value::List(list) => {
+                                let mut sql_params = Vec::new();
+                                for value in list.borrow().iter() {
+                                    sql_params.push(
+                                        database::value_to_sql_param(value)
+                                            .map_err(|e| RuntimeError::new(e, *line, *column))?,
+                                    );
+                                }
+                                sql_params
+                            }
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Expected a list of query parameters, got {params_value:?}"
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => Vec::new(),
+                };
+
+                let pool = self
+                    .io_client
+                    .get_database(&handle)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                let result = match kind {
+                    crate::parser::ast::DatabaseQueryKind::Query => {
+                        database::run_query(&pool, &sql_str, &params).await
+                    }
+                    crate::parser::ast::DatabaseQueryKind::Execute => {
+                        database::run_execute(&pool, &sql_str, &params).await
+                    }
+                }
+                .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                match env.borrow_mut().define(variable_name, result) {
+                    Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                    Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                }
+            }
+            Statement::CloseDatabaseStatement { db, line, column } => {
+                let db_value = self.evaluate_expression(db, Rc::clone(&env)).await?;
+                let handle = match &db_value {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected a database handle, got {db_value:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                self.io_client
+                    .close_database(&handle)
+                    .await
+                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
+
+                Ok((Value::Null, ControlFlow::None))
             }
             Statement::ReadFileStatement {
                 path,
@@ -7440,12 +7632,26 @@ impl Interpreter {
                     }
                 };
 
-                // Get the specific header from the headers object
+                // Get the specific header from the headers object. HTTP
+                // header names are case-insensitive (and warp normalizes
+                // them to lowercase), so fall back to a case-insensitive
+                // scan when the exact key is absent.
                 match &headers_val {
-                    Value::Object(headers_map) => match headers_map.borrow().get(header_name) {
-                        Some(header_value) => Ok(header_value.clone()),
-                        None => Ok(Value::Nothing),
-                    },
+                    Value::Object(headers_map) => {
+                        let map = headers_map.borrow();
+                        let header_value = map.get(header_name).cloned().or_else(|| {
+                            let lowered = header_name.to_lowercase();
+                            map.iter()
+                                .find(|(key, _)| key.to_lowercase() == lowered)
+                                .map(|(_, value)| value.clone())
+                        });
+                        match header_value {
+                            Some(header_value) => Ok(header_value),
+                            // Value::Null is the runtime value of WFL's
+                            // `nothing` literal
+                            None => Ok(Value::Null),
+                        }
+                    }
                     _ => {
                         return Err(RuntimeError::new(
                             format!(

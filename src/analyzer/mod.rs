@@ -747,42 +747,17 @@ impl Analyzer {
             Statement::ReturnStatement { value: None, .. } => {}
             Statement::WaitForStatement {
                 inner,
-                line,
-                column,
+                line: _line,
+                column: _column,
             } => {
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
-                match &**inner {
-                    Statement::ReadFileStatement { variable_name, .. } => {
-                        let symbol = Symbol {
-                            name: variable_name.clone(),
-                            kind: SymbolKind::Variable { mutable: true },
-                            symbol_type: Some(Type::Text), // File content is always text
-                            line: *line,
-                            column: *column,
-                        };
-
-                        if let Err(error) = self.current_scope.define(symbol) {
-                            self.errors.push(error);
-                        }
-                    }
-                    Statement::OpenFileStatement { variable_name, .. } => {
-                        let symbol = Symbol {
-                            name: variable_name.clone(),
-                            kind: SymbolKind::Variable { mutable: true },
-                            symbol_type: None, // File handle type
-                            line: *line,
-                            column: *column,
-                        };
-
-                        if let Err(error) = self.current_scope.define(symbol) {
-                            self.errors.push(error);
-                        }
-                    }
-                    _ => {}
-                }
-
+                // The inner statement's own analysis defines any variables it
+                // introduces (file handles, read content, database handles,
+                // query results); pre-defining them here would make
+                // Scope::define report a duplicate. The wait-scope merge
+                // below hoists them into the parent scope.
                 self.analyze_statement(inner);
 
                 let wait_scope = std::mem::take(&mut self.current_scope);
@@ -885,6 +860,56 @@ impl Analyzer {
                 if let Err(error) = self.current_scope.define(symbol) {
                     self.errors.push(error);
                 }
+            }
+            Statement::OpenDatabaseStatement {
+                url,
+                variable_name,
+                line,
+                column,
+            } => {
+                self.analyze_expression(url);
+
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: None, // Database handle type
+                    line: *line,
+                    column: *column,
+                };
+
+                if let Err(error) = self.current_scope.define(symbol) {
+                    self.errors.push(error);
+                }
+            }
+            Statement::DatabaseQueryStatement {
+                db,
+                sql,
+                parameters,
+                variable_name,
+                line,
+                column,
+                ..
+            } => {
+                self.analyze_expression(db);
+                self.analyze_expression(sql);
+                if let Some(params) = parameters {
+                    self.analyze_expression(params);
+                }
+
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: None, // Query result type
+                    line: *line,
+                    column: *column,
+                };
+
+                if let Err(error) = self.current_scope.define(symbol) {
+                    self.errors.push(error);
+                }
+            }
+            Statement::CloseDatabaseStatement { db, .. } => {
+                self.analyze_expression(db);
             }
             Statement::HttpGetStatement { variable_name, .. } => {
                 let symbol = Symbol {

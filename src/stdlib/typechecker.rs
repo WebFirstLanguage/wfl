@@ -37,6 +37,9 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_parse_cookies(analyzer);
     register_parse_form_urlencoded(analyzer);
 
+    register_path_params(analyzer);
+    register_path_matches(analyzer);
+
     register_generate_uuid(analyzer);
     register_generate_csrf_token(analyzer);
 
@@ -352,6 +355,22 @@ fn register_parse_form_urlencoded(analyzer: &mut Analyzer) {
     let return_type = Type::Unknown; // Returns object with form values
 
     analyzer.register_builtin_function("parse_form_urlencoded", param_types, return_type);
+}
+
+fn register_path_params(analyzer: &mut Analyzer) {
+    let param_types = vec![Type::Text, Type::Text]; // Request path, route template
+    // Returns an object of text captures, or nothing on no match; the map
+    // typing lets `params["id"]` typecheck cleanly.
+    let return_type = Type::Map(Box::new(Type::Text), Box::new(Type::Text));
+
+    analyzer.register_builtin_function("path_params", param_types, return_type);
+}
+
+fn register_path_matches(analyzer: &mut Analyzer) {
+    let param_types = vec![Type::Text, Type::Text]; // Request path, route template
+    let return_type = Type::Boolean;
+
+    analyzer.register_builtin_function("path_matches", param_types, return_type);
 }
 
 fn register_generate_uuid(analyzer: &mut Analyzer) {
