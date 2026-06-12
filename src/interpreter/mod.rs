@@ -5519,8 +5519,10 @@ impl Interpreter {
                     let first_error = errors.first();
                     RuntimeError::new(
                         format!(
-                            "Parse error in executed file '{}': {}",
+                            "Parse error in executed file '{}' (line {}, column {}): {}",
                             resolved_path.display(),
+                            first_error.map(|e| e.line).unwrap_or(1),
+                            first_error.map(|e| e.column).unwrap_or(1),
                             first_error.map(|e| e.message.as_str()).unwrap_or("unknown")
                         ),
                         *line,

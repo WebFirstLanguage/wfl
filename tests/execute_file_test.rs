@@ -385,6 +385,10 @@ async fn test_execute_file_child_error_mentions_child_path() {
         message.contains("broken.wfl"),
         "Error should mention the child file path, got: {message}"
     );
+    assert!(
+        message.contains("line 1"),
+        "Error should mention the child parse error position, got: {message}"
+    );
 }
 
 #[tokio::test]
