@@ -264,6 +264,52 @@ otherwise:
 end check
 ```
 
+### Route Parameters
+
+Extract values from path segments with `path_params`. The template marks
+captured segments with `:name`; the result is an object of captures, or
+`nothing` when the path does not match:
+
+```wfl
+store params as path_params of path and "/users/:id"
+check if params is nothing:
+    respond to req with "Not Found" and status 404
+otherwise:
+    store user_id as params["id"]
+    store user_text as "User " with user_id
+    respond to req with user_text
+end check
+```
+
+Template rules:
+
+- `:name` captures exactly one path segment (`/users/:id` matches `/users/42`
+  but not `/users` or `/users/42/extra`).
+- A trailing `*name` captures the rest of the path
+  (`/static/*filepath` matches `/static/css/main.css` with
+  `filepath` = `"css/main.css"`).
+- Other segments must match literally.
+- Captures are percent-decoded (`/users/John%20Doe` captures `"John Doe"`),
+  and any query string on the path is ignored.
+
+Multiple parameters work as expected:
+
+```wfl
+store params as path_params of path and "/users/:user_id/posts/:post_id"
+check if params is not nothing:
+    store post_text as "Post " with params["post_id"] with " by user " with params["user_id"]
+    respond to req with post_text
+end check
+```
+
+Use `path_matches` when you only need a yes/no answer:
+
+```wfl
+check if path_matches of path and "/users/:id":
+    respond to req with "looks like a user page"
+end check
+```
+
 ## Serving Static Files
 
 Serve files from a directory:

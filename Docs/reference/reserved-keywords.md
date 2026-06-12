@@ -420,6 +420,21 @@ store filename as "data.txt"  // Clear purpose
 store max_users as 100       // Descriptive
 ```
 
+### Rule 5: Reserved Statement Shapes (Database)
+
+The database statements reserve a few phrase shapes built from contextual
+words rather than new keywords:
+
+- `connect to database at ... as ...` — `connect` stays usable as an ordinary
+  identifier everywhere else; only this exact phrase is a statement.
+- `store <name> as query <handle> with <sql> ...` — a value expression
+  beginning with `query <identifier>` directly followed by `with` is parsed as
+  a database query. A plain variable named `query` still works
+  (`store copy as query`), but avoid multi-word variable names starting with
+  `query `.
+- `store <name> as execute <handle> with <sql> ...` — same shape with the
+  `execute` keyword.
+
 ---
 
 ## Common Pitfalls
@@ -546,7 +561,7 @@ Complete reference table of all 178 keywords.
 | `create` | Contextual | Declaration | ✅ | `create resource` |
 | `current` | Other | Web/Network | ❌ | `current time` |
 | `data` | Other | Data & Types | ❌ | `process data` |
-| `database` | Other | Data & Types | ❌ | `connect database` |
+| `database` | Other | Data & Types | ❌ | `open database at "sqlite://app.db" as db` |
 | `date` | Other | Data & Types | ❌ | `current date` |
 | `defaults` | Contextual | Declaration | ✅ | `property defaults` |
 | `define` | Structural | Declaration | ❌ | `define action` |

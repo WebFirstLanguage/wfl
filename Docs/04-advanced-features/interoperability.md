@@ -105,13 +105,13 @@ display json
 // Output: {"name": "Alice", "age": 28}
 ```
 
-### Database Integration (Planned)
+### Database Integration
 
-**Future syntax (conceptual):**
+WFL has built-in database support for SQLite, PostgreSQL, and MariaDB/MySQL:
 
 ```wfl
 // Connect to database
-connect to database at "postgresql://localhost/mydb" as db
+connect to database at "postgres://localhost/mydb" as db
 
 // Query
 wait for store users as query db with "SELECT * FROM users"
@@ -120,11 +120,8 @@ wait for store users as query db with "SELECT * FROM users"
 close database db
 ```
 
-**Current workaround:** Use subprocess to call database CLIs
-
-```wfl
-wait for execute command "psql -c 'SELECT * FROM users'" as query_output
-```
+See the [Databases guide](databases.md) for the complete reference, including
+parameterized queries, type mapping, and per-backend notes.
 
 ### HTML/CSS Integration (Planned)
 

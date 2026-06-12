@@ -337,6 +337,19 @@ store list as "shopping_list"
 create list called items
 ```
 
+**Example: `query` and `connect` (database statement shapes)**
+```wfl
+// ✅ 'query' works as a plain variable
+store query as "SELECT 1"
+store copy as query
+
+// ❌ 'query <handle> with ...' after 'store ... as' is a database query
+store rows as query db with "SELECT * FROM users"
+
+// ❌ 'connect to database at ... as ...' is a statement
+connect to database at "sqlite://app.db" as db
+```
+
 ---
 
 ## Common Scenarios
