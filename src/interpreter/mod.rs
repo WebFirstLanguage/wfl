@@ -178,6 +178,13 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::WriteContentStatement { .. } => "WriteContentStatement".to_string(),
         Statement::WriteBinaryStatement { .. } => "WriteBinaryStatement".to_string(),
         Statement::CloseFileStatement { .. } => "CloseFileStatement".to_string(),
+        Statement::OpenDatabaseStatement { variable_name, .. } => {
+            format!("OpenDatabaseStatement '{variable_name}'")
+        }
+        Statement::DatabaseQueryStatement { variable_name, .. } => {
+            format!("DatabaseQueryStatement '{variable_name}'")
+        }
+        Statement::CloseDatabaseStatement { .. } => "CloseDatabaseStatement".to_string(),
         Statement::CreateDirectoryStatement { .. } => "CreateDirectoryStatement".to_string(),
         Statement::CreateFileStatement { .. } => "CreateFileStatement".to_string(),
         Statement::DeleteFileStatement { .. } => "DeleteFileStatement".to_string(),
@@ -1979,6 +1986,9 @@ impl Interpreter {
             Statement::WriteContentStatement { line, column, .. } => (*line, *column),
             Statement::WriteBinaryStatement { line, column, .. } => (*line, *column),
             Statement::CloseFileStatement { line, column, .. } => (*line, *column),
+            Statement::OpenDatabaseStatement { line, column, .. } => (*line, *column),
+            Statement::DatabaseQueryStatement { line, column, .. } => (*line, *column),
+            Statement::CloseDatabaseStatement { line, column, .. } => (*line, *column),
             Statement::CreateDirectoryStatement { line, column, .. } => (*line, *column),
             Statement::CreateFileStatement { line, column, .. } => (*line, *column),
             Statement::DeleteFileStatement { line, column, .. } => (*line, *column),
@@ -2736,6 +2746,21 @@ impl Interpreter {
                     Err(e) => Err(e),
                 }
             }
+            Statement::OpenDatabaseStatement { line, column, .. } => Err(RuntimeError::new(
+                "Database support is not yet implemented".to_string(),
+                *line,
+                *column,
+            )),
+            Statement::DatabaseQueryStatement { line, column, .. } => Err(RuntimeError::new(
+                "Database support is not yet implemented".to_string(),
+                *line,
+                *column,
+            )),
+            Statement::CloseDatabaseStatement { line, column, .. } => Err(RuntimeError::new(
+                "Database support is not yet implemented".to_string(),
+                *line,
+                *column,
+            )),
             Statement::ReadFileStatement {
                 path,
                 variable_name,

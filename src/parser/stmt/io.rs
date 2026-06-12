@@ -1,6 +1,7 @@
 //! File I/O and filesystem statement parsing
 
 use super::super::{Expression, FileOpenMode, Literal, ParseError, Parser, Statement};
+use super::database::DatabaseParser;
 use crate::lexer::token::Token;
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
 use std::sync::Arc;
@@ -221,12 +222,16 @@ impl<'a> IoParser<'a> for Parser<'a> {
     fn parse_open_file_statement(&mut self) -> Result<Statement, ParseError> {
         let open_token = self.bump_sync().unwrap(); // Consume "open"
 
-        // Check if the next token is "file" or "url"
+        // Check if the next token is "file", "url", or "database"
         if let Some(next_token) = self.cursor.peek() {
             match next_token.token {
                 Token::KeywordFile => {
                     // Existing file handling
                     self.bump_sync(); // Consume "file"
+                }
+                Token::KeywordDatabase => {
+                    // "open database at <url> as <name>"
+                    return self.parse_open_database_statement(open_token.line, open_token.column);
                 }
                 Token::KeywordUrl => {
                     // New URL handling
@@ -335,7 +340,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 _ => {
                     return Err(ParseError::from_token(
                         format!(
-                            "Expected 'file' or 'url' after 'open', found {:?}",
+                            "Expected 'file', 'url', or 'database' after 'open', found {:?}",
                             next_token.token
                         ),
                         next_token,

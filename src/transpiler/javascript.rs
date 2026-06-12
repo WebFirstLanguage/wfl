@@ -608,6 +608,20 @@ impl JavaScriptTranspiler {
                 Ok(format!("{}// File closed (no-op in JS)\n", self.indent()))
             }
 
+            Statement::OpenDatabaseStatement { line, column, .. }
+            | Statement::DatabaseQueryStatement { line, column, .. }
+            | Statement::CloseDatabaseStatement { line, column, .. } => {
+                self.warn(
+                    "Database statements are not supported in JavaScript output",
+                    *line,
+                    *column,
+                );
+                Ok(format!(
+                    "{}// Database statement (unsupported in JS)\n",
+                    self.indent()
+                ))
+            }
+
             Statement::WriteContentStatement {
                 content, target, ..
             } => {
