@@ -5448,7 +5448,9 @@ impl Interpreter {
 
                 // Evaluate the optional request context and extract the variables
                 // that `wait for request` defines, so the executed file sees the
-                // same names: method, path, client_ip, body, headers
+                // same names. Validate the shape upfront so a wrong object fails
+                // here with a clear message instead of as confusing undefined
+                // variable errors inside the executed file.
                 let request_vars: Vec<(String, Value)> = if let Some(request_expr) = request {
                     let request_value = self
                         .evaluate_expression(request_expr, Rc::clone(&env))
@@ -5456,16 +5458,41 @@ impl Interpreter {
                     match &request_value {
                         Value::Object(props) => {
                             let props = props.borrow();
-                            // Deep clone so the executed file cannot mutate the
-                            // parent's request data (e.g. the headers object)
-                            ["method", "path", "client_ip", "body", "headers"]
-                                .iter()
-                                .filter_map(|key| {
-                                    props
-                                        .get(*key)
-                                        .map(|v| ((*key).to_string(), v.deep_clone()))
-                                })
-                                .collect()
+                            let mut vars = Vec::new();
+                            for key in ["method", "path", "client_ip", "body", "headers"] {
+                                let value = props.get(key).ok_or_else(|| {
+                                    RuntimeError::new(
+                                        format!(
+                                            "Execute file request context is missing '{key}' - pass the request object from 'wait for request'"
+                                        ),
+                                        *line,
+                                        *column,
+                                    )
+                                })?;
+                                let type_ok = match key {
+                                    "headers" => matches!(value, Value::Object(_)),
+                                    _ => matches!(value, Value::Text(_)),
+                                };
+                                if !type_ok {
+                                    return Err(RuntimeError::new(
+                                        format!(
+                                            "Execute file request context field '{key}' must be {}, got {}",
+                                            if key == "headers" {
+                                                "an object"
+                                            } else {
+                                                "text"
+                                            },
+                                            value.type_name()
+                                        ),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
+                                // Deep clone so the executed file cannot mutate the
+                                // parent's request data (e.g. the headers object)
+                                vars.push((key.to_string(), value.deep_clone()));
+                            }
+                            vars
                         }
                         _ => {
                             return Err(RuntimeError::new(

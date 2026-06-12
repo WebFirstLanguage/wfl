@@ -273,6 +273,47 @@ async fn test_execute_file_passes_request_context() {
     );
 }
 
+#[tokio::test]
+async fn test_execute_file_rejects_malformed_request_context() {
+    // Passing an object that is not a request must fail fast at the execute
+    // statement with a clear message, not as undefined variables in the child
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    fs::write(temp_dir.path().join("page.wfl"), "display \"never runs\"\n")
+        .expect("Failed to write page file");
+
+    let main_file = temp_dir.path().join("main.wfl");
+    let source =
+        r#"execute wfl file at "page.wfl" with wrong_object and read output as page_output"#;
+    fs::write(&main_file, source).expect("Failed to write main file");
+
+    let ast = parse_program(source).unwrap_or_else(|e| panic!("Parse failed: {e}"));
+    let mut interpreter = Interpreter::new();
+    interpreter.set_source_file(main_file);
+
+    {
+        let mut props = HashMap::new();
+        props.insert("output".to_string(), Value::Text(Arc::from("hi")));
+        interpreter
+            .global_env()
+            .borrow_mut()
+            .define(
+                "wrong_object",
+                Value::Object(std::rc::Rc::new(std::cell::RefCell::new(props))),
+            )
+            .expect("Failed to define wrong_object");
+    }
+
+    let errors = interpreter
+        .interpret(&ast)
+        .await
+        .expect_err("Expected malformed request context to be rejected");
+    let message = &errors.first().expect("Expected at least one error").message;
+    assert!(
+        message.contains("missing 'method'"),
+        "Error should name the missing request field, got: {message}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Error handling
 // ---------------------------------------------------------------------------
