@@ -389,6 +389,27 @@ async fn test_execute_file_resolves_relative_to_parent_script() {
     );
 }
 
+#[tokio::test]
+async fn test_execute_file_dynamic_path_via_variable() {
+    // A `with` directly after the path always passes request context, so
+    // dynamically chosen pages are built into a variable first (see docs)
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let pages_dir = temp_dir.path().join("pages");
+    fs::create_dir_all(&pages_dir).expect("Failed to create pages directory");
+    fs::write(pages_dir.join("about.wfl"), "display \"about page\"\n")
+        .expect("Failed to write page file");
+
+    let source = concat!(
+        "store page_name as \"about\"\n",
+        "store page_path as \"pages/\" with page_name with \".wfl\"\n",
+        "execute wfl file at page_path and read output as page_output\n",
+    );
+    let (result, interpreter) = run_program_in_dir(&temp_dir, source).await;
+    result.unwrap_or_else(|e| panic!("Interpret failed: {e:?}"));
+
+    assert_eq!(get_global_text(&interpreter, "page_output"), "about page\n");
+}
+
 // ---------------------------------------------------------------------------
 // Pass-through (no capture clause): child output reaches stdout
 // ---------------------------------------------------------------------------
@@ -429,7 +450,7 @@ async fn test_web_server_serves_executed_wfl_page() {
     )
     .expect("Failed to write page file");
 
-    let port = 8123;
+    let port: u16 = 58123;
     let server_file = temp_dir.path().join("server.wfl");
     let server_code = format!(
         concat!(
@@ -458,7 +479,18 @@ async fn test_web_server_serves_executed_wfl_page() {
         });
     });
 
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    // Wait for the server to accept connections. Probe with a raw TCP connect:
+    // an HTTP probe would consume the server's single `wait for request`.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+            Ok(_) => break,
+            Err(_) if std::time::Instant::now() < deadline => {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            Err(e) => panic!("Server did not start listening within 10s: {e}"),
+        }
+    }
 
     let response = reqwest::get(format!("http://127.0.0.1:{port}/welcome"))
         .await

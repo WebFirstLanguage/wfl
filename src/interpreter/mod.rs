@@ -4934,12 +4934,6 @@ impl Interpreter {
                     }
                 };
 
-                // Store the request in a global map for RespondStatement to access
-                {
-                    let mut pending_responses = self.pending_responses.borrow_mut();
-                    pending_responses.insert(request.id.clone(), request.response_sender);
-                }
-
                 // Define individual variables for request properties (more natural for WFL)
                 let mut env_mut = env.borrow_mut();
 
@@ -5012,6 +5006,15 @@ impl Interpreter {
                 }
 
                 drop(env_mut); // Release the borrow
+
+                // Store the request in a global map for RespondStatement to access.
+                // Done only after every define above succeeded: registering earlier
+                // would park the oneshot sender on an error path and leave the HTTP
+                // client hanging instead of failing fast.
+                {
+                    let mut pending_responses = self.pending_responses.borrow_mut();
+                    pending_responses.insert(request.id.clone(), request.response_sender);
+                }
 
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -5419,10 +5422,10 @@ impl Interpreter {
                         .unwrap_or_else(|_| PathBuf::from(&path_str))
                 };
                 let map_io_error = |e: std::io::Error| {
-                    let kind = if e.kind() == std::io::ErrorKind::NotFound {
-                        ErrorKind::FileNotFound
-                    } else {
-                        ErrorKind::General
+                    let kind = match e.kind() {
+                        std::io::ErrorKind::NotFound => ErrorKind::FileNotFound,
+                        std::io::ErrorKind::PermissionDenied => ErrorKind::PermissionDenied,
+                        _ => ErrorKind::General,
                     };
                     RuntimeError::with_kind(
                         format!("Cannot execute wfl file '{path_str}': {e}"),
@@ -5448,10 +5451,14 @@ impl Interpreter {
                     match &request_value {
                         Value::Object(props) => {
                             let props = props.borrow();
+                            // Deep clone so the executed file cannot mutate the
+                            // parent's request data (e.g. the headers object)
                             ["method", "path", "client_ip", "body", "headers"]
                                 .iter()
                                 .filter_map(|key| {
-                                    props.get(*key).map(|v| ((*key).to_string(), v.clone()))
+                                    props
+                                        .get(*key)
+                                        .map(|v| ((*key).to_string(), v.deep_clone()))
                                 })
                                 .collect()
                         }

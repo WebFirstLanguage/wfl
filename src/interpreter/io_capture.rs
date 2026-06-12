@@ -38,17 +38,12 @@ pub(crate) fn push_capture(buffer: Rc<RefCell<String>>) -> CaptureGuard {
 /// Emit one line of program output: to the innermost active capture buffer on
 /// this thread if there is one, otherwise to stdout.
 pub(crate) fn emit_line(line: &str) {
-    let captured = CAPTURE_STACK.with(|stack| {
-        if let Some(buffer) = stack.borrow().last() {
-            let mut buffer = buffer.borrow_mut();
-            buffer.push_str(line);
-            buffer.push('\n');
-            true
-        } else {
-            false
-        }
-    });
-    if !captured {
+    let active_buffer = CAPTURE_STACK.with(|stack| stack.borrow().last().cloned());
+    if let Some(buffer) = active_buffer {
+        let mut buffer = buffer.borrow_mut();
+        buffer.push_str(line);
+        buffer.push('\n');
+    } else {
         println!("{line}");
     }
 }

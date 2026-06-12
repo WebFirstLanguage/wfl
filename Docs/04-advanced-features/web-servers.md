@@ -200,14 +200,14 @@ respond to <request> with <content> and status <code>
 ### With Content Type
 
 ```wfl
-respond to req with "Hello!" and content type "text/plain"
-respond to req with html_content and content type "text/html"
-respond to req with json_data and content type "application/json"
+respond to req with "Hello!" and content_type "text/plain"
+respond to req with html_content and content_type "text/html"
+respond to req with json_data and content_type "application/json"
 ```
 
 **Syntax:**
 ```wfl
-respond to <request> with <content> and content type <type>
+respond to <request> with <content> and content_type <type>
 ```
 
 **Common content types:**
@@ -220,7 +220,7 @@ respond to <request> with <content> and content type <type>
 ### Combined
 
 ```wfl
-respond to req with "Created!" and status 201 and content type "application/json"
+respond to req with "Created!" and status 201 and content_type "application/json"
 ```
 
 ## Routing
@@ -286,13 +286,13 @@ check if path starts with "/static/":
 
             // Determine content type
             check if filepath ends with ".html":
-                respond to req with content and content type "text/html"
+                respond to req with content and content_type "text/html"
             check if filepath ends with ".css":
-                respond to req with content and content type "text/css"
+                respond to req with content and content_type "text/css"
             check if filepath ends with ".js":
-                respond to req with content and content type "application/javascript"
+                respond to req with content and content_type "application/javascript"
             otherwise:
-                respond to req with content and content type "text/plain"
+                respond to req with content and content_type "text/plain"
             end check
         catch:
             respond to req with "Error reading file" and status 500
@@ -359,6 +359,13 @@ execute [wfl] file at <path> [with <request>] [and read output as <variable>]
 - Errors inside the page (a missing file, parse errors, runtime errors) become
   catchable errors in the server, so one broken page cannot crash the server.
 - Pages can execute other pages (for layouts or partials), up to 4 levels deep.
+- A `with` directly after the path always passes request context. To execute a
+  dynamically chosen page, build the path into a variable first:
+
+```wfl
+store page_path as "pages/" with page_name with ".wfl"
+execute wfl file at page_path with req and read output as page_output
+```
 
 ## JSON Responses
 
@@ -375,7 +382,7 @@ check if path is equal to "/api/status":
     \"server\": \"WFL Web Server\",
     \"version\": \"1.0.0\"
 }"
-    respond to req with status_json and content type "application/json"
+    respond to req with status_json and content_type "application/json"
 end check
 ```
 
@@ -389,7 +396,7 @@ store json_response as "{
     \"uptime\": " with uptime with "
 }"
 
-respond to req with json_response and content type "application/json"
+respond to req with json_response and content_type "application/json"
 ```
 
 ## Error Handling
@@ -489,22 +496,22 @@ check if path is equal to "/":
     </ul>
 </body>
 </html>"
-    respond to req with home_html and content type "text/html"
+    respond to req with home_html and content_type "text/html"
 
 check if path is equal to "/hello":
-    respond to req with "Hello from WFL Web Server!" and content type "text/plain"
+    respond to req with "Hello from WFL Web Server!" and content_type "text/plain"
 
 check if path is equal to "/api/status":
     store status_json as "{
     \"status\": \"running\",
     \"requests_handled\": " with request_count with "
 }"
-    respond to req with status_json and content type "application/json"
+    respond to req with status_json and content_type "application/json"
 
 check if path is equal to "/api/time":
     store current as current time in milliseconds
     store time_json as "{\"timestamp\": " with current with "}"
-    respond to req with time_json and content type "application/json"
+    respond to req with time_json and content_type "application/json"
 
 otherwise:
     respond to req with "404 - Not Found" and status 404
@@ -547,7 +554,7 @@ display "Response: " with response
 ```wfl
 check if path is equal to "/api/users":
     store users_json as "{\"users\": [\"Alice\", \"Bob\", \"Carol\"]}"
-    respond to req with users_json and content type "application/json"
+    respond to req with users_json and content_type "application/json"
 end check
 ```
 
@@ -555,7 +562,7 @@ end check
 
 ```wfl
 check if path is equal to "/health":
-    respond to req with "OK" and content type "text/plain"
+    respond to req with "OK" and content_type "text/plain"
 end check
 ```
 
