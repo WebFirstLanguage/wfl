@@ -359,7 +359,9 @@ fn register_parse_form_urlencoded(analyzer: &mut Analyzer) {
 
 fn register_path_params(analyzer: &mut Analyzer) {
     let param_types = vec![Type::Text, Type::Text]; // Request path, route template
-    let return_type = Type::Unknown; // Returns object with captures, or nothing
+    // Returns an object of text captures, or nothing on no match; the map
+    // typing lets `params["id"]` typecheck cleanly.
+    let return_type = Type::Map(Box::new(Type::Text), Box::new(Type::Text));
 
     analyzer.register_builtin_function("path_params", param_types, return_type);
 }

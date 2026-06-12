@@ -76,7 +76,7 @@ mod route_param_tests {
         "#;
         let result = run_wfl_code(code).await.expect("path_params should run");
         assert!(
-            matches!(result, Value::Nothing),
+            matches!(result, Value::Null),
             "Non-matching path should return nothing, got {result:?}"
         );
     }
@@ -88,14 +88,14 @@ mod route_param_tests {
             store result as path_params of "/users" and "/users/:id"
         "#;
         let result = run_wfl_code(code).await.expect("path_params should run");
-        assert!(matches!(result, Value::Nothing));
+        assert!(matches!(result, Value::Null));
 
         // Too many segments
         let code = r#"
             store result as path_params of "/users/1/extra" and "/users/:id"
         "#;
         let result = run_wfl_code(code).await.expect("path_params should run");
-        assert!(matches!(result, Value::Nothing));
+        assert!(matches!(result, Value::Null));
     }
 
     #[tokio::test]
@@ -155,7 +155,7 @@ mod route_param_tests {
             store result as path_params of "/static" and "/static/*filepath"
         "#;
         let result = run_wfl_code(code).await.expect("path_params should run");
-        assert!(matches!(result, Value::Nothing));
+        assert!(matches!(result, Value::Null));
     }
 
     #[tokio::test]
@@ -164,7 +164,7 @@ mod route_param_tests {
             store result as path_params of "/users/42/comments/7" and "/users/:user_id/posts/:post_id"
         "#;
         let result = run_wfl_code(code).await.expect("path_params should run");
-        assert!(matches!(result, Value::Nothing));
+        assert!(matches!(result, Value::Null));
     }
 
     #[tokio::test]

@@ -7627,12 +7627,26 @@ impl Interpreter {
                     }
                 };
 
-                // Get the specific header from the headers object
+                // Get the specific header from the headers object. HTTP
+                // header names are case-insensitive (and warp normalizes
+                // them to lowercase), so fall back to a case-insensitive
+                // scan when the exact key is absent.
                 match &headers_val {
-                    Value::Object(headers_map) => match headers_map.borrow().get(header_name) {
-                        Some(header_value) => Ok(header_value.clone()),
-                        None => Ok(Value::Nothing),
-                    },
+                    Value::Object(headers_map) => {
+                        let map = headers_map.borrow();
+                        let header_value = map.get(header_name).cloned().or_else(|| {
+                            let lowered = header_name.to_lowercase();
+                            map.iter()
+                                .find(|(key, _)| key.to_lowercase() == lowered)
+                                .map(|(_, value)| value.clone())
+                        });
+                        match header_value {
+                            Some(header_value) => Ok(header_value),
+                            // Value::Null is the runtime value of WFL's
+                            // `nothing` literal
+                            None => Ok(Value::Null),
+                        }
+                    }
                     _ => {
                         return Err(RuntimeError::new(
                             format!(

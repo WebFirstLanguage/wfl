@@ -994,12 +994,16 @@ impl TypeChecker {
                     }
                 }
 
+                // Rows are objects keyed by column name; execute results are
+                // {affected_rows, last_insert_id}. Typing them as text-keyed
+                // maps lets downstream indexing typecheck cleanly.
+                let row_type = Type::Map(Box::new(Type::Text), Box::new(Type::Any));
                 if let Some(symbol) = self.analyzer.get_symbol_mut(variable_name) {
                     symbol.symbol_type = Some(match kind {
                         crate::parser::ast::DatabaseQueryKind::Query => {
-                            Type::List(Box::new(Type::Unknown))
+                            Type::List(Box::new(row_type))
                         }
-                        crate::parser::ast::DatabaseQueryKind::Execute => Type::Unknown,
+                        crate::parser::ast::DatabaseQueryKind::Execute => row_type,
                     });
                 }
             }

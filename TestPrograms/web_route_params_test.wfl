@@ -1,0 +1,41 @@
+// CI-SKIP: starts server and waits for requests
+// Route parameter extraction E2E test, driven by scripts/run_web_tests.sh.
+// Also regression-covers the issues from Docs/Archive/FRAMEWORK_FINAL_REPORT.md:
+// try/catch inside the main request loop, request property mutation across
+// requests (request_count), and header access.
+
+display "=== Route Params Web Server Test ==="
+listen on port 8096 as route_server
+store request_count as 0
+display "Server listening on port 8096"
+
+main loop:
+    try:
+        wait for request comes in on route_server as req
+        change request_count to request_count plus 1
+        // `path` is defined automatically when a request arrives
+        store request_path as path
+
+        store user_params as path_params of request_path and "/users/:id"
+        check if user_params is nothing:
+            check if request_path is equal to "/":
+                store ready_text as "Route server ready - request " with request_count
+                respond to req with ready_text and content_type "text/plain"
+            otherwise:
+                check if request_path is equal to "/agent":
+                    store agent as header "User-Agent" of req
+                    store agent_text as "Agent: " with agent
+                    respond to req with agent_text and content_type "text/plain"
+                otherwise:
+                    respond to req with "Not Found" and status 404 and content_type "text/plain"
+                end check
+            end check
+        otherwise:
+            store user_id as user_params["id"]
+            store user_text as "User " with user_id
+            respond to req with user_text and content_type "text/plain"
+        end check
+    when error:
+        display "request handling failed"
+    end try
+end loop

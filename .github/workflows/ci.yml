@@ -112,6 +112,57 @@ jobs:
       - name: Run All Integration Tests
         run: cargo test --test '*' --verbose
 
+  # Database integration tests against live PostgreSQL and MariaDB servers.
+  # SQLite database tests need no services and already run everywhere via
+  # `cargo test`; this job exercises the env-gated PostgreSQL/MariaDB paths.
+  database-tests:
+    name: Database Tests (PostgreSQL + MariaDB)
+    runs-on: ubuntu-latest
+    needs: fmt
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: wfl
+          POSTGRES_PASSWORD: wfl
+          POSTGRES_DB: wfl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wfl"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_USER: wfl
+          MARIADB_PASSWORD: wfl
+          MARIADB_DATABASE: wfl_test
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      WFL_TEST_POSTGRES_URL: postgres://wfl:wfl@localhost:5432/wfl_test
+      WFL_TEST_MYSQL_URL: mysql://wfl:wfl@localhost:3306/wfl_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry and target directory
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: database-tests
+
+      - name: Run Database Tests
+        run: cargo test --test database_test --verbose
+
   # Run WFL test programs to verify the interpreter works correctly
   run-wfl-programs:
     name: Run WFL Programs
@@ -414,7 +465,7 @@ jobs:
   bump-version:
     name: Bump Version
     runs-on: ubuntu-latest
-    needs: [fmt, clippy-and-test, integration-tests, run-wfl-programs]
+    needs: [fmt, clippy-and-test, integration-tests, database-tests, run-wfl-programs]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write

@@ -125,6 +125,79 @@ if (Test-Path "TestPrograms\web_server_test.wfl") {
     }
 }
 
+# Test 3: web_route_params_test.wfl (route parameter extraction)
+if (Test-Path "TestPrograms\web_route_params_test.wfl") {
+    $totalTests++
+    Write-Host ""
+    Write-Host "[INFO] Testing: web_route_params_test.wfl on port 8096" -ForegroundColor Blue
+
+    $routeProcess = Start-Process -FilePath ".\$BinaryPath" -ArgumentList "TestPrograms\web_route_params_test.wfl" -NoNewWindow -PassThru -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
+
+    try {
+        $serverReady = $false
+        $retries = 0
+        $maxRetries = $Timeout * 2
+
+        while (-not $serverReady -and $retries -lt $maxRetries) {
+            Start-Sleep -Milliseconds 500
+            $retries++
+            try {
+                $rootResponse = Invoke-WebRequest -Uri "http://localhost:8096/" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+                if ($rootResponse.Content -like "*Route server ready*") {
+                    $serverReady = $true
+                }
+            } catch {
+                # Server not ready yet
+            }
+        }
+
+        $routeOk = $true
+        if (-not $serverReady) {
+            Write-Host "[ERROR] TIMEOUT: Route params server did not start within ${Timeout}s" -ForegroundColor Red
+            $routeOk = $false
+        } else {
+            # Route parameter extraction: /users/:id
+            $userResponse = Invoke-WebRequest -Uri "http://localhost:8096/users/42" -TimeoutSec 2 -UseBasicParsing
+            if ($userResponse.Content -like "*User 42*") {
+                Write-Host "[SUCCESS] PASS: /users/42 -> '$($userResponse.Content)'" -ForegroundColor Green
+            } else {
+                Write-Host "[ERROR] FAIL: /users/42 returned '$($userResponse.Content)'" -ForegroundColor Red
+                $routeOk = $false
+            }
+
+            # Non-matching route returns 404
+            try {
+                Invoke-WebRequest -Uri "http://localhost:8096/missing" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop | Out-Null
+                Write-Host "[ERROR] FAIL: unknown route did not return 404" -ForegroundColor Red
+                $routeOk = $false
+            } catch {
+                if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) {
+                    Write-Host "[SUCCESS] PASS: unknown route returns 404" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: unknown route error was not a 404" -ForegroundColor Red
+                    $routeOk = $false
+                }
+            }
+
+            # Header access regression
+            $agentResponse = Invoke-WebRequest -Uri "http://localhost:8096/agent" -TimeoutSec 2 -UseBasicParsing -UserAgent "wfl-route-test"
+            if ($agentResponse.Content -like "*wfl-route-test*") {
+                Write-Host "[SUCCESS] PASS: header access echoes User-Agent" -ForegroundColor Green
+            } else {
+                Write-Host "[ERROR] FAIL: /agent returned '$($agentResponse.Content)'" -ForegroundColor Red
+                $routeOk = $false
+            }
+        }
+
+        if ($routeOk) { $passedTests++ }
+    } finally {
+        if (-not $routeProcess.HasExited) {
+            $routeProcess.Kill()
+            Write-Host "[INFO] Server process terminated" -ForegroundColor Gray
+        }
+    }
+}
+
 # Summary
 Write-Host ""
 Write-Host "[INFO] ============================" -ForegroundColor Blue

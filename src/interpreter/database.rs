@@ -210,7 +210,8 @@ pub async fn run_execute(pool: &DbPool, sql: &str, params: &[SqlParam]) -> Resul
         "last_insert_id".to_string(),
         match last_insert_id {
             Some(id) => Value::Number(id as f64),
-            None => Value::Nothing,
+            // Value::Null is the runtime value of WFL's `nothing` literal
+            None => Value::Null,
         },
     );
 
@@ -303,7 +304,9 @@ macro_rules! row_to_value {
                     .map(|raw| raw.is_null())
                     .unwrap_or(true);
                 if is_null {
-                    object.insert(name, Value::Nothing);
+                    // Value::Null is the runtime value of WFL's `nothing`
+                    // literal, so `is nothing` comparisons work on NULLs.
+                    object.insert(name, Value::Null);
                     continue;
                 }
 
@@ -367,7 +370,7 @@ macro_rules! row_to_value {
                         .or_else(|_| $int_fn(row, index))
                         .or_else(|_| row.try_get::<f64, _>(index).map(Value::Number))
                         .or_else(|_| row.try_get::<bool, _>(index).map(Value::Bool))
-                        .unwrap_or(Value::Nothing)
+                        .unwrap_or(Value::Null)
                 };
 
                 object.insert(name, value);

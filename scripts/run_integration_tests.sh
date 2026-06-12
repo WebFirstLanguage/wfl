@@ -80,9 +80,10 @@ run_integration_tests() {
 # Tests that require special handling (web servers, interactive tests)
 # These are tested separately with dedicated scripts
 SKIP_TESTS=(
-    "simple_web_test.wfl"      # Web server - needs HTTP client
-    "web_server_test.wfl"      # Web server - needs HTTP client
-    "websocket_test.wfl"       # WebSocket - needs WS client
+    "simple_web_test.wfl"          # Web server - needs HTTP client
+    "web_server_test.wfl"          # Web server - needs HTTP client
+    "websocket_test.wfl"           # WebSocket - needs WS client
+    "web_route_params_test.wfl"    # Web server - tested via run_web_tests.sh
 )
 
 # Timeout for each test (seconds)

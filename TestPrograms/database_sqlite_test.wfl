@@ -1,0 +1,121 @@
+// End-to-end database test using SQLite (no external services required)
+// Exercises: open database, execute (DDL/INSERT/UPDATE/DELETE with bound
+// parameters), query (SELECT with bound parameters), NULL handling, and
+// close database.
+
+display "=== Database SQLite E2E Test ==="
+
+check if file exists at "wfl_e2e_database_test.db":
+    delete file at "wfl_e2e_database_test.db"
+end check
+
+store failures as 0
+
+open database at "sqlite://wfl_e2e_database_test.db" as db
+
+// 1. Create a table
+store created as execute db with "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)"
+display "Created users table"
+
+// 2. Insert rows with bound parameters
+store insert1 as execute db with "INSERT INTO users (name, age) VALUES (?, ?)" and parameters ["Alice" and 30]
+store insert2 as execute db with "INSERT INTO users (name, age) VALUES (?, ?)" and parameters ["Bob" and 25]
+
+check if insert1["affected_rows"] is equal to 1:
+    display "✓ Insert affected 1 row"
+otherwise:
+    display "✗ FAILED: insert affected_rows wrong"
+    add 1 to failures
+end check
+
+check if insert2["last_insert_id"] is equal to 2:
+    display "✓ last_insert_id is 2"
+otherwise:
+    display "✗ FAILED: last_insert_id wrong"
+    add 1 to failures
+end check
+
+// 3. Query with a bound parameter
+store adults as query db with "SELECT id, name, age FROM users WHERE age > ? ORDER BY id" and parameters [26]
+store adult_count as length of adults
+check if adult_count is equal to 1:
+    display "✓ Parameterized SELECT returned 1 row"
+otherwise:
+    display "✗ FAILED: expected 1 row, got " with adult_count
+    add 1 to failures
+end check
+
+store first_adult as adults[0]
+check if first_adult["name"] is equal to "Alice":
+    display "✓ Row field access works: " with first_adult["name"]
+otherwise:
+    display "✗ FAILED: wrong name in row"
+    add 1 to failures
+end check
+
+// 4. SQL injection attempt stays inert as a bound value
+store evil as "x'; DROP TABLE users;--"
+store evil_insert as execute db with "INSERT INTO users (name, age) VALUES (?, ?)" and parameters [evil and 99]
+store user_rows as query db with "SELECT count(*) AS n FROM users"
+store row0 as user_rows[0]
+check if row0["n"] is equal to 3:
+    display "✓ Bound parameters resist injection"
+otherwise:
+    display "✗ FAILED: users table damaged or wrong count"
+    add 1 to failures
+end check
+
+// 5. UPDATE reports affected rows
+store updated as execute db with "UPDATE users SET age = age + 1"
+check if updated["affected_rows"] is equal to 3:
+    display "✓ UPDATE affected 3 rows"
+otherwise:
+    display "✗ FAILED: update affected_rows wrong"
+    add 1 to failures
+end check
+
+// 6. NULL maps to nothing
+store null_insert as execute db with "INSERT INTO users (name, age) VALUES (?, NULL)" and parameters ["Ghost"]
+store ghost_rows as query db with "SELECT age FROM users WHERE name = ?" and parameters ["Ghost"]
+store ghost as ghost_rows[0]
+check if ghost["age"] is nothing:
+    display "✓ SQL NULL maps to nothing"
+otherwise:
+    display "✗ FAILED: NULL did not map to nothing"
+    add 1 to failures
+end check
+
+// 7. DELETE and verify
+store deleted as execute db with "DELETE FROM users WHERE name = ?" and parameters ["Ghost"]
+check if deleted["affected_rows"] is equal to 1:
+    display "✓ DELETE affected 1 row"
+otherwise:
+    display "✗ FAILED: delete affected_rows wrong"
+    add 1 to failures
+end check
+
+// 8. Errors are catchable
+store error_caught as "no"
+try:
+    store broken as query db with "SELEKT * FROM nowhere"
+when error:
+    change error_caught to "yes"
+end try
+check if error_caught is equal to "yes":
+    display "✓ Malformed SQL raises a catchable error"
+otherwise:
+    display "✗ FAILED: malformed SQL did not raise an error"
+    add 1 to failures
+end check
+
+close database db
+delete file at "wfl_e2e_database_test.db"
+display "Database closed and file cleaned up"
+
+check if failures is equal to 0:
+    display "=== All database tests passed ==="
+otherwise:
+    display "=== DATABASE TESTS FAILED: " with failures with " failure(s) ==="
+    // Force a nonzero exit so CI catches the failure
+    open database at "invalid://intentional-failure" as crash
+end check

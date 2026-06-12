@@ -780,6 +780,20 @@ impl Analyzer {
                             self.errors.push(error);
                         }
                     }
+                    Statement::OpenDatabaseStatement { variable_name, .. }
+                    | Statement::DatabaseQueryStatement { variable_name, .. } => {
+                        let symbol = Symbol {
+                            name: variable_name.clone(),
+                            kind: SymbolKind::Variable { mutable: true },
+                            symbol_type: None, // Database handle or query result
+                            line: *line,
+                            column: *column,
+                        };
+
+                        if let Err(error) = self.current_scope.define(symbol) {
+                            self.errors.push(error);
+                        }
+                    }
                     _ => {}
                 }
 
@@ -885,6 +899,51 @@ impl Analyzer {
                 if let Err(error) = self.current_scope.define(symbol) {
                     self.errors.push(error);
                 }
+            }
+            Statement::OpenDatabaseStatement {
+                url, variable_name, ..
+            } => {
+                self.analyze_expression(url);
+
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: None, // Database handle type
+                    line: 0,
+                    column: 0,
+                };
+
+                if let Err(error) = self.current_scope.define(symbol) {
+                    self.errors.push(error);
+                }
+            }
+            Statement::DatabaseQueryStatement {
+                db,
+                sql,
+                parameters,
+                variable_name,
+                ..
+            } => {
+                self.analyze_expression(db);
+                self.analyze_expression(sql);
+                if let Some(params) = parameters {
+                    self.analyze_expression(params);
+                }
+
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: None, // Query result type
+                    line: 0,
+                    column: 0,
+                };
+
+                if let Err(error) = self.current_scope.define(symbol) {
+                    self.errors.push(error);
+                }
+            }
+            Statement::CloseDatabaseStatement { db, .. } => {
+                self.analyze_expression(db);
             }
             Statement::HttpGetStatement { variable_name, .. } => {
                 let symbol = Symbol {

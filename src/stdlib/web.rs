@@ -73,7 +73,9 @@ pub fn native_path_params(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     match match_path_template(&path, &template) {
         Some(captures) => Ok(Value::Object(Rc::new(RefCell::new(captures)))),
-        None => Ok(Value::Nothing),
+        // Value::Null is the runtime value of WFL's `nothing` literal, so
+        // `check if params is nothing` works on a failed match.
+        None => Ok(Value::Null),
     }
 }
 

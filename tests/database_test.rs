@@ -142,7 +142,7 @@ close database db
         let rows = expect_list(&get_global(&interpreter, "rows"));
         let y = expect_object_key(&rows[0], "y");
         assert!(
-            matches!(y, Value::Nothing),
+            matches!(y, Value::Null),
             "SQL NULL should map to nothing, got {y:?}"
         );
     }
