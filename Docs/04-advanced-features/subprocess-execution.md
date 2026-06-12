@@ -105,6 +105,23 @@ wait for read output from process proc as output_data
 display "Output: " with output_data
 ```
 
+## Executing WFL Files In-Process
+
+`execute command` starts a separate program. To run another **WFL file**
+inside the current program — without spawning a process — use `execute file`:
+
+```wfl
+execute wfl file at "report.wfl" and read output as report_output
+display "Captured: " with report_output
+```
+
+The file runs in a fresh, isolated environment with the full standard
+library. With `and read output as`, everything it displays is captured into a
+text variable instead of printed. Errors in the executed file are catchable
+with `try`. This powers dynamic web pages — see
+[Web Servers](web-servers.md#serving-dynamic-wfl-pages) for passing HTTP
+request context with `with <request>`.
+
 ## Error Handling
 
 Always handle subprocess errors:

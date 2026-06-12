@@ -7,6 +7,7 @@ use crate::parser::expr::{ExprParser, PrimaryExprParser};
 
 pub(crate) trait ProcessParser<'a>: ExprParser<'a> {
     fn parse_execute_command_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_execute_file_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_spawn_process_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_kill_process_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_read_process_output_statement(&mut self) -> Result<Statement, ParseError>;
@@ -71,6 +72,66 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
             arguments,
             variable_name,
             use_shell,
+            line: token_pos.line,
+            column: token_pos.column,
+        })
+    }
+
+    // execute [wfl] file at <path> [with <request>] [and read output as <variable>]
+    fn parse_execute_file_statement(&mut self) -> Result<Statement, ParseError> {
+        let token_pos = self.bump_sync().unwrap(); // Consume "execute"
+
+        // Optional "wfl" qualifier
+        if let Some(token) = self.cursor.peek()
+            && matches!(&token.token, Token::Identifier(name) if name == "wfl")
+        {
+            self.bump_sync(); // Consume "wfl"
+        }
+
+        self.expect_token(Token::KeywordFile, "Expected 'file' after 'execute'")?;
+        self.expect_token(Token::KeywordAt, "Expected 'at' after 'execute file'")?;
+
+        let path = self.parse_primary_expression()?;
+
+        // Optional "with <request>" passes HTTP request context to the file
+        let request = if let Some(token) = self.cursor.peek()
+            && matches!(&token.token, Token::KeywordWith)
+        {
+            self.bump_sync(); // Consume "with"
+            Some(self.parse_primary_expression()?)
+        } else {
+            None
+        };
+
+        // Optional "and read output as <variable>" captures the file's display output
+        let variable_name = if let Some(token) = self.cursor.peek()
+            && matches!(&token.token, Token::KeywordAnd)
+        {
+            self.bump_sync(); // Consume "and"
+            self.expect_token(Token::KeywordRead, "Expected 'read' after 'and'")?;
+            self.expect_token(Token::KeywordOutput, "Expected 'output' after 'read'")?;
+            self.expect_token(Token::KeywordAs, "Expected 'as' after 'read output'")?;
+
+            let var_token = self.bump_sync().ok_or_else(|| {
+                ParseError::from_token("Expected identifier after 'as'".to_string(), token_pos)
+            })?;
+
+            if let Token::Identifier(name) = &var_token.token {
+                Some(name.clone())
+            } else {
+                return Err(ParseError::from_token(
+                    format!("Expected identifier, found {:?}", var_token.token),
+                    var_token,
+                ));
+            }
+        } else {
+            None
+        };
+
+        Ok(Statement::ExecuteFileStatement {
+            path,
+            request,
+            variable_name,
             line: token_pos.line,
             column: token_pos.column,
         })

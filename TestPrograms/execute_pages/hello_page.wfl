@@ -1,0 +1,4 @@
+// A simple page executed by the execute file statement.
+// Its display output is captured and served/checked by the parent program.
+display "Hello from an executed WFL page!"
+display "This output was captured by the parent program."

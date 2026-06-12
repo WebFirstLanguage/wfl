@@ -4,6 +4,16 @@ All notable changes to the WFL project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project uses a calendar-based versioning scheme: **YY.MM.BUILD**.
 
+## [Unreleased]
+
+### Added
+- New `execute file` statement for running WFL files in-process: `execute [wfl] file at <path> [with <request>] [and read output as <variable>]`
+- Web servers can now serve dynamic WFL pages PHP-style: execute a `.wfl` file per request, pass it the HTTP request context (`method`, `path`, `client_ip`, `body`, `headers`), capture its display output, and respond with it
+- Output capture mechanism (`display`/`print` redirection) for nested interpreter runs, with correct nesting semantics
+- Request objects from `wait for request` now carry `method`, `path`, `client_ip`, `body` and `headers` properties (in addition to the existing standalone variables)
+- Errors in executed files (missing file, parse errors, runtime errors) are catchable in the parent with `try`/`when`, including `when file not found`
+- Nesting depth guard (4 levels) protects against a file that executes itself
+
 ## [25.9.1] - 2025-09-20
 
 ### Added

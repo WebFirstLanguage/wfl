@@ -5,13 +5,14 @@ use crate::interpreter::value::Value;
 use std::sync::Arc;
 
 pub fn native_print(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    let mut line = String::new();
     for (i, arg) in args.iter().enumerate() {
         if i > 0 {
-            print!(" ");
+            line.push(' ');
         }
-        print!("{arg}");
+        line.push_str(&arg.to_string());
     }
-    println!();
+    crate::interpreter::io_capture::emit_line(&line);
     Ok(Value::Null)
 }
 

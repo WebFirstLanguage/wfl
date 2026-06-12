@@ -5,6 +5,7 @@ pub mod command_sanitizer;
 pub mod control_flow;
 pub mod environment;
 pub mod error;
+pub(crate) mod io_capture;
 #[cfg(test)]
 mod memory_tests;
 #[cfg(test)]
@@ -199,6 +200,13 @@ fn stmt_type(stmt: &Statement) -> String {
                 "ExecuteCommandStatement".to_string()
             }
         }
+        Statement::ExecuteFileStatement { variable_name, .. } => {
+            if let Some(var) = variable_name {
+                format!("ExecuteFileStatement '{var}'")
+            } else {
+                "ExecuteFileStatement".to_string()
+            }
+        }
         Statement::SpawnProcessStatement { variable_name, .. } => {
             format!("SpawnProcessStatement '{variable_name}'")
         }
@@ -344,6 +352,13 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 // use self::value::FutureValue;
 
+/// Maximum nesting depth for `execute file` runs, guarding against a file
+/// that (directly or indirectly) executes itself. Kept small because each
+/// nesting level polls through the full interpreter recursively, so deep
+/// nesting would exhaust the thread stack (debug builds overflow near a
+/// depth of 8) before a larger guard could fire.
+const MAX_EXECUTE_FILE_DEPTH: usize = 4;
+
 pub struct Interpreter {
     global_env: Rc<RefCell<Environment>>,
     current_count: RefCell<Option<f64>>,
@@ -363,6 +378,7 @@ pub struct Interpreter {
     config: Arc<WflConfig>, // Configuration for security and other settings
     current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
     loading_stack: RefCell<Vec<PathBuf>>, // Stack of currently loading files (for circular dependency detection)
+    execute_depth: usize, // Nesting depth of `execute file` runs (guards against circular execution)
     // Test execution state
     test_mode: RefCell<bool>,
     test_results: RefCell<TestResults>,
@@ -1300,6 +1316,7 @@ impl Interpreter {
             config,
             current_source_file: RefCell::new(None), // No source file initially
             loading_stack: RefCell::new(Vec::new()), // Empty loading stack
+            execute_depth: 0,
             // Test execution state
             test_mode: RefCell::new(false),
             test_results: RefCell::new(TestResults::default()),
@@ -1698,13 +1715,14 @@ impl Interpreter {
     }
 
     fn native_display(args: Vec<Value>) -> Result<Value, RuntimeError> {
+        let mut line = String::new();
         for (i, arg) in args.iter().enumerate() {
             if i > 0 {
-                print!(" ");
+                line.push(' ');
             }
-            print!("{arg}");
+            line.push_str(&arg.to_string());
         }
-        println!();
+        io_capture::emit_line(&line);
         Ok(Value::Null)
     }
 
@@ -1997,6 +2015,7 @@ impl Interpreter {
             Statement::StopAcceptingConnectionsStatement { line, column, .. } => (*line, *column),
             Statement::CloseServerStatement { line, column, .. } => (*line, *column),
             Statement::ExecuteCommandStatement { line, column, .. } => (*line, *column),
+            Statement::ExecuteFileStatement { line, column, .. } => (*line, *column),
             Statement::SpawnProcessStatement { line, column, .. } => (*line, *column),
             Statement::ReadProcessOutputStatement { line, column, .. } => (*line, *column),
             Statement::KillProcessStatement { line, column, .. } => (*line, *column),
@@ -2110,7 +2129,7 @@ impl Interpreter {
                 column: _column,
             } => {
                 let value = self.evaluate_expression(value, Rc::clone(&env)).await?;
-                println!("{value}");
+                io_capture::emit_line(&value.to_string());
                 Ok((Value::Null, ControlFlow::None))
             }
 
@@ -4915,21 +4934,41 @@ impl Interpreter {
                     }
                 };
 
-                // Store the request in a global map for RespondStatement to access
-                {
-                    let mut pending_responses = self.pending_responses.borrow_mut();
-                    pending_responses.insert(request.id.clone(), request.response_sender);
-                }
-
                 // Define individual variables for request properties (more natural for WFL)
                 let mut env_mut = env.borrow_mut();
 
-                // Define the main request variable (for use in respond statements)
+                // Convert headers to a WFL object (shared by the request object and
+                // the standalone headers variable defined below)
+                let mut headers_map = HashMap::new();
+                for (key, value) in request.headers.iter() {
+                    headers_map.insert(key.clone(), Value::Text(Arc::from(value.clone())));
+                }
+                let headers_object = Value::Object(Rc::new(RefCell::new(headers_map)));
+
+                // Define the main request variable (for use in respond statements and
+                // as request context for `execute file ... with <request>`)
                 let mut request_properties = HashMap::new();
                 request_properties.insert(
                     "_response_sender".to_string(),
                     Value::Text(Arc::from(request.id.clone())),
                 );
+                request_properties.insert(
+                    "method".to_string(),
+                    Value::Text(Arc::from(request.method.clone())),
+                );
+                request_properties.insert(
+                    "path".to_string(),
+                    Value::Text(Arc::from(request.path.clone())),
+                );
+                request_properties.insert(
+                    "client_ip".to_string(),
+                    Value::Text(Arc::from(request.client_ip.clone())),
+                );
+                request_properties.insert(
+                    "body".to_string(),
+                    Value::Text(Arc::from(request.body.clone())),
+                );
+                request_properties.insert("headers".to_string(), headers_object.clone());
                 let request_object = Value::Object(Rc::new(RefCell::new(request_properties)));
 
                 match env_mut.define(request_name, request_object) {
@@ -4961,19 +5000,21 @@ impl Interpreter {
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
-                // Convert headers to WFL object and define as headers variable
-                let mut headers_map = HashMap::new();
-                for (key, value) in request.headers.iter() {
-                    headers_map.insert(key.clone(), Value::Text(Arc::from(value.clone())));
-                }
-                let headers_object = Value::Object(Rc::new(RefCell::new(headers_map)));
-
                 match env_mut.define("headers", headers_object) {
                     Ok(_) => {}
                     Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
                 }
 
                 drop(env_mut); // Release the borrow
+
+                // Store the request in a global map for RespondStatement to access.
+                // Done only after every define above succeeded: registering earlier
+                // would park the oneshot sender on an error path and leave the HTTP
+                // client hanging instead of failing fast.
+                {
+                    let mut pending_responses = self.pending_responses.borrow_mut();
+                    pending_responses.insert(request.id.clone(), request.response_sender);
+                }
 
                 Ok((Value::Null, ControlFlow::None))
             }
@@ -5328,6 +5369,245 @@ impl Interpreter {
                 if let Some(var_name) = variable_name {
                     env.borrow_mut()
                         .define(var_name, result_obj)
+                        .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                }
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::ExecuteFileStatement {
+                path,
+                request,
+                variable_name,
+                line,
+                column,
+            } => {
+                // Guard against a file that (directly or indirectly) executes itself
+                if self.execute_depth >= MAX_EXECUTE_FILE_DEPTH {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Maximum execute file nesting depth ({MAX_EXECUTE_FILE_DEPTH}) exceeded - possible circular execution"
+                        ),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                // Evaluate path expression to string
+                let path_value = self.evaluate_expression(path, Rc::clone(&env)).await?;
+                let path_str: String = match &path_value {
+                    Value::Text(s) => s.to_string(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Execute file path must be text, got {}",
+                                path_value.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                // Resolve relative to the current script's directory (like load module),
+                // mapping a missing file to FileNotFound so `when file not found` works
+                let opt_source = self.current_source_file.borrow().as_ref().cloned();
+                let joined = if let Some(source_path) = opt_source {
+                    source_path
+                        .parent()
+                        .map(|dir| dir.join(&path_str))
+                        .unwrap_or_else(|| PathBuf::from(&path_str))
+                } else {
+                    let cwd = std::env::current_dir().map_err(|e| {
+                        RuntimeError::new(
+                            format!("Cannot determine current directory: {e}"),
+                            *line,
+                            *column,
+                        )
+                    })?;
+                    cwd.join(&path_str)
+                };
+                let map_io_error = |e: std::io::Error| {
+                    let kind = match e.kind() {
+                        std::io::ErrorKind::NotFound => ErrorKind::FileNotFound,
+                        std::io::ErrorKind::PermissionDenied => ErrorKind::PermissionDenied,
+                        _ => ErrorKind::General,
+                    };
+                    RuntimeError::with_kind(
+                        format!("Cannot execute wfl file '{path_str}': {e}"),
+                        *line,
+                        *column,
+                        kind,
+                    )
+                };
+                let resolved_path = tokio::fs::canonicalize(&joined)
+                    .await
+                    .map_err(map_io_error)?;
+                let content = tokio::fs::read_to_string(&resolved_path)
+                    .await
+                    .map_err(map_io_error)?;
+
+                // Evaluate the optional request context and extract the variables
+                // that `wait for request` defines, so the executed file sees the
+                // same names. Validate the shape upfront so a wrong object fails
+                // here with a clear message instead of as confusing undefined
+                // variable errors inside the executed file.
+                let request_vars: Vec<(String, Value)> = if let Some(request_expr) = request {
+                    let request_value = self
+                        .evaluate_expression(request_expr, Rc::clone(&env))
+                        .await?;
+                    match &request_value {
+                        Value::Object(props) => {
+                            let props = props.borrow();
+                            let mut vars = Vec::new();
+                            for key in ["method", "path", "client_ip", "body", "headers"] {
+                                let value = props.get(key).ok_or_else(|| {
+                                    RuntimeError::new(
+                                        format!(
+                                            "Execute file request context is missing '{key}' - pass the request object from 'wait for request'"
+                                        ),
+                                        *line,
+                                        *column,
+                                    )
+                                })?;
+                                let type_ok = match key {
+                                    "headers" => matches!(value, Value::Object(_)),
+                                    _ => matches!(value, Value::Text(_)),
+                                };
+                                if !type_ok {
+                                    return Err(RuntimeError::new(
+                                        format!(
+                                            "Execute file request context field '{key}' must be {}, got {}",
+                                            if key == "headers" {
+                                                "an object"
+                                            } else {
+                                                "text"
+                                            },
+                                            value.type_name()
+                                        ),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
+                                // Deep clone so the executed file cannot mutate the
+                                // parent's request data (e.g. the headers object)
+                                vars.push((key.to_string(), value.deep_clone()));
+                            }
+                            vars
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Execute file request context must be a request object, got {}",
+                                    request_value.type_name()
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                } else {
+                    Vec::new()
+                };
+
+                // Parse the file; errors are catchable in the parent
+                use crate::lexer::lex_wfl_with_positions;
+                use crate::parser::Parser;
+
+                let tokens = lex_wfl_with_positions(&content);
+                let mut parser = Parser::new(&tokens);
+                let program = parser.parse().map_err(|errors| {
+                    let first_error = errors.first();
+                    RuntimeError::new(
+                        format!(
+                            "Parse error in executed file '{}' (line {}, column {}): {}",
+                            resolved_path.display(),
+                            first_error.map(|e| e.line).unwrap_or(1),
+                            first_error.map(|e| e.column).unwrap_or(1),
+                            first_error.map(|e| e.message.as_str()).unwrap_or("unknown")
+                        ),
+                        *line,
+                        *column,
+                    )
+                })?;
+
+                // Analyze semantics, seeding the injected request variable names.
+                // The type checker is intentionally skipped: main.rs treats type
+                // errors as warnings only, so a hard gate here would reject files
+                // that run fine standalone.
+                use crate::analyzer::Analyzer;
+
+                let mut seeded_vars: HashMap<String, (crate::parser::ast::Type, bool)> =
+                    HashMap::new();
+                for (name, value) in &request_vars {
+                    seeded_vars.insert(name.clone(), (Self::infer_type_from_value(value), true));
+                }
+                let mut analyzer = Analyzer::with_parent_variables(seeded_vars);
+                if let Err(errors) = analyzer.analyze(&program) {
+                    let first_error = errors.first();
+                    return Err(RuntimeError::new(
+                        format!(
+                            "Semantic error in executed file '{}': {}",
+                            resolved_path.display(),
+                            first_error.map(|e| e.to_string()).unwrap_or_default()
+                        ),
+                        *line,
+                        *column,
+                    ));
+                }
+
+                // Run the file in a fresh nested interpreter (own global env and
+                // stdlib, inherits the parent's config) with request context injected
+                let mut child = Interpreter::with_config(Arc::clone(&self.config));
+                child.set_source_file(resolved_path.clone());
+                child.execute_depth = self.execute_depth + 1;
+
+                {
+                    let mut child_env = child.global_env().borrow_mut();
+                    for (name, value) in request_vars {
+                        if let Err(msg) = child_env.define(&name, value) {
+                            return Err(RuntimeError::new(msg, *line, *column));
+                        }
+                    }
+                }
+
+                // With an output clause, capture the child's display/print output;
+                // without one, child output flows to the current sink (stdout, or
+                // the parent's own capture buffer if the parent is being captured)
+                let capture_buffer = variable_name
+                    .as_ref()
+                    .map(|_| Rc::new(RefCell::new(String::new())));
+                let run_result = {
+                    let _guard = capture_buffer
+                        .as_ref()
+                        .map(|buffer| io_capture::push_capture(Rc::clone(buffer)));
+                    // Box::pin breaks the recursive future (this statement awaits a
+                    // full nested interpret), keeping the future finitely sized
+                    Box::pin(child.interpret(&program)).await
+                };
+
+                if let Err(errors) = run_result {
+                    let first = errors.into_iter().next().unwrap_or_else(|| {
+                        RuntimeError::new("unknown error".to_string(), *line, *column)
+                    });
+                    // Position the error at the parent's execute statement, keep the
+                    // child's error kind so typed `when` clauses still match
+                    return Err(RuntimeError::with_kind(
+                        format!(
+                            "Error in executed file '{}' (line {}): {}",
+                            resolved_path.display(),
+                            first.line,
+                            first.message
+                        ),
+                        *line,
+                        *column,
+                        first.kind,
+                    ));
+                }
+
+                if let (Some(var_name), Some(buffer)) = (variable_name, capture_buffer) {
+                    let output = buffer.borrow();
+                    env.borrow_mut()
+                        .define(var_name, Value::Text(Arc::from(output.as_str())))
                         .map_err(|e| RuntimeError::new(e, *line, *column))?;
                 }
 

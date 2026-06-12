@@ -1,0 +1,9 @@
+// CI-SKIP: page fragment requiring request context, executed by execute_wfl_file tests
+// A dynamic page that uses the HTTP request context passed by the parent
+// via: execute wfl file at "..." with incoming_request and read output as ...
+// The request variables method, path, body, client_ip and headers are
+// predefined here, exactly like after "wait for request comes in".
+display "<h1>Dynamic WFL Page</h1>"
+display "<p>Method: " with method with "</p>"
+display "<p>Path: " with path with "</p>"
+display "<p>Client: " with client_ip with "</p>"

@@ -278,6 +278,16 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    /// execute [wfl] file at <path> [with <request>] [and read output as <variable>]
+    /// Runs another WFL file in-process with a nested interpreter, optionally
+    /// passing HTTP request context and capturing its display output.
+    ExecuteFileStatement {
+        path: Expression,
+        request: Option<Expression>,
+        variable_name: Option<String>,
+        line: usize,
+        column: usize,
+    },
     SpawnProcessStatement {
         command: Expression,
         arguments: Option<Expression>,

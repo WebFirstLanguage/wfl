@@ -1452,6 +1452,34 @@ impl Analyzer {
                 }
             }
 
+            Statement::ExecuteFileStatement {
+                path,
+                request,
+                variable_name,
+                line,
+                column,
+            } => {
+                self.analyze_expression(path);
+                if let Some(request_expr) = request {
+                    self.analyze_expression(request_expr);
+                }
+
+                if let Some(var_name) = variable_name {
+                    let symbol = Symbol {
+                        name: var_name.clone(),
+                        kind: SymbolKind::Variable { mutable: true },
+                        // Captured display output of the executed file
+                        symbol_type: Some(Type::Text),
+                        line: *line,
+                        column: *column,
+                    };
+
+                    if let Err(error) = self.current_scope.define(symbol) {
+                        self.errors.push(error);
+                    }
+                }
+            }
+
             Statement::SpawnProcessStatement {
                 command,
                 arguments,
