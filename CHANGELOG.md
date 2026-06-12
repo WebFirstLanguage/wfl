@@ -21,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Parameters always bind through the database driver (never string interpolation), so SQL injection via values is not possible; placeholders are driver-native (`?` for SQLite/MariaDB, `$1` for PostgreSQL)
   - Type-aware decoding: integers/floats/decimals → number, `NULL` → `nothing`, `BOOLEAN` → boolean, `BLOB`/`BYTEA` → binary, `DATE`/`TIME`/`TIMESTAMP` → date/time/datetime
   - Database errors are catchable with `try`/`when error`
-  - Note: `store <name> as query <handle> with ...` and `store <name> as execute <handle> with ...` are now reserved statement shapes; a multi-word variable whose name starts with `query ` followed by a `with` concatenation would previously have parsed as an expression
+  - Note: `store <name> as query <handle> with ...` and `store <name> as execute <handle> with ...` are now reserved statement shapes; a multi-word variable whose name starts with the word `query`, followed by a `with` concatenation, would previously have parsed as an expression
 - Web route parameter helpers in the standard library:
   - `path_params of <path> and "<template>"` extracts `:name` segment captures (plus trailing `*name` wildcards) as an object, or returns `nothing` on no match; captures are percent-decoded and query strings are ignored
   - `path_matches of <path> and "<template>"` returns a boolean for routing conditionals

@@ -2808,12 +2808,17 @@ impl Interpreter {
 
                 match self.io_client.open_database(&url_str).await {
                     Ok(handle) => {
-                        match env
+                        let define_result = env
                             .borrow_mut()
-                            .define(variable_name, Value::Text(handle.into()))
-                        {
+                            .define(variable_name, Value::Text(handle.as_str().into()));
+                        match define_result {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
-                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                            Err(msg) => {
+                                // Don't leave an unreachable pool behind when
+                                // the variable binding fails.
+                                let _ = self.io_client.close_database(&handle).await;
+                                Err(RuntimeError::new(msg, *line, *column))
+                            }
                         }
                     }
                     Err(e) => Err(RuntimeError::new(e, *line, *column)),

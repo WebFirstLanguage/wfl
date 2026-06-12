@@ -430,8 +430,8 @@ words rather than new keywords:
 - `store <name> as query <handle> with <sql> ...` — a value expression
   beginning with `query <identifier>` directly followed by `with` is parsed as
   a database query. A plain variable named `query` still works
-  (`store copy as query`), but avoid multi-word variable names starting with
-  `query `.
+  (`store copy as query`), but avoid multi-word variable names whose first
+  word is `query`.
 - `store <name> as execute <handle> with <sql> ...` — same shape with the
   `execute` keyword.
 

@@ -747,56 +747,17 @@ impl Analyzer {
             Statement::ReturnStatement { value: None, .. } => {}
             Statement::WaitForStatement {
                 inner,
-                line,
-                column,
+                line: _line,
+                column: _column,
             } => {
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
-                match &**inner {
-                    Statement::ReadFileStatement { variable_name, .. } => {
-                        let symbol = Symbol {
-                            name: variable_name.clone(),
-                            kind: SymbolKind::Variable { mutable: true },
-                            symbol_type: Some(Type::Text), // File content is always text
-                            line: *line,
-                            column: *column,
-                        };
-
-                        if let Err(error) = self.current_scope.define(symbol) {
-                            self.errors.push(error);
-                        }
-                    }
-                    Statement::OpenFileStatement { variable_name, .. } => {
-                        let symbol = Symbol {
-                            name: variable_name.clone(),
-                            kind: SymbolKind::Variable { mutable: true },
-                            symbol_type: None, // File handle type
-                            line: *line,
-                            column: *column,
-                        };
-
-                        if let Err(error) = self.current_scope.define(symbol) {
-                            self.errors.push(error);
-                        }
-                    }
-                    Statement::OpenDatabaseStatement { variable_name, .. }
-                    | Statement::DatabaseQueryStatement { variable_name, .. } => {
-                        let symbol = Symbol {
-                            name: variable_name.clone(),
-                            kind: SymbolKind::Variable { mutable: true },
-                            symbol_type: None, // Database handle or query result
-                            line: *line,
-                            column: *column,
-                        };
-
-                        if let Err(error) = self.current_scope.define(symbol) {
-                            self.errors.push(error);
-                        }
-                    }
-                    _ => {}
-                }
-
+                // The inner statement's own analysis defines any variables it
+                // introduces (file handles, read content, database handles,
+                // query results); pre-defining them here would make
+                // Scope::define report a duplicate. The wait-scope merge
+                // below hoists them into the parent scope.
                 self.analyze_statement(inner);
 
                 let wait_scope = std::mem::take(&mut self.current_scope);
@@ -901,7 +862,10 @@ impl Analyzer {
                 }
             }
             Statement::OpenDatabaseStatement {
-                url, variable_name, ..
+                url,
+                variable_name,
+                line,
+                column,
             } => {
                 self.analyze_expression(url);
 
@@ -909,8 +873,8 @@ impl Analyzer {
                     name: variable_name.clone(),
                     kind: SymbolKind::Variable { mutable: true },
                     symbol_type: None, // Database handle type
-                    line: 0,
-                    column: 0,
+                    line: *line,
+                    column: *column,
                 };
 
                 if let Err(error) = self.current_scope.define(symbol) {
@@ -922,6 +886,8 @@ impl Analyzer {
                 sql,
                 parameters,
                 variable_name,
+                line,
+                column,
                 ..
             } => {
                 self.analyze_expression(db);
@@ -934,8 +900,8 @@ impl Analyzer {
                     name: variable_name.clone(),
                     kind: SymbolKind::Variable { mutable: true },
                     symbol_type: None, // Query result type
-                    line: 0,
-                    column: 0,
+                    line: *line,
+                    column: *column,
                 };
 
                 if let Err(error) = self.current_scope.define(symbol) {

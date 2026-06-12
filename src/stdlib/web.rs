@@ -20,6 +20,12 @@ use std::sync::Arc;
 ///
 /// Returns `Some(captures)` on a match (empty map for parameterless templates),
 /// `None` otherwise.
+///
+/// Security: captured values are percent-decoded but otherwise untrusted —
+/// they can contain `..`, `.`, or (after decoding) path separators. Callers
+/// must validate captures before using them in filesystem paths, e.g. reject
+/// segments containing `..` or verify the resolved path stays inside an
+/// allowed base directory.
 fn match_path_template(path: &str, template: &str) -> Option<HashMap<String, Value>> {
     let path = path.split(['?', '#']).next().unwrap_or("");
 

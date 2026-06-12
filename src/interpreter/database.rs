@@ -49,8 +49,16 @@ pub enum SqlParam {
 pub fn value_to_sql_param(value: &Value) -> Result<SqlParam, String> {
     match value {
         // Whole numbers bind as integers so strict backends (PostgreSQL)
-        // accept them in integer columns.
-        Value::Number(n) if n.fract() == 0.0 && n.is_finite() => Ok(SqlParam::Int(*n as i64)),
+        // accept them in integer columns. Magnitudes beyond i64 range would
+        // saturate in the cast, so they fall through to float binding.
+        Value::Number(n)
+            if n.fract() == 0.0
+                && n.is_finite()
+                && *n >= i64::MIN as f64
+                && *n <= i64::MAX as f64 =>
+        {
+            Ok(SqlParam::Int(*n as i64))
+        }
         Value::Number(n) => Ok(SqlParam::Float(*n)),
         Value::Text(t) => Ok(SqlParam::Text(t.to_string())),
         Value::Bool(b) => Ok(SqlParam::Bool(*b)),
@@ -388,3 +396,53 @@ fn decode_error(column: &str, type_name: &str, error: sqlx::Error) -> String {
 row_to_value!(sqlite_row_to_value, SqliteRow, sqlite_int);
 row_to_value!(pg_row_to_value, PgRow, pg_int);
 row_to_value!(mysql_row_to_value, MySqlRow, mysql_int);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn whole_numbers_bind_as_integers() {
+        assert!(matches!(
+            value_to_sql_param(&Value::Number(42.0)),
+            Ok(SqlParam::Int(42))
+        ));
+        assert!(matches!(
+            value_to_sql_param(&Value::Number(-7.0)),
+            Ok(SqlParam::Int(-7))
+        ));
+    }
+
+    #[test]
+    fn fractional_numbers_bind_as_floats() {
+        assert!(matches!(
+            value_to_sql_param(&Value::Number(9.5)),
+            Ok(SqlParam::Float(f)) if f == 9.5
+        ));
+    }
+
+    #[test]
+    fn whole_numbers_beyond_i64_range_bind_as_floats() {
+        // 1e19 > i64::MAX; an unchecked cast would saturate silently.
+        assert!(matches!(
+            value_to_sql_param(&Value::Number(1e19)),
+            Ok(SqlParam::Float(f)) if f == 1e19
+        ));
+        assert!(matches!(
+            value_to_sql_param(&Value::Number(-1e19)),
+            Ok(SqlParam::Float(f)) if f == -1e19
+        ));
+    }
+
+    #[test]
+    fn nothing_binds_as_null() {
+        assert!(matches!(
+            value_to_sql_param(&Value::Null),
+            Ok(SqlParam::Null)
+        ));
+        assert!(matches!(
+            value_to_sql_param(&Value::Nothing),
+            Ok(SqlParam::Null)
+        ));
+    }
+}

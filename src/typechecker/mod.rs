@@ -965,7 +965,19 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
-                self.infer_expression_type(db);
+                let db_type = self.infer_expression_type(db);
+                if db_type != Type::Custom("Database".to_string())
+                    && db_type != Type::Unknown
+                    && db_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected a Database connection".to_string(),
+                        Some(Type::Custom("Database".to_string())),
+                        Some(db_type),
+                        *_line,
+                        *_column,
+                    );
+                }
 
                 let sql_type = self.infer_expression_type(sql);
                 if sql_type != Type::Text && sql_type != Type::Unknown && sql_type != Type::Error {

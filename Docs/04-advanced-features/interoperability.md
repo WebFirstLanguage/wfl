@@ -62,6 +62,24 @@ WFL web servers work with standard HTTP:
 
 Any HTTP client can communicate with WFL servers!
 
+### 5. **Database Integration**
+
+WFL has built-in database support for SQLite, PostgreSQL, and MariaDB/MySQL:
+
+```wfl
+// Connect to database
+connect to database at "postgres://localhost/mydb" as db
+
+// Query
+wait for store users as query db with "SELECT * FROM users"
+
+// Close
+close database db
+```
+
+See the [Databases guide](databases.md) for the complete reference, including
+parameterized queries, type mapping, and per-backend notes.
+
 ## Planned Interoperability
 
 ### JavaScript Integration (Planned)
@@ -104,24 +122,6 @@ store json as "{
 display json
 // Output: {"name": "Alice", "age": 28}
 ```
-
-### Database Integration
-
-WFL has built-in database support for SQLite, PostgreSQL, and MariaDB/MySQL:
-
-```wfl
-// Connect to database
-connect to database at "postgres://localhost/mydb" as db
-
-// Query
-wait for store users as query db with "SELECT * FROM users"
-
-// Close
-close database db
-```
-
-See the [Databases guide](databases.md) for the complete reference, including
-parameterized queries, type mapping, and per-backend notes.
 
 ### HTML/CSS Integration (Planned)
 

@@ -147,7 +147,7 @@ if (Test-Path "TestPrograms\web_route_params_test.wfl") {
                     $serverReady = $true
                 }
             } catch {
-                # Server not ready yet
+                # Intentionally empty - server not ready yet, continue polling
             }
         }
 

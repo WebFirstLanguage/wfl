@@ -310,6 +310,12 @@ check if path_matches of path and "/users/:id":
 end check
 ```
 
+**Security note:** captured values come straight from the request (after
+percent-decoding) and can contain anything, including `..` or path separators.
+If you use a capture to build a filesystem path — common with `*filepath`
+templates — validate it first: reject values containing `..` and confirm the
+final path stays inside the directory you intend to serve.
+
 ## Serving Static Files
 
 Serve files from a directory:

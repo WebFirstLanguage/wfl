@@ -51,8 +51,10 @@ close database db
 ## Parameterized Queries
 
 Pass values with `and parameters [...]` — never by splicing them into the SQL
-text. Parameters are bound by the database driver, which makes SQL injection
-through values impossible:
+text. Parameters are bound by the database driver, so a bound value can never
+change the meaning of the SQL statement. Binding protects values only: never
+build the SQL text itself — including table or column names — from untrusted
+input:
 
 ```wfl
 store min_age as 21
