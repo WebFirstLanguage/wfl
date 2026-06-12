@@ -1,0 +1,34 @@
+// End-to-end test for the execute file statement:
+//   execute [wfl] file at <path> [with <request>] [and read output as <variable>]
+// Executes another WFL file in-process and captures its display output.
+
+display "1. Execute a page and capture its output"
+execute wfl file at "execute_pages/hello_page.wfl" and read output as hello_output
+check if length of hello_output is greater than 0:
+    display "✓ Captured output from executed page"
+otherwise:
+    display "✗ FAILED: no output captured"
+end check
+display hello_output
+
+display "2. Execute without capture (output passes through)"
+execute wfl file at "execute_pages/hello_page.wfl"
+display "✓ Pass-through execution completed"
+
+display "3. Missing file is a catchable error"
+try:
+    execute wfl file at "execute_pages/no_such_page.wfl" and read output as missing_output
+    display "✗ FAILED: missing file did not raise an error"
+when file not found:
+    display "✓ Correctly caught missing page file"
+end try
+
+display "4. Optional wfl keyword can be omitted"
+execute file at "execute_pages/hello_page.wfl" and read output as short_output
+check if short_output is equal to hello_output:
+    display "✓ Short form captured identical output"
+otherwise:
+    display "✗ FAILED: short form output differs"
+end check
+
+display "All execute file tests completed"

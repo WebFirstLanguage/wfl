@@ -1,0 +1,26 @@
+// WFL test framework validation for the execute file statement.
+// Run with: wfl --test TestPrograms/execute_wfl_file.test.wfl
+
+describe "Execute file statement":
+
+    test "captures display output of an executed page":
+        execute wfl file at "execute_pages/hello_page.wfl" and read output as page_output
+        expect page_output to contain "Hello from an executed WFL page!"
+    end test
+
+    test "short form without wfl keyword works":
+        execute file at "execute_pages/hello_page.wfl" and read output as short_output
+        expect short_output to contain "captured by the parent program"
+    end test
+
+    test "missing page raises a catchable error":
+        store outcome as "not caught"
+        try:
+            execute wfl file at "execute_pages/no_such_page.wfl" and read output as missing_output
+        when file not found:
+            change outcome to "caught"
+        end try
+        expect outcome to equal "caught"
+    end test
+
+end describe

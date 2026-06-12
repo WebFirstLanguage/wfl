@@ -476,7 +476,16 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                     // Parse open file statement (handles both regular and "read content" variants)
                     self.parse_open_file_statement()
                 }
-                Token::KeywordExecute => self.parse_execute_command_statement(),
+                Token::KeywordExecute => {
+                    // Distinguish "execute [wfl] file ..." from "execute command ..."
+                    match self.cursor.peek_next().map(|t| &t.token) {
+                        Some(Token::KeywordFile) => self.parse_execute_file_statement(),
+                        Some(Token::Identifier(name)) if name == "wfl" => {
+                            self.parse_execute_file_statement()
+                        }
+                        _ => self.parse_execute_command_statement(),
+                    }
+                }
                 Token::KeywordSpawn => self.parse_spawn_process_statement(),
                 Token::KeywordKill => self.parse_kill_process_statement(),
                 Token::KeywordRead => {

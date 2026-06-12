@@ -305,6 +305,61 @@ otherwise:
 end check
 ```
 
+## Serving Dynamic WFL Pages
+
+Execute another WFL file on each request and send its output to the browser —
+like PHP, but in WFL. The `execute file` statement runs a `.wfl` file
+in-process, passes it the current request, and captures everything the file
+displays:
+
+```wfl
+listen on port 8080 as web_server
+
+main loop:
+    wait for request comes in on web_server as req
+
+    try:
+        execute wfl file at "pages/home.wfl" with req and read output as page_output
+        respond to req with page_output and content_type "text/html"
+    when file not found:
+        respond to req with "Page not found" and status 404
+    when error:
+        respond to req with "Server error" and status 500
+    end try
+end loop
+```
+
+The page file `pages/home.wfl` is a normal WFL program. Because the request
+was passed along with `with req`, the page sees the same request variables a
+server sees: `method`, `path`, `client_ip`, `body` and `headers`:
+
+```wfl
+display "<h1>Welcome!</h1>"
+display "<p>You asked for " with path with " using " with method with "</p>"
+```
+
+Everything the page displays is captured into `page_output` instead of being
+printed, ready to send to the browser.
+
+### The execute file statement
+
+```wfl
+execute [wfl] file at <path> [with <request>] [and read output as <variable>]
+```
+
+- The word `wfl` is optional — `execute file at "page.wfl"` works the same.
+- `with <request>` is optional. Without it the page runs with no request
+  context.
+- `and read output as <variable>` is optional. Without it the page's output is
+  displayed normally instead of captured.
+- The path is resolved relative to the directory of the WFL file doing the
+  executing, just like `load module`.
+- The page runs in its own fresh environment with the full standard library —
+  it cannot see or change the server's variables.
+- Errors inside the page (a missing file, parse errors, runtime errors) become
+  catchable errors in the server, so one broken page cannot crash the server.
+- Pages can execute other pages (for layouts or partials), up to 4 levels deep.
+
 ## JSON Responses
 
 Build JSON responses for APIs:

@@ -1046,6 +1046,29 @@ impl TypeChecker {
                     // Arguments can be a list or a single string
                 }
             }
+            Statement::ExecuteFileStatement {
+                path,
+                request,
+                variable_name: _,
+                line: _line,
+                column: _column,
+            } => {
+                let path_type = self.infer_expression_type(path);
+                if path_type != Type::Text && path_type != Type::Unknown && path_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected string for execute file path".to_string(),
+                        Some(Type::Text),
+                        Some(path_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+                if let Some(request_expr) = request {
+                    // Request context is a request object; no constraint beyond inference
+                    let _request_type = self.infer_expression_type(request_expr);
+                }
+            }
             Statement::SpawnProcessStatement {
                 command,
                 arguments,

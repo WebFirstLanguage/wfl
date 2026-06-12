@@ -1517,6 +1517,15 @@ impl JavaScriptTranspiler {
                     column: *column,
                 })
             }
+
+            Statement::ExecuteFileStatement { line, column, .. } => {
+                // Execute file statements are not supported in JavaScript transpilation
+                Err(TranspileError {
+                    message: "Execute file statements are not supported in JavaScript transpilation. They require the WFL interpreter.".to_string(),
+                    line: *line,
+                    column: *column,
+                })
+            }
         }
     }
 

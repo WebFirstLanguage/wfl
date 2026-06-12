@@ -260,6 +260,14 @@ respond to req with content and status 200
 respond to req with content and content_type "text/html"
 ```
 
+## Execute WFL Files
+
+```wfl
+execute wfl file at "page.wfl"
+execute file at "page.wfl" and read output as page_output
+execute wfl file at "page.wfl" with req and read output as page_output
+```
+
 ## Comments
 
 ```wfl
