@@ -422,10 +422,10 @@ fn test_execute_file_without_capture_passes_output_through() {
     let page_file = temp_dir.path().join("passthrough_page.wfl");
     fs::write(&page_file, "display \"PASSTHROUGH_MARKER\"\n").expect("Failed to write page file");
 
-    let program = format!(
-        "execute wfl file at \"{}\"\ndisplay \"MAIN_DONE\"\n",
-        page_file.display()
-    );
+    // Forward slashes keep the embedded path lexable on Windows (backslashes
+    // would be treated as escape sequences in the WFL string literal)
+    let page_path = page_file.display().to_string().replace('\\', "/");
+    let program = format!("execute wfl file at \"{page_path}\"\ndisplay \"MAIN_DONE\"\n");
     let output = test_helpers::run_wfl_program(&program, "test_execute_file_passthrough");
     test_helpers::assert_wfl_success_with_output(
         &output,
