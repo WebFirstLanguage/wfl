@@ -523,9 +523,21 @@ async fn test_lsp_performance_regression() {
         avg_time
     );
 
-    // Check for consistency (no operation should be more than 3x the average)
+    // Check for consistency (no operation should be more than 3x the average).
+    //
+    // Use floating-point seconds rather than integer milliseconds: `Duration::as_millis`
+    // truncates, so a sub-millisecond average (e.g. 963µs) becomes 0 ms and the ratio
+    // `time / avg` divides by zero, yielding `inf` and a spurious failure on fast
+    // machines such as CI runners. We also only enforce the relative bound once the
+    // average is above a small absolute floor — for sub-millisecond operations, timing
+    // jitter dominates and a ratio comparison is not a meaningful regression signal.
+    let avg_secs = avg_time.as_secs_f64();
+    const RATIO_FLOOR_SECS: f64 = 0.001; // 1ms; below this, measurement noise dominates
     for (i, time) in times.iter().enumerate() {
-        let ratio = time.as_millis() as f64 / avg_time.as_millis() as f64;
+        if avg_secs < RATIO_FLOOR_SECS {
+            continue;
+        }
+        let ratio = time.as_secs_f64() / avg_secs;
         assert!(
             ratio < 3.0,
             "Iteration {} took {:?}, which is {:.1}x the average - possible performance regression",
