@@ -9,8 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  format-on-failure:
-    if: ${{ failure() }}
+  auto-format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,4 +21,4 @@ jobs:
       - name: Commit changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "style: auto-format on CI failure"
+          commit_message: "style: auto-format [skip ci]"
