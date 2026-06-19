@@ -9,6 +9,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Default to least-privilege; jobs that need more (e.g. bump-version) opt in.
+permissions:
+  contents: read
+
 jobs:
   fmt:
     name: Check formatting

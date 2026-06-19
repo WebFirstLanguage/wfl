@@ -4,6 +4,10 @@ on:
   push:
     branches: [ main ]
 
+# The auto-commit step pushes formatting fixes back to the branch.
+permissions:
+  contents: write
+
 jobs:
   format-on-failure:
     if: ${{ failure() }}
