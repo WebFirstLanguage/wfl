@@ -139,7 +139,7 @@
       },
       {
         "command": "wfl.selectLspExecutable",
-        "title": "WFL: Select LSP Executableâ€¦",
+        "title": "WFL: Select LSP Executable…",
         "category": "WFL"
       },
       {
