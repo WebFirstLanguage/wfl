@@ -139,7 +139,7 @@
       },
       {
         "command": "wfl.selectLspExecutable",
-        "title": "WFL: Select LSP Executable\u00e2\u20ac\u00a6",
+        "title": "WFL: Select LSP Executableâ€¦",
         "category": "WFL"
       },
       {
@@ -172,5 +172,9 @@
     "typescript": "^5.8.3",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.5.2"
+  },
+  "overrides": {
+    "js-yaml": "4.2.0",
+    "serialize-javascript": "7.0.6"
   }
 }
