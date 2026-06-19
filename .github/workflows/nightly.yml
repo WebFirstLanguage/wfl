@@ -21,6 +21,10 @@ env:
   CACHE_ON_FAILURE: false
   CARGO_INCREMENTAL: 0
 
+# Default to least-privilege; the release job opts into contents: write.
+permissions:
+  contents: read
+
 jobs:
   check-for-changes:
     name: Check for changes since last nightly build
