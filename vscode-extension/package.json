@@ -2,7 +2,7 @@
   "name": "vscode-wfl",
   "displayName": "WebFirst Language",
   "description": "WebFirst Language (WFL) support for VS Code",
-  "version": "26.6.4",
+  "version": "26.6.5",
   "publisher": "wfl",
   "license": "MIT",
   "engines": {
@@ -139,7 +139,7 @@
       },
       {
         "command": "wfl.selectLspExecutable",
-        "title": "WFL: Select LSP Executable…",
+        "title": "WFL: Select LSP Executable\u2026",
         "category": "WFL"
       },
       {
