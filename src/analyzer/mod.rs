@@ -390,9 +390,9 @@ impl Analyzer {
         // Detect include statements up front. Includes are resolved at runtime
         // and can expose actions/variables the analyzer never sees, so their
         // presence relaxes undefined-action reporting (see `has_includes`).
-        if program_has_includes(program) {
-            self.has_includes = true;
-        }
+        // Assign directly (not just set-to-true) so a reused analyzer instance
+        // does not carry a stale flag from a previous program.
+        self.has_includes = program_has_includes(program);
 
         // PASS 1: Register all top-level action signatures
         // This allows forward references between actions at the top level
@@ -2129,13 +2129,19 @@ impl Analyzer {
                             _ => {
                                 // The symbol resolved to something that is not a
                                 // function. Built-in stdlib functions (touppercase,
-                                // wflhash256, parse_json, ...) can be injected into
-                                // an included file's scope as plain variables
-                                // (parent-scope bindings), so those are still
-                                // callable; only genuinely non-callable symbols are
-                                // an error. Real builtin Function symbols take the
-                                // arm above, so their arity checks are preserved.
-                                if Self::is_builtin_function(name) {
+                                // wflhash256, parse_json, ...) get injected into an
+                                // included file's scope as plain variables
+                                // (parent-scope bindings, defined at position 0:0),
+                                // so those remain callable. A user who genuinely
+                                // shadows a builtin name with a non-function value
+                                // (e.g. `store touppercase as "x"`) has a real
+                                // source position, so that still reports
+                                // "is not a function". Real builtin Function
+                                // symbols take the arm above (arity preserved).
+                                let is_injected_builtin = Self::is_builtin_function(name)
+                                    && symbol.line == 0
+                                    && symbol.column == 0;
+                                if is_injected_builtin {
                                     for arg in arguments {
                                         self.analyze_expression(&arg.value);
                                     }

@@ -203,6 +203,18 @@ fn included_action_callable_from_top_level() {
 }
 
 #[test]
+fn shadowing_a_builtin_with_a_non_function_still_errors() {
+    // The builtin relaxation only applies to include-injected symbols. A user
+    // who shadows a builtin name with a non-function value and then calls it
+    // must still get an "is not a function" error rather than a silent pass.
+    let out = run_wfl("store touppercase as \"x\"\ndisplay touppercase of \"y\"\n");
+    assert!(
+        out.contains("is not a function"),
+        "shadowed builtin used as a function should still error: {out}"
+    );
+}
+
+#[test]
 fn undefined_action_without_include_still_errors() {
     // Guard: the include relaxation must NOT hide genuinely undefined actions
     // in programs that do not use `include from`.

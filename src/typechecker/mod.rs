@@ -193,9 +193,9 @@ impl TypeChecker {
 
     pub fn check_types(&mut self, program: &Program) -> Result<(), Vec<TypeError>> {
         // Detect includes: their exposed actions are only known at runtime.
-        if crate::analyzer::program_has_includes(program) {
-            self.has_includes = true;
-        }
+        // Assign directly so a reused TypeChecker (e.g. an editor session) does
+        // not carry a stale flag from a program that used includes.
+        self.has_includes = crate::analyzer::program_has_includes(program);
 
         // Only run the analyzer if it hasn't been run already
         // When created with with_analyzer(), the analyzer has already been run,
@@ -2761,6 +2761,12 @@ impl TypeChecker {
                         // Action may be provided by an included file at runtime;
                         // its result type is unknowable statically, so treat it as
                         // Any to avoid cascading "could not infer type" errors.
+                        // Still infer each argument expression first so type errors
+                        // inside the arguments are not missed in include-using
+                        // programs.
+                        for arg in arguments {
+                            let _ = self.infer_expression_type(&arg.value);
+                        }
                         return Type::Any;
                     } else {
                         self.type_error(
