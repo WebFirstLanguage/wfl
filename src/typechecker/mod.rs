@@ -193,11 +193,7 @@ impl TypeChecker {
 
     pub fn check_types(&mut self, program: &Program) -> Result<(), Vec<TypeError>> {
         // Detect includes: their exposed actions are only known at runtime.
-        if program
-            .statements
-            .iter()
-            .any(|s| matches!(s, Statement::IncludeStatement { .. }))
-        {
+        if crate::analyzer::program_has_includes(program) {
             self.has_includes = true;
         }
 

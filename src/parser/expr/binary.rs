@@ -441,11 +441,7 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
 
                     // Accept the documented `split of X by DELIM` form by
                     // optionally consuming "of" (equivalent to `split X by DELIM`).
-                    if let Some(of_token) = self.cursor.peek()
-                        && matches!(&of_token.token, Token::KeywordOf)
-                    {
-                        self.bump_sync(); // Consume "of"
-                    }
+                    self.consume_optional_of();
 
                     // Parse the text expression to split
                     let text_expr = self.parse_binary_expression(precedence + 1)?;

@@ -437,7 +437,67 @@ impl Analyzer {
             }
             Statement::WhileLoop { body, .. }
             | Statement::ForEachLoop { body, .. }
-            | Statement::CountLoop { body, .. } => {
+            | Statement::CountLoop { body, .. }
+            | Statement::MainLoop { body, .. }
+            | Statement::ForeverLoop { body, .. } => {
+                for stmt in body {
+                    self.collect_variable_declarations(stmt, usages);
+                }
+            }
+            // Mirror the recursion done by `mark_used_variables` so variables
+            // declared inside these blocks are also tracked for unused-variable
+            // analysis (otherwise they would silently escape detection).
+            Statement::SingleLineIf {
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                self.collect_variable_declarations(then_stmt, usages);
+                if let Some(else_stmt) = else_stmt {
+                    self.collect_variable_declarations(else_stmt, usages);
+                }
+            }
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                ..
+            } => {
+                for stmt in body {
+                    self.collect_variable_declarations(stmt, usages);
+                }
+                for clause in when_clauses {
+                    for stmt in &clause.body {
+                        self.collect_variable_declarations(stmt, usages);
+                    }
+                }
+                if let Some(otherwise) = otherwise_block {
+                    for stmt in otherwise {
+                        self.collect_variable_declarations(stmt, usages);
+                    }
+                }
+            }
+            Statement::DescribeBlock {
+                setup,
+                teardown,
+                tests,
+                ..
+            } => {
+                if let Some(setup) = setup {
+                    for stmt in setup {
+                        self.collect_variable_declarations(stmt, usages);
+                    }
+                }
+                for stmt in tests {
+                    self.collect_variable_declarations(stmt, usages);
+                }
+                if let Some(teardown) = teardown {
+                    for stmt in teardown {
+                        self.collect_variable_declarations(stmt, usages);
+                    }
+                }
+            }
+            Statement::TestBlock { body, .. } => {
                 for stmt in body {
                     self.collect_variable_declarations(stmt, usages);
                 }

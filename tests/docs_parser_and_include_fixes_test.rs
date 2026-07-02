@@ -80,6 +80,18 @@ fn substring_and_form_still_works() {
     assert!(out.contains("abcde"), "expected 'abcde', got: {out}");
 }
 
+#[test]
+fn substring_length_separator_is_case_insensitive() {
+    // `length` as an argument separator should match case-insensitively, like
+    // other bareword pseudo-keywords in the parser.
+    let out = run_wfl("display substring of \"abcdefghij\" from 0 Length 5\n");
+    assert!(out.contains("abcde"), "expected 'abcde', got: {out}");
+    assert!(
+        !out.to_lowercase().contains("error"),
+        "unexpected error: {out}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // #549.2 — split of X by DELIM
 // ---------------------------------------------------------------------------

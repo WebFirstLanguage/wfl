@@ -155,6 +155,18 @@ impl fmt::Display for SemanticError {
 
 impl std::error::Error for SemanticError {}
 
+/// Returns true if the program contains any top-level `include from` statement.
+///
+/// Included files are resolved dynamically at runtime, so their presence relaxes
+/// static undefined-action reporting in both the analyzer and the type checker.
+/// Shared so the two stay consistent if the detection rule ever changes.
+pub fn program_has_includes(program: &Program) -> bool {
+    program
+        .statements
+        .iter()
+        .any(|s| matches!(s, Statement::IncludeStatement { .. }))
+}
+
 pub struct Analyzer {
     current_scope: Scope,
     errors: Vec<SemanticError>,
@@ -372,11 +384,7 @@ impl Analyzer {
         // Detect include statements up front. Includes are resolved at runtime
         // and can expose actions/variables the analyzer never sees, so their
         // presence relaxes undefined-action reporting (see `has_includes`).
-        if program
-            .statements
-            .iter()
-            .any(|s| matches!(s, Statement::IncludeStatement { .. }))
-        {
+        if program_has_includes(program) {
             self.has_includes = true;
         }
 
@@ -2076,17 +2084,7 @@ impl Analyzer {
                 self.analyze_expression(function);
 
                 if let Expression::Variable(name, _, _) = &**function {
-                    if Self::is_builtin_function(name) {
-                        // Built-in stdlib functions (touppercase, wflhash256,
-                        // parse_json, ...) are always callable. When an included
-                        // file is analyzed, parent-scope bindings for these
-                        // natives are injected as plain variables, so without this
-                        // guard the call below would be flagged as
-                        // "'<name>' is not a function".
-                        for arg in arguments {
-                            self.analyze_expression(&arg.value);
-                        }
-                    } else if let Some(symbol) = self.current_scope.resolve(name) {
+                    if let Some(symbol) = self.current_scope.resolve(name) {
                         match &symbol.kind {
                             SymbolKind::Function { signatures } => {
                                 // For now, just check the first signature for compatibility
@@ -2104,7 +2102,7 @@ impl Analyzer {
                                             .map(|sig| sig.parameters.len().to_string())
                                             .collect();
                                         self.errors.push(SemanticError::new(
-                                            format!("Function '{}' expects {} arguments, but {} were provided", 
+                                            format!("Function '{}' expects {} arguments, but {} were provided",
                                                 name, expected_arities.join(" or "), arguments.len()),
                                             *line,
                                             *column,
@@ -2117,12 +2115,32 @@ impl Analyzer {
                                 }
                             }
                             _ => {
-                                self.errors.push(SemanticError::new(
-                                    format!("'{name}' is not a function"),
-                                    *line,
-                                    *column,
-                                ));
+                                // The symbol resolved to something that is not a
+                                // function. Built-in stdlib functions (touppercase,
+                                // wflhash256, parse_json, ...) can be injected into
+                                // an included file's scope as plain variables
+                                // (parent-scope bindings), so those are still
+                                // callable; only genuinely non-callable symbols are
+                                // an error. Real builtin Function symbols take the
+                                // arm above, so their arity checks are preserved.
+                                if Self::is_builtin_function(name) {
+                                    for arg in arguments {
+                                        self.analyze_expression(&arg.value);
+                                    }
+                                } else {
+                                    self.errors.push(SemanticError::new(
+                                        format!("'{name}' is not a function"),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
                             }
+                        }
+                    } else if Self::is_builtin_function(name) {
+                        // A known builtin that isn't present as a scope symbol is
+                        // still callable (its arguments are still analyzed).
+                        for arg in arguments {
+                            self.analyze_expression(&arg.value);
                         }
                     }
                 } else {

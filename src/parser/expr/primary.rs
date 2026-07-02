@@ -819,11 +819,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
 
                     // Accept the documented `split of X by DELIM` form by
                     // optionally consuming "of" (equivalent to `split X by DELIM`).
-                    if let Some(of_token) = self.cursor.peek()
-                        && matches!(&of_token.token, Token::KeywordOf)
-                    {
-                        self.bump_sync(); // Consume "of"
-                    }
+                    self.consume_optional_of();
 
                     let text_expr = self.parse_expression()?;
 
@@ -1118,7 +1114,7 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                         Token::KeywordAnd | Token::KeywordFrom | Token::KeywordBy
                                     ) || matches!(
                                         &sep_token.token,
-                                        Token::Identifier(id) if id == "length"
+                                        Token::Identifier(id) if id.eq_ignore_ascii_case("length")
                                     );
 
                                     if is_separator {
