@@ -290,3 +290,96 @@ fn uses_inside_main_loop_are_counted() {
         "variable used inside main loop should not be flagged: {out}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// #551 — variable bound to a builtin result inside an included file
+// ---------------------------------------------------------------------------
+
+#[test]
+fn included_action_can_store_builtin_result_in_variable() {
+    // `store full as wflhash256 of s` inside an included action must
+    // type-check: builtins are injected into the include's analyzer scope as
+    // plain parent variables with an Unknown type, which used to abort with
+    // "Could not infer type for variable 'full'" (issue #551).
+    let dir = TempDir::new().expect("tempdir");
+    fs::write(
+        dir.path().join("mod.wfl"),
+        "define action called h with parameters s:\n    store full as wflhash256 of s\n    return full\nend action\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("main.wfl"),
+        "include from \"mod.wfl\"\nstore r as call h with \"x\"\ndisplay \"R=\" with r\n",
+    )
+    .unwrap();
+
+    let out = run_file(&dir, "main.wfl");
+    assert!(
+        !out.contains("Could not infer type"),
+        "builtin result variable must be inferable in an included file: {out}"
+    );
+    // wflhash256 of "x" is a 64-hex-char digest.
+    assert!(
+        out.contains("R=") && !out.contains("R=\n"),
+        "included action should run and return the hash: {out}"
+    );
+}
+
+#[test]
+fn included_file_can_store_builtin_result_at_top_level() {
+    // Same failure mode for a top-level `store` in the included file.
+    let dir = TempDir::new().expect("tempdir");
+    // The digest is displayed from inside the included file itself: main-file
+    // visibility of include-defined variables is a separate concern from the
+    // type-inference bug covered here.
+    fs::write(
+        dir.path().join("mod.wfl"),
+        "store digest as wflhash256 of \"a\"\ndisplay \"D=\" with digest\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("main.wfl"), "include from \"mod.wfl\"\n").unwrap();
+
+    let out = run_file(&dir, "main.wfl");
+    assert!(
+        !out.contains("Could not infer type"),
+        "top-level builtin result variable must be inferable: {out}"
+    );
+    assert!(out.contains("D="), "included store should run: {out}");
+}
+
+#[test]
+fn included_action_can_store_parse_json_result() {
+    // parse_json had no entry in the builtin return-type table, so even the
+    // main-file inference produced "Could not infer type"; in an included
+    // file it was fatal (issue #551).
+    let dir = TempDir::new().expect("tempdir");
+    fs::write(
+        dir.path().join("mod.wfl"),
+        "define action called first_elem with parameters s:\n    store p as parse_json of s\n    return p\nend action\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("main.wfl"),
+        "include from \"mod.wfl\"\nstore r as call first_elem with \"[7]\"\ndisplay \"P=\" with r\n",
+    )
+    .unwrap();
+
+    let out = run_file(&dir, "main.wfl");
+    assert!(
+        !out.contains("Could not infer type"),
+        "parse_json result variable must be inferable in an included file: {out}"
+    );
+    assert!(out.contains("P=[7]"), "expected 'P=[7]', got: {out}");
+}
+
+#[test]
+fn parse_json_result_variable_is_inferable_in_main_file() {
+    // Guard for the return-type table: parse_json in the main file must not
+    // produce a spurious "Could not infer type" diagnostic either.
+    let out = run_wfl("store p as parse_json of \"[1]\"\ndisplay p\n");
+    assert!(
+        !out.contains("Could not infer type"),
+        "parse_json result must be inferable in the main file: {out}"
+    );
+    assert!(out.contains("[1]"), "expected '[1]', got: {out}");
+}

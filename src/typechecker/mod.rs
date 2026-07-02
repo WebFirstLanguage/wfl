@@ -187,7 +187,18 @@ impl TypeChecker {
             // Crypto functions
             "wflhash256" | "wflhash512" | "wflhash256_with_salt" | "wflmac256" => Type::Text,
 
-            _ => Type::Unknown,
+            // JSON functions
+            "parse_json" => Type::Any, // object/list/scalar depending on the JSON
+            "stringify_json" | "stringify_json_pretty" => Type::Text,
+
+            // Text functions registered under stdlib-specific names
+            "string_split" => Type::List(Box::new(Type::Text)),
+
+            // Every registered builtin returns a value (void ones return
+            // Nothing above). For names without an explicit entry, Any keeps
+            // variables bound to their results inferable instead of raising
+            // spurious "Could not infer type" errors (issue #551).
+            _ => Type::Any,
         }
     }
 
@@ -2090,6 +2101,28 @@ impl TypeChecker {
             },
             Expression::Variable(name, _line, _column) => {
                 if let Some(symbol) = self.analyzer.get_symbol(name) {
+                    // Builtin stdlib functions get injected into an included
+                    // file's scope as parent-scope variable bindings (defined
+                    // at position 0:0) whose runtime value is a native
+                    // function, so their recorded type is Unknown. Resolve
+                    // them to their real builtin signature so variables bound
+                    // to their results stay inferable (issue #551). A user who
+                    // shadows a builtin with a concrete value keeps that
+                    // value's type and the normal path below.
+                    let is_injected_builtin = symbol.line == 0
+                        && symbol.column == 0
+                        && Analyzer::is_builtin_function(name);
+                    if is_injected_builtin
+                        && matches!(symbol.symbol_type, None | Some(Type::Unknown))
+                    {
+                        let param_count = builtins::get_function_arity(name);
+                        return Type::Function {
+                            parameters: vec![Type::Any; param_count],
+                            return_type: Box::new(
+                                self.get_builtin_function_type(name, param_count),
+                            ),
+                        };
+                    }
                     if let Some(var_type) = &symbol.symbol_type {
                         var_type.clone()
                     } else {
