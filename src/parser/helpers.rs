@@ -357,4 +357,16 @@ impl<'a> Parser<'a> {
             .peek_next()
             .is_some_and(|tok| matches!(tok.token, Token::KeywordBy))
     }
+
+    /// Consumes an optional leading `of` keyword if present.
+    ///
+    /// Used by the `split` handlers to accept both `split X by DELIM` and the
+    /// documented `split of X by DELIM` spelling from a single place.
+    pub(crate) fn consume_optional_of(&mut self) {
+        if let Some(of_token) = self.cursor.peek()
+            && matches!(&of_token.token, Token::KeywordOf)
+        {
+            self.bump_sync(); // Consume "of"
+        }
+    }
 }

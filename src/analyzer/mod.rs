@@ -155,12 +155,34 @@ impl fmt::Display for SemanticError {
 
 impl std::error::Error for SemanticError {}
 
+/// Returns true if the program contains any top-level `include from` statement.
+///
+/// Included files are resolved dynamically at runtime, so their presence relaxes
+/// static undefined-action reporting in both the analyzer and the type checker.
+/// Shared so the two stay consistent if the detection rule ever changes.
+pub fn program_has_includes(program: &Program) -> bool {
+    program
+        .statements
+        .iter()
+        .any(|s| matches!(s, Statement::IncludeStatement { .. }))
+}
+
 pub struct Analyzer {
     current_scope: Scope,
     errors: Vec<SemanticError>,
+    /// Non-fatal semantic warnings. Currently used for undefined-action calls in
+    /// programs that use `include from`: the action may be provided by an
+    /// included module at runtime, but it could also be a typo, so it is
+    /// surfaced as a warning rather than a fatal error or silent suppression.
+    warnings: Vec<SemanticError>,
     action_parameters: std::collections::HashSet<String>,
     containers: HashMap<String, ContainerInfo>,
     current_container: Option<String>,
+    /// True when the program contains `include from` statements. Included files
+    /// are resolved dynamically at runtime, so the analyzer cannot know which
+    /// actions/variables they expose; undefined-action errors are downgraded to
+    /// warnings to avoid false fatal failures for include-exposed actions.
+    has_includes: bool,
 }
 
 impl Default for Analyzer {
@@ -311,9 +333,11 @@ impl Analyzer {
         Analyzer {
             current_scope: global_scope,
             errors: Vec::new(),
+            warnings: Vec::new(),
             action_parameters: std::collections::HashSet::new(),
             containers: HashMap::new(),
             current_container: None,
+            has_includes: false,
         }
     }
 
@@ -363,6 +387,13 @@ impl Analyzer {
     }
 
     pub fn analyze(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
+        // Detect include statements up front. Includes are resolved at runtime
+        // and can expose actions/variables the analyzer never sees, so their
+        // presence relaxes undefined-action reporting (see `has_includes`).
+        // Assign directly (not just set-to-true) so a reused analyzer instance
+        // does not carry a stale flag from a previous program.
+        self.has_includes = program_has_includes(program);
+
         // PASS 1: Register all top-level action signatures
         // This allows forward references between actions at the top level
         for statement in &program.statements {
@@ -383,6 +414,12 @@ impl Analyzer {
 
     pub fn get_errors(&self) -> &Vec<SemanticError> {
         &self.errors
+    }
+
+    /// Non-fatal semantic warnings collected during analysis (e.g. undefined
+    /// actions in a program that uses `include from`).
+    pub fn get_warnings(&self) -> &Vec<SemanticError> {
+        &self.warnings
     }
 
     fn analyze_statement(&mut self, statement: &Statement) {
@@ -2077,7 +2114,7 @@ impl Analyzer {
                                             .map(|sig| sig.parameters.len().to_string())
                                             .collect();
                                         self.errors.push(SemanticError::new(
-                                            format!("Function '{}' expects {} arguments, but {} were provided", 
+                                            format!("Function '{}' expects {} arguments, but {} were provided",
                                                 name, expected_arities.join(" or "), arguments.len()),
                                             *line,
                                             *column,
@@ -2090,12 +2127,38 @@ impl Analyzer {
                                 }
                             }
                             _ => {
-                                self.errors.push(SemanticError::new(
-                                    format!("'{name}' is not a function"),
-                                    *line,
-                                    *column,
-                                ));
+                                // The symbol resolved to something that is not a
+                                // function. Built-in stdlib functions (touppercase,
+                                // wflhash256, parse_json, ...) get injected into an
+                                // included file's scope as plain variables
+                                // (parent-scope bindings, defined at position 0:0),
+                                // so those remain callable. A user who genuinely
+                                // shadows a builtin name with a non-function value
+                                // (e.g. `store touppercase as "x"`) has a real
+                                // source position, so that still reports
+                                // "is not a function". Real builtin Function
+                                // symbols take the arm above (arity preserved).
+                                let is_injected_builtin = Self::is_builtin_function(name)
+                                    && symbol.line == 0
+                                    && symbol.column == 0;
+                                if is_injected_builtin {
+                                    for arg in arguments {
+                                        self.analyze_expression(&arg.value);
+                                    }
+                                } else {
+                                    self.errors.push(SemanticError::new(
+                                        format!("'{name}' is not a function"),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
                             }
+                        }
+                    } else if Self::is_builtin_function(name) {
+                        // A known builtin that isn't present as a scope symbol is
+                        // still callable (its arguments are still analyzed).
+                        for arg in arguments {
+                            self.analyze_expression(&arg.value);
                         }
                     }
                 } else {
@@ -2316,8 +2379,21 @@ impl Analyzer {
                             ));
                         }
                     }
+                } else if self.has_includes {
+                    // Action not found in scope and not a builtin, but the program
+                    // uses `include from`. The action may be exposed by an
+                    // included file at runtime (which the analyzer cannot see), so
+                    // treating this as a fatal error would abort the program
+                    // before the include runs (see issue #548). It may also be a
+                    // genuine typo, so it is reported as a non-fatal warning rather
+                    // than being fully suppressed.
+                    self.warnings.push(SemanticError::new(
+                        format!("Undefined action '{}'", name),
+                        *line,
+                        *column,
+                    ));
                 } else {
-                    // Action not found in scope and not a builtin
+                    // Action not found in scope and not a builtin.
                     self.errors.push(SemanticError::new(
                         format!("Undefined action '{}'", name),
                         *line,

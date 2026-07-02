@@ -816,6 +816,11 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                 }
                 Token::KeywordSplit => {
                     self.bump_sync(); // Consume "split"
+
+                    // Accept the documented `split of X by DELIM` form by
+                    // optionally consuming "of" (equivalent to `split X by DELIM`).
+                    self.consume_optional_of();
+
                     let text_expr = self.parse_expression()?;
 
                     // Check for "by" (string split) or "on" (pattern split)
@@ -1098,9 +1103,22 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                     value: first_arg,
                                 });
 
-                                while let Some(and_token) = self.cursor.peek() {
-                                    if let Token::KeywordAnd = &and_token.token {
-                                        self.bump_sync(); // Consume "and"
+                                while let Some(sep_token) = self.cursor.peek() {
+                                    // Accept "and" as well as the natural-language
+                                    // separators used by documented stdlib calls
+                                    // (e.g. `substring of X from START length LEN`,
+                                    // `split of X by DELIM`). The word "length" is a
+                                    // plain identifier rather than a keyword.
+                                    let is_separator = matches!(
+                                        &sep_token.token,
+                                        Token::KeywordAnd | Token::KeywordFrom | Token::KeywordBy
+                                    ) || matches!(
+                                        &sep_token.token,
+                                        Token::Identifier(id) if id.eq_ignore_ascii_case("length")
+                                    );
+
+                                    if is_separator {
+                                        self.bump_sync(); // Consume the separator
 
                                         // Use parse_primary_expression to avoid treating next "and" as binary operator
                                         let arg_value = self.parse_primary_expression()?;

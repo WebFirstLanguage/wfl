@@ -98,6 +98,20 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                             }
                             Token::KeywordNot => {
                                 self.bump_sync(); // Consume "not"
+
+                                // Support the natural "is not equal to" form by
+                                // consuming an optional "equal" and an optional "to"
+                                // (mirroring the "is equal to" branch above).
+                                if let Some(equal_token) = self.cursor.peek()
+                                    && matches!(&equal_token.token, Token::KeywordEqual)
+                                {
+                                    self.bump_sync(); // Consume "equal"
+                                    if let Some(to_token) = self.cursor.peek()
+                                        && matches!(&to_token.token, Token::KeywordTo)
+                                    {
+                                        self.bump_sync(); // Consume "to"
+                                    }
+                                }
                                 Some((Operator::NotEquals, 0))
                             }
                             Token::KeywordGreater => {
@@ -424,6 +438,10 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                 }
                 Token::KeywordSplit => {
                     self.bump_sync(); // Consume "split"
+
+                    // Accept the documented `split of X by DELIM` form by
+                    // optionally consuming "of" (equivalent to `split X by DELIM`).
+                    self.consume_optional_of();
 
                     // Parse the text expression to split
                     let text_expr = self.parse_binary_expression(precedence + 1)?;

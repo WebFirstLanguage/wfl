@@ -92,6 +92,10 @@ pub struct TypeChecker {
     errors: Vec<TypeError>,
     analyzer_already_run: bool,
     current_container: Option<String>,
+    /// True when the program contains `include from` statements. Included files
+    /// expose their actions dynamically at runtime, so undefined-action errors
+    /// are suppressed to match the analyzer (see issue #548).
+    has_includes: bool,
 }
 
 impl Default for TypeChecker {
@@ -111,6 +115,7 @@ impl TypeChecker {
             errors: Vec::new(),
             analyzer_already_run: false,
             current_container: None,
+            has_includes: false,
         }
     }
 
@@ -122,6 +127,7 @@ impl TypeChecker {
             errors: Vec::new(),
             analyzer_already_run: true, // Analyzer has already been run when passed in
             current_container: None,
+            has_includes: false,
         }
     }
 
@@ -186,6 +192,11 @@ impl TypeChecker {
     }
 
     pub fn check_types(&mut self, program: &Program) -> Result<(), Vec<TypeError>> {
+        // Detect includes: their exposed actions are only known at runtime.
+        // Assign directly so a reused TypeChecker (e.g. an editor session) does
+        // not carry a stale flag from a program that used includes.
+        self.has_includes = crate::analyzer::program_has_includes(program);
+
         // Only run the analyzer if it hasn't been run already
         // When created with with_analyzer(), the analyzer has already been run,
         // so we don't need to analyze again. This prevents duplicate symbol registration.
@@ -2746,6 +2757,17 @@ impl TypeChecker {
                             return self.get_builtin_function_type(name, arguments.len());
                         }
                         return Type::Unknown;
+                    } else if self.has_includes {
+                        // Action may be provided by an included file at runtime;
+                        // its result type is unknowable statically, so treat it as
+                        // Any to avoid cascading "could not infer type" errors.
+                        // Still infer each argument expression first so type errors
+                        // inside the arguments are not missed in include-using
+                        // programs.
+                        for arg in arguments {
+                            let _ = self.infer_expression_type(&arg.value);
+                        }
+                        return Type::Any;
                     } else {
                         self.type_error(
                             format!("Undefined action '{name}'"),
