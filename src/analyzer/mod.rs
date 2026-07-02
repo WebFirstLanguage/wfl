@@ -170,13 +170,18 @@ pub fn program_has_includes(program: &Program) -> bool {
 pub struct Analyzer {
     current_scope: Scope,
     errors: Vec<SemanticError>,
+    /// Non-fatal semantic warnings. Currently used for undefined-action calls in
+    /// programs that use `include from`: the action may be provided by an
+    /// included module at runtime, but it could also be a typo, so it is
+    /// surfaced as a warning rather than a fatal error or silent suppression.
+    warnings: Vec<SemanticError>,
     action_parameters: std::collections::HashSet<String>,
     containers: HashMap<String, ContainerInfo>,
     current_container: Option<String>,
     /// True when the program contains `include from` statements. Included files
     /// are resolved dynamically at runtime, so the analyzer cannot know which
-    /// actions/variables they expose; undefined-action errors are suppressed to
-    /// avoid false fatal failures for include-exposed actions.
+    /// actions/variables they expose; undefined-action errors are downgraded to
+    /// warnings to avoid false fatal failures for include-exposed actions.
     has_includes: bool,
 }
 
@@ -328,6 +333,7 @@ impl Analyzer {
         Analyzer {
             current_scope: global_scope,
             errors: Vec::new(),
+            warnings: Vec::new(),
             action_parameters: std::collections::HashSet::new(),
             containers: HashMap::new(),
             current_container: None,
@@ -408,6 +414,12 @@ impl Analyzer {
 
     pub fn get_errors(&self) -> &Vec<SemanticError> {
         &self.errors
+    }
+
+    /// Non-fatal semantic warnings collected during analysis (e.g. undefined
+    /// actions in a program that uses `include from`).
+    pub fn get_warnings(&self) -> &Vec<SemanticError> {
+        &self.warnings
     }
 
     fn analyze_statement(&mut self, statement: &Statement) {
@@ -2361,12 +2373,21 @@ impl Analyzer {
                             ));
                         }
                     }
-                } else if !self.has_includes {
-                    // Action not found in scope and not a builtin. When the
-                    // program uses `include from`, the action may be exposed by
-                    // an included file at runtime, so we cannot flag it here
-                    // (doing so would fatally abort the program before the
-                    // include ever runs — see issue #548).
+                } else if self.has_includes {
+                    // Action not found in scope and not a builtin, but the program
+                    // uses `include from`. The action may be exposed by an
+                    // included file at runtime (which the analyzer cannot see), so
+                    // treating this as a fatal error would abort the program
+                    // before the include runs (see issue #548). It may also be a
+                    // genuine typo, so it is reported as a non-fatal warning rather
+                    // than being fully suppressed.
+                    self.warnings.push(SemanticError::new(
+                        format!("Undefined action '{}'", name),
+                        *line,
+                        *column,
+                    ));
+                } else {
+                    // Action not found in scope and not a builtin.
                     self.errors.push(SemanticError::new(
                         format!("Undefined action '{}'", name),
                         *line,

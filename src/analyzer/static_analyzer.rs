@@ -129,7 +129,28 @@ impl StaticAnalyzer for Analyzer {
         // Store action parameters in the analyzer for use by the type checker
         self.action_parameters = action_parameters.clone();
 
-        if let Err(errors) = self.analyze(program) {
+        let analyze_result = self.analyze(program);
+
+        // Emit non-fatal semantic warnings (e.g. undefined actions in a program
+        // that uses `include from` — the action may be provided by an included
+        // module at runtime, but could also be a typo).
+        for warning in self.get_warnings().clone() {
+            diagnostics.push(WflDiagnostic::new(
+                Severity::Warning,
+                warning.message.clone(),
+                Some(
+                    "This action is not defined in this file; it may be provided by an included module at runtime, otherwise this is likely a typo."
+                        .to_string(),
+                ),
+                "ANALYZE-SEMANTIC".to_string(),
+                file_id,
+                warning.line,
+                warning.column,
+                None,
+            ));
+        }
+
+        if let Err(errors) = analyze_result {
             for error in errors {
                 // Skip errors about undefined variables that are actually action parameters
                 if error.message.starts_with("Variable '")

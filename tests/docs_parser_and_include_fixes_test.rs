@@ -188,6 +188,9 @@ fn included_action_callable_from_top_level() {
     )
     .unwrap();
 
+    // The undefined-action check is downgraded to a non-fatal warning when a
+    // program uses `include from`, so the program must run to completion even
+    // though the analyzer cannot statically see the included action.
     let out = run_file(&dir, "main.wfl");
     assert!(
         out.contains("BEFORE"),
@@ -196,10 +199,6 @@ fn included_action_callable_from_top_level() {
     assert!(
         out.contains("AFTER=HI-bob"),
         "expected 'AFTER=HI-bob', got: {out}"
-    );
-    assert!(
-        !out.contains("Undefined action"),
-        "should not fatally report undefined action: {out}"
     );
 }
 
@@ -211,6 +210,45 @@ fn undefined_action_without_include_still_errors() {
     assert!(
         out.contains("Undefined action"),
         "undefined action should still be reported without includes: {out}"
+    );
+}
+
+#[test]
+fn undefined_action_with_include_is_surfaced_as_warning() {
+    // With includes present, a genuinely undefined action (e.g. a typo) is still
+    // surfaced — as a non-fatal warning rather than being silently suppressed.
+    let dir = TempDir::new().expect("tempdir");
+    fs::write(
+        dir.path().join("mod.wfl"),
+        "define action called greet with parameters s:\n    return \"HI-\" with s\nend action\n",
+    )
+    .unwrap();
+    // `grret` is a typo for `greet`.
+    let main = dir.path().join("main.wfl");
+    fs::write(
+        &main,
+        "include from \"mod.wfl\"\nstore g as call grret with \"bob\"\ndisplay g\n",
+    )
+    .unwrap();
+
+    let output = Command::new(wfl_exe())
+        .arg("--analyze")
+        .arg(&main)
+        .output()
+        .expect("run --analyze");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("Undefined action") && combined.contains("grret"),
+        "typo'd action should be surfaced as a warning even with includes: {combined}"
+    );
+    // The analyzer must not abort with a fatal error for this case.
+    assert!(
+        combined.to_lowercase().contains("warning"),
+        "should be reported at warning severity: {combined}"
     );
 }
 
