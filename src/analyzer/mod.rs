@@ -161,6 +161,11 @@ pub struct Analyzer {
     action_parameters: std::collections::HashSet<String>,
     containers: HashMap<String, ContainerInfo>,
     current_container: Option<String>,
+    /// True when the program contains `include from` statements. Included files
+    /// are resolved dynamically at runtime, so the analyzer cannot know which
+    /// actions/variables they expose; undefined-action errors are suppressed to
+    /// avoid false fatal failures for include-exposed actions.
+    has_includes: bool,
 }
 
 impl Default for Analyzer {
@@ -314,6 +319,7 @@ impl Analyzer {
             action_parameters: std::collections::HashSet::new(),
             containers: HashMap::new(),
             current_container: None,
+            has_includes: false,
         }
     }
 
@@ -363,6 +369,17 @@ impl Analyzer {
     }
 
     pub fn analyze(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
+        // Detect include statements up front. Includes are resolved at runtime
+        // and can expose actions/variables the analyzer never sees, so their
+        // presence relaxes undefined-action reporting (see `has_includes`).
+        if program
+            .statements
+            .iter()
+            .any(|s| matches!(s, Statement::IncludeStatement { .. }))
+        {
+            self.has_includes = true;
+        }
+
         // PASS 1: Register all top-level action signatures
         // This allows forward references between actions at the top level
         for statement in &program.statements {
@@ -2059,7 +2076,17 @@ impl Analyzer {
                 self.analyze_expression(function);
 
                 if let Expression::Variable(name, _, _) = &**function {
-                    if let Some(symbol) = self.current_scope.resolve(name) {
+                    if Self::is_builtin_function(name) {
+                        // Built-in stdlib functions (touppercase, wflhash256,
+                        // parse_json, ...) are always callable. When an included
+                        // file is analyzed, parent-scope bindings for these
+                        // natives are injected as plain variables, so without this
+                        // guard the call below would be flagged as
+                        // "'<name>' is not a function".
+                        for arg in arguments {
+                            self.analyze_expression(&arg.value);
+                        }
+                    } else if let Some(symbol) = self.current_scope.resolve(name) {
                         match &symbol.kind {
                             SymbolKind::Function { signatures } => {
                                 // For now, just check the first signature for compatibility
@@ -2316,8 +2343,12 @@ impl Analyzer {
                             ));
                         }
                     }
-                } else {
-                    // Action not found in scope and not a builtin
+                } else if !self.has_includes {
+                    // Action not found in scope and not a builtin. When the
+                    // program uses `include from`, the action may be exposed by
+                    // an included file at runtime, so we cannot flag it here
+                    // (doing so would fatally abort the program before the
+                    // include ever runs — see issue #548).
                     self.errors.push(SemanticError::new(
                         format!("Undefined action '{}'", name),
                         *line,

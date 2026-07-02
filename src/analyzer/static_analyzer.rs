@@ -664,6 +664,144 @@ impl Analyzer {
                     _ => {}
                 }
             }
+            // Blocks that hold nested statements: recurse so variables used
+            // only inside them are counted (fixes ANALYZE-UNUSED false positives
+            // for code inside a `main loop`, etc.).
+            Statement::MainLoop { body, .. } | Statement::ForeverLoop { body, .. } => {
+                for stmt in body {
+                    self.mark_used_variables(stmt, usages);
+                }
+            }
+            Statement::SingleLineIf {
+                condition,
+                then_stmt,
+                else_stmt,
+                ..
+            } => {
+                self.mark_used_in_expression(condition, usages);
+                self.mark_used_variables(then_stmt, usages);
+                if let Some(else_stmt) = else_stmt {
+                    self.mark_used_variables(else_stmt, usages);
+                }
+            }
+            Statement::TryStatement {
+                body,
+                when_clauses,
+                otherwise_block,
+                ..
+            } => {
+                for stmt in body {
+                    self.mark_used_variables(stmt, usages);
+                }
+                for clause in when_clauses {
+                    for stmt in &clause.body {
+                        self.mark_used_variables(stmt, usages);
+                    }
+                }
+                if let Some(otherwise) = otherwise_block {
+                    for stmt in otherwise {
+                        self.mark_used_variables(stmt, usages);
+                    }
+                }
+            }
+            Statement::DescribeBlock {
+                setup,
+                teardown,
+                tests,
+                ..
+            } => {
+                if let Some(setup) = setup {
+                    for stmt in setup {
+                        self.mark_used_variables(stmt, usages);
+                    }
+                }
+                for stmt in tests {
+                    self.mark_used_variables(stmt, usages);
+                }
+                if let Some(teardown) = teardown {
+                    for stmt in teardown {
+                        self.mark_used_variables(stmt, usages);
+                    }
+                }
+            }
+            Statement::TestBlock { body, .. } => {
+                for stmt in body {
+                    self.mark_used_variables(stmt, usages);
+                }
+            }
+            // Compound-assignment / list statements read (and write) their
+            // operand variables — count them as uses.
+            Statement::AddToListStatement {
+                value, list_name, ..
+            }
+            | Statement::RemoveFromListStatement {
+                value, list_name, ..
+            } => {
+                self.mark_used_in_expression(value, usages);
+                if let Some(usage) = usages.get_mut(list_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::ClearListStatement { list_name, .. } => {
+                if let Some(usage) = usages.get_mut(list_name) {
+                    usage.used = true;
+                }
+            }
+            Statement::PushStatement { list, value, .. } => {
+                self.mark_used_in_expression(list, usages);
+                self.mark_used_in_expression(value, usages);
+            }
+            // Web server statements reference their operand variables.
+            Statement::RespondStatement {
+                request,
+                content,
+                status,
+                content_type,
+                ..
+            } => {
+                self.mark_used_in_expression(request, usages);
+                self.mark_used_in_expression(content, usages);
+                if let Some(status) = status {
+                    self.mark_used_in_expression(status, usages);
+                }
+                if let Some(content_type) = content_type {
+                    self.mark_used_in_expression(content_type, usages);
+                }
+            }
+            Statement::ListenStatement { port, .. } => {
+                self.mark_used_in_expression(port, usages);
+            }
+            Statement::WaitForRequestStatement {
+                server,
+                request_name,
+                timeout,
+                ..
+            } => {
+                self.mark_used_in_expression(server, usages);
+                if let Some(usage) = usages.get_mut(request_name) {
+                    usage.used = true;
+                }
+                if let Some(timeout) = timeout {
+                    self.mark_used_in_expression(timeout, usages);
+                }
+            }
+            Statement::StopAcceptingConnectionsStatement { server, .. }
+            | Statement::CloseServerStatement { server, .. } => {
+                self.mark_used_in_expression(server, usages);
+            }
+            Statement::WriteToStatement { content, file, .. } => {
+                self.mark_used_in_expression(content, usages);
+                self.mark_used_in_expression(file, usages);
+            }
+            Statement::WriteContentStatement {
+                content, target, ..
+            }
+            | Statement::WriteBinaryStatement {
+                content, target, ..
+            } => {
+                self.mark_used_in_expression(content, usages);
+                self.mark_used_in_expression(target, usages);
+            }
             _ => {}
         }
     }
