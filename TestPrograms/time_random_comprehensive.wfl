@@ -201,21 +201,21 @@ display "  Date1 (2025-08-09): " with date1
 display "  Date2 (2025-08-10): " with date2
 display "  Date3 (2025-08-09): " with date3
 
-check if date1 is before date2:
+check if date1 is less than date2:
     display "  ✓ Date1 is before Date2"
-else:
+otherwise:
     display "  ✗ Date1 should be before Date2"
 end check
 
 check if date1 is equal to date3:
     display "  ✓ Date1 equals Date3"
-else:
+otherwise:
     display "  ✗ Date1 should equal Date3"
 end check
 
-check if date2 is after date1:
+check if date2 is greater than date1:
     display "  ✓ Date2 is after Date1"
-else:
+otherwise:
     display "  ✗ Date2 should be after Date1"
 end check
 display ""

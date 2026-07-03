@@ -1,6 +1,6 @@
 //! Web server statement parsing
 
-use super::super::{ParseError, Parser, Statement};
+use super::super::{Expression, ParseError, Parser, Statement};
 use crate::lexer::token::Token;
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
 
@@ -74,23 +74,47 @@ impl<'a> WebParser<'a> for Parser<'a> {
                         status = Some(self.parse_primary_expression()?);
                         continue;
                     } else if let Token::Identifier(id) = &next_token.token
-                        && (id == "content_type" || id == "content")
+                        && (id == "content_type"
+                            || id == "content"
+                            || id.starts_with("content_type ")
+                            || id.starts_with("content type"))
                     {
+                        // The lexer merges adjacent identifiers into one token,
+                        // so a variable value can arrive glued to the marker
+                        // (e.g. `and content_type my_type` lexes as
+                        // Identifier("content_type my_type")). Split the marker
+                        // off and treat the remainder as the value variable.
+                        let id = id.clone();
+                        let (id_line, id_column) = (next_token.line, next_token.column);
                         self.bump_sync(); // Consume "and"
-                        self.bump_sync(); // Consume "content_type" or "content"
+                        self.bump_sync(); // Consume the (possibly merged) marker
 
-                        // If it was "content", expect "type" next
-                        if id == "content"
-                            && let Some(type_token) = self.cursor.peek()
-                            && let Token::Identifier(type_id) = &type_token.token
-                            && type_id == "type"
-                        {
-                            self.bump_sync(); // Consume "type"
+                        let rest = if let Some(stripped) = id.strip_prefix("content_type") {
+                            stripped.trim_start()
+                        } else {
+                            id.strip_prefix("content")
+                                .map(|s| s.trim_start())
+                                .map(|s| s.strip_prefix("type").map(str::trim_start).unwrap_or(s))
+                                .unwrap_or("")
+                        };
+
+                        if rest.is_empty() {
+                            // If it was a bare "content", expect "type" next
+                            if id == "content"
+                                && let Some(type_token) = self.cursor.peek()
+                                && let Token::Identifier(type_id) = &type_token.token
+                                && type_id == "type"
+                            {
+                                self.bump_sync(); // Consume "type"
+                            }
+
+                            // Primary expression only, so a following "and
+                            // status ..." clause stays available.
+                            content_type = Some(self.parse_primary_expression()?);
+                        } else {
+                            content_type =
+                                Some(Expression::Variable(rest.to_string(), id_line, id_column));
                         }
-
-                        // Primary expression only, so a following "and
-                        // status ..." clause stays available.
-                        content_type = Some(self.parse_primary_expression()?);
                         continue;
                     }
                 }

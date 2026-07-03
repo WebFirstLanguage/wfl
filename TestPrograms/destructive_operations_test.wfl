@@ -21,11 +21,11 @@ end check
 // Test remove_dir - empty directory
 display "Testing remove_dir with empty directory..."
 makedirs "empty_test_dir"
-store dir_exists_before as path exists at "empty_test_dir"
+store dir_exists_before as directory exists at "empty_test_dir"
 
 remove_dir "empty_test_dir"
 
-store dir_exists_after as path exists at "empty_test_dir"
+store dir_exists_after as directory exists at "empty_test_dir"
 check if dir_exists_before and not dir_exists_after:
     display "✓ remove_dir successful for empty directory"
 end check
@@ -48,7 +48,7 @@ end try
 display "Testing remove_dir with recursive flag..."
 remove_dir "nonempty_test_dir" with true
 
-store recursive_removed as path exists at "nonempty_test_dir"
+store recursive_removed as directory exists at "nonempty_test_dir"
 check if not recursive_removed:
     display "✓ remove_dir recursive successful"
 end check

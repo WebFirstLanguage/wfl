@@ -1,3 +1,4 @@
+// CI-SKIP: starts a web server and needs an HTTP client to drive it (covered by run_web_tests)
 # Test WFL Web Server Response
 # This test starts a web server and then makes a request to it
 

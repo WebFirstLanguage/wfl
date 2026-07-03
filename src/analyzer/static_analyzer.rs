@@ -135,13 +135,17 @@ impl StaticAnalyzer for Analyzer {
         // that uses `include from` — the action may be provided by an included
         // module at runtime, but could also be a typo).
         for warning in self.get_warnings().clone() {
+            let note = if warning.message.starts_with("Variable '") {
+                "This name is not defined at this point; if it is still undefined at runtime, the resulting error can be handled by the surrounding try/catch block."
+            } else if warning.message.starts_with("Undefined signal handler") {
+                "No action with this name is defined; define the handler action so it can run when the signal is received."
+            } else {
+                "This action is not defined in this file; it may be provided by an included module at runtime, otherwise this is likely a typo."
+            };
             diagnostics.push(WflDiagnostic::new(
                 Severity::Warning,
                 warning.message.clone(),
-                Some(
-                    "This action is not defined in this file; it may be provided by an included module at runtime, otherwise this is likely a typo."
-                        .to_string(),
-                ),
+                Some(note.to_string()),
                 "ANALYZE-SEMANTIC".to_string(),
                 file_id,
                 warning.line,

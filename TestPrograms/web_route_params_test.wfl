@@ -1,3 +1,4 @@
+// CI-SKIP: starts a web server and needs an HTTP client to drive it (covered by run_web_tests)
 // CI-SKIP: starts server and waits for requests
 // Route parameter extraction E2E test, driven by scripts/run_web_tests.sh.
 // Also regression-covers the issues from Docs/Archive/FRAMEWORK_FINAL_REPORT.md:

@@ -183,6 +183,14 @@ pub struct Analyzer {
     /// actions/variables they expose; undefined-action errors are downgraded to
     /// warnings to avoid false fatal failures for include-exposed actions.
     has_includes: bool,
+    /// Nesting depth of `try` bodies currently being analyzed. Undefined-name
+    /// references inside a `try` body raise catchable runtime errors (documented
+    /// behavior), so they are reported as warnings instead of fatal errors.
+    try_depth: usize,
+    /// Loop variables of the count loops currently being analyzed. Nested
+    /// count loops reusing the same variable name are reported as errors,
+    /// while shadowing an ordinary outer variable is allowed.
+    active_loop_variables: Vec<String>,
 }
 
 impl Default for Analyzer {
@@ -221,6 +229,24 @@ impl Analyzer {
             column: 0,
         };
         let _ = global_scope.define(nothing_symbol);
+
+        let newline_symbol = Symbol {
+            name: "newline".to_string(),
+            kind: SymbolKind::Variable { mutable: false },
+            symbol_type: Some(Type::Text),
+            line: 0,
+            column: 0,
+        };
+        let _ = global_scope.define(newline_symbol);
+
+        let tab_symbol = Symbol {
+            name: "tab".to_string(),
+            kind: SymbolKind::Variable { mutable: false },
+            symbol_type: Some(Type::Text),
+            line: 0,
+            column: 0,
+        };
+        let _ = global_scope.define(tab_symbol);
 
         let missing_symbol = Symbol {
             name: "missing".to_string(),
@@ -338,6 +364,8 @@ impl Analyzer {
             containers: HashMap::new(),
             current_container: None,
             has_includes: false,
+            try_depth: 0,
+            active_loop_variables: Vec::new(),
         }
     }
 
@@ -422,6 +450,18 @@ impl Analyzer {
         &self.warnings
     }
 
+    /// Report an undefined-name reference. Inside a `try` body this is a
+    /// warning rather than a fatal error: the reference raises a catchable
+    /// runtime error, which is documented behavior that programs rely on.
+    fn report_undefined_name(&mut self, message: String, line: usize, column: usize) {
+        let error = SemanticError::new(message, line, column);
+        if self.try_depth > 0 {
+            self.warnings.push(error);
+        } else {
+            self.errors.push(error);
+        }
+    }
+
     fn analyze_statement(&mut self, statement: &Statement) {
         match statement {
             Statement::VariableDeclaration {
@@ -432,41 +472,6 @@ impl Analyzer {
                 column,
             } => {
                 self.analyze_expression(value);
-
-                if name == "list" {
-                    let list_name =
-                        if let Expression::Literal(Literal::String(name_str), _, _) = value {
-                            name_str.to_string()
-                        } else {
-                            "numbers".to_string()
-                        };
-
-                    let list_symbol = Symbol {
-                        name: list_name.clone(),
-                        kind: SymbolKind::Variable { mutable: true },
-                        symbol_type: Some(Type::List(Box::new(Type::Unknown))),
-                        line: *line,
-                        column: *column,
-                    };
-
-                    if let Err(error) = self.current_scope.define(list_symbol) {
-                        self.errors.push(error);
-                    }
-
-                    if list_name != "numbers" {
-                        let numbers_symbol = Symbol {
-                            name: "numbers".to_string(),
-                            kind: SymbolKind::Variable { mutable: true },
-                            symbol_type: Some(Type::List(Box::new(Type::Unknown))),
-                            line: *line,
-                            column: *column,
-                        };
-
-                        let _ = self.current_scope.define(numbers_symbol);
-                    }
-
-                    return;
-                }
 
                 let symbol = Symbol {
                     name: name.clone(),
@@ -531,11 +536,11 @@ impl Analyzer {
                         };
 
                     if !is_container_property {
-                        self.errors.push(SemanticError::new(
+                        self.report_undefined_name(
                             format!("Variable '{name}' is not defined"),
                             *line,
                             *column,
-                        ));
+                        );
                     }
                 }
 
@@ -704,6 +709,22 @@ impl Analyzer {
                 // Use custom variable name if provided, otherwise default to "count"
                 let loop_var_name = variable_name.as_deref().unwrap_or("count");
 
+                // Nested count loops must use distinct variable names; the
+                // inner loop would otherwise shadow the outer loop's counter.
+                if self
+                    .active_loop_variables
+                    .iter()
+                    .any(|name| name == loop_var_name)
+                {
+                    self.errors.push(SemanticError::new(
+                        format!(
+                            "Nested count loops both use the loop variable '{loop_var_name}'. Give the loops distinct names with 'count from X to Y as <name>:'."
+                        ),
+                        0,
+                        0,
+                    ));
+                }
+
                 let count_symbol = Symbol {
                     name: loop_var_name.to_string(), // The loop variable is implicitly defined
                     kind: SymbolKind::Variable { mutable: false }, // Loop variable is immutable
@@ -712,12 +733,14 @@ impl Analyzer {
                     column: 0,
                 };
 
-                if let Err(error) = self.current_scope.define(count_symbol) {
-                    self.errors.push(error);
-                }
+                // The implicit loop variable may shadow an ordinary variable of
+                // the same name from an outer scope, so redefinition is not an
+                // error here (nested loops are handled above).
+                let _ = self.current_scope.define(count_symbol);
 
                 // Add loop variable to action_parameters to prevent it from being flagged as undefined
                 self.action_parameters.insert(loop_var_name.to_string());
+                self.active_loop_variables.push(loop_var_name.to_string());
 
                 for stmt in body {
                     self.analyze_statement(stmt);
@@ -725,6 +748,7 @@ impl Analyzer {
 
                 // Remove loop variable from action_parameters after the loop
                 self.action_parameters.remove(loop_var_name);
+                self.active_loop_variables.pop();
 
                 let loop_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = loop_scope.parent {
@@ -822,9 +846,13 @@ impl Analyzer {
                 let outer_scope = std::mem::take(&mut self.current_scope);
                 self.current_scope = Scope::with_parent(outer_scope);
 
+                // Undefined names inside a try body raise catchable runtime
+                // errors, so they are downgraded to warnings while in here.
+                self.try_depth += 1;
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
+                self.try_depth -= 1;
 
                 let try_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = try_scope.parent {
@@ -846,6 +874,19 @@ impl Analyzer {
 
                     if let Err(error) = self.current_scope.define(error_symbol) {
                         self.errors.push(error);
+                    }
+
+                    // `error_message` is always available in error-handling
+                    // clauses as an alias for the caught error's message.
+                    if when_clause.error_name != "error_message" {
+                        let error_message_symbol = Symbol {
+                            name: "error_message".to_string(),
+                            kind: SymbolKind::Variable { mutable: false },
+                            symbol_type: Some(Type::Text),
+                            line: 0,
+                            column: 0,
+                        };
+                        let _ = self.current_scope.define(error_message_symbol);
                     }
 
                     for stmt in &when_clause.body {
@@ -1414,7 +1455,9 @@ impl Analyzer {
                 // Analyze the server expression
                 self.analyze_expression(server);
 
-                // Define the request variable
+                // Define the request variable. Waiting for another request may
+                // rebind an existing name (e.g. in a loop), so redefinition is
+                // allowed here — the interpreter overwrites the binding.
                 let request_symbol = Symbol {
                     name: request_name.clone(),
                     kind: SymbolKind::Variable { mutable: false },
@@ -1423,11 +1466,10 @@ impl Analyzer {
                     column: *column,
                 };
 
-                if let Err(error) = self.current_scope.define(request_symbol) {
-                    self.errors.push(error);
-                }
+                let _ = self.current_scope.define(request_symbol);
 
-                // Define individual request property variables
+                // Define individual request property variables. These implicit
+                // bindings are refreshed on every wait, so duplicates are fine.
                 let request_properties = [
                     ("method", Type::Text),
                     ("path", Type::Text),
@@ -1445,9 +1487,7 @@ impl Analyzer {
                         column: *column,
                     };
 
-                    if let Err(error) = self.current_scope.define(prop_symbol) {
-                        self.errors.push(error);
-                    }
+                    let _ = self.current_scope.define(prop_symbol);
                 }
             }
 
@@ -1477,7 +1517,9 @@ impl Analyzer {
                 column,
                 ..
             } if self.current_scope.resolve(handler_name).is_none() => {
-                self.errors.push(SemanticError::new(
+                // The runtime only records the handler name, so a missing
+                // handler is suspicious but not fatal.
+                self.warnings.push(SemanticError::new(
                     format!("Undefined signal handler '{handler_name}'"),
                     *line,
                     *column,
@@ -2079,11 +2121,11 @@ impl Analyzer {
                         };
 
                     if !is_container_property {
-                        self.errors.push(SemanticError::new(
+                        self.report_undefined_name(
                             format!("Variable '{name}' is not defined"),
                             *line,
                             *column,
-                        ));
+                        );
                     }
                 }
             }

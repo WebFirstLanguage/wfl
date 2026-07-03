@@ -104,12 +104,23 @@ Write-Host "[SUCCESS] All integration tests passed" -ForegroundColor Green
 Write-Host "[INFO] Running WFL test programs..." -ForegroundColor Blue
 
 # Tests that require special handling (web servers, interactive tests)
-# These are tested separately with dedicated scripts
+# These are tested separately with dedicated scripts.
+# Additionally, any test whose first line contains "CI-SKIP: <reason>" is skipped.
 $SkipTests = @(
     "simple_web_test.wfl",        # Web server - needs HTTP client
     "web_server_test.wfl",        # Web server - needs HTTP client
     "websocket_test.wfl",         # WebSocket - needs WS client
     "web_route_params_test.wfl"   # Web server - tested via run_web_tests.ps1
+)
+
+# Tests that intentionally end with an error; they pass when wfl exits nonzero
+$ExpectedFailTests = @(
+    "scoped.wfl",                   # References an undefined variable on purpose
+    "test_redefinition_error.wfl",  # Redefinition must be reported as an error
+    "circular_a.wfl",               # Circular include detection
+    "circular_b.wfl",               # Circular include detection
+    "module_include_circular.wfl",  # Circular include detection
+    "test_assertion_fix.wfl"        # Intentionally failing assertions (validates failure messages)
 )
 
 # Timeout for each test (seconds)
@@ -134,17 +145,40 @@ if (-not (Test-Path "TestPrograms")) {
                 continue
             }
 
+            # Check for a CI-SKIP directive in the file's first line
+            $firstLine = Get-Content $wflFile.FullName -First 1
+            if ($firstLine -match 'CI-SKIP:\s*(.+)') {
+                Write-Host "[SKIP] $($wflFile.Name) ($($Matches[1].Trim()))" -ForegroundColor Yellow
+                $skippedPrograms++
+                continue
+            }
+
+            # Programs with describe blocks must run in test mode
+            $wflArgs = @($wflFile.FullName)
+            if (Select-String -Path $wflFile.FullName -Pattern '^\s*describe "' -Quiet) {
+                $wflArgs = @("--test", $wflFile.FullName)
+            }
+
             Write-Host "[INFO] Testing: $($wflFile.Name)" -ForegroundColor Blue
 
             # Run with timeout to prevent hangs
-            $process = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $wflFile.FullName -NoNewWindow -PassThru -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
+            $process = Start-Process -FilePath ".\$BinaryPath" -ArgumentList $wflArgs -NoNewWindow -PassThru -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
             $completed = $process.WaitForExit($TestTimeout * 1000)
+
+            $isExpectedFail = $ExpectedFailTests -contains $wflFile.Name
 
             if (-not $completed) {
                 # Test timed out
                 $process.Kill()
                 Write-Host "[ERROR] TIMEOUT $($wflFile.Name) (exceeded ${TestTimeout}s)" -ForegroundColor Red
                 $failedPrograms++
+            } elseif ($isExpectedFail) {
+                if ($process.ExitCode -ne 0) {
+                    Write-Host "[SUCCESS] PASS $($wflFile.Name) (expected failure, exit code: $($process.ExitCode))" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL $($wflFile.Name) (expected a nonzero exit, got 0)" -ForegroundColor Red
+                    $failedPrograms++
+                }
             } elseif ($process.ExitCode -eq 0) {
                 Write-Host "[SUCCESS] PASS $($wflFile.Name)" -ForegroundColor Green
             } else {

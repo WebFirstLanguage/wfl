@@ -1,3 +1,4 @@
+// CI-SKIP: starts a web server and needs an HTTP client to drive it (covered by run_web_tests)
 // Very simple web server test
 display "=== Simple Web Server Test ==="
 

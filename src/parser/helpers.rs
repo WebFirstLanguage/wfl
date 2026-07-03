@@ -196,6 +196,10 @@ impl<'a> Parser<'a> {
             Token::KeywordAny => "any".to_string(),
             Token::KeywordMust => "must".to_string(),
             Token::KeywordDefaults => "defaults".to_string(),
+            Token::KeywordOutput => "output".to_string(),
+            Token::KeywordBinary => "binary".to_string(),
+            Token::KeywordBytes => "bytes".to_string(),
+            Token::KeywordThat => "that".to_string(),
             _ => format!("{:?}", token),
         }
     }

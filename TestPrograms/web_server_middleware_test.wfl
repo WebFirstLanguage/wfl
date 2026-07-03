@@ -1,3 +1,4 @@
+// CI-SKIP: starts a web server and needs an HTTP client to drive it (covered by run_web_tests)
 // TDD Test: Web Server Middleware and Advanced Features
 // This test MUST FAIL initially because middleware functionality is not implemented
 // Following TDD approach - write failing test first

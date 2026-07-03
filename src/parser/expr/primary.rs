@@ -299,31 +299,28 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                     ))
                 }
                 Token::KeywordPattern => {
+                    let token_line = token.line;
+                    let token_column = token.column;
                     self.bump_sync(); // Consume "pattern"
 
-                    if let Some(pattern_token) = self.cursor.peek() {
-                        if let Token::StringLiteral(pattern) = &pattern_token.token {
-                            let token_pos = self.bump_sync().unwrap();
-                            return Ok(Expression::Literal(
-                                Literal::Pattern(pattern.clone()),
-                                token_pos.line,
-                                token_pos.column,
-                            ));
-                        } else {
-                            return Err(ParseError::from_token(
-                                format!(
-                                    "Expected string literal after 'pattern', found {:?}",
-                                    pattern_token.token
-                                ),
-                                pattern_token,
-                            ));
-                        }
-                    } else {
-                        return Err(ParseError::from_token(
-                            "Unexpected end of input after 'pattern'".to_string(),
-                            token,
+                    if let Some(pattern_token) = self.cursor.peek()
+                        && let Token::StringLiteral(pattern) = &pattern_token.token
+                    {
+                        let token_pos = self.bump_sync().unwrap();
+                        return Ok(Expression::Literal(
+                            Literal::Pattern(pattern.clone()),
+                            token_pos.line,
+                            token_pos.column,
                         ));
                     }
+
+                    // Not a pattern literal: `pattern` is a contextual keyword,
+                    // so treat it as a variable reference
+                    Ok(Expression::Variable(
+                        "pattern".to_string(),
+                        token_line,
+                        token_column,
+                    ))
                 }
                 Token::KeywordLoop => {
                     self.bump_sync(); // Consume "loop"
@@ -331,6 +328,18 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                     let token_column = token.column;
                     Ok(Expression::Variable(
                         "loop".to_string(),
+                        token_line,
+                        token_column,
+                    ))
+                }
+                Token::KeywordOutput => {
+                    // `output` only acts as a keyword in `read output from
+                    // process ...`; in expression position it is a variable
+                    self.bump_sync(); // Consume "output"
+                    let token_line = token.line;
+                    let token_column = token.column;
+                    Ok(Expression::Variable(
+                        "output".to_string(),
                         token_line,
                         token_column,
                     ))
@@ -898,11 +907,22 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                         let token_line = token.line;
                         let token_column = token.column;
 
-                        // Check if next token is "of" for old syntax
+                        // Check if next token is "of" for old syntax, or a token
+                        // that cannot start an expression (end of line, argument
+                        // separator, ...) — `contains` is contextual, so in that
+                        // case it is a plain variable reference.
                         if let Some(next_token) = self.cursor.peek()
-                            && next_token.token == Token::KeywordOf
+                            && (next_token.token == Token::KeywordOf
+                                || matches!(
+                                    next_token.token,
+                                    Token::Eol
+                                        | Token::KeywordWith
+                                        | Token::KeywordAnd
+                                        | Token::Colon
+                                ))
                         {
-                            // Old syntax: "contains of X and Y"
+                            // Old syntax: "contains of X and Y", or a bare
+                            // variable named `contains`.
                             // Set as variable and let postfix operators handle "of"
                             Ok(Expression::Variable(
                                 "contains".to_string(),

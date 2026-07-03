@@ -123,13 +123,14 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "parse_time",
     "create_time",
     "create_date",
+    "create_datetime",
     "add_days",
+    "subtract_days",
     "days_between",
     "current_date",
-    // Time functions recognized by TypeChecker but not yet implemented
-    "sleep",
-    "time",
-    "date",
+    "date_part",
+    "time_part",
+    "utc_now",
     "year",
     "month",
     "day",
@@ -138,6 +139,17 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "second",
     "dayofweek",
     "day_of_week",
+    "dayofyear",
+    "day_of_year",
+    "days_in_month",
+    "week_of_year",
+    "timestamp",
+    "datetime_from_timestamp",
+    "time_diff",
+    // Time functions recognized by TypeChecker but not yet implemented
+    "sleep",
+    "time",
+    "date",
     "adddays", // Duplicate of add_days
     "addmonths",
     "add_months",
@@ -295,18 +307,37 @@ pub fn get_function_arity(name: &str) -> usize {
 
         // === TIME FUNCTIONS ===
         // Zero argument functions
-        "now" | "today" | "datetime_now" | "time" | "date" | "current_date" => 0,
+        "now" | "today" | "datetime_now" | "time" | "date" | "current_date" | "utc_now" => 0,
         // Single argument functions
-        "year" | "month" | "day" | "hour" | "minute" | "second" | "dayofweek" | "day_of_week"
-        | "isleapyear" | "is_leap_year" | "sleep" => 1,
+        // (`timestamp` also accepts zero arguments at runtime, but it is listed
+        // here so `timestamp of <value>` is not broken by zero-arg auto-invocation)
+        "year"
+        | "month"
+        | "day"
+        | "hour"
+        | "minute"
+        | "second"
+        | "dayofweek"
+        | "day_of_week"
+        | "dayofyear"
+        | "day_of_year"
+        | "week_of_year"
+        | "date_part"
+        | "time_part"
+        | "datetime_from_timestamp"
+        | "timestamp"
+        | "isleapyear"
+        | "is_leap_year"
+        | "sleep" => 1,
         // Two argument functions
         "format_date" | "format_time" | "format_datetime" | "parse_date" | "parse_time"
-        | "add_days" | "days_between" | "adddays" | "formatdate" | "formattime" | "parsedate"
-        | "daysbetween" | "add_hours" | "addhours" | "add_minutes" | "addminutes"
-        | "add_seconds" | "addseconds" | "add_months" | "addmonths" | "add_years" | "addyears"
-        | "months_between" | "monthsbetween" | "years_between" | "yearsbetween" => 2,
+        | "add_days" | "subtract_days" | "days_between" | "days_in_month" | "time_diff"
+        | "adddays" | "formatdate" | "formattime" | "parsedate" | "daysbetween" | "add_hours"
+        | "addhours" | "add_minutes" | "addminutes" | "add_seconds" | "addseconds"
+        | "add_months" | "addmonths" | "add_years" | "addyears" | "months_between"
+        | "monthsbetween" | "years_between" | "yearsbetween" => 2,
         // Three argument functions
-        "create_time" | "create_date" => 3,
+        "create_time" | "create_date" | "create_datetime" => 3,
 
         // === PATTERN FUNCTIONS ===
         // Single argument functions

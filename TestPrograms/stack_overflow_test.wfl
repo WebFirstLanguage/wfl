@@ -5,10 +5,10 @@ store test_args as ["--azusa" and "--ui" and "--mio" and "--ritsu"]
 store result as []
 
 for each arg in test_args:
-    store current as arg
+    store current_arg as arg
     
-    check if substring of current and 0 and 2 is "--":
-        store flag_name as substring of current and 2 and length of current
+    check if substring of current_arg and 0 and 2 is "--":
+        store flag_name as substring of current_arg and 2 and length of current_arg
         
         check if flag_name is "azusa":
             store processed as "Character: " with flag_name
@@ -33,7 +33,7 @@ for each arg in test_args:
             end check
         end check
     otherwise:
-        store processed as "Not a flag: " with current
+        store processed as "Not a flag: " with current_arg
         push with result and processed
     end check
 end for

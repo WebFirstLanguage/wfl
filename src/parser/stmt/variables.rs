@@ -133,6 +133,16 @@ impl<'a> VariableParser<'a> for Parser<'a> {
                 self.bump_sync();
             } else if let Token::KeywordTo = &token.token {
                 break;
+            } else if token.token.is_contextual_keyword() {
+                // Contextual keywords (count, files, extension, ...) can be
+                // variable names, matching `store`'s behavior.
+                has_identifier = true;
+                if !name.is_empty() {
+                    name.push(' ');
+                }
+                let text = self.get_token_text(&token.token);
+                name.push_str(&text);
+                self.bump_sync();
             } else {
                 // Provide a more specific error message if we've seen at least one identifier
                 if has_identifier {

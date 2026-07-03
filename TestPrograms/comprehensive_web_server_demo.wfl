@@ -1,3 +1,4 @@
+// CI-SKIP: starts a web server and needs an HTTP client to drive it (covered by run_web_tests)
 // Comprehensive WFL Web Server Implementation
 // This demonstrates all the web server capabilities that WFL should support
 // Following TDD - this will fail until all features are implemented

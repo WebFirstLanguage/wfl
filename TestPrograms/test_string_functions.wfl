@@ -34,10 +34,10 @@ display "Cleaned email: " with email
 display "Valid email format: " with is_email
 
 // Test 6: Empty string edge cases
-store empty as ""
-store empty_trimmed as trim of empty
-store empty_starts as starts_with of empty and "test"
-store empty_ends as ends_with of empty and "test"
+store empty_text as ""
+store empty_trimmed as trim of empty_text
+store empty_starts as starts_with of empty_text and "test"
+store empty_ends as ends_with of empty_text and "test"
 display "Empty trim: '" with empty_trimmed with "'"
 display "Empty starts_with: " with empty_starts
 display "Empty ends_with: " with empty_ends

@@ -40,4 +40,8 @@ pub fn register_core(env: &mut Environment) {
 
     env.define_native("type_of", native_typeof);
     env.define_native("is_nothing", native_isnothing);
+
+    // Text constants for natural-language string handling
+    let _ = env.define("newline", Value::Text("\n".into()));
+    let _ = env.define("tab", Value::Text("\t".into()));
 }
