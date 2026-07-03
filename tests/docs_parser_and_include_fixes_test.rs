@@ -391,6 +391,11 @@ fn parse_json_result_variable_is_inferable_in_main_file() {
 // file, even though the same code ran fine in the main file.
 // ---------------------------------------------------------------------------
 
+/// Escape a Rust string for interpolation into a WFL double-quoted literal.
+fn wfl_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// Write `mod.wfl` with an included action whose body is `body`, call it from
 /// `main.wfl` with two text arguments, and return the combined output.
 fn run_included_action(body: &str, arg1: &str, arg2: &str) -> String {
@@ -400,6 +405,7 @@ fn run_included_action(body: &str, arg1: &str, arg2: &str) -> String {
         format!("define action called f with parameters a and b:\n{body}\nend action\n"),
     )
     .unwrap();
+    let (arg1, arg2) = (wfl_escape(arg1), wfl_escape(arg2));
     fs::write(
         dir.path().join("main.wfl"),
         format!(
@@ -500,6 +506,22 @@ fn comparison_result_variable_is_inferable_in_main_file() {
         "comparison result must be inferable in the main file: {out}"
     );
     assert!(out.contains("no"), "expected 'no', got: {out}");
+}
+
+#[test]
+fn action_local_store_reusing_outer_name_is_a_semantic_error() {
+    // WFL forbids shadowing: a body-local `store` that reuses an outer
+    // variable's name is rejected by the analyzer with a pointer to
+    // `change`. This guards the type checker's scope handling assumption
+    // that a name resolving to an outer symbol always refers to that same
+    // variable (there is no valid program where it is a distinct local).
+    let out = run_wfl(
+        "store parts as 5\ndefine action called f with parameters a and b:\n    store parts as string_split of a and \"-\"\n    return parts\nend action\nstore r as call f with \"x-y\" and \"z\"\ndisplay r\n",
+    );
+    assert!(
+        out.contains("already been defined") && out.contains("change parts to"),
+        "shadowing store must be rejected with a 'change' suggestion: {out}"
+    );
 }
 
 #[test]

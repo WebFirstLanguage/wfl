@@ -586,7 +586,11 @@ impl TypeChecker {
                 // over from analysis (the analyzer discards body scopes), so
                 // record them in the type checker's re-created scope; later
                 // statements in the body can then see their inferred types
-                // (issue #553).
+                // (issue #553). Resolving through parent scopes is correct
+                // here because WFL forbids shadowing: a `store` reusing an
+                // outer variable's name is a fatal semantic error ("Use
+                // 'change x to <value>'"), so a resolved outer symbol can
+                // only mean the store refers to that same variable.
                 if self.analyzer.get_symbol(name).is_none() {
                     let recorded_type = if inferred_type == Type::Error {
                         Type::Unknown
@@ -3436,7 +3440,14 @@ impl TypeChecker {
                     column,
                 } => {
                     if let Some(expr) = value {
+                        // The body pass (check_statement_types) has already
+                        // inferred every return expression and reported any
+                        // diagnostics inside it; re-inferring here is only to
+                        // learn the type for the compatibility check, so drop
+                        // the duplicate expression diagnostics it produces.
+                        let errors_before = self.errors.len();
                         let return_type = self.infer_expression_type(expr);
+                        self.errors.truncate(errors_before);
                         if !self.are_types_compatible(expected_type, &return_type) {
                             self.type_error(
                                 "Return statement has incorrect type".to_string(),
