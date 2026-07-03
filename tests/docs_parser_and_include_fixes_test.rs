@@ -383,3 +383,134 @@ fn parse_json_result_variable_is_inferable_in_main_file() {
     );
     assert!(out.contains("[1]"), "expected '[1]', got: {out}");
 }
+
+// ---------------------------------------------------------------------------
+// #553 — remaining RHS forms inside included files: list index, object index,
+// comparison results, and `length of`. Each used to abort with a fatal
+// "Could not infer type for variable 'v'" when it appeared in an included
+// file, even though the same code ran fine in the main file.
+// ---------------------------------------------------------------------------
+
+/// Write `mod.wfl` with an included action whose body is `body`, call it from
+/// `main.wfl` with two text arguments, and return the combined output.
+fn run_included_action(body: &str, arg1: &str, arg2: &str) -> String {
+    let dir = TempDir::new().expect("tempdir");
+    fs::write(
+        dir.path().join("mod.wfl"),
+        format!("define action called f with parameters a and b:\n{body}\nend action\n"),
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("main.wfl"),
+        format!(
+            "include from \"mod.wfl\"\nstore r as call f with \"{arg1}\" and \"{arg2}\"\ndisplay \"R=\" with r\n"
+        ),
+    )
+    .unwrap();
+    run_file(&dir, "main.wfl")
+}
+
+#[test]
+fn included_action_can_store_list_index_result() {
+    let out = run_included_action(
+        "    store parts as string_split of a and \"-\"\n    store v as parts[0]\n    return v",
+        "x-y",
+        "z",
+    );
+    assert!(
+        !out.contains("Could not infer type"),
+        "list-index result must be inferable in an included file: {out}"
+    );
+    assert!(out.contains("R=x"), "expected 'R=x', got: {out}");
+}
+
+#[test]
+fn included_action_can_store_object_index_result() {
+    let out = run_included_action(
+        "    store rec as parse_json of \"{\\\"k\\\":1}\"\n    store v as rec[\"k\"]\n    return v",
+        "x",
+        "z",
+    );
+    assert!(
+        !out.contains("Could not infer type"),
+        "object-index result must be inferable in an included file: {out}"
+    );
+    assert!(
+        !out.contains("Cannot index into"),
+        "indexing a parse_json (Any-typed) value must not be a type error: {out}"
+    );
+    assert!(out.contains("R=1"), "expected 'R=1', got: {out}");
+}
+
+#[test]
+fn included_action_can_store_comparison_result() {
+    let out = run_included_action("    store v as a is equal to b\n    return v", "x", "z");
+    assert!(
+        !out.contains("Could not infer type"),
+        "comparison result must be inferable in an included file: {out}"
+    );
+    assert!(out.contains("R=no"), "expected 'R=no', got: {out}");
+}
+
+#[test]
+fn included_action_can_store_ordered_comparison_result() {
+    let out = run_included_action(
+        "    store v as a is greater than or equal to b\n    return v",
+        "b",
+        "a",
+    );
+    assert!(
+        !out.contains("Could not infer type"),
+        "ordered-comparison result must be inferable in an included file: {out}"
+    );
+    assert!(out.contains("R=yes"), "expected 'R=yes', got: {out}");
+}
+
+#[test]
+fn included_action_can_store_length_of_result() {
+    let out = run_included_action("    store v as length of a\n    return v", "hello", "z");
+    assert!(
+        !out.contains("Could not infer type"),
+        "`length of` result must be inferable in an included file: {out}"
+    );
+    assert!(out.contains("R=5"), "expected 'R=5', got: {out}");
+}
+
+#[test]
+fn list_index_result_variable_is_inferable_in_main_file() {
+    // Guard: the same forms must not produce spurious "Could not infer type"
+    // warnings in the main file either (they were warnings there, not fatal).
+    let out = run_wfl(
+        "define action called f with parameters a and b:\n    store parts as string_split of a and \"-\"\n    store v as parts[0]\n    return v\nend action\nstore r as call f with \"x-y\" and \"z\"\ndisplay r\n",
+    );
+    assert!(
+        !out.contains("Could not infer type"),
+        "list-index result must be inferable in the main file: {out}"
+    );
+    assert!(out.contains("x"), "expected 'x', got: {out}");
+}
+
+#[test]
+fn comparison_result_variable_is_inferable_in_main_file() {
+    let out = run_wfl(
+        "define action called f with parameters a and b:\n    store v as a is equal to b\n    return v\nend action\nstore r as call f with \"x\" and \"z\"\ndisplay r\n",
+    );
+    assert!(
+        !out.contains("Could not infer type"),
+        "comparison result must be inferable in the main file: {out}"
+    );
+    assert!(out.contains("no"), "expected 'no', got: {out}");
+}
+
+#[test]
+fn include_type_errors_are_nonfatal_like_main_file() {
+    // Deeper guarantee behind #551/#553: the include pipeline must never be
+    // stricter than the main-file pipeline. A form the type checker genuinely
+    // cannot infer (untyped parameters in arithmetic) is a non-fatal warning
+    // in the main file, so an included file must also run, not abort.
+    let out = run_included_action("    store v as a plus b\n    return v", "1", "2");
+    assert!(
+        out.contains("R="),
+        "included file with an uninferable store must still run: {out}"
+    );
+}

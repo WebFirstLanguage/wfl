@@ -552,6 +552,14 @@ impl Analyzer {
 
                 self.mark_used_in_expression(value, usages);
             }
+            Statement::VariableDeclaration { value, .. } => {
+                // Variables referenced on the right-hand side of a `store`
+                // are uses — including inside action/loop bodies, which the
+                // top-level declaration pass does not reach (issue #553's
+                // repro flagged `parts` as unused after `store v as parts[0]`
+                // inside an action).
+                self.mark_used_in_expression(value, usages);
+            }
             Statement::ActionDefinition { body, .. } => {
                 for stmt in body {
                     self.mark_used_variables(stmt, usages);
