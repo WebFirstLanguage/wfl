@@ -235,6 +235,11 @@ impl<'a> IoParser<'a> for Parser<'a> {
                         column,
                     })
                 }
+                Expression::DatabaseQuery { line, column, .. } => Ok(Statement::DisplayStatement {
+                    value: expr,
+                    line,
+                    column,
+                }),
             };
         };
 

@@ -1,7 +1,8 @@
 // End-to-end database test using SQLite (no external services required)
 // Exercises: open database, execute (DDL/INSERT/UPDATE/DELETE with bound
-// parameters), query (SELECT with bound parameters), NULL handling, and
-// close database.
+// parameters), query (SELECT with bound parameters), NULL handling,
+// returning parameterized query/execute results directly from actions,
+// and close database.
 
 display "=== Database SQLite E2E Test ==="
 
@@ -105,6 +106,33 @@ check if error_caught is equal to "yes":
     display "✓ Malformed SQL raises a catchable error"
 otherwise:
     display "✗ FAILED: malformed SQL did not raise an error"
+    add 1 to failures
+end check
+
+// 9. Return a parameterized query directly from an action (issue #559)
+define action called ages_for_name with parameters conn and who:
+    return query conn with "SELECT age FROM users WHERE name = ?" and parameters [who]
+end action
+
+store alice_rows as call ages_for_name with db and "Alice"
+store alice_row as alice_rows[0]
+check if alice_row["age"] is equal to 31:
+    display "✓ return query with parameters works from an action"
+otherwise:
+    display "✗ FAILED: return query with parameters gave wrong row"
+    add 1 to failures
+end check
+
+// 10. Return a parameterized execute directly from an action
+define action called add_user with parameters conn and user_name and user_age:
+    return execute conn with "INSERT INTO users (name, age) VALUES (?, ?)" and parameters [user_name and user_age]
+end action
+
+store add_result as call add_user with db and "Carol" and 20
+check if add_result["affected_rows"] is equal to 1:
+    display "✓ return execute with parameters works from an action"
+otherwise:
+    display "✗ FAILED: return execute with parameters affected_rows wrong"
     add 1 to failures
 end check
 

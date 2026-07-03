@@ -1794,6 +1794,16 @@ impl JavaScriptTranspiler {
                 let pid = self.transpile_expression(process_id)?;
                 Ok(format!("WFL.process.isRunning({})", pid))
             }
+
+            Expression::DatabaseQuery { line, column, .. } => {
+                // Same policy as the database statements: fail instead of
+                // silently emitting broken JS.
+                Err(TranspileError {
+                    message: "Database expressions are not supported in JavaScript transpilation. They require the WFL interpreter.".to_string(),
+                    line: *line,
+                    column: *column,
+                })
+            }
         }
     }
 

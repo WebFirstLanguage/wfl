@@ -3,7 +3,7 @@
 
 use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
-use wfl::parser::ast::{DatabaseQueryKind, Statement};
+use wfl::parser::ast::{DatabaseQueryKind, Expression, Statement};
 
 fn parse(code: &str) -> Vec<Statement> {
     let tokens = lex_wfl_with_positions(code);
@@ -146,6 +146,121 @@ fn test_open_database_inside_wait_for() {
         }
         other => panic!("Expected WaitForStatement, got {other:?}"),
     }
+}
+
+// === Return-position database queries (issue #559) ===
+
+/// Extract the return value expression from a one-statement action body.
+fn return_value_of_action(code: &str) -> Expression {
+    let stmt = parse_single(code);
+    let Statement::ActionDefinition { body, .. } = stmt else {
+        panic!("Expected ActionDefinition, got {stmt:?}");
+    };
+    assert_eq!(body.len(), 1, "Expected one statement in action body");
+    let Statement::ReturnStatement {
+        value: Some(value), ..
+    } = &body[0]
+    else {
+        panic!("Expected ReturnStatement with a value, got {:?}", body[0]);
+    };
+    value.clone()
+}
+
+#[test]
+fn test_return_query_with_parameters() {
+    let value = return_value_of_action(
+        r#"define action called get_n with parameters conn and id:
+    return query conn with "SELECT n FROM t WHERE id = ?" and parameters [id]
+end action"#,
+    );
+    match value {
+        Expression::DatabaseQuery {
+            parameters, kind, ..
+        } => {
+            assert!(parameters.is_some());
+            assert_eq!(kind, DatabaseQueryKind::Query);
+        }
+        other => panic!("Expected DatabaseQuery expression, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_return_query_without_parameters() {
+    let value = return_value_of_action(
+        r#"define action called get_all with parameters conn:
+    return query conn with "SELECT n FROM t"
+end action"#,
+    );
+    match value {
+        Expression::DatabaseQuery {
+            parameters, kind, ..
+        } => {
+            assert!(parameters.is_none());
+            assert_eq!(kind, DatabaseQueryKind::Query);
+        }
+        other => panic!("Expected DatabaseQuery expression, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_return_execute_with_parameters() {
+    let value = return_value_of_action(
+        r#"define action called add_row with parameters conn and id:
+    return execute conn with "INSERT INTO t (id) VALUES (?)" and parameters [id]
+end action"#,
+    );
+    match value {
+        Expression::DatabaseQuery {
+            parameters, kind, ..
+        } => {
+            assert!(parameters.is_some());
+            assert_eq!(kind, DatabaseQueryKind::Execute);
+        }
+        other => panic!("Expected DatabaseQuery expression, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_give_back_query_with_parameters() {
+    let value = return_value_of_action(
+        r#"define action called get_n with parameters conn and id:
+    give back query conn with "SELECT n FROM t WHERE id = ?" and parameters [id]
+end action"#,
+    );
+    assert!(
+        matches!(value, Expression::DatabaseQuery { .. }),
+        "Expected DatabaseQuery expression, got {value:?}"
+    );
+}
+
+#[test]
+fn test_return_variable_named_query_still_works() {
+    // A plain variable named `query` (no handle) after return must keep
+    // parsing as an ordinary expression.
+    let value = return_value_of_action(
+        r#"define action called passthrough:
+    return query
+end action"#,
+    );
+    assert!(
+        matches!(&value, Expression::Variable(name, ..) if name == "query"),
+        "Expected Variable(\"query\"), got {value:?}"
+    );
+}
+
+#[test]
+fn test_return_query_concatenation_still_works() {
+    // `return query with "..."` has no db handle, so it must stay a
+    // concatenation of the variable `query`, not a database query.
+    let value = return_value_of_action(
+        r#"define action called label with parameters query:
+    return query with " suffix"
+end action"#,
+    );
+    assert!(
+        !matches!(value, Expression::DatabaseQuery { .. }),
+        "Expected non-database expression, got {value:?}"
+    );
 }
 
 // === Backward compatibility characterization ===

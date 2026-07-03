@@ -3321,6 +3321,63 @@ impl TypeChecker {
             Expression::CurrentTimeMilliseconds { .. } => Type::Number,
             Expression::CurrentTimeFormatted { .. } => Type::Text,
             Expression::ProcessRunning { .. } => Type::Boolean,
+            Expression::DatabaseQuery {
+                db,
+                sql,
+                parameters,
+                kind,
+                line,
+                column,
+            } => {
+                let db_type = self.infer_expression_type(db);
+                if db_type != Type::Custom("Database".to_string())
+                    && db_type != Type::Unknown
+                    && db_type != Type::Error
+                {
+                    self.type_error(
+                        "Expected a Database connection".to_string(),
+                        Some(Type::Custom("Database".to_string())),
+                        Some(db_type),
+                        *line,
+                        *column,
+                    );
+                }
+
+                let sql_type = self.infer_expression_type(sql);
+                if sql_type != Type::Text && sql_type != Type::Unknown && sql_type != Type::Error {
+                    self.type_error(
+                        "SQL statement must be a text string".to_string(),
+                        Some(Type::Text),
+                        Some(sql_type),
+                        *line,
+                        *column,
+                    );
+                }
+
+                if let Some(params) = parameters {
+                    let params_type = self.infer_expression_type(params);
+                    if !matches!(params_type, Type::List(_))
+                        && params_type != Type::Unknown
+                        && params_type != Type::Error
+                    {
+                        self.type_error(
+                            "Query parameters must be a list".to_string(),
+                            Some(Type::List(Box::new(Type::Any))),
+                            Some(params_type),
+                            *line,
+                            *column,
+                        );
+                    }
+                }
+
+                // Same result typing as DatabaseQueryStatement: rows are
+                // text-keyed maps, execute results are one such map.
+                let row_type = Type::Map(Box::new(Type::Text), Box::new(Type::Any));
+                match kind {
+                    crate::parser::ast::DatabaseQueryKind::Query => Type::List(Box::new(row_type)),
+                    crate::parser::ast::DatabaseQueryKind::Execute => row_type,
+                }
+            }
         }
     }
 

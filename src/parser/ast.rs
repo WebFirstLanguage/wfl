@@ -737,6 +737,16 @@ pub enum Expression {
         line: usize,
         column: usize,
     },
+    /// Database query/execute in expression position:
+    /// `return query <db> with <sql> [and parameters <list>]`
+    DatabaseQuery {
+        db: Box<Expression>,
+        sql: Box<Expression>,
+        parameters: Option<Box<Expression>>,
+        kind: DatabaseQueryKind,
+        line: usize,
+        column: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
