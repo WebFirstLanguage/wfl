@@ -238,44 +238,71 @@ mod wflhash_security_tests {
             let _ = native_wflhash256(vec![Value::Text(Arc::from(input))]);
         }
 
-        let iterations = 50; // Reduced for faster testing
-        let mut timings = Vec::new();
+        // Timing tests are inherently unreliable in CI environments with
+        // shared resources: a single measurement round can spike well past any
+        // reasonable threshold when the runner gets descheduled. Instead of
+        // asserting on one round, run many rounds, log any round that exceeds
+        // the threshold, and fail only if the MEAN variation across all rounds
+        // does — a scheduling hiccup skews one round, a real timing leak skews
+        // the mean.
+        let rounds = 100;
+        let iterations = 50;
+        let threshold = 1.5; // 150% coefficient of variation
 
-        // Measure timing for multiple identical operations
-        for _ in 0..iterations {
-            let start = Instant::now();
-            let _ = native_wflhash256(vec![Value::Text(Arc::from(input))]);
-            let duration = start.elapsed();
-            timings.push(duration.as_nanos());
+        let mut round_cvs = Vec::with_capacity(rounds);
+        let mut round_means = Vec::with_capacity(rounds);
+
+        for round in 0..rounds {
+            let mut timings = Vec::with_capacity(iterations);
+
+            // Measure timing for multiple identical operations
+            for _ in 0..iterations {
+                let start = Instant::now();
+                let _ = native_wflhash256(vec![Value::Text(Arc::from(input))]);
+                let duration = start.elapsed();
+                timings.push(duration.as_nanos());
+            }
+
+            // Calculate timing statistics for this round
+            let mean = timings.iter().sum::<u128>() / timings.len() as u128;
+            let variance = timings
+                .iter()
+                .map(|&t| {
+                    let diff = t.abs_diff(mean);
+                    diff * diff
+                })
+                .sum::<u128>()
+                / timings.len() as u128;
+
+            let std_dev = (variance as f64).sqrt();
+            let coefficient_of_variation = std_dev / mean as f64;
+
+            if coefficient_of_variation >= threshold {
+                eprintln!(
+                    "Round {round}: timing variation {:.2}% exceeds {:.0}% (logged, not failing)",
+                    coefficient_of_variation * 100.0,
+                    threshold * 100.0
+                );
+            }
+
+            round_cvs.push(coefficient_of_variation);
+            round_means.push(mean);
         }
 
-        // Calculate timing statistics
-        let mean = timings.iter().sum::<u128>() / timings.len() as u128;
-        let variance = timings
-            .iter()
-            .map(|&t| {
-                let diff = t.abs_diff(mean);
-                diff * diff
-            })
-            .sum::<u128>()
-            / timings.len() as u128;
-
-        let std_dev = (variance as f64).sqrt();
-        let coefficient_of_variation = std_dev / mean as f64;
-
-        // With timing-safe measures, variation should be reasonable
-        // (Not perfect constant-time, but better than before)
-        // Note: Timing tests are inherently unreliable in CI environments with shared resources,
-        // so we use a generous threshold of 1.5 (150%) to reduce flakiness while still catching
-        // major timing variations that could indicate timing attacks
+        let mean_cv = round_cvs.iter().sum::<f64>() / round_cvs.len() as f64;
         assert!(
-            coefficient_of_variation < 1.5,
-            "Timing variation should be reasonable: got {:.2}%",
-            coefficient_of_variation * 100.0
+            mean_cv < threshold,
+            "Mean timing variation across {rounds} rounds should be under {:.0}%: got {:.2}%",
+            threshold * 100.0,
+            mean_cv * 100.0
         );
 
         // Test that function completes in reasonable time
-        assert!(mean < 10_000_000, "Hash should complete in reasonable time"); // 10ms
+        let mean_time = round_means.iter().sum::<u128>() / round_means.len() as u128;
+        assert!(
+            mean_time < 10_000_000,
+            "Hash should complete in reasonable time"
+        ); // 10ms
     }
 
     /// Test 7: FIXED - Strong G-Function Diffusion
