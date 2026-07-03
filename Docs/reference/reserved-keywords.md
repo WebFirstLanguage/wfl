@@ -647,7 +647,7 @@ Complete reference table of all 178 keywords.
 | `process` | Other | Process | ❌ | `spawn process` |
 | `property` | Structural | OOP | ❌ | `container property` |
 | `public` | Structural | OOP | ❌ | `public property` |
-| `push` | Structural | Operations | ❌ | `push to list` |
+| `push` | Structural | Operations | ❌ | `push with list and value` |
 | `read` | Contextual | File I/O | ✅ | `read file` |
 | `recursively` | Other | File I/O | ❌ | `delete recursively` |
 | `register` | Other | Web/Network | ❌ | `register handler` |

@@ -62,7 +62,7 @@ Already know WFL basics? Use these as quick lookups:
 | Conditionals | `check if x is 5: ... end check` |
 | Loops | `count from 1 to 10: ... end count` |
 | For Each | `for each item in list: ... end for` |
-| Actions | `action greet with name: ... end action` |
+| Actions | `define action called greet with parameters name: ... end action` |
 | Lists | `create list items: add "x" end list` |
 | Error Handling | `try: ... when error: ... end try` |
 | Comments | `// This is a comment` |
@@ -98,7 +98,7 @@ for i in range(1, 11):
 **WFL:**
 ```wfl
 count from 1 to 10:
-    display the current count
+    display count
 end count
 ```
 
@@ -148,7 +148,7 @@ end check
 
 ```wfl
 count from 1 to 5:
-    display the current count
+    display count
 end count
 
 for each item in shopping list:
@@ -161,7 +161,7 @@ end for
 ### Reusable Code (Functions)
 
 ```wfl
-action greet with name:
+define action called greet with parameters name:
     display "Hello, " with name with "!"
 end action
 
@@ -251,7 +251,7 @@ end check
 display ""
 display "Counting stock:"
 count from 1 to items needed:
-    display "  Item " with the current count
+    display "  Item " with count
 end count
 
 // List example
@@ -268,7 +268,7 @@ for each item in similar items:
 end for
 
 // Action (function) example
-action calculate total with quantity and price:
+define action called calculate total with parameters quantity and price:
     return quantity times price
 end action
 

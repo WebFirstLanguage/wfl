@@ -102,7 +102,7 @@ Notice the `...` prompt? WFL knows you're not done yet. Type `end check` to comp
 
 ```wfl
 > count from 1 to 5:
-...     display "Number: " with the current count
+...     display "Number: " with count
 ... end count
 Number: 1
 Number: 2
@@ -353,7 +353,7 @@ Error messages in the REPL help you understand what went wrong.
 Test action (function) ideas:
 
 ```wfl
-> action greet with name:
+> define action called greet with parameters name:
 ...     display "Hello, " with name with "!"
 ... end action
 
@@ -373,7 +373,7 @@ Hello, Bob!
 ```wfl
 > // Try basic count
 > count from 1 to 3:
-...     display the current count
+...     display count
 ... end count
 1
 2
@@ -381,7 +381,7 @@ Hello, Bob!
 
 > // Try with step
 > count from 0 to 10 by 2:
-...     display the current count
+...     display count
 ... end count
 0
 2
@@ -392,7 +392,7 @@ Hello, Bob!
 
 > // Try backwards
 > count from 5 to 1:
-...     display the current count
+...     display count
 ... end count
 5
 4
@@ -491,7 +491,7 @@ Once you've figured something out in the REPL, save it to a file:
 
 **REPL session:**
 ```wfl
-> action calculate area with width and height:
+> define action called calculate area with parameters width and height:
 ...     return width times height
 ... end action
 
@@ -503,7 +503,7 @@ Once you've figured something out in the REPL, save it to a file:
 
 **Create `area.wfl`:**
 ```wfl
-action calculate area with width and height:
+define action called calculate area with parameters width and height:
     return width times height
 end action
 

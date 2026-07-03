@@ -506,7 +506,7 @@ wait for request comes in on server as req
 respond to req with "OK"
 
 // Shutdown handler
-action shutdown_handler:
+define action called shutdown_handler:
     display "Shutting down gracefully..."
     stop accepting connections on server
     close server server
