@@ -1,4 +1,4 @@
-// CI-SKIP: exercises unimplemented session/CSRF/cookie features
+// CI-SKIP: exercises unimplemented session/CSRF/cookie features (tracked in issue #555)
 // TDD Test: Web Server Session Management
 // This test MUST FAIL initially because session management is not implemented
 // Following TDD approach - write failing test first

@@ -85,6 +85,7 @@ SKIP_TESTS=(
     "web_server_test.wfl"          # Web server - needs HTTP client
     "websocket_test.wfl"           # WebSocket - needs WS client
     "web_route_params_test.wfl"    # Web server - tested via run_web_tests.sh
+    "module_helper.wfl"            # Helper module, not a standalone program
 )
 
 # Tests that intentionally end with an error; they pass when wfl exits nonzero
@@ -191,6 +192,9 @@ run_test_programs() {
                 if [ $exit_code -ne 0 ] && [ $exit_code -ne 124 ]; then
                     print_success "PASS $test_name (expected failure, exit code: $exit_code)"
                     passed_programs=$((passed_programs + 1))
+                elif [ $exit_code -eq 124 ]; then
+                    print_error "TIMEOUT $test_name (exceeded ${TEST_TIMEOUT}s, expected a real failure)"
+                    failed_programs=$((failed_programs + 1))
                 else
                     print_error "FAIL $test_name (expected a nonzero exit, got $exit_code)"
                     failed_programs=$((failed_programs + 1))

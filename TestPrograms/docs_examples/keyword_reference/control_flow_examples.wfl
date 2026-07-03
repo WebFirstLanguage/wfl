@@ -1,4 +1,4 @@
-// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); needs a docs-example fix pass
+// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); tracked in issue #555
 // Control Flow Keywords Examples
 // Keywords covered: check, if, otherwise, end, for, each, in, count, from, to, by
 // repeat, while, until, forever, break, continue, skip

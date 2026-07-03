@@ -6987,8 +6987,14 @@ impl Interpreter {
                             );
                         }
 
-                        native_fn(arg_values)
-                            .map_err(|e| RuntimeError::new(e.to_string(), *line, *column))
+                        // Preserve the native error's message and kind; only
+                        // point the location at the call site (natives report
+                        // their position as 0,0).
+                        native_fn(arg_values).map_err(|mut e| {
+                            e.line = *line;
+                            e.column = *column;
+                            e
+                        })
                     }
                     _ => Err(RuntimeError::new(
                         format!("'{name}' is not callable"),

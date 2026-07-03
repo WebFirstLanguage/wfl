@@ -1,4 +1,4 @@
-// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); needs a docs-example fix pass
+// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); tracked in issue #555
 // Web & Network Keywords Examples (Simplified)
 // Keywords covered: server, port, request, response, listen
 // Note: Full web examples require web server functionality

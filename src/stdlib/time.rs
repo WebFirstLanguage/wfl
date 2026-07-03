@@ -440,20 +440,25 @@ pub fn native_week_of_year(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Number(date.iso_week().week() as f64))
 }
 
-/// Returns a Unix timestamp (seconds) for a date, time, or datetime
+/// Returns a Unix timestamp (seconds) for a date, time, or datetime.
+///
+/// WFL date/time values are naive (no timezone), so an explicit argument is
+/// treated as UTC wall-clock time — this makes `timestamp` and
+/// `datetime_from_timestamp` exact inverses of each other. With no argument,
+/// the current true Unix time is returned.
 pub fn native_timestamp(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_range("timestamp", &args, 0, 1)?;
 
     let datetime = if args.is_empty() {
-        Local::now().naive_local()
+        Utc::now().naive_utc()
     } else {
         match &args[0] {
             Value::DateTime(dt) => **dt,
             Value::Date(date) => date
                 .and_hms_opt(0, 0, 0)
                 .ok_or_else(|| RuntimeError::new("Failed to convert date".to_string(), 0, 0))?,
-            // A bare time is interpreted as that time today
-            Value::Time(time) => NaiveDateTime::new(Local::now().date_naive(), **time),
+            // A bare time is interpreted as that time on the current UTC date
+            Value::Time(time) => NaiveDateTime::new(Utc::now().date_naive(), **time),
             other => {
                 return Err(RuntimeError::new(
                     format!(

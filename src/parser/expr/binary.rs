@@ -145,12 +145,12 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                                                 self.bump_sync(); // Consume "to"
                                                                 Some((
                                                                     Operator::GreaterThanOrEqual,
-                                                                    0,
+                                                                    1,
                                                                 ))
                                                             } else {
                                                                 Some((
                                                                     Operator::GreaterThanOrEqual,
-                                                                    0,
+                                                                    1,
                                                                 )) // "or equal" without "to" is valid too
                                                             }
                                                         } else {

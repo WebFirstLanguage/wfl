@@ -1,4 +1,4 @@
-// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); needs a docs-example fix pass
+// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); tracked in issue #555
 // Contextual Keywords Examples
 // Demonstrating keywords that CAN be used as variables in certain contexts
 // Keywords covered: count, list, pattern, at, called, change, create, text

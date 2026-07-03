@@ -1,4 +1,4 @@
-// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); needs a docs-example fix pass
+// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); tracked in issue #555
 // Declaration Keywords Examples
 // Keywords covered: store, as, change, define, action, called, with, return, property, container
 

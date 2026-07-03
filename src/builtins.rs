@@ -337,6 +337,8 @@ pub fn get_function_arity(name: &str) -> usize {
         | "add_months" | "addmonths" | "add_years" | "addyears" | "months_between"
         | "monthsbetween" | "years_between" | "yearsbetween" => 2,
         // Three argument functions
+        // (`create_datetime` accepts 3-6 arguments at runtime; 3 is the
+        // documented minimum used for inference)
         "create_time" | "create_date" | "create_datetime" => 3,
 
         // === PATTERN FUNCTIONS ===

@@ -477,6 +477,8 @@ pub fn register_filesystem(env: &mut crate::interpreter::environment::Environmen
     env.define_native("copy_file", native_copy_file);
     env.define_native("move_file", native_move_file);
     env.define_native("remove_file", native_remove_file);
+    // Documented alias of remove_file
+    env.define_native("delete_file", native_remove_file);
     env.define_native("remove_dir", native_remove_dir);
 }
 

@@ -105,6 +105,9 @@ impl Environment {
     /// itself (e.g. request variables from `wait for request`), which must not
     /// fail when re-bound in the same scope.
     pub fn define_or_replace(&mut self, name: &str, value: Value) {
+        // A refreshed implicit binding is never a constant; clear any stale
+        // constant marker so the binding's state stays consistent.
+        self.constants.remove(name);
         self.values.insert(name.to_string(), value);
     }
 

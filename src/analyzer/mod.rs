@@ -115,6 +115,14 @@ impl Scope {
         Ok(())
     }
 
+    /// Defines or overwrites a symbol in this scope, shadowing any binding of
+    /// the same name from a parent scope. Used for implicit bindings that the
+    /// runtime refreshes itself (loop counters, request bindings), which must
+    /// resolve to the implicit symbol rather than an outer variable.
+    pub fn define_or_replace(&mut self, symbol: Symbol) {
+        self.symbols.insert(symbol.name.clone(), symbol);
+    }
+
     pub fn resolve(&self, name: &str) -> Option<&Symbol> {
         if let Some(symbol) = self.symbols.get(name) {
             Some(symbol)
@@ -695,6 +703,8 @@ impl Analyzer {
                 step,
                 variable_name,
                 body,
+                line,
+                column,
                 ..
             } => {
                 self.analyze_expression(start);
@@ -720,8 +730,8 @@ impl Analyzer {
                         format!(
                             "Nested count loops both use the loop variable '{loop_var_name}'. Give the loops distinct names with 'count from X to Y as <name>:'."
                         ),
-                        0,
-                        0,
+                        *line,
+                        *column,
                     ));
                 }
 
@@ -729,14 +739,15 @@ impl Analyzer {
                     name: loop_var_name.to_string(), // The loop variable is implicitly defined
                     kind: SymbolKind::Variable { mutable: false }, // Loop variable is immutable
                     symbol_type: Some(Type::Number), // Loop variable is always a number
-                    line: 0,
-                    column: 0,
+                    line: *line,
+                    column: *column,
                 };
 
                 // The implicit loop variable may shadow an ordinary variable of
-                // the same name from an outer scope, so redefinition is not an
-                // error here (nested loops are handled above).
-                let _ = self.current_scope.define(count_symbol);
+                // the same name from an outer scope (nested loops are handled
+                // above), and must resolve to the loop counter inside the loop
+                // — matching the interpreter, which rebinds it each iteration.
+                self.current_scope.define_or_replace(count_symbol);
 
                 // Add loop variable to action_parameters to prevent it from being flagged as undefined
                 self.action_parameters.insert(loop_var_name.to_string());
@@ -1456,8 +1467,9 @@ impl Analyzer {
                 self.analyze_expression(server);
 
                 // Define the request variable. Waiting for another request may
-                // rebind an existing name (e.g. in a loop), so redefinition is
-                // allowed here — the interpreter overwrites the binding.
+                // rebind an existing name (e.g. in a loop), so the binding is
+                // overwritten/shadowed here — matching the interpreter, which
+                // refreshes it via define_or_replace.
                 let request_symbol = Symbol {
                     name: request_name.clone(),
                     kind: SymbolKind::Variable { mutable: false },
@@ -1466,10 +1478,11 @@ impl Analyzer {
                     column: *column,
                 };
 
-                let _ = self.current_scope.define(request_symbol);
+                self.current_scope.define_or_replace(request_symbol);
 
                 // Define individual request property variables. These implicit
-                // bindings are refreshed on every wait, so duplicates are fine.
+                // bindings are refreshed on every wait and shadow any outer
+                // variables of the same name, matching the interpreter.
                 let request_properties = [
                     ("method", Type::Text),
                     ("path", Type::Text),
@@ -1487,7 +1500,7 @@ impl Analyzer {
                         column: *column,
                     };
 
-                    let _ = self.current_scope.define(prop_symbol);
+                    self.current_scope.define_or_replace(prop_symbol);
                 }
             }
 
