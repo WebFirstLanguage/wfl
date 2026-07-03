@@ -139,9 +139,10 @@ impl TypeChecker {
     /// Get the return type for builtin functions
     fn get_builtin_function_type(&self, name: &str, _arg_count: usize) -> Type {
         match name {
-            // Type functions
+            // Core functions
             "typeof" | "type_of" => Type::Text,
             "isnothing" | "is_nothing" => Type::Boolean,
+            "print" | "sleep" | "foreach" => Type::Nothing, // Void functions
 
             // Math functions
             "abs" | "round" | "floor" | "ceil" | "clamp" | "min" | "max" | "power" | "sqrt"
@@ -155,8 +156,9 @@ impl TypeChecker {
 
             // Text functions
             "length" | "indexof" | "index_of" | "lastindexof" | "last_index_of" => Type::Number,
-            "touppercase" | "tolowercase" | "substring" | "replace" | "trim" | "padleft"
-            | "padright" | "capitalize" | "reverse" => Type::Text,
+            "touppercase" | "to_uppercase" | "tolowercase" | "to_lowercase" | "substring"
+            | "replace" | "trim" | "padleft" | "padright" | "capitalize" | "reverse"
+            | "reverse_text" => Type::Text,
             "contains" | "startswith" | "starts_with" | "endswith" | "ends_with" => Type::Boolean,
             "split" => Type::List(Box::new(Type::Text)),
             "join" => Type::Text,
@@ -165,39 +167,66 @@ impl TypeChecker {
             "push" | "pop" | "shift" | "unshift" | "removeat" | "remove_at" | "insertat"
             | "insert_at" | "slice" | "concat" | "unique" | "sort" | "reverse_list" | "clear"
             | "filter" | "map" => Type::List(Box::new(Type::Any)),
-            "find" => Type::Any,
-            "count" | "size" => Type::Number,
-            "includes" => Type::Boolean,
+            "find" | "reduce" => Type::Any,
+            "count" | "size" | "find_index" => Type::Number,
+            "includes" | "every" | "some" => Type::Boolean,
 
             // Time functions
             "now" | "today" | "time" | "date" | "year" | "month" | "day" | "hour" | "minute"
             | "second" | "dayofweek" | "day_of_week" | "adddays" | "add_days" | "addmonths"
             | "add_months" | "addyears" | "add_years" | "addhours" | "add_hours" | "addminutes"
             | "add_minutes" | "addseconds" | "add_seconds" => Type::Number,
-            "formatdate" | "format_date" | "formattime" | "format_time" => Type::Text,
+            "formatdate" | "format_date" | "formattime" | "format_time" | "format_datetime"
+            | "current_date" => Type::Text,
             "parsedate" | "parse_date" | "isleapyear" | "is_leap_year" => Type::Number,
+            // DateTime-valued functions: no static type exists for DateTime
+            "datetime_now" | "create_time" | "create_date" | "parse_time" => Type::Any,
             "daysbetween" | "days_between" | "monthsbetween" | "months_between"
             | "yearsbetween" | "years_between" => Type::Number,
 
             // Pattern functions
             "pattern" | "match" | "test" | "replace_pattern" | "extract" => Type::Text,
-            "ismatch" | "is_match" => Type::Boolean,
+            "ismatch" | "is_match" | "pattern_matches" => Type::Boolean,
             "findall" | "find_all" => Type::List(Box::new(Type::Text)),
+            "pattern_find" => Type::Any, // Match object or nothing
+            "pattern_find_all" => Type::List(Box::new(Type::Any)),
 
             // Crypto functions
-            "wflhash256" | "wflhash512" | "wflhash256_with_salt" | "wflmac256" => Type::Text,
+            "wflhash256"
+            | "wflhash512"
+            | "wflhash256_with_salt"
+            | "wflmac256"
+            | "generate_uuid"
+            | "generate_csrf_token" => Type::Text,
 
             // JSON functions
             "parse_json" => Type::Any, // object/list/scalar depending on the JSON
             "stringify_json" | "stringify_json_pretty" => Type::Text,
 
+            // Query and form parsing (objects with string values)
+            "parse_query_string" | "parse_cookies" | "parse_form_urlencoded" => Type::Any,
+
+            // Web routing helpers
+            "path_params" => Type::Map(Box::new(Type::Text), Box::new(Type::Text)),
+            "path_matches" => Type::Boolean,
+
             // Text functions registered under stdlib-specific names
             "string_split" => Type::List(Box::new(Type::Text)),
 
+            // Filesystem functions
+            "list_dir" | "glob" | "rglob" | "list_directory" => Type::List(Box::new(Type::Text)),
+            "path_join" | "path_basename" | "path_dirname" | "path_extension" | "path_stem"
+            | "read_file" => Type::Text,
+            "path_exists" | "is_file" | "is_dir" | "file_exists" | "is_directory" => Type::Boolean,
+            "file_size" | "file_mtime" | "count_lines" => Type::Number,
+            "makedirs" | "copy_file" | "move_file" | "remove_file" | "remove_dir"
+            | "write_file" | "delete_file" | "create_directory" => Type::Nothing,
+
             // Every registered builtin returns a value (void ones return
-            // Nothing above). For names without an explicit entry, Any keeps
-            // variables bound to their results inferable instead of raising
-            // spurious "Could not infer type" errors (issue #551).
+            // Nothing above). For the few remaining names without an explicit
+            // entry (test helpers, not-yet-implemented placeholders), Any
+            // keeps variables bound to their results inferable instead of
+            // raising spurious "Could not infer type" errors (issue #551).
             _ => Type::Any,
         }
     }
