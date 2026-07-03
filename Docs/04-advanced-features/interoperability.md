@@ -44,8 +44,8 @@ Make HTTP requests to external APIs:
 
 ```wfl
 try:
-    open url at "https://api.example.com/data" and read content as response
-    display "API response: " with response
+    open url at "https://api.example.com/data" and read content as api_response
+    display "API response: " with api_response
 catch:
     display "API request failed"
 end try

@@ -543,10 +543,41 @@ impl TypeChecker {
                     }
                 }
                 if let Some(headers) = headers {
-                    self.infer_expression_type(headers);
+                    let headers_type = self.infer_expression_type(headers);
+                    if !matches!(
+                        headers_type,
+                        Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error
+                    ) {
+                        self.type_error(
+                            "HTTP headers must be a map of header names to values".to_string(),
+                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Text))),
+                            Some(headers_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
                 }
                 if let Some(body) = body {
-                    self.infer_expression_type(body);
+                    // Text is expected; numbers and booleans are converted at
+                    // runtime, so only reject clearly wrong types
+                    let body_type = self.infer_expression_type(body);
+                    if !matches!(
+                        body_type,
+                        Type::Text
+                            | Type::Number
+                            | Type::Boolean
+                            | Type::Unknown
+                            | Type::Any
+                            | Type::Error
+                    ) {
+                        self.type_error(
+                            "HTTP request body must be text".to_string(),
+                            Some(Type::Text),
+                            Some(body_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
                 }
 
                 if !variable_name.is_empty()

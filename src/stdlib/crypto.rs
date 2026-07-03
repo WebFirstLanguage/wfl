@@ -501,7 +501,7 @@ pub fn native_sha256(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let text = expect_text(&args[0])?;
     if text.len() > MAX_INPUT_SIZE {
         return Err(RuntimeError::new(
-            "Input exceeds maximum allowed size".to_string(),
+            format!("sha256: input exceeds maximum allowed size ({MAX_INPUT_SIZE} bytes)"),
             0,
             0,
         ));
@@ -522,7 +522,14 @@ pub fn native_hmac_sha256(args: Vec<Value>) -> Result<Value, RuntimeError> {
     let key = expect_text(&args[1])?;
     if message.len() > MAX_INPUT_SIZE {
         return Err(RuntimeError::new(
-            "Input exceeds maximum allowed size".to_string(),
+            format!("hmac_sha256: message exceeds maximum allowed size ({MAX_INPUT_SIZE} bytes)"),
+            0,
+            0,
+        ));
+    }
+    if key.len() > MAX_INPUT_SIZE {
+        return Err(RuntimeError::new(
+            format!("hmac_sha256: key exceeds maximum allowed size ({MAX_INPUT_SIZE} bytes)"),
             0,
             0,
         ));

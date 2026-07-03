@@ -421,6 +421,63 @@ const WFL = {
         req.end();
       });
     },
+    // General request with method/headers/body. Matches the interpreter's
+    // semantics: non-2xx statuses resolve as data (callers inspect
+    // status/ok), only transport failures reject.
+    request: async (url, options = {}, timeout = 10000) => {
+      const { method = 'GET', headers = {}, body = null, fullResponse = false } = options;
+      const https = url.startsWith('https') ? require('https') : require('http');
+      const urlObj = new URL(url);
+      return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error(`Request timeout after ${timeout}ms`));
+        }, timeout);
+
+        const req = https.request({
+          hostname: urlObj.hostname,
+          port: urlObj.port,
+          path: urlObj.pathname + urlObj.search,
+          method,
+          headers,
+        }, (res) => {
+          clearTimeout(timeoutId);
+
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            if (fullResponse) {
+              const responseHeaders = {};
+              for (const [name, value] of Object.entries(res.headers)) {
+                responseHeaders[name.toLowerCase()] = Array.isArray(value) ? value.join(', ') : value;
+              }
+              resolve({
+                status: res.statusCode,
+                ok: res.statusCode >= 200 && res.statusCode < 300,
+                body: data,
+                headers: responseHeaders,
+              });
+            } else {
+              resolve(data);
+            }
+          });
+          res.on('error', reject);
+        });
+
+        req.on('error', (err) => {
+          clearTimeout(timeoutId);
+          reject(err);
+        });
+        req.setTimeout(timeout, () => {
+          req.destroy();
+          reject(new Error(`Request timeout after ${timeout}ms`));
+        });
+
+        if (body !== null && body !== undefined) {
+          req.write(typeof body === 'string' ? body : JSON.stringify(body));
+        }
+        req.end();
+      });
+    },
   },
 
   // Utility functions
@@ -680,6 +737,47 @@ const WFL = {
         }
         
         return response.text();
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          throw new Error(`Request timeout after ${timeout}ms`);
+        }
+        throw error;
+      }
+    },
+    // General request with method/headers/body. Matches the interpreter's
+    // semantics: non-2xx statuses resolve as data (callers inspect
+    // status/ok), only transport failures reject.
+    request: async (url, options = {}, timeout = 10000) => {
+      const { method = 'GET', headers = {}, body = null, fullResponse = false } = options;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+      try {
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body === null || body === undefined
+            ? undefined
+            : (typeof body === 'string' ? body : JSON.stringify(body)),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        const text = await response.text();
+        if (fullResponse) {
+          const responseHeaders = {};
+          response.headers.forEach((value, name) => {
+            responseHeaders[name.toLowerCase()] = value;
+          });
+          return {
+            status: response.status,
+            ok: response.ok,
+            body: text,
+            headers: responseHeaders,
+          };
+        }
+        return text;
       } catch (error) {
         clearTimeout(timeoutId);
         if (error.name === 'AbortError') {

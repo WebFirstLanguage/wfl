@@ -543,13 +543,16 @@ impl IoClient {
         match request.send().await {
             Ok(response) => {
                 let status = response.status().as_u16();
+                // Header names are normalized to lowercase for consistent
+                // access from WFL (e.g. resp.headers["content-type"]), and
+                // non-UTF8 values are converted lossily instead of dropped.
                 let response_headers = response
                     .headers()
                     .iter()
                     .map(|(name, value)| {
                         (
-                            name.as_str().to_string(),
-                            value.to_str().unwrap_or("").to_string(),
+                            name.as_str().to_ascii_lowercase(),
+                            String::from_utf8_lossy(value.as_bytes()).into_owned(),
                         )
                     })
                     .collect();
