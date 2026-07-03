@@ -172,7 +172,6 @@ impl<'a> DatabaseParser<'a> for Parser<'a> {
             db,
             sql,
             parameters,
-            kind,
             ..
         } = self.parse_database_query_expression(kind, line, column)?
         else {

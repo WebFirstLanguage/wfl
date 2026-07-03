@@ -287,6 +287,29 @@ close database db
     }
 
     #[tokio::test]
+    async fn test_return_execute_without_parameters_from_action() {
+        let code = r#"
+open database at "sqlite::memory:" as db
+store ig as execute db with "CREATE TABLE t (id INT)"
+store ig2 as execute db with "INSERT INTO t (id) VALUES (1)"
+store ig3 as execute db with "INSERT INTO t (id) VALUES (2)"
+
+define action called clear_rows with parameters conn:
+    return execute conn with "DELETE FROM t"
+end action
+
+store result as call clear_rows with db
+close database db
+"#;
+        let interpreter = run_wfl(code).await.expect("program should run");
+        let result = get_global(&interpreter, "result");
+        assert_eq!(
+            expect_number(&expect_object_key(&result, "affected_rows")),
+            2.0
+        );
+    }
+
+    #[tokio::test]
     async fn test_connect_to_database_alias() {
         let code = r#"
 connect to database at "sqlite::memory:" as db

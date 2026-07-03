@@ -221,6 +221,24 @@ end action"#,
 }
 
 #[test]
+fn test_return_execute_without_parameters() {
+    let value = return_value_of_action(
+        r#"define action called clear_rows with parameters conn:
+    return execute conn with "DELETE FROM t"
+end action"#,
+    );
+    match value {
+        Expression::DatabaseQuery {
+            parameters, kind, ..
+        } => {
+            assert!(parameters.is_none());
+            assert_eq!(kind, DatabaseQueryKind::Execute);
+        }
+        other => panic!("Expected DatabaseQuery expression, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_give_back_query_with_parameters() {
     let value = return_value_of_action(
         r#"define action called get_n with parameters conn and id:
