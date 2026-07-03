@@ -8,7 +8,7 @@
 
 use super::super::{ParseError, Parser, Statement};
 use crate::lexer::token::Token;
-use crate::parser::ast::DatabaseQueryKind;
+use crate::parser::ast::{DatabaseQueryKind, Expression};
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
 
 pub(crate) trait DatabaseParser<'a>: ExprParser<'a> {
@@ -41,6 +41,16 @@ pub(crate) trait DatabaseParser<'a>: ExprParser<'a> {
         line: usize,
         column: usize,
     ) -> Result<Statement, ParseError>;
+
+    /// Parse `query/execute <db> with <sql> [and parameters <list>]` as an
+    /// expression (used in return position) with the cursor positioned on
+    /// `query`/`execute`.
+    fn parse_database_query_expression(
+        &mut self,
+        kind: DatabaseQueryKind,
+        line: usize,
+        column: usize,
+    ) -> Result<Expression, ParseError>;
 }
 
 impl<'a> DatabaseParser<'a> for Parser<'a> {
@@ -158,6 +168,33 @@ impl<'a> DatabaseParser<'a> for Parser<'a> {
         line: usize,
         column: usize,
     ) -> Result<Statement, ParseError> {
+        let Expression::DatabaseQuery {
+            db,
+            sql,
+            parameters,
+            ..
+        } = self.parse_database_query_expression(kind, line, column)?
+        else {
+            unreachable!("parse_database_query_expression always returns DatabaseQuery");
+        };
+
+        Ok(Statement::DatabaseQueryStatement {
+            db: *db,
+            sql: *sql,
+            parameters: parameters.map(|p| *p),
+            variable_name: name,
+            kind,
+            line,
+            column,
+        })
+    }
+
+    fn parse_database_query_expression(
+        &mut self,
+        kind: DatabaseQueryKind,
+        line: usize,
+        column: usize,
+    ) -> Result<Expression, ParseError> {
         let db = match self.cursor.peek() {
             Some(token) => match &token.token {
                 // Merged token form: Identifier("query <handle>")
@@ -165,7 +202,7 @@ impl<'a> DatabaseParser<'a> for Parser<'a> {
                     let handle = id["query ".len()..].to_string();
                     let (handle_line, handle_column) = (token.line, token.column);
                     self.bump_sync(); // Consume "query <handle>"
-                    super::super::Expression::Variable(handle, handle_line, handle_column)
+                    Expression::Variable(handle, handle_line, handle_column)
                 }
                 Token::KeywordExecute => {
                     self.bump_sync(); // Consume "execute"
@@ -195,16 +232,15 @@ impl<'a> DatabaseParser<'a> for Parser<'a> {
         {
             self.bump_sync(); // Consume "and"
             self.bump_sync(); // Consume "parameters"
-            Some(self.parse_primary_expression()?)
+            Some(Box::new(self.parse_primary_expression()?))
         } else {
             None
         };
 
-        Ok(Statement::DatabaseQueryStatement {
-            db,
-            sql,
+        Ok(Expression::DatabaseQuery {
+            db: Box::new(db),
+            sql: Box::new(sql),
             parameters,
-            variable_name: name,
             kind,
             line,
             column,
