@@ -221,6 +221,95 @@ close database db
     }
 
     #[tokio::test]
+    async fn test_return_query_with_parameters_from_action() {
+        // Issue #559: `return query ... and parameters [...]` failed to parse.
+        let code = r#"
+open database at "sqlite::memory:" as db
+store ig as execute db with "CREATE TABLE t (id INT, n INT)"
+store ig2 as execute db with "INSERT INTO t (id, n) VALUES (1, 5)"
+store ig3 as execute db with "INSERT INTO t (id, n) VALUES (2, 9)"
+
+define action called get_n with parameters conn and id:
+    return query conn with "SELECT n FROM t WHERE id = ?" and parameters [id]
+end action
+
+store rows as call get_n with db and 1
+close database db
+"#;
+        let interpreter = run_wfl(code).await.expect("program should run");
+        let rows = expect_list(&get_global(&interpreter, "rows"));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(expect_number(&expect_object_key(&rows[0], "n")), 5.0);
+    }
+
+    #[tokio::test]
+    async fn test_return_query_without_parameters_from_action() {
+        let code = r#"
+open database at "sqlite::memory:" as db
+store ig as execute db with "CREATE TABLE t (n INT)"
+store ig2 as execute db with "INSERT INTO t (n) VALUES (3)"
+
+define action called get_all with parameters conn:
+    return query conn with "SELECT n FROM t"
+end action
+
+store rows as call get_all with db
+close database db
+"#;
+        let interpreter = run_wfl(code).await.expect("program should run");
+        let rows = expect_list(&get_global(&interpreter, "rows"));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(expect_number(&expect_object_key(&rows[0], "n")), 3.0);
+    }
+
+    #[tokio::test]
+    async fn test_return_execute_with_parameters_from_action() {
+        let code = r#"
+open database at "sqlite::memory:" as db
+store ig as execute db with "CREATE TABLE t (id INT)"
+
+define action called add_row with parameters conn and id:
+    return execute conn with "INSERT INTO t (id) VALUES (?)" and parameters [id]
+end action
+
+store result as call add_row with db and 42
+store rows as query db with "SELECT id FROM t"
+close database db
+"#;
+        let interpreter = run_wfl(code).await.expect("program should run");
+        let result = get_global(&interpreter, "result");
+        assert_eq!(
+            expect_number(&expect_object_key(&result, "affected_rows")),
+            1.0
+        );
+        let rows = expect_list(&get_global(&interpreter, "rows"));
+        assert_eq!(expect_number(&expect_object_key(&rows[0], "id")), 42.0);
+    }
+
+    #[tokio::test]
+    async fn test_return_execute_without_parameters_from_action() {
+        let code = r#"
+open database at "sqlite::memory:" as db
+store ig as execute db with "CREATE TABLE t (id INT)"
+store ig2 as execute db with "INSERT INTO t (id) VALUES (1)"
+store ig3 as execute db with "INSERT INTO t (id) VALUES (2)"
+
+define action called clear_rows with parameters conn:
+    return execute conn with "DELETE FROM t"
+end action
+
+store result as call clear_rows with db
+close database db
+"#;
+        let interpreter = run_wfl(code).await.expect("program should run");
+        let result = get_global(&interpreter, "result");
+        assert_eq!(
+            expect_number(&expect_object_key(&result, "affected_rows")),
+            2.0
+        );
+    }
+
+    #[tokio::test]
     async fn test_connect_to_database_alias() {
         let code = r#"
 connect to database at "sqlite::memory:" as db

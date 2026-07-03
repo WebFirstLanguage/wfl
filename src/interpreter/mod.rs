@@ -354,6 +354,7 @@ fn expr_type(expr: &Expression) -> String {
             format!("CurrentTimeFormatted '{format}'")
         }
         Expression::ProcessRunning { .. } => "ProcessRunning".to_string(),
+        Expression::DatabaseQuery { .. } => "DatabaseQuery".to_string(),
     }
 }
 
@@ -2884,75 +2885,17 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let db_value = self.evaluate_expression(db, Rc::clone(&env)).await?;
-                let handle = match &db_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected a database handle, got {db_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                let sql_value = self.evaluate_expression(sql, Rc::clone(&env)).await?;
-                let sql_str = match &sql_value {
-                    Value::Text(s) => s.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            format!("Expected text for SQL statement, got {sql_value:?}"),
-                            *line,
-                            *column,
-                        ));
-                    }
-                };
-
-                let params = match parameters {
-                    Some(params_expr) => {
-                        let params_value = self
-                            .evaluate_expression(params_expr, Rc::clone(&env))
-                            .await?;
-                        match &params_value {
-                            Value::List(list) => {
-                                let mut sql_params = Vec::new();
-                                for value in list.borrow().iter() {
-                                    sql_params.push(
-                                        database::value_to_sql_param(value)
-                                            .map_err(|e| RuntimeError::new(e, *line, *column))?,
-                                    );
-                                }
-                                sql_params
-                            }
-                            _ => {
-                                return Err(RuntimeError::new(
-                                    format!(
-                                        "Expected a list of query parameters, got {params_value:?}"
-                                    ),
-                                    *line,
-                                    *column,
-                                ));
-                            }
-                        }
-                    }
-                    None => Vec::new(),
-                };
-
-                let pool = self
-                    .io_client
-                    .get_database(&handle)
-                    .await
-                    .map_err(|e| RuntimeError::new(e, *line, *column))?;
-
-                let result = match kind {
-                    crate::parser::ast::DatabaseQueryKind::Query => {
-                        database::run_query(&pool, &sql_str, &params).await
-                    }
-                    crate::parser::ast::DatabaseQueryKind::Execute => {
-                        database::run_execute(&pool, &sql_str, &params).await
-                    }
-                }
-                .map_err(|e| RuntimeError::new(e, *line, *column))?;
+                let result = self
+                    .evaluate_database_query(
+                        db,
+                        sql,
+                        parameters.as_ref(),
+                        *kind,
+                        *line,
+                        *column,
+                        Rc::clone(&env),
+                    )
+                    .await?;
 
                 match env.borrow_mut().define(variable_name, result) {
                     Ok(_) => Ok((Value::Null, ControlFlow::None)),
@@ -6726,6 +6669,88 @@ impl Interpreter {
         }
     }
 
+    /// Run a database query/execute and return the result value. Shared by
+    /// `DatabaseQueryStatement` and the expression form (`return query ...`).
+    #[allow(clippy::too_many_arguments)]
+    async fn evaluate_database_query(
+        &self,
+        db: &Expression,
+        sql: &Expression,
+        parameters: Option<&Expression>,
+        kind: crate::parser::ast::DatabaseQueryKind,
+        line: usize,
+        column: usize,
+        env: Rc<RefCell<Environment>>,
+    ) -> Result<Value, RuntimeError> {
+        let db_value = self.evaluate_expression(db, Rc::clone(&env)).await?;
+        let handle = match &db_value {
+            Value::Text(s) => s.clone(),
+            _ => {
+                return Err(RuntimeError::new(
+                    format!("Expected a database handle, got {db_value:?}"),
+                    line,
+                    column,
+                ));
+            }
+        };
+
+        let sql_value = self.evaluate_expression(sql, Rc::clone(&env)).await?;
+        let sql_str = match &sql_value {
+            Value::Text(s) => s.clone(),
+            _ => {
+                return Err(RuntimeError::new(
+                    format!("Expected text for SQL statement, got {sql_value:?}"),
+                    line,
+                    column,
+                ));
+            }
+        };
+
+        let params = match parameters {
+            Some(params_expr) => {
+                let params_value = self
+                    .evaluate_expression(params_expr, Rc::clone(&env))
+                    .await?;
+                match &params_value {
+                    Value::List(list) => {
+                        let mut sql_params = Vec::new();
+                        for value in list.borrow().iter() {
+                            sql_params.push(
+                                database::value_to_sql_param(value)
+                                    .map_err(|e| RuntimeError::new(e, line, column))?,
+                            );
+                        }
+                        sql_params
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected a list of query parameters, got {params_value:?}"),
+                            line,
+                            column,
+                        ));
+                    }
+                }
+            }
+            None => Vec::new(),
+        };
+
+        let pool = self
+            .io_client
+            .get_database(&handle)
+            .await
+            .map_err(|e| RuntimeError::new(e, line, column))?;
+
+        match kind {
+            crate::parser::ast::DatabaseQueryKind::Query => {
+                database::run_query(&pool, &sql_str, &params).await
+            }
+            crate::parser::ast::DatabaseQueryKind::Execute => {
+                database::run_execute(&pool, &sql_str, &params).await
+            }
+        }
+        .map_err(|e| RuntimeError::new(e, line, column))
+    }
+
     async fn evaluate_expression(
         &self,
         expr: &Expression,
@@ -7935,6 +7960,25 @@ impl Interpreter {
                 // Check if process is running
                 let is_running = self.io_client.is_process_running(proc_id).await;
                 Ok(Value::Bool(is_running))
+            }
+            Expression::DatabaseQuery {
+                db,
+                sql,
+                parameters,
+                kind,
+                line,
+                column,
+            } => {
+                self.evaluate_database_query(
+                    db,
+                    sql,
+                    parameters.as_deref(),
+                    *kind,
+                    *line,
+                    *column,
+                    Rc::clone(&env),
+                )
+                .await
             }
         };
         self.assert_invariants();

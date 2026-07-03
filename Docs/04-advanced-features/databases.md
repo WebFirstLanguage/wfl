@@ -100,6 +100,20 @@ store row as rows[0]
 store new_id as row["id"]
 ```
 
+## Returning Results from Actions
+
+`query` and `execute` — with or without `and parameters [...]` — can be
+returned directly from an action, which keeps small data-access helpers to
+one line:
+
+```wfl
+define action called ages_for_name with parameters conn and who:
+    return query conn with "SELECT age FROM users WHERE name = ?" and parameters [who]
+end action
+
+store rows as call ages_for_name with db and "Alice"
+```
+
 ## Waiting Explicitly
 
 Database statements run asynchronously inside WFL's runtime; you can make the

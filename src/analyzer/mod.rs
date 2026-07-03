@@ -2605,6 +2605,18 @@ impl Analyzer {
             } => {
                 self.analyze_expression(process_id);
             }
+            Expression::DatabaseQuery {
+                db,
+                sql,
+                parameters,
+                ..
+            } => {
+                self.analyze_expression(db);
+                self.analyze_expression(sql);
+                if let Some(params) = parameters {
+                    self.analyze_expression(params);
+                }
+            }
         }
     }
 }

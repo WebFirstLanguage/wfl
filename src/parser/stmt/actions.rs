@@ -2,6 +2,7 @@
 
 use super::super::{Parameter, ParseError, Parser, Statement, Type};
 use super::StmtParser;
+use super::database::DatabaseParser;
 use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use crate::parser::expr::ExprParser;
@@ -537,9 +538,16 @@ impl<'a> ActionParser<'a> for Parser<'a> {
         }
 
         let value = if let Some(token) = self.cursor.peek() {
+            // Position of the returned expression itself (not the `return`
+            // keyword), so diagnostics point at the actual operation.
+            let (value_line, value_column) = (token.line, token.column);
             if matches!(&token.token, Token::NothingLiteral) {
                 self.bump_sync(); // Consume "nothing"
                 None
+            } else if let Some(kind) = self.peek_database_query_kind() {
+                // Database forms: `return query/execute <db> with <sql>
+                // [and parameters <list>]`, mirroring the `store ... as` value side.
+                Some(self.parse_database_query_expression(kind, value_line, value_column)?)
             } else {
                 Some(self.parse_expression()?)
             }
