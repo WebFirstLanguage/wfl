@@ -1026,6 +1026,37 @@ impl Analyzer {
                     self.errors.push(error);
                 }
             }
+            Statement::HttpRequestStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                ..
+            } => {
+                self.analyze_expression(url);
+                if let Some(method) = method {
+                    self.analyze_expression(method);
+                }
+                if let Some(headers) = headers {
+                    self.analyze_expression(headers);
+                }
+                if let Some(body) = body {
+                    self.analyze_expression(body);
+                }
+
+                let symbol = Symbol {
+                    name: variable_name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: None, // Response type
+                    line: 0,
+                    column: 0,
+                };
+
+                if let Err(error) = self.current_scope.define(symbol) {
+                    self.errors.push(error);
+                }
+            }
 
             Statement::CreateDirectoryStatement { path, .. } => {
                 self.analyze_expression(path);
@@ -1357,6 +1388,30 @@ impl Analyzer {
                     name: name.clone(),
                     kind: SymbolKind::Variable { mutable: true },
                     symbol_type: Some(Type::List(Box::new(Type::Unknown))),
+                    line: *line,
+                    column: *column,
+                };
+                if let Err(e) = self.current_scope.define(symbol) {
+                    self.errors.push(e);
+                }
+            }
+
+            Statement::MapCreation {
+                name,
+                entries,
+                line,
+                column,
+            } => {
+                // Analyze entry values
+                for (_key, value) in entries {
+                    self.analyze_expression(value);
+                }
+
+                // Define the map variable
+                let symbol = Symbol {
+                    name: name.clone(),
+                    kind: SymbolKind::Variable { mutable: true },
+                    symbol_type: Some(Type::Map(Box::new(Type::Text), Box::new(Type::Unknown))),
                     line: *line,
                     column: *column,
                 };

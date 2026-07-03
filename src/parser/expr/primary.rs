@@ -151,7 +151,15 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                             self.bump_sync(); // Consume '.'
 
                             if let Some(property_token) = self.cursor.peek() {
-                                if let Token::Identifier(property_name) = &property_token.token {
+                                // Keywords that are also common property names
+                                // (e.g. `response.status`) are accepted here
+                                let parsed_property = match &property_token.token {
+                                    Token::Identifier(property_name) => Some(property_name.clone()),
+                                    Token::KeywordStatus => Some("status".to_string()),
+                                    _ => None,
+                                };
+                                if let Some(property_name) = parsed_property {
+                                    let property_name = &property_name;
                                     self.bump_sync(); // Consume property name
 
                                     // Check for method call with parentheses
@@ -985,7 +993,15 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                 self.bump_sync(); // Consume '.'
 
                                 if let Some(property_token) = self.cursor.peek()
-                                    && let Token::Identifier(property_name) = &property_token.token
+                                    && let Some(property_name) = match &property_token.token {
+                                        Token::Identifier(property_name) => {
+                                            Some(property_name.clone())
+                                        }
+                                        // Keywords that are also common property
+                                        // names (e.g. `response.status`)
+                                        Token::KeywordStatus => Some("status".to_string()),
+                                        _ => None,
+                                    }
                                 {
                                     self.bump_sync(); // Consume property name
 

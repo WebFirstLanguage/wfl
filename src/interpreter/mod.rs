@@ -238,6 +238,9 @@ fn stmt_type(stmt: &Statement) -> String {
         Statement::HttpPostStatement { variable_name, .. } => {
             format!("HttpPostStatement '{variable_name}'")
         }
+        Statement::HttpRequestStatement { variable_name, .. } => {
+            format!("HttpRequestStatement '{variable_name}'")
+        }
         Statement::PushStatement { .. } => "PushStatement to list".to_string(),
         Statement::CreateListStatement { name, .. } => format!("CreateListStatement '{name}'"),
         Statement::MapCreation { name, .. } => format!("MapCreation '{name}'"),
@@ -513,6 +516,49 @@ impl IoClient {
                 Err(e) => Err(format!("Failed to read response body: {e}")),
             },
             Err(e) => Err(format!("Failed to send HTTP POST request: {e}")),
+        }
+    }
+
+    /// Perform an HTTP request with an arbitrary method, optional headers,
+    /// and an optional body. Returns (status, response headers, body text).
+    /// Non-2xx statuses are not errors: callers inspect the status themselves.
+    async fn http_request(
+        &self,
+        method: &str,
+        url: &str,
+        headers: &[(String, String)],
+        body: Option<String>,
+    ) -> Result<(u16, Vec<(String, String)>, String), String> {
+        let parsed_method = reqwest::Method::from_bytes(method.as_bytes())
+            .map_err(|_| format!("Invalid HTTP method: {method}"))?;
+
+        let mut request = self.http_client.request(parsed_method, url);
+        for (name, value) in headers {
+            request = request.header(name.as_str(), value.as_str());
+        }
+        if let Some(body) = body {
+            request = request.body(body);
+        }
+
+        match request.send().await {
+            Ok(response) => {
+                let status = response.status().as_u16();
+                let response_headers = response
+                    .headers()
+                    .iter()
+                    .map(|(name, value)| {
+                        (
+                            name.as_str().to_string(),
+                            value.to_str().unwrap_or("").to_string(),
+                        )
+                    })
+                    .collect();
+                match response.text().await {
+                    Ok(text) => Ok((status, response_headers, text)),
+                    Err(e) => Err(format!("Failed to read response body: {e}")),
+                }
+            }
+            Err(e) => Err(format!("Failed to send HTTP {method} request: {e}")),
         }
     }
 
@@ -2043,6 +2089,7 @@ impl Interpreter {
             Statement::TryStatement { line, column, .. } => (*line, *column),
             Statement::HttpGetStatement { line, column, .. } => (*line, *column),
             Statement::HttpPostStatement { line, column, .. } => (*line, *column),
+            Statement::HttpRequestStatement { line, column, .. } => (*line, *column),
             Statement::PushStatement { line, column, .. } => (*line, *column),
             Statement::CreateListStatement { line, column, .. } => (*line, *column),
             Statement::MapCreation { line, column, .. } => (*line, *column),
@@ -4051,6 +4098,146 @@ impl Interpreter {
                             .borrow_mut()
                             .define(variable_name, Value::Text(body.into()))
                         {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                        }
+                    }
+                    Err(e) => Err(RuntimeError::new(e, *line, *column)),
+                }
+            }
+            Statement::HttpRequestStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                full_response,
+                line,
+                column,
+            } => {
+                let url_val = self.evaluate_expression(url, Rc::clone(&env)).await?;
+                let url_str = match &url_val {
+                    Value::Text(s) => s.clone(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!("Expected string for URL, got {url_val:?}"),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let method_str = match method {
+                    Some(method_expr) => {
+                        let method_val = self
+                            .evaluate_expression(method_expr, Rc::clone(&env))
+                            .await?;
+                        match &method_val {
+                            Value::Text(s) => s.trim().to_ascii_uppercase(),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!("Expected text for HTTP method, got {method_val:?}"),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => "GET".to_string(),
+                };
+
+                let mut header_list: Vec<(String, String)> = Vec::new();
+                if let Some(headers_expr) = headers {
+                    let headers_val = self
+                        .evaluate_expression(headers_expr, Rc::clone(&env))
+                        .await?;
+                    match &headers_val {
+                        Value::Object(obj) => {
+                            for (name, value) in obj.borrow().iter() {
+                                let value_str = match value {
+                                    Value::Text(s) => s.to_string(),
+                                    Value::Number(_) | Value::Bool(_) => value.to_string(),
+                                    _ => {
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Header '{name}' must be text, got {}",
+                                                value.type_name()
+                                            ),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+                                };
+                                header_list.push((name.clone(), value_str));
+                            }
+                            // HashMap iteration order is random; sort for
+                            // deterministic requests and error messages
+                            header_list.sort();
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Expected a map for headers, got {}",
+                                    headers_val.type_name()
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                }
+
+                let body_str = match body {
+                    Some(body_expr) => {
+                        let body_val = self.evaluate_expression(body_expr, Rc::clone(&env)).await?;
+                        match &body_val {
+                            Value::Text(s) => Some(s.to_string()),
+                            Value::Number(_) | Value::Bool(_) => Some(body_val.to_string()),
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    format!(
+                                        "Expected text for request body, got {}",
+                                        body_val.type_name()
+                                    ),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        }
+                    }
+                    None => None,
+                };
+
+                match self
+                    .io_client
+                    .http_request(&method_str, &url_str, &header_list, body_str)
+                    .await
+                {
+                    Ok((status, response_headers, response_body)) => {
+                        let value = if *full_response {
+                            let mut headers_map = HashMap::new();
+                            for (name, value) in response_headers {
+                                headers_map.insert(name, Value::Text(value.into()));
+                            }
+
+                            let mut response_map = HashMap::new();
+                            response_map.insert("status".to_string(), Value::Number(status as f64));
+                            response_map.insert(
+                                "ok".to_string(),
+                                Value::Bool((200..300).contains(&status)),
+                            );
+                            response_map
+                                .insert("body".to_string(), Value::Text(response_body.into()));
+                            response_map.insert(
+                                "headers".to_string(),
+                                Value::Object(Rc::new(RefCell::new(headers_map))),
+                            );
+                            Value::Object(Rc::new(RefCell::new(response_map)))
+                        } else {
+                            Value::Text(response_body.into())
+                        };
+
+                        match env.borrow_mut().define(variable_name, value) {
                             Ok(_) => Ok((Value::Null, ControlFlow::None)),
                             Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
                         }
@@ -7281,6 +7468,18 @@ impl Interpreter {
                         } else {
                             Err(RuntimeError::new(
                                 format!("Property '{property}' not found"),
+                                *line,
+                                *column,
+                            ))
+                        }
+                    }
+                    Value::Object(obj_rc) => {
+                        let obj = obj_rc.borrow();
+                        if let Some(prop_value) = obj.get(property) {
+                            Ok(prop_value.clone())
+                        } else {
+                            Err(RuntimeError::new(
+                                format!("Object has no property '{property}'"),
                                 *line,
                                 *column,
                             ))

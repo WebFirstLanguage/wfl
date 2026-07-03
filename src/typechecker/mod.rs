@@ -196,6 +196,8 @@ impl TypeChecker {
             | "wflhash512"
             | "wflhash256_with_salt"
             | "wflmac256"
+            | "sha256"
+            | "hmac_sha256"
             | "generate_uuid"
             | "generate_csrf_token" => Type::Text,
 
@@ -502,6 +504,59 @@ impl TypeChecker {
                     && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
                 {
                     symbol.symbol_type = Some(Type::Text);
+                }
+            }
+            Statement::HttpRequestStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                full_response,
+                line: _line,
+                column: _column,
+            } => {
+                let url_type = self.infer_expression_type(url);
+                if url_type != Type::Text && url_type != Type::Unknown && url_type != Type::Error {
+                    self.type_error(
+                        "URL must be a text string".to_string(),
+                        Some(Type::Text),
+                        Some(url_type),
+                        *_line,
+                        *_column,
+                    );
+                }
+
+                if let Some(method) = method {
+                    let method_type = self.infer_expression_type(method);
+                    if method_type != Type::Text
+                        && method_type != Type::Unknown
+                        && method_type != Type::Error
+                    {
+                        self.type_error(
+                            "HTTP method must be a text string".to_string(),
+                            Some(Type::Text),
+                            Some(method_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+                if let Some(headers) = headers {
+                    self.infer_expression_type(headers);
+                }
+                if let Some(body) = body {
+                    self.infer_expression_type(body);
+                }
+
+                if !variable_name.is_empty()
+                    && let Some(symbol) = self.analyzer.get_symbol_mut(variable_name)
+                {
+                    symbol.symbol_type = Some(if *full_response {
+                        Type::Map(Box::new(Type::Text), Box::new(Type::Unknown))
+                    } else {
+                        Type::Text
+                    });
                 }
             }
             Statement::VariableDeclaration {
@@ -3294,6 +3349,11 @@ impl TypeChecker {
                             Type::Error
                         }
                     }
+                    // Objects/maps support property access at runtime
+                    // (e.g. `response.status` on an HTTP response object);
+                    // the value type is whatever the map stores.
+                    Type::Map(_, value_type) => *value_type,
+                    Type::Unknown | Type::Any | Type::Error => Type::Unknown,
                     _ => {
                         self.type_error(
                             format!(
