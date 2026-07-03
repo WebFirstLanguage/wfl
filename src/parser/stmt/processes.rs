@@ -220,6 +220,11 @@ impl<'a> ProcessParser<'a> for Parser<'a> {
 
         let variable_name = if let Token::Identifier(name) = &var_token.token {
             name.clone()
+        } else if var_token.token == Token::KeywordOutput || var_token.token.is_contextual_keyword()
+        {
+            // `output` is a natural variable name here (e.g. `read output
+            // from process p as output`), as are other contextual keywords
+            self.get_token_text(&var_token.token)
         } else {
             return Err(ParseError::from_token(
                 format!("Expected identifier, found {:?}", var_token.token),

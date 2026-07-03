@@ -10,7 +10,7 @@ use crate::exec_trace;
 use crate::lexer::token::{Token, TokenWithPosition};
 use ast::*;
 pub use cursor::Cursor; // Re-export Cursor publicly for doctests
-use expr::ExprParser;
+use expr::{ExprParser, PrimaryExprParser};
 use stmt::{
     ActionParser, CollectionParser, ContainerParser, ControlFlowParser, DatabaseParser,
     ErrorHandlingParser, IoParser, ModuleParser, PatternParser, ProcessParser, StmtParser,
@@ -545,6 +545,103 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                             .is_some_and(|t| t.token == Token::KeywordDatabase) =>
                 {
                     self.parse_connect_to_database_statement()
+                }
+                Token::Identifier(id)
+                    if (id == "copy_file" || id == "move_file")
+                        && self
+                            .cursor
+                            .peek_next()
+                            .is_some_and(|t| t.token == Token::KeywordFrom) =>
+                {
+                    // Documented statement forms:
+                    //   copy_file from <source> to <destination>
+                    //   move_file from <source> to <destination>
+                    let name = id.clone();
+                    let token_pos = self.bump_sync().unwrap(); // Consume the identifier
+                    self.bump_sync(); // Consume "from"
+                    let source = self.parse_path_expression()?;
+                    self.expect_token(Token::KeywordTo, "Expected 'to' after source path")?;
+                    let destination = self.parse_path_expression()?;
+
+                    Ok(Statement::ExpressionStatement {
+                        expression: Expression::ActionCall {
+                            name,
+                            arguments: vec![
+                                Argument {
+                                    name: None,
+                                    value: source,
+                                },
+                                Argument {
+                                    name: None,
+                                    value: destination,
+                                },
+                            ],
+                            line: token_pos.line,
+                            column: token_pos.column,
+                        },
+                        line: token_pos.line,
+                        column: token_pos.column,
+                    })
+                }
+                Token::Identifier(id)
+                    if matches!(
+                        id.as_str(),
+                        "makedirs" | "remove_file" | "remove_dir" | "delete_file"
+                    ) && self.cursor.peek_next().is_some_and(|t| {
+                        matches!(
+                            t.token,
+                            Token::StringLiteral(_) | Token::KeywordAt | Token::Identifier(_)
+                        )
+                    }) =>
+                {
+                    // Documented statement forms:
+                    //   makedirs <path>
+                    //   remove_file at <path>
+                    //   remove_dir at <path> [recursive <flag>]
+                    let name = id.clone();
+                    let token_pos = self.bump_sync().unwrap(); // Consume the identifier
+
+                    // Optional "at" before the path
+                    if self
+                        .cursor
+                        .peek()
+                        .is_some_and(|t| t.token == Token::KeywordAt)
+                    {
+                        self.bump_sync(); // Consume "at"
+                    }
+
+                    // Primary expression only: `with` after the path is the
+                    // recursive-flag marker, not path concatenation
+                    let path = self.parse_primary_expression()?;
+                    let mut arguments = vec![Argument {
+                        name: None,
+                        value: path,
+                    }];
+
+                    // Optional recursive flag: "recursive <expr>" or "with <expr>"
+                    if let Some(next) = self.cursor.peek() {
+                        let is_recursive_marker = matches!(&next.token, Token::Identifier(word) if word == "recursive")
+                            || next.token == Token::KeywordWith;
+                        if is_recursive_marker {
+                            self.bump_sync(); // Consume "recursive"/"with"
+                            let flag = self.parse_primary_expression()?;
+                            arguments.push(Argument {
+                                name: None,
+                                value: flag,
+                            });
+                        }
+                    }
+
+                    Ok(Statement::ExpressionStatement {
+                        expression: Expression::ActionCall {
+                            name,
+                            arguments,
+                            line: token_pos.line,
+                            column: token_pos.column,
+                        },
+                        line: token_pos.line,
+                        column: token_pos.column,
+                    })
                 }
                 Token::Identifier(id) if id == "main" => {
                     // Check if next token is "loop"

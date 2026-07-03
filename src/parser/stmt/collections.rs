@@ -1,6 +1,6 @@
 //! Collection and data structure statement parsing
 
-use super::super::{Expression, Literal, Operator, ParseError, Parser, Statement};
+use super::super::{ParseError, Parser, Statement};
 use crate::lexer::token::Token;
 use crate::parser::expr::{BinaryExprParser, ExprParser, PrimaryExprParser};
 
@@ -137,41 +137,16 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
                 // Parse the target name
                 let target_name = self.parse_variable_name_simple()?;
 
-                // Try to determine the operation type
-                // For now, we'll check if the value is numeric to decide
-                // The interpreter will handle the actual type checking
-                match &value {
-                    Expression::Literal(Literal::Integer(_), _, _)
-                    | Expression::Literal(Literal::Float(_), _, _) => {
-                        // Likely arithmetic operation
-                        let operator = Operator::Plus;
-                        Ok(Statement::Assignment {
-                            name: target_name.clone(),
-                            value: Expression::BinaryOperation {
-                                left: Box::new(Expression::Variable(
-                                    target_name,
-                                    add_token.line,
-                                    add_token.column,
-                                )),
-                                operator,
-                                right: Box::new(value),
-                                line: add_token.line,
-                                column: add_token.column,
-                            },
-                            line: add_token.line,
-                            column: add_token.column,
-                        })
-                    }
-                    _ => {
-                        // Treat as list operation
-                        Ok(Statement::AddToListStatement {
-                            value,
-                            list_name: target_name,
-                            line: add_token.line,
-                            column: add_token.column,
-                        })
-                    }
-                }
+                // The target's type is unknown at parse time, so this is
+                // always an AddToListStatement; the interpreter appends when
+                // the target is a list and performs arithmetic addition when
+                // the target is a number.
+                Ok(Statement::AddToListStatement {
+                    value,
+                    list_name: target_name,
+                    line: add_token.line,
+                    column: add_token.column,
+                })
             } else {
                 // No "to" keyword, this is an error
                 Err(ParseError::from_token(

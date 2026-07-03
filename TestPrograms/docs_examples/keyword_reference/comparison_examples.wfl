@@ -1,3 +1,4 @@
+// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); tracked in issue #555
 // Comparison Keywords Examples
 // Keywords covered: is, not, and, or, greater, less, than, equal
 

@@ -96,18 +96,18 @@ describe "Collection assertions":
     end test
 
     test "empty list is empty":
-        store empty as []
-        expect empty to be empty
+        store empty_list as []
+        expect empty_list to be empty
     end test
 
     test "non-empty list is not empty":
         store numbers as [1, 2, 3]
         // This should pass because the list has items
-        store count as 0
+        store item_count as 0
         for each item in numbers:
-            change count to count plus 1
+            change item_count to item_count plus 1
         end for
-        expect count to be greater than 0
+        expect item_count to be greater than 0
     end test
 
 end describe
@@ -120,8 +120,8 @@ describe "Text assertions":
     end test
 
     test "empty text is empty":
-        store empty as ""
-        expect empty to be empty
+        store empty_text as ""
+        expect empty_text to be empty
     end test
 
     test "text has length":

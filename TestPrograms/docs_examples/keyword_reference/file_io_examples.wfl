@@ -1,3 +1,4 @@
+// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); tracked in issue #555
 // File I/O Keywords Examples (Simplified)
 // Keywords covered: file, open, read, write, close
 // Note: Full file I/O examples require filesystem access

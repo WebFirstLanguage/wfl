@@ -22,7 +22,7 @@ end list
 // Function definition with parameters
 define action called calculateAverage with parameters scoreA and scoreB and scoreC:
     store total as scoreA + scoreB + scoreC
-    store average as total / 3
+    store average as total divided by 3
     return average
 end action
 
@@ -51,7 +51,7 @@ display "Third score variable: " with third_score
 
 // Simple calculations
 store total as first_score + second_score + third_score
-store average as total / 3
+store average as total divided by 3
 display "Average of first three scores: " with average
 
 // Text operations (using working syntax from basic_syntax_comprehensive.wfl)

@@ -100,6 +100,17 @@ impl Environment {
         );
     }
 
+    /// Defines or overwrites a binding in the current scope, shadowing any
+    /// parent-scope binding. Used for implicit bindings the runtime refreshes
+    /// itself (e.g. request variables from `wait for request`), which must not
+    /// fail when re-bound in the same scope.
+    pub fn define_or_replace(&mut self, name: &str, value: Value) {
+        // A refreshed implicit binding is never a constant; clear any stale
+        // constant marker so the binding's state stays consistent.
+        self.constants.remove(name);
+        self.values.insert(name.to_string(), value);
+    }
+
     /// Defines a variable in the current scope without checking parent scopes for shadowing.
     /// This is an optimization for when existence in parent scopes has already been checked.
     pub fn define_direct(&mut self, name: &str, value: Value) -> Result<(), String> {

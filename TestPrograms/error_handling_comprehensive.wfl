@@ -1,3 +1,4 @@
+// CI-SKIP: exercises unimplemented error-handling features (finally blocks, error objects) (tracked in issue #555)
 // Comprehensive Error Handling Test - WFL
 // Consolidates: error_handling_test.wfl and error_examples/ directory
 

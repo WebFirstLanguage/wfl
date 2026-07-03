@@ -13,18 +13,18 @@ add 3 to numbers
 display "Numbers: " with numbers
 
 // Test 3: Create list in conditional expression
-store mydata as null
+store mydata as nothing
 check if true:
-    store mydata as create list
+    change mydata to create list
     add "item1" to mydata
 end check
 display "Data list: " with mydata
 
-// Test 4: Create list as function argument
-function process_list with list_param:
+// Test 4: Create list as action argument
+define action called process_list with parameters list_param:
     add "processed" to list_param
-    return list_param
-end function
+    give back list_param
+end action
 
 store result as process_list with create list
 display "Processed list: " with result

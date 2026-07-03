@@ -203,39 +203,16 @@ jobs:
           TIMEOUT_SECONDS=30
           
           # Declare associative array for skip patterns with reasons
+          # Most web-server tests carry a "// CI-SKIP: <reason>" first line and are
+          # skipped via that directive; the list below covers the remaining cases.
+          # Intentional-error programs are asserted by scripts/run_integration_tests.sh.
           declare -A SKIP_REASONS=(
-            ["web_server"]="starts server and waits for requests"
-            ["simple_web"]="starts server and waits for requests"
-            ["comprehensive_web"]="starts server and waits for requests"
-            ["circular_"]="causes infinite loop (circular include)"
-            ["wait_request"]="waits for external input"
+            ["circular_"]="intentional circular-include error (asserted by run_integration_tests.sh)"
+            ["module_include_circular"]="intentional circular-include error (asserted by run_integration_tests.sh)"
             ["module_helper"]="helper module, not standalone"
-            ["middleware"]="starts server and waits for requests"
-            ["graceful_shutdown"]="starts server and waits for requests"
-            ["session_test"]="starts server and waits for requests"
-            ["websocket"]="starts server and waits for requests"
-            ["respond_test"]="starts server and waits for requests"
-            ["test_basic_server"]="starts server and waits for requests"
-            ["test_static_files"]="starts server and waits for requests"
-            ["test_request"]="starts server and waits for requests"
-            ["test_cookie"]="starts server and waits for requests"
-            ["test_json_and_headers"]="starts server and waits for requests"
-            ["header_access"]="starts server and waits for requests"
-            ["multi_server"]="starts server and waits for requests"
-            ["body_limit"]="starts server and waits for requests"
-            ["content_length"]="starts server and waits for requests"
-            ["lsp_demo"]="starts LSP server and waits for input"
-            ["complex_expression_catch_test"]="semantic analysis issue (error_message not defined)"
-            ["nested_catch_test"]="semantic analysis issue (error_message not defined)"
-            ["unicode_catch_test"]="semantic analysis issue (error_message not defined)"
-            ["scoped.wfl"]="references undefined variables (expected to fail)"
-            ["test_redefinition_error"]="references undefined variables (expected to fail)"
-            ["test_list_debug"]="known interpreter issue"
-            ["test_list_keyword"]="known interpreter issue"
-            ["test_simple_contextual"]="known interpreter issue"
-            ["test_simple_static"]="known interpreter issue"
-            ["time_random_comprehensive"]="known interpreter issue"
-            ["rust_loc_counter"]="known interpreter issue"
+            ["scoped.wfl"]="intentionally references an undefined variable (asserted by run_integration_tests.sh)"
+            ["test_redefinition_error"]="intentional redefinition error (asserted by run_integration_tests.sh)"
+            ["test_assertion_fix"]="intentionally failing assertions (asserted by run_integration_tests.sh)"
           )
           ERROR_EXAMPLES_REASON="expected to fail (error example)"
           
@@ -286,8 +263,14 @@ jobs:
             
             echo -n "RUN:  $relative_path ... "
             
+            # Programs with describe blocks must run in test mode
+            extra_flags=()
+            if grep -qE '^[[:space:]]*describe "' "$file"; then
+              extra_flags=(--test)
+            fi
+            
             # Run with timeout
-            if timeout "$TIMEOUT_SECONDS" "$WFL_BINARY" "$file" > /dev/null 2>&1; then
+            if timeout "$TIMEOUT_SECONDS" "$WFL_BINARY" "${extra_flags[@]}" "$file" > /dev/null 2>&1; then
               echo "PASS"
               passed=$((passed + 1))
             else
@@ -328,40 +311,17 @@ jobs:
           $TimeoutSeconds = 30
           
           # Skip patterns with reasons (hashtable)
+          # Most web-server tests carry a "// CI-SKIP: <reason>" first line and are
+          # skipped via that directive; the list below covers the remaining cases.
+          # Intentional-error programs are asserted by scripts/run_integration_tests.sh.
           $SkipReasons = @{
-            "web_server" = "starts server and waits for requests"
-            "simple_web" = "starts server and waits for requests"
-            "comprehensive_web" = "starts server and waits for requests"
-            "circular_" = "causes infinite loop (circular include)"
-            "wait_request" = "waits for external input"
+            "circular_" = "intentional circular-include error (asserted by run_integration_tests.sh)"
+            "module_include_circular" = "intentional circular-include error (asserted by run_integration_tests.sh)"
             "module_helper" = "helper module, not standalone"
-            "middleware" = "starts server and waits for requests"
-            "graceful_shutdown" = "starts server and waits for requests"
-            "session_test" = "starts server and waits for requests"
-            "websocket" = "starts server and waits for requests"
-            "respond_test" = "starts server and waits for requests"
-            "test_basic_server" = "starts server and waits for requests"
-            "test_static_files" = "starts server and waits for requests"
-            "test_request" = "starts server and waits for requests"
-            "test_cookie" = "starts server and waits for requests"
-            "test_json_and_headers" = "starts server and waits for requests"
-            "header_access" = "starts server and waits for requests"
-            "multi_server" = "starts server and waits for requests"
-            "body_limit" = "starts server and waits for requests"
-            "content_length" = "starts server and waits for requests"
-            "lsp_demo" = "starts LSP server and waits for input"
             "subprocess" = "subprocess tests use platform-dependent commands"
-            "complex_expression_catch_test" = "semantic analysis issue (error_message not defined)"
-            "nested_catch_test" = "semantic analysis issue (error_message not defined)"
-            "unicode_catch_test" = "semantic analysis issue (error_message not defined)"
-            "scoped.wfl" = "references undefined variables (expected to fail)"
-            "test_redefinition_error" = "references undefined variables (expected to fail)"
-            "test_list_debug" = "known interpreter issue"
-            "test_list_keyword" = "known interpreter issue"
-            "test_simple_contextual" = "known interpreter issue"
-            "test_simple_static" = "known interpreter issue"
-            "time_random_comprehensive" = "known interpreter issue"
-            "rust_loc_counter" = "known interpreter issue"
+            "scoped.wfl" = "intentionally references an undefined variable (asserted by run_integration_tests.sh)"
+            "test_redefinition_error" = "intentional redefinition error (asserted by run_integration_tests.sh)"
+            "test_assertion_fix" = "intentionally failing assertions (asserted by run_integration_tests.sh)"
           }
           $ErrorExamplesReason = "expected to fail (error example)"
           
@@ -419,12 +379,18 @@ jobs:
             
             Write-Host -NoNewline "RUN:  $relativePath ... "
             
+            # Programs with describe blocks must run in test mode
+            $extraArgs = @()
+            if (Select-String -Path $file.FullName -Pattern '^\s*describe "' -Quiet) {
+              $extraArgs = @("--test")
+            }
+            
             # Run with timeout using a job for better process control
             $job = Start-Job -ScriptBlock {
-              param($binary, $filePath)
-              & $binary $filePath 2>&1 | Out-Null
+              param($binary, $filePath, $extraArgs)
+              & $binary @extraArgs $filePath 2>&1 | Out-Null
               $LASTEXITCODE
-            } -ArgumentList $WflBinary, $file.FullName
+            } -ArgumentList $WflBinary, $file.FullName, $extraArgs
             
             $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
             

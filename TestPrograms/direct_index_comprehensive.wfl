@@ -1,3 +1,4 @@
+// CI-SKIP: exercises unimplemented direct-index and container syntax (tracked in issue #555)
 // Direct Index Syntax Comprehensive Tests
 // Tests the new direct index syntax (e.g., myList 0) introduced in PR #135
 

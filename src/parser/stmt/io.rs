@@ -16,9 +16,35 @@ pub(crate) trait IoParser<'a>: ExprParser<'a> {
     fn parse_create_file_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_create_directory_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_delete_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_path_expression(&mut self) -> Result<Expression, ParseError>;
 }
 
 impl<'a> IoParser<'a> for Parser<'a> {
+    /// Parses a file path expression: a primary expression optionally
+    /// concatenated with further primaries via `with`, e.g.
+    /// `open file at base_dir with "/index.html" for reading as f`.
+    /// Keywords like `for`, `and`, and `as` still terminate the path.
+    fn parse_path_expression(&mut self) -> Result<Expression, ParseError> {
+        let mut path = self.parse_primary_expression()?;
+
+        while let Some(token) = self.cursor.peek() {
+            if token.token != Token::KeywordWith {
+                break;
+            }
+            let (line, column) = (token.line, token.column);
+            self.bump_sync(); // Consume "with"
+            let right = self.parse_primary_expression()?;
+            path = Expression::Concatenation {
+                left: Box::new(path),
+                right: Box::new(right),
+                line,
+                column,
+            };
+        }
+
+        Ok(path)
+    }
+
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError> {
         self.bump_sync(); // Consume "display"
 
@@ -359,7 +385,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
         {
             self.bump_sync(); // Consume "at"
 
-            let path_expr = self.parse_primary_expression()?;
+            let path_expr = self.parse_path_expression()?;
 
             // Check for "for append", "and read content as" pattern AND direct "as" pattern
             if let Some(next_token) = self.cursor.peek() {
@@ -521,7 +547,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
             }
         }
 
-        let path = self.parse_primary_expression()?;
+        let path = self.parse_path_expression()?;
 
         self.expect_token(Token::KeywordAs, "Expected 'as' after file path")?;
 

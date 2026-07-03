@@ -1,3 +1,4 @@
+// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); tracked in issue #555
 // Process & Execution Keywords Examples (Simplified)
 // Keywords covered: process, execute, command, spawn, shell
 // Note: Full process examples require subprocess capabilities

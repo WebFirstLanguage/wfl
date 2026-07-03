@@ -56,6 +56,8 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                                 self.bump_sync(); // Consume "error"
                                 (ast::ErrorType::General, "error".to_string())
                             }
+                            // Bare "when:" is shorthand for "when error:"
+                            Token::Colon => (ast::ErrorType::General, "error".to_string()),
                             Token::KeywordFile => {
                                 self.bump_sync(); // Consume "file"
                                 self.expect_token(

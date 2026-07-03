@@ -47,7 +47,7 @@ create pattern positive_lookahead:
 end pattern
 
 create pattern negative_lookahead:
-    "test" not followed by "456"  
+    "test" check not ahead for {"456"}
 end pattern
 
 store lookahead_text1 as "test123"
@@ -75,11 +75,11 @@ display ""
 // === Lookbehind Patterns ===
 display "3. Lookbehind Pattern Tests"
 create pattern positive_lookbehind:
-    preceded by "pre" then "fix"
+    check behind for {"pre"} then "fix"
 end pattern
 
 create pattern negative_lookbehind:
-    not preceded by "bad" then "word"
+    check not behind for {"bad"} then "word"
 end pattern
 
 store lookbehind_text1 as "prefix"
@@ -100,11 +100,11 @@ display ""
 // === Grouping and Backreferences ===
 display "4. Grouping and Backreference Tests"
 create pattern repeated_word:
-    capture one or more letter then " " then same as group 1
+    capture {one or more letter} as word then " " then same as captured "word"
 end pattern
 
 create pattern html_tag:
-    "<" then capture one or more letter then ">" then any character then "</" then same as group 1 then ">"
+    "<" then capture {one or more letter} as tag then ">" then one or more any character then "</" then same as captured "tag" then ">"
 end pattern
 
 store repeated_text as "hello hello"
@@ -129,7 +129,7 @@ create pattern unicode_text:
 end pattern
 
 create pattern special_chars:
-    any of "!@#$%"
+    "!" or "@" or "#" or "$" or "%"
 end pattern
 
 store unicode_sample as "café"

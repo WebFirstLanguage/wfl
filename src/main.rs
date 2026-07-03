@@ -1315,6 +1315,10 @@ async fn main() -> io::Result<()> {
                                 eprintln!("{error}"); // Fallback to simple error display
                             }
                         }
+
+                        // A program that died with a runtime error must not
+                        // report success to the shell.
+                        process::exit(1);
                     }
                 }
             }
@@ -1331,6 +1335,8 @@ async fn main() -> io::Result<()> {
                         eprintln!("Error: {error}"); // Fallback to simple error display
                     }
                 }
+
+                process::exit(2);
             }
         }
     }

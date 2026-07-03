@@ -105,7 +105,7 @@ try:
         
         store shutdown_start_time as current time in milliseconds
         
-        wait loop:
+        main loop:
             check if active_connections is equal to 0:
                 display "✓ All connections finished gracefully"
                 break

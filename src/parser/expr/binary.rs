@@ -50,18 +50,23 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                 break;
             }
 
+            // Precedence ladder (higher binds tighter):
+            //   0: and, or
+            //   1: comparisons (is, equals, greater/less than, contains)
+            //   2: plus, minus
+            //   3: times, divided by, modulo
             let op = match token {
-                Token::Plus => Some((Operator::Plus, 1)),
-                Token::KeywordPlus => Some((Operator::Plus, 1)),
-                Token::Minus => Some((Operator::Minus, 1)),
-                Token::KeywordMinus => Some((Operator::Minus, 1)),
-                Token::KeywordTimes => Some((Operator::Multiply, 2)),
-                Token::KeywordDividedBy => Some((Operator::Divide, 2)),
-                Token::Percent => Some((Operator::Modulo, 2)),
+                Token::Plus => Some((Operator::Plus, 2)),
+                Token::KeywordPlus => Some((Operator::Plus, 2)),
+                Token::Minus => Some((Operator::Minus, 2)),
+                Token::KeywordMinus => Some((Operator::Minus, 2)),
+                Token::KeywordTimes => Some((Operator::Multiply, 3)),
+                Token::KeywordDividedBy => Some((Operator::Divide, 3)),
+                Token::Percent => Some((Operator::Modulo, 3)),
                 Token::KeywordDivided => {
                     // Check if next token is "by" more efficiently
                     if self.peek_divided_by() {
-                        Some((Operator::Divide, 2))
+                        Some((Operator::Divide, 3))
                     } else {
                         return Err(ParseError::from_span(
                             "Expected 'by' after 'divided'".to_string(),
@@ -71,7 +76,7 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                         ));
                     }
                 }
-                Token::Equals => Some((Operator::Equals, 0)),
+                Token::Equals => Some((Operator::Equals, 1)),
                 Token::KeywordIs => {
                     self.bump_sync(); // Consume "is"
 
@@ -83,9 +88,9 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                 if let Some(to_token) = self.cursor.peek() {
                                     if matches!(&to_token.token, Token::KeywordTo) {
                                         self.bump_sync(); // Consume "to"
-                                        Some((Operator::Equals, 0))
+                                        Some((Operator::Equals, 1))
                                     } else {
-                                        Some((Operator::Equals, 0)) // "is equal" without "to" is valid too
+                                        Some((Operator::Equals, 1)) // "is equal" without "to" is valid too
                                     }
                                 } else {
                                     return Err(ParseError::from_span(
@@ -112,7 +117,7 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                         self.bump_sync(); // Consume "to"
                                     }
                                 }
-                                Some((Operator::NotEquals, 0))
+                                Some((Operator::NotEquals, 1))
                             }
                             Token::KeywordGreater => {
                                 self.bump_sync(); // Consume "greater"
@@ -140,31 +145,31 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                                                 self.bump_sync(); // Consume "to"
                                                                 Some((
                                                                     Operator::GreaterThanOrEqual,
-                                                                    0,
+                                                                    1,
                                                                 ))
                                                             } else {
                                                                 Some((
                                                                     Operator::GreaterThanOrEqual,
-                                                                    0,
+                                                                    1,
                                                                 )) // "or equal" without "to" is valid too
                                                             }
                                                         } else {
-                                                            Some((Operator::GreaterThanOrEqual, 0)) // "or equal" without "to" is valid too
+                                                            Some((Operator::GreaterThanOrEqual, 1)) // "or equal" without "to" is valid too
                                                         }
                                                     } else {
-                                                        Some((Operator::GreaterThan, 0)) // Just "greater than or" without "equal" is treated as "greater than"
+                                                        Some((Operator::GreaterThan, 1)) // Just "greater than or" without "equal" is treated as "greater than"
                                                     }
                                                 } else {
-                                                    Some((Operator::GreaterThan, 0)) // Just "greater than or" without "equal" is treated as "greater than"
+                                                    Some((Operator::GreaterThan, 1)) // Just "greater than or" without "equal" is treated as "greater than"
                                                 }
                                             } else {
-                                                Some((Operator::GreaterThan, 0)) // Just "greater than" without "or"
+                                                Some((Operator::GreaterThan, 1)) // Just "greater than" without "or"
                                             }
                                         } else {
-                                            Some((Operator::GreaterThan, 0)) // Just "greater than" without "or"
+                                            Some((Operator::GreaterThan, 1)) // Just "greater than" without "or"
                                         }
                                     } else {
-                                        Some((Operator::GreaterThan, 0)) // "is greater" without "than" is valid too
+                                        Some((Operator::GreaterThan, 1)) // "is greater" without "than" is valid too
                                     }
                                 } else {
                                     return Err(ParseError::from_span(
@@ -200,27 +205,27 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                                                 Token::KeywordTo
                                                             ) {
                                                                 self.bump_sync(); // Consume "to"
-                                                                Some((Operator::LessThanOrEqual, 0))
+                                                                Some((Operator::LessThanOrEqual, 1))
                                                             } else {
-                                                                Some((Operator::LessThanOrEqual, 0)) // "or equal" without "to" is valid too
+                                                                Some((Operator::LessThanOrEqual, 1)) // "or equal" without "to" is valid too
                                                             }
                                                         } else {
-                                                            Some((Operator::LessThanOrEqual, 0)) // "or equal" without "to" is valid too
+                                                            Some((Operator::LessThanOrEqual, 1)) // "or equal" without "to" is valid too
                                                         }
                                                     } else {
-                                                        Some((Operator::LessThan, 0)) // Just "less than or" without "equal" is treated as "less than"
+                                                        Some((Operator::LessThan, 1)) // Just "less than or" without "equal" is treated as "less than"
                                                     }
                                                 } else {
-                                                    Some((Operator::LessThan, 0)) // Just "less than or" without "equal" is treated as "less than"
+                                                    Some((Operator::LessThan, 1)) // Just "less than or" without "equal" is treated as "less than"
                                                 }
                                             } else {
-                                                Some((Operator::LessThan, 0)) // Just "less than" without "or equal to"
+                                                Some((Operator::LessThan, 1)) // Just "less than" without "or equal to"
                                             }
                                         } else {
-                                            Some((Operator::LessThan, 0)) // Just "less than" without "or equal to"
+                                            Some((Operator::LessThan, 1)) // Just "less than" without "or equal to"
                                         }
                                     } else {
-                                        Some((Operator::LessThan, 0)) // "is less" without "than" is valid too
+                                        Some((Operator::LessThan, 1)) // "is less" without "than" is valid too
                                     }
                                 } else {
                                     return Err(ParseError::from_span(
@@ -231,7 +236,7 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                                     ));
                                 }
                             }
-                            _ => Some((Operator::Equals, 0)), // Simple "is" means equals
+                            _ => Some((Operator::Equals, 1)), // Simple "is" means equals
                         }
                     } else {
                         return Err(ParseError::from_span(
@@ -247,8 +252,12 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     // legacy syntax for builtin functions: `builtinName with args`
                     // For user-defined actions, require `call actionName with args`
                     if let Expression::Variable(ref name, var_line, var_column) = left {
-                        // Check if this is a builtin function
-                        if crate::builtins::is_builtin_function(name) {
+                        // Check if this is a builtin function. `count` is
+                        // excluded: it is the implicit count-loop variable and
+                        // the documented idiom `display "..." with count with
+                        // "..."` is concatenation, not a call to the list
+                        // builtin (use `count of <list> and <value>` for that).
+                        if name != "count" && crate::builtins::is_builtin_function(name) {
                             // Builtin function - keep legacy syntax
                             self.bump_sync(); // Consume "with"
                             let arguments = self.parse_argument_list()?;
@@ -522,7 +531,7 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                         continue; // Skip the rest of the loop since we've already updated left
                     }
 
-                    Some((Operator::Contains, 0))
+                    Some((Operator::Contains, 1))
                 }
                 Token::Colon => {
                     self.bump_sync(); // Consume ":"

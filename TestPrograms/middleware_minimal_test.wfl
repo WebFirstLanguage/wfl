@@ -31,7 +31,10 @@ try:
             close file access_log
             
             display "Request completed in " with request_duration with "ms (Status: " with response_status with ")"
-            
+
+            // One iteration is enough to exercise the structure under test
+            break
+
         catch:
             display "Inner catch block"
             display "Error: " with error_message

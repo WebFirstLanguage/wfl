@@ -1,3 +1,4 @@
+// CI-SKIP: starts a web server and needs an HTTP client to drive it (covered by run_web_tests)
 // WFL Web Server Example
 // Demonstrates WFL's natural language web server capabilities
 // This program creates a simple HTTP web server with multiple features
@@ -9,6 +10,7 @@ display ""
 store server_port as 8080
 store server_host as "localhost"
 store static_directory as "public"
+store requests_count as 0
 
 display "Starting WFL web server..."
 display "Host: " with server_host

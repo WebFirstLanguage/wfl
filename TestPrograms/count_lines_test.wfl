@@ -72,7 +72,7 @@ end try
 // Cleanup test files
 display ""
 display "6. Cleaning up test files"
-delete file at "test_line_count.txt"
+delete file at "test_single_line.txt"
 delete file at "empty_file.txt"
 delete file at "no_newline.txt"
 display "✓ Test files cleaned up"

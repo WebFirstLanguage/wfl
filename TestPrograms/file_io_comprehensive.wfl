@@ -252,7 +252,7 @@ end check
 
 makedirs "temp_test_dir"
 remove_dir "temp_test_dir"
-store dir_removed as path exists at "temp_test_dir"
+store dir_removed as directory exists at "temp_test_dir"
 check if not dir_removed:
     display "✓ remove_dir working"
 end check

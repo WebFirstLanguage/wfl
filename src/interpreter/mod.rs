@@ -2337,11 +2337,12 @@ impl Interpreter {
                     // OPTIMIZATION: Recycle environment if possible
                     let loop_env = self.get_recycled_env(loop_env_recycle.take(), &env);
 
-                    // Make the loop variable available in the loop environment
+                    // Make the loop variable available in the loop environment,
+                    // shadowing any same-named variable from an outer scope.
                     // Use custom variable name if provided, otherwise default to "count"
-                    let _ = loop_env
+                    loop_env
                         .borrow_mut()
-                        .define(loop_var_name, Value::Number(count));
+                        .define_or_replace(loop_var_name, Value::Number(count));
 
                     let result = self.execute_block(body, Rc::clone(&loop_env)).await;
 
@@ -3949,10 +3950,18 @@ impl Interpreter {
                             };
 
                             if matches {
-                                let _ = child_env.borrow_mut().define(
-                                    &when_clause.error_name,
-                                    Value::Text(err.message.into()),
-                                );
+                                // Bind the error under the clause's name and the
+                                // `error_message` alias, which is always available
+                                // in error-handling clauses.
+                                let error_text = Value::Text(err.message.into());
+                                {
+                                    let mut env_mut = child_env.borrow_mut();
+                                    env_mut.define_or_replace(
+                                        &when_clause.error_name,
+                                        error_text.clone(),
+                                    );
+                                    env_mut.define_or_replace("error_message", error_text);
+                                }
 
                                 result = self
                                     .execute_block(&when_clause.body, Rc::clone(&child_env))
@@ -5170,39 +5179,23 @@ impl Interpreter {
                 request_properties.insert("headers".to_string(), headers_object.clone());
                 let request_object = Value::Object(Rc::new(RefCell::new(request_properties)));
 
-                match env_mut.define(request_name, request_object) {
-                    Ok(_) => {}
-                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
-                }
+                // These bindings are refreshed on every wait, so overwrite any
+                // previous request's values instead of failing on redefinition.
+                env_mut.define_or_replace(request_name, request_object);
 
                 // Define individual request property variables
-                match env_mut.define("method", Value::Text(Arc::from(request.method.clone()))) {
-                    Ok(_) => {}
-                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
-                }
+                env_mut.define_or_replace("method", Value::Text(Arc::from(request.method.clone())));
 
-                match env_mut.define("path", Value::Text(Arc::from(request.path.clone()))) {
-                    Ok(_) => {}
-                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
-                }
+                env_mut.define_or_replace("path", Value::Text(Arc::from(request.path.clone())));
 
-                match env_mut.define(
+                env_mut.define_or_replace(
                     "client_ip",
                     Value::Text(Arc::from(request.client_ip.clone())),
-                ) {
-                    Ok(_) => {}
-                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
-                }
+                );
 
-                match env_mut.define("body", Value::Text(Arc::from(request.body.clone()))) {
-                    Ok(_) => {}
-                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
-                }
+                env_mut.define_or_replace("body", Value::Text(Arc::from(request.body.clone())));
 
-                match env_mut.define("headers", headers_object) {
-                    Ok(_) => {}
-                    Err(msg) => return Err(RuntimeError::new(msg, *line, *column)),
-                }
+                env_mut.define_or_replace("headers", headers_object);
 
                 drop(env_mut); // Release the borrow
 
@@ -6985,6 +6978,24 @@ impl Interpreter {
 
                         result
                     }
+                    Value::NativeFunction(_, native_fn) => {
+                        let mut arg_values = Vec::new();
+                        for arg in arguments.iter() {
+                            arg_values.push(
+                                self.evaluate_expression(&arg.value, Rc::clone(&env))
+                                    .await?,
+                            );
+                        }
+
+                        // Preserve the native error's message and kind; only
+                        // point the location at the call site (natives report
+                        // their position as 0,0).
+                        native_fn(arg_values).map_err(|mut e| {
+                            e.line = *line;
+                            e.column = *column;
+                            e
+                        })
+                    }
                     _ => Err(RuntimeError::new(
                         format!("'{name}' is not callable"),
                         *line,
@@ -7896,6 +7907,9 @@ impl Interpreter {
                 None => Ok(Value::Bool(false)),
             },
             (Value::Text(a), Value::Text(b)) => Ok(Value::Bool(comp(a.cmp(&b)))),
+            (Value::Date(a), Value::Date(b)) => Ok(Value::Bool(comp(a.cmp(&b)))),
+            (Value::Time(a), Value::Time(b)) => Ok(Value::Bool(comp(a.cmp(&b)))),
+            (Value::DateTime(a), Value::DateTime(b)) => Ok(Value::Bool(comp(a.cmp(&b)))),
             (a, b) => Err(RuntimeError::new(
                 format!(
                     "Cannot compare {} and {} with {}",

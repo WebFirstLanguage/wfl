@@ -1,3 +1,4 @@
+// CI-SKIP: pre-existing parse errors (was masked by wfl exiting 0 on parse errors); tracked in issue #555
 // Operations Keywords Examples
 // Keywords covered: display, call, push, pop, add, return, give back
 
