@@ -9,6 +9,22 @@ use std::sync::Arc;
 pub(crate) trait IoParser<'a>: ExprParser<'a> {
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_open_file_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_open_url_statement(
+        &mut self,
+        open_token: &'a crate::lexer::token::TokenWithPosition,
+    ) -> Result<Statement, ParseError>;
+    fn parse_http_value_expression(&mut self) -> Result<Expression, ParseError>;
+    fn parse_http_clause_value(
+        &mut self,
+        merged: &str,
+        clause: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<Expression, ParseError>;
+    fn continue_http_value_expression(
+        &mut self,
+        expr: Expression,
+    ) -> Result<Expression, ParseError>;
     #[allow(dead_code)]
     fn parse_open_file_read_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_close_file_statement(&mut self) -> Result<Statement, ParseError>;
@@ -43,6 +59,336 @@ impl<'a> IoParser<'a> for Parser<'a> {
         }
 
         Ok(path)
+    }
+
+    /// Parses the remainder of `open url at <url> ...` after `url` was consumed.
+    ///
+    /// Grammar (clauses optional, joined by `and`/`with`, any order):
+    ///   open url at <url>
+    ///       [with method <expr>] [and headers <expr>] [and body <expr>]
+    ///       ( and read content as <name>   -- binds the response body text
+    ///       | and read response as <name>  -- binds status/ok/body/headers object
+    ///       | as <name> )                  -- binds the response body text
+    ///
+    /// Plain GET forms keep producing `HttpGetStatement` for backward
+    /// compatibility; anything using method/headers/body or `read response`
+    /// produces `HttpRequestStatement`.
+    fn parse_open_url_statement(
+        &mut self,
+        open_token: &'a crate::lexer::token::TokenWithPosition,
+    ) -> Result<Statement, ParseError> {
+        if !matches!(self.cursor.peek(), Some(t) if t.token == Token::KeywordAt) {
+            return Err(ParseError::from_token(
+                "Expected 'at' after 'url'".to_string(),
+                open_token,
+            ));
+        }
+        self.bump_sync(); // Consume "at"
+
+        let url_expr = self.parse_primary_expression()?;
+
+        let mut method: Option<Expression> = None;
+        let mut headers: Option<Expression> = None;
+        let mut body: Option<Expression> = None;
+
+        let parse_variable_name =
+            |parser: &mut Self, open_token: &'a crate::lexer::token::TokenWithPosition| {
+                if let Some(token) = parser.cursor.peek() {
+                    if let Token::Identifier(name) = &token.token {
+                        parser.bump_sync(); // Consume the identifier
+                        Ok(name.clone())
+                    } else if token.token == Token::KeywordContent {
+                        // Special case for "content" as a variable name
+                        parser.bump_sync();
+                        Ok("content".to_string())
+                    } else {
+                        Err(ParseError::from_token(
+                            format!(
+                                "Expected identifier for variable name, found {:?}",
+                                token.token
+                            ),
+                            token,
+                        ))
+                    }
+                } else {
+                    Err(ParseError::from_token(
+                        "Unexpected end of input".to_string(),
+                        open_token,
+                    ))
+                }
+            };
+
+        loop {
+            // Long requests may continue clauses on the following lines:
+            //   open url at "https://..."
+            //       with method "POST"
+            //       and read response as resp
+            // Skip line breaks only when a connector follows, so a statement
+            // that simply ends without its terminator still errors here.
+            if matches!(self.cursor.peek(), Some(t) if t.token == Token::Eol) {
+                let mut lookahead = 1;
+                while matches!(self.cursor.peek_kind_n(lookahead), Some(Token::Eol)) {
+                    lookahead += 1;
+                }
+                if matches!(
+                    self.cursor.peek_kind_n(lookahead),
+                    Some(Token::KeywordAnd) | Some(Token::KeywordWith)
+                ) {
+                    for _ in 0..lookahead {
+                        self.bump_sync(); // Consume the line breaks
+                    }
+                }
+            }
+
+            let Some(next_token) = self.cursor.peek() else {
+                return Err(ParseError::from_token(
+                    "Unexpected end of input after URL: expected 'and read content as <name>', 'and read response as <name>', or 'as <name>'"
+                        .to_string(),
+                    open_token,
+                ));
+            };
+
+            match &next_token.token {
+                Token::KeywordAs => {
+                    // "open url at <url> ... as <name>" binds the body text
+                    self.bump_sync(); // Consume "as"
+                    let variable_name = parse_variable_name(self, open_token)?;
+
+                    return Ok(if method.is_some() || headers.is_some() || body.is_some() {
+                        Statement::HttpRequestStatement {
+                            url: url_expr,
+                            method,
+                            headers,
+                            body,
+                            variable_name,
+                            full_response: false,
+                            line: open_token.line,
+                            column: open_token.column,
+                        }
+                    } else {
+                        Statement::HttpGetStatement {
+                            url: url_expr,
+                            variable_name,
+                            line: open_token.line,
+                            column: open_token.column,
+                        }
+                    });
+                }
+                Token::KeywordAnd | Token::KeywordWith => {
+                    self.bump_sync(); // Consume the connector
+                }
+                _ => {
+                    return Err(ParseError::from_token(
+                        format!(
+                            "Expected 'and', 'with', or 'as' after URL, found {:?}",
+                            next_token.token
+                        ),
+                        next_token,
+                    ));
+                }
+            }
+
+            // A connector was consumed; dispatch on the clause keyword
+            let Some(clause_token) = self.cursor.peek() else {
+                return Err(ParseError::from_token(
+                    "Unexpected end of input: expected 'method', 'headers', 'body', or 'read' clause"
+                        .to_string(),
+                    open_token,
+                ));
+            };
+
+            match &clause_token.token {
+                Token::KeywordRead => {
+                    self.bump_sync(); // Consume "read"
+
+                    let full_response = if let Some(token) = self.cursor.peek() {
+                        match &token.token {
+                            Token::KeywordContent => {
+                                self.bump_sync(); // Consume "content"
+                                false
+                            }
+                            Token::KeywordResponse => {
+                                self.bump_sync(); // Consume "response"
+                                true
+                            }
+                            _ => {
+                                return Err(ParseError::from_token(
+                                    format!(
+                                        "Expected 'content' or 'response' after 'read', found {:?}",
+                                        token.token
+                                    ),
+                                    token,
+                                ));
+                            }
+                        }
+                    } else {
+                        return Err(ParseError::from_token(
+                            "Unexpected end of input after 'read'".to_string(),
+                            open_token,
+                        ));
+                    };
+
+                    self.expect_token(
+                        Token::KeywordAs,
+                        "Expected 'as' after 'content' or 'response'",
+                    )?;
+                    let variable_name = parse_variable_name(self, open_token)?;
+
+                    let is_plain_get = method.is_none() && headers.is_none() && body.is_none();
+                    return Ok(if is_plain_get && !full_response {
+                        Statement::HttpGetStatement {
+                            url: url_expr,
+                            variable_name,
+                            line: open_token.line,
+                            column: open_token.column,
+                        }
+                    } else {
+                        Statement::HttpRequestStatement {
+                            url: url_expr,
+                            method,
+                            headers,
+                            body,
+                            variable_name,
+                            full_response,
+                            line: open_token.line,
+                            column: open_token.column,
+                        }
+                    });
+                }
+                // The lexer merges consecutive identifiers into multi-word
+                // names, so `headers auth_headers` arrives as the single
+                // token Identifier("headers auth_headers"). Match both the
+                // bare clause keyword and the merged form.
+                Token::Identifier(name) if name == "method" || name.starts_with("method ") => {
+                    if method.is_some() {
+                        return Err(ParseError::from_token(
+                            "Duplicate 'method' clause in open url statement".to_string(),
+                            clause_token,
+                        ));
+                    }
+                    let merged = name.clone();
+                    let (clause_line, clause_column) = (clause_token.line, clause_token.column);
+                    self.bump_sync(); // Consume "method" (or the merged identifier)
+                    method = Some(self.parse_http_clause_value(
+                        &merged,
+                        "method",
+                        clause_line,
+                        clause_column,
+                    )?);
+                }
+                Token::Identifier(name) if name == "headers" || name.starts_with("headers ") => {
+                    if headers.is_some() {
+                        return Err(ParseError::from_token(
+                            "Duplicate 'headers' clause in open url statement".to_string(),
+                            clause_token,
+                        ));
+                    }
+                    let merged = name.clone();
+                    let (clause_line, clause_column) = (clause_token.line, clause_token.column);
+                    self.bump_sync(); // Consume "headers" (or the merged identifier)
+                    headers = Some(self.parse_http_clause_value(
+                        &merged,
+                        "headers",
+                        clause_line,
+                        clause_column,
+                    )?);
+                }
+                Token::Identifier(name) if name == "body" || name.starts_with("body ") => {
+                    if body.is_some() {
+                        return Err(ParseError::from_token(
+                            "Duplicate 'body' clause in open url statement".to_string(),
+                            clause_token,
+                        ));
+                    }
+                    let merged = name.clone();
+                    let (clause_line, clause_column) = (clause_token.line, clause_token.column);
+                    self.bump_sync(); // Consume "body" (or the merged identifier)
+                    body = Some(self.parse_http_clause_value(
+                        &merged,
+                        "body",
+                        clause_line,
+                        clause_column,
+                    )?);
+                }
+                _ => {
+                    return Err(ParseError::from_token(
+                        format!(
+                            "Expected 'method', 'headers', 'body', or 'read' after 'and'/'with', found {:?}",
+                            clause_token.token
+                        ),
+                        clause_token,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Parses a clause value in an `open url` statement: a primary expression
+    /// optionally concatenated with further primaries via `with`. A `with`
+    /// that introduces the next request clause (method/headers/body/read)
+    /// terminates the value instead of concatenating.
+    fn parse_http_value_expression(&mut self) -> Result<Expression, ParseError> {
+        let expr = self.parse_primary_expression()?;
+        self.continue_http_value_expression(expr)
+    }
+
+    /// Parses the value of a `method`/`headers`/`body` clause when the clause
+    /// keyword has already been consumed. `merged` is the identifier token
+    /// text: if the lexer merged the clause keyword with a following variable
+    /// name (`headers auth_headers`), the remainder is the variable reference.
+    fn parse_http_clause_value(
+        &mut self,
+        merged: &str,
+        clause: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<Expression, ParseError> {
+        if merged.len() > clause.len() {
+            let rest = merged[clause.len() + 1..].to_string();
+            let base = Expression::Variable(rest, line, column);
+            self.continue_http_value_expression(base)
+        } else {
+            self.parse_http_value_expression()
+        }
+    }
+
+    /// Continues an already-parsed clause value with `with`-concatenations,
+    /// stopping before a `with` that introduces the next request clause.
+    fn continue_http_value_expression(
+        &mut self,
+        mut expr: Expression,
+    ) -> Result<Expression, ParseError> {
+        while let Some(token) = self.cursor.peek() {
+            if token.token != Token::KeywordWith {
+                break;
+            }
+            // Lookahead: stop if this 'with' starts the next request clause
+            match self.cursor.peek_kind_n(1) {
+                Some(Token::KeywordRead) => break,
+                Some(Token::Identifier(name))
+                    if name == "method"
+                        || name.starts_with("method ")
+                        || name == "headers"
+                        || name.starts_with("headers ")
+                        || name == "body"
+                        || name.starts_with("body ") =>
+                {
+                    break;
+                }
+                _ => {}
+            }
+            let (line, column) = (token.line, token.column);
+            self.bump_sync(); // Consume "with"
+            let right = self.parse_primary_expression()?;
+            expr = Expression::Concatenation {
+                left: Box::new(expr),
+                right: Box::new(right),
+                line,
+                column,
+            };
+        }
+
+        Ok(expr)
     }
 
     fn parse_display_statement(&mut self) -> Result<Statement, ParseError> {
@@ -267,106 +613,7 @@ impl<'a> IoParser<'a> for Parser<'a> {
                 Token::KeywordUrl => {
                     // New URL handling
                     self.bump_sync(); // Consume "url"
-
-                    // Continue with URL-specific parsing
-                    if let Some(token) = self.cursor.peek()
-                        && token.token == Token::KeywordAt
-                    {
-                        self.bump_sync(); // Consume "at"
-
-                        let url_expr = self.parse_primary_expression()?;
-
-                        // Check for "and read content as" pattern
-                        if let Some(next_token) = self.cursor.peek() {
-                            if next_token.token == Token::KeywordAnd {
-                                self.bump_sync(); // Consume "and"
-                                self.expect_token(
-                                    Token::KeywordRead,
-                                    "Expected 'read' after 'and'",
-                                )?;
-                                self.expect_token(
-                                    Token::KeywordContent,
-                                    "Expected 'content' after 'read'",
-                                )?;
-                                self.expect_token(
-                                    Token::KeywordAs,
-                                    "Expected 'as' after 'content'",
-                                )?;
-
-                                let variable_name = if let Some(token) = self.cursor.peek() {
-                                    if let Token::Identifier(name) = &token.token {
-                                        self.bump_sync(); // Consume the identifier
-                                        name.clone()
-                                    } else {
-                                        return Err(ParseError::from_token(
-                                            format!(
-                                                "Expected identifier for variable name, found {:?}",
-                                                token.token
-                                            ),
-                                            token,
-                                        ));
-                                    }
-                                } else {
-                                    return Err(ParseError::from_token(
-                                        "Unexpected end of input".to_string(),
-                                        open_token,
-                                    ));
-                                };
-
-                                // Use HttpGetStatement for URL handling
-                                return Ok(Statement::HttpGetStatement {
-                                    url: url_expr,
-                                    variable_name,
-                                    line: open_token.line,
-                                    column: open_token.column,
-                                });
-                            } else if next_token.token == Token::KeywordAs {
-                                // Handle "open url at "..." as variable" syntax
-                                self.bump_sync(); // Consume "as"
-
-                                let variable_name = if let Some(token) = self.cursor.peek() {
-                                    if let Token::Identifier(name) = &token.token {
-                                        self.bump_sync(); // Consume the identifier
-                                        name.clone()
-                                    } else {
-                                        return Err(ParseError::from_token(
-                                            format!(
-                                                "Expected identifier for variable name, found {:?}",
-                                                token.token
-                                            ),
-                                            token,
-                                        ));
-                                    }
-                                } else {
-                                    return Err(ParseError::from_token(
-                                        "Unexpected end of input".to_string(),
-                                        open_token,
-                                    ));
-                                };
-
-                                // Use HttpGetStatement for URL handling with direct "as" syntax
-                                return Ok(Statement::HttpGetStatement {
-                                    url: url_expr,
-                                    variable_name,
-                                    line: open_token.line,
-                                    column: open_token.column,
-                                });
-                            } else {
-                                return Err(ParseError::from_token(
-                                    format!(
-                                        "Expected 'and' or 'as' after URL, found {:?}",
-                                        next_token.token
-                                    ),
-                                    next_token,
-                                ));
-                            }
-                        }
-                    }
-
-                    return Err(ParseError::from_token(
-                        "Expected 'at' after 'url'".to_string(),
-                        open_token,
-                    ));
+                    return self.parse_open_url_statement(open_token);
                 }
                 _ => {
                     return Err(ParseError::from_token(

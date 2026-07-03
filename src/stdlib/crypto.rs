@@ -3,7 +3,8 @@ use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use hkdf::Hkdf;
-use sha2::Sha256;
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
@@ -492,6 +493,56 @@ pub fn wflmac256_verify(
     Ok(comparison_result.into())
 }
 
+/// Standard SHA-256 (FIPS 180-4), hex-encoded
+/// Usage: sha256 of "hello" -> "2cf24dba..."
+pub fn native_sha256(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("sha256", &args, 1)?;
+
+    let text = expect_text(&args[0])?;
+    if text.len() > MAX_INPUT_SIZE {
+        return Err(RuntimeError::new(
+            format!("sha256: input exceeds maximum allowed size ({MAX_INPUT_SIZE} bytes)"),
+            0,
+            0,
+        ));
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    Ok(Value::Text(Arc::from(bytes_to_hex(&hasher.finalize()))))
+}
+
+/// Standard HMAC-SHA256 (RFC 2104), hex-encoded
+/// Usage: hmac_sha256 of message and key -> "f7bc83f4..."
+/// Needed to verify webhook signatures from services like Stripe or GitHub.
+pub fn native_hmac_sha256(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("hmac_sha256", &args, 2)?;
+
+    let message = expect_text(&args[0])?;
+    let key = expect_text(&args[1])?;
+    if message.len() > MAX_INPUT_SIZE {
+        return Err(RuntimeError::new(
+            format!("hmac_sha256: message exceeds maximum allowed size ({MAX_INPUT_SIZE} bytes)"),
+            0,
+            0,
+        ));
+    }
+    if key.len() > MAX_INPUT_SIZE {
+        return Err(RuntimeError::new(
+            format!("hmac_sha256: key exceeds maximum allowed size ({MAX_INPUT_SIZE} bytes)"),
+            0,
+            0,
+        ));
+    }
+
+    let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes())
+        .map_err(|_| RuntimeError::new("Failed to initialize HMAC key".to_string(), 0, 0))?;
+    mac.update(message.as_bytes());
+    Ok(Value::Text(Arc::from(bytes_to_hex(
+        &mac.finalize().into_bytes(),
+    ))))
+}
+
 /// Generate a cryptographically secure random token (for CSRF, sessions, etc.)
 /// Usage: generate_csrf_token() -> "a1b2c3d4e5f6..."
 pub fn native_generate_csrf_token(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -516,6 +567,8 @@ pub fn register_crypto(env: &mut Environment) {
     env.define_native("wflhash512", native_wflhash512);
     env.define_native("wflhash256_with_salt", native_wflhash256_with_salt);
     env.define_native("wflmac256", native_wflmac256);
+    env.define_native("sha256", native_sha256);
+    env.define_native("hmac_sha256", native_hmac_sha256);
     env.define_native("generate_csrf_token", native_generate_csrf_token);
 }
 

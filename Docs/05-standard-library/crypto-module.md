@@ -1,6 +1,6 @@
 # Crypto Module
 
-The Crypto module provides cryptographic hashing functions using WFLHASH, a custom hash algorithm. Use for data integrity, checksums, and non-critical security applications.
+The Crypto module provides cryptographic hashing functions: standard SHA-256 and HMAC-SHA256 for interoperating with external services (webhook verification, API signing), plus WFLHASH, a custom hash algorithm for data integrity, checksums, and non-critical security applications.
 
 ## ⚠️ Important Security Disclaimer
 
@@ -18,7 +18,7 @@ The Crypto module provides cryptographic hashing functions using WFLHASH, a cust
 - Regulatory compliance requiring validated cryptography
 - Password hashing in production systems
 
-**For production security applications, use SHA-256, SHA-3, or BLAKE3.**
+**For production security applications, use standard algorithms.** WFL provides standard `sha256` and `hmac_sha256` builtins (below) for exactly this: they are required when interoperating with external services (e.g. verifying Stripe or GitHub webhook signatures), where a custom algorithm cannot be used.
 
 ## Functions
 
@@ -195,6 +195,78 @@ end check
 - HKDF-based key derivation
 - Constant-time MAC verification
 - Secure memory management (zeroization)
+
+---
+
+### sha256
+
+**Purpose:** Generate a standard SHA-256 hash (FIPS 180-4). Use whenever you need interoperability with other systems that expect SHA-256.
+
+**Signature:**
+```wfl
+sha256 of <text>
+```
+
+**Parameters:**
+- `text` (Text): The text to hash
+
+**Returns:** Text - 64-character lowercase hexadecimal hash string
+
+**Example:**
+```wfl
+store hash as sha256 of "hello world"
+display "SHA-256: " with hash
+// Output: SHA-256: b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
+```
+
+**Use Cases:**
+- Checksums that other tools must be able to verify
+- Content addressing and deduplication across systems
+- Interoperating with external APIs that expect SHA-256 digests
+
+---
+
+### hmac_sha256
+
+**Purpose:** Generate a standard HMAC-SHA256 message authentication code (RFC 2104). This is what most third-party services (Stripe, GitHub, Slack, AWS) use to sign webhooks and API requests.
+
+**Signature:**
+```wfl
+hmac_sha256 of <message> and <key>
+```
+
+**Parameters:**
+- `message` (Text): The message to authenticate
+- `key` (Text): The secret key
+
+**Returns:** Text - 64-character lowercase hexadecimal MAC
+
+**Example (webhook verification, Stripe-style):**
+```wfl
+// Stripe signs webhooks with HMAC-SHA256(secret, "timestamp.payload")
+store webhook_secret as "whsec_test_secret"
+store event_time as "1614556800"
+store payload as "{\"id\": \"evt_123\"}"
+
+store signed_payload as event_time with "." with payload
+store expected_signature as hmac_sha256 of signed_payload and webhook_secret
+
+// In a real webhook handler this comes from the Stripe-Signature header
+store received_signature as hmac_sha256 of signed_payload and webhook_secret
+
+check if expected_signature is received_signature:
+    display "Webhook is authentic"
+otherwise:
+    display "Webhook signature mismatch - reject it!"
+end check
+```
+
+**Use Cases:**
+- Verifying incoming webhook signatures (Stripe, GitHub, Slack, ...)
+- Signing outgoing API requests
+- Any integration that specifies HMAC-SHA256
+
+**Note:** For WFL-internal message authentication where interoperability is not required, `wflmac256` also works; `hmac_sha256` is the standard everyone else speaks.
 
 ---
 

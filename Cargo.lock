@@ -3321,6 +3321,7 @@ dependencies = [
  "dhat",
  "glob",
  "hkdf",
+ "hmac",
  "libc",
  "log",
  "logos",

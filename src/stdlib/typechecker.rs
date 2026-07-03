@@ -47,6 +47,8 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_wflhash512(analyzer);
     register_wflhash256_with_salt(analyzer);
     register_wflmac256(analyzer);
+    register_sha256(analyzer);
+    register_hmac_sha256(analyzer);
     register_count_lines(analyzer);
     register_path_extension(analyzer);
     register_path_stem(analyzer);
@@ -252,6 +254,20 @@ fn register_wflmac256(analyzer: &mut Analyzer) {
     let param_types = vec![Type::Text, Type::Text];
 
     analyzer.register_builtin_function("wflmac256", param_types, return_type);
+}
+
+fn register_sha256(analyzer: &mut Analyzer) {
+    let return_type = Type::Text;
+    let param_types = vec![Type::Text];
+
+    analyzer.register_builtin_function("sha256", param_types, return_type);
+}
+
+fn register_hmac_sha256(analyzer: &mut Analyzer) {
+    let return_type = Type::Text;
+    let param_types = vec![Type::Text, Type::Text];
+
+    analyzer.register_builtin_function("hmac_sha256", param_types, return_type);
 }
 
 fn register_count_lines(analyzer: &mut Analyzer) {

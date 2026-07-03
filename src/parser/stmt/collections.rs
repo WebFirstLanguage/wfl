@@ -236,6 +236,9 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
 
         while let Some(token) = self.cursor.peek() {
             match &token.token {
+                Token::Eol => {
+                    self.bump_sync(); // Skip end-of-line tokens between entries
+                }
                 Token::KeywordEnd => {
                     self.bump_sync(); // Consume "end"
                     self.expect_token(Token::KeywordMap, "Expected 'map' after 'end'")?;
@@ -253,10 +256,24 @@ impl<'a> CollectionParser<'a> for Parser<'a> {
 
                     entries.push((key, value));
                 }
+                // String keys allow names an identifier can't express,
+                // e.g. HTTP header names like "Content-Type"
+                Token::StringLiteral(key) => {
+                    let key = key.clone();
+                    self.bump_sync(); // Consume the key
+
+                    // Expect "is"
+                    self.expect_token(Token::KeywordIs, "Expected 'is' after map key")?;
+
+                    // Parse the value expression
+                    let value = self.parse_expression()?;
+
+                    entries.push((key, value));
+                }
                 _ => {
                     return Err(ParseError::from_token(
                         format!(
-                            "Expected map key (identifier) or 'end map', found {:?}",
+                            "Expected map key (identifier or text) or 'end map', found {:?}",
                             token.token
                         ),
                         token,

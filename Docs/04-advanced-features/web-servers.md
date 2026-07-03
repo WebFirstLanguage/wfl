@@ -595,8 +595,8 @@ curl -X POST -d "data" http://127.0.0.1:8080/api/echo
 
 ```wfl
 // In another WFL program
-open url at "http://127.0.0.1:8080/" and read content as response
-display "Response: " with response
+open url at "http://127.0.0.1:8080/" and read content as api_response
+display "Response: " with api_response
 ```
 
 ## Common Patterns
