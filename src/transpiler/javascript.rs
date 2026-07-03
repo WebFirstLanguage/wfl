@@ -820,6 +820,40 @@ impl JavaScriptTranspiler {
                 ))
             }
 
+            Statement::HttpRequestStatement {
+                url,
+                method,
+                headers,
+                body,
+                variable_name,
+                full_response,
+                ..
+            } => {
+                let url_expr = self.transpile_expression(url)?;
+                let method_expr = match method {
+                    Some(m) => self.transpile_expression(m)?,
+                    None => "\"GET\"".to_string(),
+                };
+                let headers_expr = match headers {
+                    Some(h) => self.transpile_expression(h)?,
+                    None => "{}".to_string(),
+                };
+                let body_expr = match body {
+                    Some(b) => self.transpile_expression(b)?,
+                    None => "null".to_string(),
+                };
+                Ok(format!(
+                    "{}let {} = await WFL.http.request({}, {{ method: {}, headers: {}, body: {}, fullResponse: {} }});\n",
+                    self.indent(),
+                    self.sanitize_name(variable_name),
+                    url_expr,
+                    method_expr,
+                    headers_expr,
+                    body_expr,
+                    full_response
+                ))
+            }
+
             Statement::TryStatement {
                 body,
                 when_clauses,
@@ -1974,6 +2008,7 @@ impl JavaScriptTranspiler {
             | Statement::WaitForDurationStatement { .. }
             | Statement::HttpGetStatement { .. }
             | Statement::HttpPostStatement { .. }
+            | Statement::HttpRequestStatement { .. }
             | Statement::WaitForProcessStatement { .. }
             | Statement::WaitForRequestStatement { .. } => true,
 

@@ -364,6 +364,20 @@ pub enum Statement {
         line: usize,
         column: usize,
     },
+    /// General outbound HTTP request with optional method/headers/body clauses:
+    /// `open url at "<url>" with method "POST" and headers h and body b and read response as resp`
+    HttpRequestStatement {
+        url: Expression,
+        method: Option<Expression>,
+        headers: Option<Expression>,
+        body: Option<Expression>,
+        variable_name: String,
+        /// true for `read response as` (status/ok/body/headers object),
+        /// false for `read content as` (body text only)
+        full_response: bool,
+        line: usize,
+        column: usize,
+    },
     PushStatement {
         list: Expression,
         value: Expression,

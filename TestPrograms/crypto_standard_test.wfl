@@ -1,0 +1,98 @@
+// Standard crypto builtins test (issue #558)
+// Verifies sha256 and hmac_sha256 against well-known test vectors.
+// These are needed to authenticate webhooks from services like Stripe.
+
+display "=== Standard Crypto Test (sha256 / hmac_sha256) ==="
+display ""
+
+store pass_count as 0
+store fail_count as 0
+
+// === SHA-256 test vectors (FIPS 180-4) ===
+display "1. SHA-256 Tests"
+
+store empty_hash as sha256 of ""
+check if empty_hash is "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855":
+    display "PASS: sha256 of empty string"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: sha256 of empty string gave " with empty_hash
+    change fail_count to fail_count plus 1
+end check
+
+store abc_hash as sha256 of "abc"
+check if abc_hash is "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad":
+    display "PASS: sha256 of abc"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: sha256 of abc gave " with abc_hash
+    change fail_count to fail_count plus 1
+end check
+
+store hello_hash as sha256 of "hello world"
+check if hello_hash is "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9":
+    display "PASS: sha256 of hello world"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: sha256 of hello world gave " with hello_hash
+    change fail_count to fail_count plus 1
+end check
+display ""
+
+// === HMAC-SHA256 test vectors (RFC 2104) ===
+display "2. HMAC-SHA256 Tests"
+
+store fox_mac as hmac_sha256 of "The quick brown fox jumps over the lazy dog" and "key"
+check if fox_mac is "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8":
+    display "PASS: hmac_sha256 quick brown fox"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: hmac_sha256 quick brown fox gave " with fox_mac
+    change fail_count to fail_count plus 1
+end check
+
+store empty_mac as hmac_sha256 of "" and ""
+check if empty_mac is "b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad":
+    display "PASS: hmac_sha256 empty key and message"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: hmac_sha256 empty gave " with empty_mac
+    change fail_count to fail_count plus 1
+end check
+display ""
+
+// === Webhook-style signature verification (Stripe pattern) ===
+display "3. Webhook Signature Verification Pattern"
+
+store webhook_secret as "whsec_test_secret"
+store event_time as "1614556800"
+store payload as "{\"id\": \"evt_123\"}"
+store signed_payload as event_time with "." with payload
+
+store expected_signature as hmac_sha256 of signed_payload and webhook_secret
+store received_signature as hmac_sha256 of signed_payload and webhook_secret
+
+check if expected_signature is received_signature:
+    display "PASS: webhook signature matches"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: webhook signature mismatch"
+    change fail_count to fail_count plus 1
+end check
+
+store tampered_signature as hmac_sha256 of "tampered payload" and webhook_secret
+check if expected_signature is tampered_signature:
+    display "FAIL: tampered payload should not verify"
+    change fail_count to fail_count plus 1
+otherwise:
+    display "PASS: tampered payload rejected"
+    change pass_count to pass_count plus 1
+end check
+display ""
+
+display "=== Results: " with pass_count with " passed, " with fail_count with " failed ==="
+check if fail_count is 0:
+    display "All standard crypto tests passed!"
+otherwise:
+    display "SOME TESTS FAILED"
+end check

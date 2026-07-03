@@ -38,18 +38,63 @@ wait for append content "Alice,28\n" into file
 close file file
 ```
 
-### 3. **HTTP Client (Basic)**
+### 3. **HTTP Client**
 
 Make HTTP requests to external APIs:
 
 ```wfl
 try:
-    open url at "https://api.example.com/data" and read content as response
-    display "API response: " with response
+    open url at "https://api.example.com/data" and read content as api_response
+    display "API response: " with api_response
 catch:
     display "API request failed"
 end try
 ```
+
+#### Methods, headers, and request bodies
+
+Real API integrations need more than GET: the `open url` statement accepts
+optional `method`, `headers`, and `body` clauses, joined by `and`/`with` in
+any order:
+
+```wfl
+create map request_headers:
+    Authorization is "Bearer sk_test_123"
+    "Content-Type" is "application/x-www-form-urlencoded"
+end map
+
+open url at "https://api.stripe.com/v1/checkout/sessions"
+    with method "POST"
+    and headers request_headers
+    and body "mode=payment&line_items[0][price]=price_123"
+    and read response as resp
+```
+
+- `method` — any HTTP method as text: `"GET"` (default), `"POST"`, `"PUT"`, `"PATCH"`, `"DELETE"`, ...
+- `headers` — a map of header names to values (string keys like `"Content-Type"` are allowed in `create map`)
+- `body` — the request body as text; build form-encoded or JSON bodies with concatenation or `stringify_json`
+
+#### Reading the full response
+
+`read content as` binds only the response body text. `read response as`
+binds a response object with the status and headers too:
+
+```wfl
+open url at "https://api.example.com/thing" and read response as resp
+
+display "Status: " with resp.status         // e.g. 200 (a number)
+display "OK: " with resp.ok                 // yes for 2xx statuses
+display "Body: " with resp.body             // response body text
+store content_type as resp.headers["content-type"]
+```
+
+Non-2xx statuses are not errors — check `resp.ok` or `resp.status`
+yourself. Network failures (DNS, connection refused) still raise errors you
+can `try`/`catch`.
+
+**Note:** inside an `open url` statement the words `method`, `headers`, and
+`body` introduce clauses, so use different variable names there (e.g.
+`request_headers`, `payload`).
 
 ### 4. **Web Standards**
 

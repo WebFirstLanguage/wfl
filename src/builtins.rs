@@ -35,6 +35,8 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "wflhash512",
     "wflhash256_with_salt",
     "wflmac256",
+    "sha256",
+    "hmac_sha256",
     "generate_csrf_token",
     // JSON functions (implemented in stdlib/json.rs)
     "parse_json",
@@ -267,9 +269,9 @@ pub fn get_function_arity(name: &str) -> usize {
         // Zero argument functions
         "generate_csrf_token" => 0,
         // Single argument functions
-        "wflhash256" | "wflhash512" => 1,
+        "wflhash256" | "wflhash512" | "sha256" => 1,
         // Two argument functions
-        "wflhash256_with_salt" | "wflmac256" => 2,
+        "wflhash256_with_salt" | "wflmac256" | "hmac_sha256" => 2,
 
         // === JSON FUNCTIONS ===
         // Single argument functions
