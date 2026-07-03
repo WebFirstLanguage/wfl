@@ -141,7 +141,7 @@ store result as abs of -5  // Numbers only
 
 ### "Could not infer type for variable"
 
-**Cause:** Type checker can't determine type (usually in actions with parameters).
+**Cause:** Type checker can't determine type (usually arithmetic on untyped action parameters).
 
 **Example:**
 ```wfl
@@ -151,7 +151,9 @@ define action called process with parameters x:
 end action
 ```
 
-**Fix:** This is typically a warning, not an error. Code still works.
+**Fix:** This is a warning, not an error — the code still runs. This applies everywhere, including files pulled in with `include from` (included files are never type-checked more strictly than the main program).
+
+Note: comparison results (`a is equal to b`), list/object indexing (`parts[0]`, `rec["k"]`), `length of`, and builtin call results are all inferable and do not produce this warning.
 
 ---
 

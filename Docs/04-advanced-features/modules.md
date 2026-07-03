@@ -39,6 +39,17 @@ include from "containers.wfl"
 
 This reads, parses, and executes the specified file in the parent scope, making all definitions available to the parent.
 
+### Type Checking in Included Files
+
+Included files go through the same pipeline as the main program (parse, analyze, type check). Because `include from` runs the file in the parent scope — as if the code were written in the main program — type-check findings in an included file are reported the same way as in the main file: as **non-fatal warnings**. The program still runs.
+
+```text
+Type checking warnings in included file 'mod.wfl':
+error[ERROR]: Could not infer type for variable 'v'
+```
+
+Parse errors and semantic errors (for example, an undefined variable) in an included file remain fatal.
+
 ## When to Use Each Approach
 
 ### Use `load module from` for:

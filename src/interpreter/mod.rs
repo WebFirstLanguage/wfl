@@ -3522,23 +3522,30 @@ impl Interpreter {
                     ));
                 }
 
-                // 7. Type check
+                // 7. Type check. Type errors are reported as non-fatal
+                // warnings, exactly like the main-file pipeline (main.rs
+                // prints them and continues): `include from` executes in the
+                // parent scope, so included code must never be checked more
+                // strictly than the same code written in the main program
+                // (issues #551/#553).
+                use crate::diagnostics::DiagnosticReporter;
                 use crate::typechecker::TypeChecker;
 
                 let mut tc = TypeChecker::with_analyzer(analyzer);
                 if let Err(type_errors) = tc.check_types(&program) {
-                    let first_error = type_errors.first();
-                    let (error_line, error_column) =
-                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
-                    return Err(RuntimeError::new(
-                        format!(
-                            "Type error in included file '{}': {}",
-                            resolved_path.display(),
-                            first_error.map(|e| e.to_string()).unwrap_or_default()
-                        ),
-                        error_line,
-                        error_column,
-                    ));
+                    eprintln!(
+                        "Type checking warnings in included file '{}':",
+                        resolved_path.display()
+                    );
+                    let mut reporter = DiagnosticReporter::new();
+                    let file_id =
+                        reporter.add_file(resolved_path.display().to_string(), content.clone());
+                    for error in &type_errors {
+                        let diagnostic = reporter.convert_type_error(file_id, error);
+                        if reporter.report_diagnostic(file_id, &diagnostic).is_err() {
+                            eprintln!("{error}");
+                        }
+                    }
                 }
 
                 // 8. Create guard for context tracking

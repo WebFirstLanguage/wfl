@@ -579,7 +579,31 @@ impl TypeChecker {
                     && let Some(symbol) = self.analyzer.get_symbol_mut(name)
                     && symbol.symbol_type.is_none()
                 {
-                    symbol.symbol_type = Some(inferred_type);
+                    symbol.symbol_type = Some(inferred_type.clone());
+                }
+
+                // Locals declared inside an action body have no symbol left
+                // over from analysis (the analyzer discards body scopes), so
+                // record them in the type checker's re-created scope; later
+                // statements in the body can then see their inferred types
+                // (issue #553). Resolving through parent scopes is correct
+                // here because WFL forbids shadowing: a `store` reusing an
+                // outer variable's name is a fatal semantic error ("Use
+                // 'change x to <value>'"), so a resolved outer symbol can
+                // only mean the store refers to that same variable.
+                if self.analyzer.get_symbol(name).is_none() {
+                    let recorded_type = if inferred_type == Type::Error {
+                        Type::Unknown
+                    } else {
+                        inferred_type
+                    };
+                    let _ = self.analyzer.define_symbol(Symbol {
+                        name: name.clone(),
+                        kind: SymbolKind::Variable { mutable: true },
+                        symbol_type: Some(recorded_type),
+                        line: *_line,
+                        column: *_column,
+                    });
                 }
             }
             Statement::Assignment {
@@ -633,6 +657,27 @@ impl TypeChecker {
                     });
                 }
 
+                // The analyzer's action-body scope is discarded when analysis
+                // finishes, so re-create one here: parameters and body-local
+                // variables must be resolvable while checking the body,
+                // otherwise expressions that depend on a local's type (e.g.
+                // `parts[0]` after `store parts as ...`) infer Unknown
+                // (issue #553).
+                self.analyzer.push_scope();
+                for param in parameters {
+                    let param_symbol = Symbol {
+                        name: param.name.clone(),
+                        kind: SymbolKind::Variable { mutable: false },
+                        // Untyped parameters get an explicit Unknown so
+                        // references resolve without a "cannot determine
+                        // type" diagnostic, matching prior behavior.
+                        symbol_type: param.param_type.clone().or(Some(Type::Unknown)),
+                        line: param.line,
+                        column: param.column,
+                    };
+                    let _ = self.analyzer.define_symbol(param_symbol);
+                }
+
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
@@ -640,6 +685,8 @@ impl TypeChecker {
                 if let Some(ret_type) = return_type {
                     self.check_return_statements(body, ret_type, *_line, *_column);
                 }
+
+                self.analyzer.pop_scope();
             }
             Statement::IfStatement {
                 condition,
@@ -2211,7 +2258,39 @@ impl TypeChecker {
                 }
 
                 if left_type == Type::Unknown || right_type == Type::Unknown {
-                    return Type::Unknown;
+                    // Comparisons and logical operations always produce a
+                    // Boolean, no matter what the operand types turn out to
+                    // be at runtime — only arithmetic results depend on the
+                    // operand types (issue #553).
+                    return match operator {
+                        Operator::Equals
+                        | Operator::NotEquals
+                        | Operator::GreaterThan
+                        | Operator::LessThan
+                        | Operator::GreaterThanOrEqual
+                        | Operator::LessThanOrEqual
+                        | Operator::And
+                        | Operator::Or
+                        | Operator::Contains => Type::Boolean,
+                        _ => Type::Unknown,
+                    };
+                }
+
+                // Dynamically-typed (Any) operands are checked at runtime;
+                // comparisons on them still produce a Boolean.
+                if left_type == Type::Any || right_type == Type::Any {
+                    match operator {
+                        Operator::Equals
+                        | Operator::NotEquals
+                        | Operator::GreaterThan
+                        | Operator::LessThan
+                        | Operator::GreaterThanOrEqual
+                        | Operator::LessThanOrEqual
+                        | Operator::And
+                        | Operator::Or
+                        | Operator::Contains => return Type::Boolean,
+                        _ => {}
+                    }
                 }
 
                 match operator {
@@ -2542,7 +2621,10 @@ impl TypeChecker {
 
                 match collection_type {
                     Type::List(item_type) => {
-                        if index_type != Type::Number {
+                        if index_type != Type::Number
+                            && index_type != Type::Unknown
+                            && index_type != Type::Any
+                        {
                             self.type_error(
                                 format!("List index must be a number, got {index_type}"),
                                 Some(Type::Number),
@@ -2570,7 +2652,10 @@ impl TypeChecker {
                         }
                     }
                     Type::Text => {
-                        if index_type != Type::Number {
+                        if index_type != Type::Number
+                            && index_type != Type::Unknown
+                            && index_type != Type::Any
+                        {
                             self.type_error(
                                 format!("Text index must be a number, got {index_type}"),
                                 Some(Type::Number),
@@ -2584,6 +2669,10 @@ impl TypeChecker {
                         }
                     }
                     Type::Unknown => Type::Unknown,
+                    // A dynamically-typed collection (e.g. a parse_json
+                    // result) is indexable; the element type is only known
+                    // at runtime (issue #553).
+                    Type::Any => Type::Any,
                     _ => {
                         self.type_error(
                             format!("Cannot index into {collection_type}"),
@@ -3351,7 +3440,14 @@ impl TypeChecker {
                     column,
                 } => {
                     if let Some(expr) = value {
+                        // The body pass (check_statement_types) has already
+                        // inferred every return expression and reported any
+                        // diagnostics inside it; re-inferring here is only to
+                        // learn the type for the compatibility check, so drop
+                        // the duplicate expression diagnostics it produces.
+                        let errors_before = self.errors.len();
                         let return_type = self.infer_expression_type(expr);
+                        self.errors.truncate(errors_before);
                         if !self.are_types_compatible(expected_type, &return_type) {
                             self.type_error(
                                 "Return statement has incorrect type".to_string(),
