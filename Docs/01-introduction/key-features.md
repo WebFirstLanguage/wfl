@@ -340,7 +340,7 @@ WFL REPL v26.1.17
 > display "Hello, " with name
 Hello, Alice
 > count from 1 to 3:
-...     display "Number: " with the current count
+...     display "Number: " with count
 ... end count
 Number: 1
 Number: 2

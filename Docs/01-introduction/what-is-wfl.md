@@ -53,7 +53,7 @@ end check
 
 // Loops
 count from 1 to 10:
-    display "Number: " with the current count
+    display "Number: " with count
 end count
 
 for each item in shopping list:

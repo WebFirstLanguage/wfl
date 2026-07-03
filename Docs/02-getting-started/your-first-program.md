@@ -153,7 +153,7 @@ display ""
 display "Let me count to 5 for you:"
 
 count from 1 to 5:
-    display "Number: " with the current count
+    display "Number: " with count
 end count
 ```
 
@@ -172,7 +172,7 @@ Number: 5
 ### What You Learned
 
 - **`count from <start> to <end>:`** - Create a counting loop
-- **`the current count`** - Special variable with the current number
+- **`count`** - Special variable with the current number
 - **`end count`** - End the loop block
 
 ### Custom Steps
@@ -182,7 +182,7 @@ You can count by different amounts:
 ```wfl
 // Count by 2s
 count from 0 to 10 by 2:
-    display the current count
+    display count
 end count
 ```
 
@@ -288,7 +288,7 @@ display ""
 // Counting loop
 display "Let me count to 5 for you:"
 count from 1 to 5:
-    display "  " with the current count
+    display "  " with count
 end count
 display ""
 

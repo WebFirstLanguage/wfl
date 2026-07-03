@@ -2,6 +2,29 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## WFL Fundamentals (Guiding Principles)
+These 19 principles are the foundation of WFL's design. Every language, documentation, and tooling change should uphold them. Full descriptions live in `Docs/wfl-foundation.md`.
+
+1. **Natural-Language Syntax** — Mirror natural language so code reads like English and lowers the learning curve.
+2. **Minimize Special Characters** — Prefer words over symbols; use special characters only when they serve a clear purpose.
+3. **Readability & Clarity** — Favor self-explanatory code over terse or cryptic expressions.
+4. **Clear & Actionable Error Reporting** — Provide context-aware, Elm-inspired errors that suggest solutions.
+5. **Type Safety & Compatibility** — Enforce strict type checking with inference to prevent runtime errors.
+6. **Support for Modern Features** — Express async operations and pattern matching naturally.
+7. **Interoperability with Web Standards** — Integrate seamlessly with JavaScript, CSS, and HTML.
+8. **Built-in Security Features** — Embed secure defaults (e.g., output escaping) to prevent common vulnerabilities.
+9. **Accessibility for Beginners** — Keep features approachable and easy to learn.
+10. **Expressiveness for Experienced Developers** — Offer powerful, concise features for sophisticated code.
+11. **Balanced Simplicity & Power** — Stay simple to use while retaining robust capabilities.
+12. **Community & Collaboration** — Foster sharing and mutual learning through clear code.
+13. **Performance Optimization** — Optimize transparently (short-circuiting, caching) without manual tuning.
+14. **Integration with Standard Libraries** — Provide a comprehensive stdlib aligned with natural-language syntax.
+15. **Scalability & Maintainability** — Support small scripts and large applications with modular structures.
+16. **Gradual Learning Curve** — Introduce advanced concepts progressively.
+17. **Error Transparency** — Make error handling and debugging straightforward and transparent.
+18. **Encouragement of Best Practices** — Promote standards that yield high-quality, maintainable code.
+19. **Avoidance of Unnecessary Conventions** — Challenge legacy conventions (e.g., mandatory semicolons) that lack clear justification.
+
 ## Project Structure & Modules
 - `src/`: Core compiler/runtime (`main.rs`, `lib.rs`, `repl.rs`, `builtins.rs`).
 - `crates/`: Internal crates (e.g., `wfl_core`).

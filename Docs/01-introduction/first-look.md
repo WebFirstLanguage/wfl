@@ -98,12 +98,12 @@ if (temperature > 30) {
 **WFL:**
 ```wfl
 count from 1 to 10:
-    display "Number: " with the current count
+    display "Number: " with count
 end count
 
 // With step
 count from 0 to 100 by 10:
-    display the current count
+    display count
 end count
 ```
 
@@ -150,7 +150,7 @@ for (const fruit of fruits) {
 ### WFL
 ```wfl
 // Define an action
-action greet with name:
+define action called greet with parameters name:
     display "Hello, " with name with "!"
 end action
 
@@ -159,7 +159,7 @@ call greet with "Alice"
 // Output: Hello, Alice!
 
 // Action with return value
-action calculate area with width and height:
+define action called calculate area with parameters width and height:
     store result as width times height
     return result
 end action
@@ -189,7 +189,7 @@ const roomArea = calculateArea(10, 20);
 console.log("Area: " + roomArea);
 ```
 
-**Notice:** WFL calls functions "actions" and uses natural phrasing: `action greet with name` instead of `function greet(name)`.
+**Notice:** WFL calls functions "actions" and uses natural phrasing: `define action called greet with parameters name` instead of `function greet(name)`.
 
 ## Lists (Arrays)
 
@@ -569,7 +569,7 @@ In this first look at WFL, you've seen:
 | Variable | `store x as 5` | `let x = 5;` | `x = 5` |
 | Conditional | `check if x is 5:` | `if (x === 5) {` | `if x == 5:` |
 | Loop | `count from 1 to 10:` | `for (let i=1; i<=10; i++) {` | `for i in range(1, 11):` |
-| Function | `action greet with name:` | `function greet(name) {` | `def greet(name):` |
+| Function | `define action called greet with parameters name:` | `function greet(name) {` | `def greet(name):` |
 | Web Server | Built-in | Requires Express | Requires Flask |
 | Pattern Matching | Natural syntax | Regex | Regex |
 

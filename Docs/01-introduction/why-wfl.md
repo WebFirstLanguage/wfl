@@ -92,7 +92,7 @@ function calc(c, a) {
 
 **WFL approach:**
 ```wfl
-action calculate discount for customer with amount:
+define action called calculate discount with parameters customer and amount:
     check if customer tier is "gold":
         return amount times 0.8
     check if customer tier is "silver":
@@ -331,7 +331,7 @@ Teaching programming concepts without syntax confusion.
 
 ```wfl
 // Students understand this immediately:
-action fibonacci with n:
+define action called fibonacci with parameters n:
     check if n is less than 2:
         return n
     otherwise:
@@ -437,7 +437,7 @@ end for
 
 Your team shouldn't need a decoder ring to review code:
 ```wfl
-action process payment with amount and customer:
+define action called process_payment with parameters amount and customer:
     check if customer balance is greater than or equal to amount:
         subtract amount from customer balance
         create receipt for customer

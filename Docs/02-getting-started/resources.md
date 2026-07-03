@@ -216,7 +216,7 @@ end check
 
 // Loops
 count from 1 to 10:
-    display the current count
+    display count
 end count
 
 for each item in list:
@@ -224,7 +224,7 @@ for each item in list:
 end for
 
 // Functions
-action name with param1 and param2:
+define action called name with parameters param1 and param2:
     return result
 end action
 

@@ -220,7 +220,7 @@ Variables declared at the top level are accessible everywhere:
 ```wfl
 store global value as 100
 
-action use global:
+define action called use global:
     display global value           // Can access global value
 end action
 
@@ -232,7 +232,7 @@ call use global                    // Output: 100
 Variables inside actions are local to that action:
 
 ```wfl
-action calculate:
+define action called calculate:
     store local value as 50        // Local to this action
     display local value
 end action
@@ -247,7 +247,7 @@ Variables inside blocks have their own scope:
 
 ```wfl
 count from 1 to 5:
-    store loop value as the current count
+    store loop value as count
     display loop value
 end count
 // display loop value              // ERROR: Not accessible outside loop

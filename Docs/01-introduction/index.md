@@ -27,7 +27,7 @@ otherwise:
 end check
 
 count from 1 to 5:
-    display "Counting: " with the current count
+    display "Counting: " with count
 end count
 ```
 

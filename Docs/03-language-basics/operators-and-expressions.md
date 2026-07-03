@@ -374,7 +374,7 @@ end check
 
 ```wfl
 count from 1 to 5 plus 5:          // Count from 1 to 10
-    display the current count
+    display count
 end count
 ```
 
