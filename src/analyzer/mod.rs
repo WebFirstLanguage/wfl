@@ -364,6 +364,24 @@ impl Analyzer {
         };
         let _ = global_scope.define(positional_args_symbol);
 
+        let script_path_symbol = Symbol {
+            name: "script_path".to_string(),
+            kind: SymbolKind::Variable { mutable: false },
+            symbol_type: Some(Type::Text),
+            line: 0,
+            column: 0,
+        };
+        let _ = global_scope.define(script_path_symbol);
+
+        let script_directory_symbol = Symbol {
+            name: "script_directory".to_string(),
+            kind: SymbolKind::Variable { mutable: false },
+            symbol_type: Some(Type::Text),
+            line: 0,
+            column: 0,
+        };
+        let _ = global_scope.define(script_directory_symbol);
+
         Analyzer {
             current_scope: global_scope,
             errors: Vec::new(),

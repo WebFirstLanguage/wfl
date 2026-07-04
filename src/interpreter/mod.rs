@@ -1437,6 +1437,40 @@ impl Default for Interpreter {
     }
 }
 
+/// Resolve `path` against `cwd` and normalize it lexically, mirroring Python's
+/// `os.path.abspath` (`normpath(join(cwd, path))`): `.` components are dropped
+/// and `..` collapses without touching the filesystem (no symlink resolution).
+fn lexical_abspath(path: &std::path::Path, cwd: &std::path::Path) -> String {
+    use std::path::Component;
+
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    };
+
+    let mut root = PathBuf::new();
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
+    for component in joined.components() {
+        match component {
+            Component::Prefix(prefix) => root.push(prefix.as_os_str()),
+            Component::RootDir => root.push(std::path::MAIN_SEPARATOR_STR),
+            Component::CurDir => {}
+            // Like os.path.normpath, ".." at the root is dropped
+            Component::ParentDir => {
+                parts.pop();
+            }
+            Component::Normal(part) => parts.push(part.to_os_string()),
+        }
+    }
+
+    let mut result = root;
+    for part in parts {
+        result.push(part);
+    }
+    result.to_string_lossy().into_owned()
+}
+
 impl Interpreter {
     pub fn new() -> Self {
         Self::with_config(Arc::new(WflConfig::default()))
@@ -1972,6 +2006,36 @@ impl Interpreter {
                 .to_string_lossy()
                 .into_owned();
             let _ = env.define("current_directory", Value::Text(Arc::from(current_dir)));
+
+            // Store the running script's absolute path and directory,
+            // the equivalent of Python's __file__ / dirname(abspath(__file__)).
+            // Always absolute or empty: empty when no script file is running,
+            // or when a relative script path can't be resolved because the
+            // current directory is unavailable.
+            let (script_path, script_directory) = match self.current_source_file.borrow().as_ref() {
+                Some(source_file) => {
+                    let cwd = if source_file.is_absolute() {
+                        // lexical_abspath ignores cwd for absolute paths
+                        Some(PathBuf::new())
+                    } else {
+                        std::env::current_dir().ok()
+                    };
+                    match cwd {
+                        Some(cwd) => {
+                            let abs = lexical_abspath(source_file, &cwd);
+                            let dir = std::path::Path::new(&abs)
+                                .parent()
+                                .map(|p| p.to_string_lossy().into_owned())
+                                .unwrap_or_default();
+                            (abs, dir)
+                        }
+                        None => (String::new(), String::new()),
+                    }
+                }
+                None => (String::new(), String::new()),
+            };
+            let _ = env.define("script_path", Value::Text(Arc::from(script_path)));
+            let _ = env.define("script_directory", Value::Text(Arc::from(script_directory)));
 
             // Store flags as individual variables with flag_ prefix
             for (key, value) in flags_map {

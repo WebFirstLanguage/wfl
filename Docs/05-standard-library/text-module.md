@@ -393,6 +393,45 @@ store directories as split of path by "/"
 
 ---
 
+### format_number
+
+**Purpose:** Format a number as text with a fixed number of decimal places.
+
+**Signature:**
+```wfl
+format_number of <number> and <precision>
+```
+
+**Parameters:**
+- `number` (Number): The value to format (must be finite)
+- `precision` (Number): How many decimal places to keep (a whole number from 0 to 17)
+
+**Returns:** Text - The value rounded to `precision` decimal places, always showing exactly that many digits
+
+**Example:**
+```wfl
+store ratio as 2 divided by 3
+display "Two thirds: " with format_number of ratio and 2
+display "Whole percent: " with format_number of 45 and 1
+```
+
+**Output:**
+```
+Two thirds: 0.67
+Whole percent: 45.0
+```
+
+**Notes:**
+- Unlike plain `display` (which prints `45` for the number `45.0`), the result always keeps the requested number of decimals - useful for aligned reports and percentages.
+- Rounding is round-half-to-even on the underlying binary value, matching Python's `f"{x:.Nf}"` formatting.
+
+**Use Cases:**
+- Percentages in reports
+- Currency-style output
+- Aligned numeric columns
+
+---
+
 ## Complete Example
 
 Using all text functions together:
