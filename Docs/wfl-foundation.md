@@ -98,6 +98,22 @@ The following principles have been refined and expanded to enhance WFL’s acces
     Description: Challenge traditional programming conventions that rely on special characters or legacy practices without clear justification (e.g., avoiding mandatory semicolons).
     Goal: Innovate language design to align with natural communication and modern needs.
 
+The No-Unlearning Invariant (Overarching Design Law)
+WFL is deliberately both a "my first language" and a language strong enough for production. That dual goal only works as a *gradient*, not a *compromise*: the beginner path must be a strict subset of the expert path, with one continuous rope between them and no cliffs. The invariant that protects this — and that takes precedence when principles appear to conflict — is:
+
+    For every feature, the beginner form and the expert form must be the same form, or connected by a smooth path with nothing to unlearn.
+
+Why it matters: the failure mode of a "both" language is a design that averages the two audiences and serves neither. The success mode (as Python demonstrated) is one where nothing a learner picks up on day one has to be undone on day one-thousand. Any place a beginner learns a habit that an expert must unlearn is a crack in the tightrope.
+
+How to apply it:
+
+    Feature test: When adding or changing a feature, ask "does the beginner form differ from the expert form, and if so, is the path between them smooth or a cliff?" A terser expert form is welcome only if a beginner can grow into it without unlearning the simple form.
+    Verbosity: Natural-language verbosity is fine as long as denser expert forms are the same language, reached by growth rather than replacement.
+    No day-one cliffs: Requiring a beginner to work around the language to do the most natural thing (e.g., naming a variable) is an invariant violation to fix, not to document.
+    Consistency of knowledge: Prefer defaults that teach habits an expert keeps. Avoid teaching a beginner an approach that a production user must later abandon.
+
+This invariant refines principles 11 (Balanced Simplicity and Power) and 16 (Gradual Learning Curve) into a single testable rule that can actually say "no."
+
 Key Enhancements in Version 2
 This v2 spec refines WFL’s principles based on research and analysis:
 
