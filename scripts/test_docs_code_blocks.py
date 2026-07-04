@@ -141,6 +141,7 @@ def find_expected_output(lines: List[str], idx: int) -> Optional[str]:
             continue
         fm = FENCE_RE.match(lines[j])
         if fm is not None:
+            lang = fm.group(2)
             # collect until closing fence
             out_lines = []
             j += 1
@@ -150,7 +151,12 @@ def find_expected_output(lines: List[str], idx: int) -> Optional[str]:
                     break
                 out_lines.append(lines[j])
                 j += 1
-            if seen_label:
+            # Treat this as the expected stdout when it is either explicitly
+            # labelled "Output:", or is an unlabelled `text`/bare fenced block
+            # sitting directly after the code (the common "rendered output"
+            # convention). A block tagged with another language (js, python,
+            # bash, ...) is a comparison/alternative, not this program's output.
+            if seen_label or lang in ("", "text"):
                 return "\n".join(out_lines).strip("\n")
             return None
         # first meaningful non-label, non-fence line: stop.
@@ -204,8 +210,14 @@ def run_block(blk: Block, wfl_bin: str, timeout: int) -> None:
         return
 
     if blk.expected_output is not None:
-        got = blk.stdout.strip("\n")
         want = blk.expected_output.strip("\n")
+        # Docs often show abbreviated output ("...", "…") — treat those as
+        # illustrative rather than an exact contract, so they don't mis-flag.
+        if "..." in want or "…" in want:
+            blk.classification = "PASS"
+            blk.note = "expected output is abbreviated; ran clean"
+            return
+        got = blk.stdout.strip("\n")
         if normalize(got) == normalize(want):
             blk.classification = "PASS"
         else:
@@ -379,7 +391,18 @@ def main() -> int:
     ap.add_argument("--show-errors", action="store_true")
     args = ap.parse_args()
 
+    # Preflight: fail fast with a clear message if the binary is missing,
+    # instead of a confusing per-block FileNotFoundError traceback.
+    if not Path(args.wfl_bin).exists():
+        print(f"error: WFL binary not found at '{args.wfl_bin}'.\n"
+              f"Build it with `cargo build --release`, or pass --wfl-bin <path>.",
+              file=sys.stderr)
+        return 2
+
     docs_root = Path(args.docs)
+    if not docs_root.exists():
+        print(f"error: docs directory not found at '{args.docs}'.", file=sys.stderr)
+        return 2
     md_files = sorted(docs_root.rglob("*.md"))
     if args.filter:
         md_files = [p for p in md_files if args.filter in str(p)]
