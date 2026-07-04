@@ -13,7 +13,7 @@ store name as "World"
 display "Hello, " with name with "!"
 ```
 
-```
+```text
 Hello, World!
 ```
 
@@ -44,7 +44,7 @@ for each side in shapes:
 end for
 ```
 
-```
+```text
 Square 3 has area 9
 Square 5 has area 25
 Square 8 has area 64

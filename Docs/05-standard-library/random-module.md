@@ -364,22 +364,32 @@ end check
 ### Shuffle List (Simple)
 
 ```wfl
-define action called simple shuffle with parameters items:
+define action called simple_shuffle with parameters items:
+    // Work on a copy so the original list is left untouched.
+    create list pool:
+    end list
+    for each item in items:
+        push with pool and item
+    end for
+
     create list shuffled:
     end list
 
-    store remaining_count as length of items
-
+    // Draw a random element and REMOVE it each time, so every
+    // element appears exactly once (no sampling with replacement).
+    store remaining_count as length of pool
     count from 1 to remaining_count:
-        store random_item as random_from of items
-        push with shuffled and random_item
+        store last_index as (length of pool) minus 1
+        store pick as random_int of 0 and last_index
+        push with shuffled and pool[pick]
+        remove_at of pool and pick
     end count
 
     return shuffled
 end action
 
 store deck as ["A", "K", "Q", "J"]
-store shuffled_deck as simple shuffle of deck
+store shuffled_deck as simple_shuffle of deck
 display "Shuffled: " with shuffled_deck
 ```
 

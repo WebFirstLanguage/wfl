@@ -29,7 +29,7 @@ One line, no ceremony. `display` prints a line of text.
 ```wfl
 display "Hello, World!"
 ```
-```
+```text
 Hello, World!
 ```
 
@@ -51,7 +51,7 @@ display "age is a " with typeof of age
 change age to age plus 1
 display "Next year: " with age
 ```
-```
+```text
 Name: Alice
 Age: 30
 Member? yes
@@ -64,8 +64,7 @@ Next year: 31
 ## 3. Conditionals — [`03_conditionals.wfl`](03_conditionals.wfl)
 
 Comparisons are words (`is greater than or equal to`). To chain choices, **nest**
-the next check inside `otherwise:` (a compact `otherwise check if …:` else-if
-form also works — this tour uses the explicit nested style for clarity).
+the next check inside `otherwise:`.
 
 ```wfl
 store score as 82
@@ -80,7 +79,7 @@ otherwise:
     end check
 end check
 ```
-```
+```text
 Grade: B
 ```
 
@@ -108,7 +107,7 @@ repeat while n is greater than 0:
 end repeat
 display "  liftoff!"
 ```
-```
+```text
 Counting to 3:
   count is 1
   count is 2
@@ -142,7 +141,7 @@ end count
 display "Even numbers 1..10: " with evens
 display "How many: " with length of evens
 ```
-```
+```text
 Even numbers 1..10: [2, 4, 6, 8, 10]
 How many: 5
 ```
@@ -167,7 +166,7 @@ end action
 display "Area 4x5 = " with area of 4 and 5
 call greet with "world"
 ```
-```
+```text
 Area 4x5 = 20
 Hello, world!
 ```
@@ -190,7 +189,7 @@ end try
 
 display "Program continues after the error."
 ```
-```
+```text
 Could not open file: Failed to open file /no/such/path.txt: No such file or directory (os error 2)
 Program continues after the error.
 ```
@@ -218,7 +217,7 @@ end
 
 rex.show_info()
 ```
-```
+```text
 Rex knows 3 tricks.
 ```
 

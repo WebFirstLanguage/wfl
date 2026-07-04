@@ -297,7 +297,7 @@ wait for request comes in on api as incoming_request
 store request_path as path of incoming_request
 
 check if request_path is equal to "/users":
-    respond to incoming_request with "user list" and content_type "application/json"
+    respond to incoming_request with "{\"users\": [\"Alice\", \"Bob\"]}" and content_type "application/json"
 otherwise:
     check if request_path is equal to "/health":
         respond to incoming_request with "OK"

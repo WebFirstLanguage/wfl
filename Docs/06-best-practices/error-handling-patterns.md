@@ -16,15 +16,19 @@ Robust applications handle errors gracefully. This guide shows proven patterns f
 
 ```wfl
 define action called safe_read_file with parameters filepath:
+    store file_handle as nothing
     try:
         open file at filepath for reading as myfile
+        change file_handle to myfile
         store file_content as read content from myfile
-        close file myfile
         return file_content
-    catch:
+    when error:
         display "Error: Could not read file '" with filepath with "'"
         return nothing
     end try
+    check if file_handle is not nothing:
+        close file file_handle
+    end check
 end action
 
 store config_data as safe_read_file of "config.txt"
@@ -46,7 +50,7 @@ try:
     change file_handle to myfile
     wait for write content "important data" into myfile
     display "Write successful"
-catch:
+when error:
     display "Error: Failed to write file"
 end try
 
@@ -98,14 +102,14 @@ store step2_success as no
 try:
     call perform_step1
     change step1_success to yes
-catch:
+when error:
     display "Step 1 failed"
 end try
 
 try:
     call perform_step2
     change step2_success to yes
-catch:
+when error:
     display "Step 2 failed"
 end try
 
@@ -135,7 +139,7 @@ define action called retry_operation with parameters max_attempts:
             store attempt_number as attempts plus 1
             display "Success after " with attempt_number with " attempt(s)"
             return result
-        catch:
+        when error:
             add 1 to attempts
             display "Attempt " with attempts with " failed"
             check if attempts is less than max_attempts:
@@ -159,15 +163,19 @@ display "Result: " with final_result
 
 ```wfl
 define action called load_config_with_fallback with parameters filename:
+    store file_handle as nothing
     try:
         open file at filename for reading as myfile
+        change file_handle to myfile
         store config_text as read content from myfile
-        close file myfile
         return config_text
-    catch:
+    when error:
         display "Warning: Could not load config, using defaults"
         return "default configuration"
     end try
+    check if file_handle is not nothing:
+        close file file_handle
+    end check
 end action
 
 store app_config as load_config_with_fallback of "app.config"
@@ -179,18 +187,24 @@ store app_config as load_config_with_fallback of "app.config"
 **Handle different errors differently:**
 
 ```wfl
+store file_handle as nothing
+
 try:
     open file at "data.txt" for reading as myfile
+    change file_handle to myfile
     store file_content as read content from myfile
-    close file myfile
 when file not found:
     display "File doesn't exist - creating it"
     create file at "data.txt" with ""
 when permission denied:
     display "Cannot access file - check permissions"
-catch:
+when error:
     display "Unknown error occurred"
 end try
+
+check if file_handle is not nothing:
+    close file file_handle
+end check
 ```
 
 ## Pattern 8: Error Accumulation
@@ -210,7 +224,7 @@ define action called validate_input with parameters username and password and em
         push with errors and "Password too short"
     end check
 
-    store has_at as email contains "@"
+    store has_at as contains of email and "@"
     check if has_at is equal to no:
         push with errors and "Invalid email format"
     end check

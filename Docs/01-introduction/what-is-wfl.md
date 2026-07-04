@@ -223,11 +223,24 @@ display "Hello, " with name
 **Principle 3: Readability and Clarity**
 ```wfl
 // Code that reads like documentation
-store customers as ["Alice", "Bob", "Carol"]
+create container Customer:
+    property name: Text
+    property balance: Number
+end
+
+create new Customer as alice:
+    name is "Alice"
+    balance is 40
+end
+create new Customer as bob:
+    name is "Bob"
+    balance is 0
+end
+
+store customers as [alice, bob]
 for each customer in customers:
-    store balance as 100
-    check if balance is greater than 0:
-        display "Send reminder to " with customer
+    check if customer.balance is greater than 0:
+        display "Send reminder to " with customer.name
     end check
 end for
 ```

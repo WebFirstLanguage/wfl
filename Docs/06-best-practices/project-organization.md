@@ -89,12 +89,13 @@ TIMEOUT=30
 
 **Load in code:**
 ```wfl
-// In a real project config.txt already exists; we create it here so the example runs.
-open file at "config.txt" for writing as setupfile
+// In a real project data/config.txt already exists; we create it here so the example runs.
+create directory at "data"
+open file at "data/config.txt" for writing as setupfile
 wait for write content "PORT=8080" into setupfile
 close file setupfile
 
-open file at "config.txt" for reading as configfile
+open file at "data/config.txt" for reading as configfile
 wait for store config_data as read content from configfile
 close file configfile
 // Parse config_data
@@ -108,7 +109,8 @@ display config_data
 ```wfl
 // utils.wfl
 define action called log_message with parameters message:
-    open file at "app.log" for appending as logfile
+    create directory at "logs"
+    open file at "logs/app.log" for appending as logfile
     store log_time as current time in milliseconds
     wait for append content "[" with log_time with "] " with message with "\n" into logfile
     close file logfile

@@ -46,14 +46,20 @@ store file_content as read content from my_file
 ### With Error Handling
 
 ```wfl
+store file_handle as nothing
+
 try:
     open file at "missing.txt" for reading as my_file
+    change file_handle to my_file
     store file_content as read content from my_file
-    close my_file
     display "File content: " with file_content
 catch:
     display "Could not read file. It might not exist."
 end try
+
+check if file_handle is not nothing:
+    close file_handle
+end check
 ```
 
 **Result:** User sees a friendly message, program continues running.
@@ -110,14 +116,20 @@ end try
 ### File Operations
 
 ```wfl
+store file_handle as nothing
+
 try:
     open file at "data.txt" for reading as my_file
+    change file_handle to my_file
     store file_content as read content from my_file
-    close my_file
     display "File content: " with file_content
 catch:
     display "Error: Could not read file"
 end try
+
+check if file_handle is not nothing:
+    close file_handle
+end check
 ```
 
 ## Cleanup After the Try Block
@@ -296,14 +308,19 @@ Common error types (check documentation for complete list):
 
 ```wfl
 store config as "default config"
+store file_handle as nothing
 
 try:
     open file at "config.txt" for reading as my_file
+    change file_handle to my_file
     change config to read content from my_file
-    close my_file
 catch:
     display "Config file not found, using defaults"
 end try
+
+check if file_handle is not nothing:
+    close file_handle
+end check
 
 display "Configuration: " with config
 ```

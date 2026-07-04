@@ -38,14 +38,15 @@ end action
 
 ```wfl
 define action called safe_read_file with parameters filename:
-    // Check for directory traversal
-    check if filename contains ".." or filename contains "/":
+    // Reject any path component that could escape the safe directory
+    // ("\\" is the WFL escape for a single backslash, covering Windows separators)
+    check if filename contains ".." or filename contains "/" or filename contains "\\":
         display "Error: Invalid file path"
         return nothing
     end check
 
-    // Only allow files in specific directory
-    store safe_path as "safe_directory/" with filename
+    // Build the path safely instead of concatenating strings
+    store safe_path as path_join of "safe_directory" and filename
 
     try:
         open file at safe_path for reading as myfile

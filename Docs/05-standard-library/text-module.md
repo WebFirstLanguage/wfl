@@ -289,17 +289,13 @@ display starts_with of filename and "Report"    // Output: no (case-sensitive)
 **Example: File Type Check**
 ```wfl
 define action called is_image with parameters filename:
-    check if starts_with of filename and "image":
+    check if ends_with of filename and ".png":
         return yes
     otherwise:
-        check if ends_with of filename and ".png":
+        check if ends_with of filename and ".jpg":
             return yes
         otherwise:
-            check if ends_with of filename and ".jpg":
-                return yes
-            otherwise:
-                return no
-            end check
+            return no
         end check
     end check
 end action
