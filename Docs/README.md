@@ -5,9 +5,11 @@ Welcome to the complete documentation for the WebFirst Language (WFL)! This is y
 
 > **Programming that reads like plain English**
 
-> 🧪 **The code in these docs is tested.** Every `wfl` example is run against the
-> release binary by [`scripts/test_docs_code_blocks.py`](../scripts/test_docs_code_blocks.py);
-> the current state is tracked in [`DOC_CODE_AUDIT.md`](../TestPrograms/docs_examples/DOC_CODE_AUDIT.md).
+> 🧪 **The code in these docs is tested.** Every runnable `wfl` example is executed
+> against the release binary by [`scripts/test_docs_code_blocks.py`](../scripts/test_docs_code_blocks.py)
+> — placeholder templates, illustrative fragments, and long-running server demos
+> are classified rather than run; the current state is tracked in
+> [`DOC_CODE_AUDIT.md`](../TestPrograms/docs_examples/DOC_CODE_AUDIT.md).
 > New here? Start with the output-verified [Friendly WFL Tour](../TestPrograms/docs_examples/tour/README.md).
 
 ---

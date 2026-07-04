@@ -101,8 +101,9 @@ Reference: [keywords](Docs/reference/keyword-reference.md) ·
 
 ### Documentation is tested
 
-Every ` ```wfl ` block in the docs is extracted and executed against the release
-binary by [`scripts/test_docs_code_blocks.py`](scripts/test_docs_code_blocks.py);
+Every ` ```wfl ` block in the docs is extracted and — unless it is a placeholder
+template, an illustrative fragment, or a long-running server demo — executed
+against the release binary by [`scripts/test_docs_code_blocks.py`](scripts/test_docs_code_blocks.py);
 where a doc shows an **Output:** block, the script compares real stdout against
 it. The current state — including a per-file list of anything that doesn't run —
 is tracked in [`TestPrograms/docs_examples/DOC_CODE_AUDIT.md`](TestPrograms/docs_examples/DOC_CODE_AUDIT.md).
