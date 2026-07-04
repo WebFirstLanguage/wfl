@@ -101,16 +101,33 @@ Desugaring). It needs no analyzer, type-checker, or interpreter changes.
 
 | Pattern form                     | Matches when …                                  | Desugars to |
 |----------------------------------|-------------------------------------------------|-------------|
-| `when "/pricing":`               | subject `is equal to` the value                 | `is equal to` |
-| `when "/a" or "/b":`             | subject equals any listed value                 | `or`-chain of equalities |
-| `when starts with "/api/":`      | subject (text) starts with the prefix           | `starts with` |
-| `when ends with ".css":`         | subject (text) ends with the suffix             | `ends with` |
-| `when contains "admin":`         | subject (text) contains the substring           | `contains` |
-| `when one of asset_files:`       | subject is a member of the list                 | list `contains` |
-| `otherwise:`                     | no earlier arm matched                          | trailing `otherwise` |
+| Pattern form                     | Matches when …                                  | Desugars to | Operator status today |
+|----------------------------------|-------------------------------------------------|-------------|-----------------------|
+| `when "/pricing":`               | subject `is equal to` the value                 | `is equal to` | works |
+| `when "/a" or "/b":`             | subject equals any listed value                 | `or`-chain of equalities | works |
+| `when contains "admin":`         | subject (text) contains the substring           | `contains of subject and "admin"` | works |
+| `when one of asset_files:`       | subject is a member of the list                 | `contains of asset_files and subject` | works |
+| `when starts with "/api/":`      | subject (text) starts with the prefix           | prefix test | **needs operator work — see below** |
+| `when ends with ".css":`         | subject (text) ends with the suffix             | suffix test | **needs operator work — see below** |
+| `otherwise:`                     | no earlier arm matched                          | trailing `otherwise` | works |
 
-All pattern forms reuse operators WFL already has, so nothing new must be learned
-to read them.
+**Operator-status finding (validated against the release build):** `contains`
+(both text-substring and list-membership) works reliably as `contains of X and Y`.
+But `X starts with "…"` and `X ends with "…"` are **not** reliable at statement
+level today: the parser's multi-word identifier rule swallows the operator, lexing
+`path ends with ".css"` as the identifier `path ends` followed by `with ".css"`,
+which then fails analysis ("Variable 'path ends' is not defined"). Several existing
+demo programs (e.g. `comprehensive_web_server_demo.wfl`) *contain* these forms but
+only survive `--analyze`'s leniency; they fault under the full pipeline. Likewise
+`substring of X from N` fails type checking because the `substring` builtin requires
+three arguments (`substring of X and start and end`).
+
+This is itself an argument for `route`: prefix/suffix matching is exactly what
+routing needs, and a first-class `when starts with …` head is a clean place to give
+these operators real token support (a dedicated `KeywordStartsWith`/`KeywordEndsWith`
+or a proper infix parse) instead of relying on the fragile bareword path. Until that
+lands, the `contains`/equality/membership patterns above are the reliable subset,
+and the interim guidance below uses only those.
 
 ### Level 2 — declarative arms (expert; optional response shorthands)
 
@@ -235,7 +252,10 @@ Per `CLAUDE.md`, write failing tests first at each phase.
    `check if` chain; `--parse` snapshot.
 3. **End-to-end (Level 1):** `TestPrograms/route_comprehensive.wfl` covering every
    pattern form, run under the release build; add to the docs-examples manifest.
-4. **Patterns:** add `starts with` / `ends with` / `contains` / `one of` heads.
+4. **Patterns:** add `contains` and `one of` heads first (operators already work),
+   then land real `starts with` / `ends with` operator support (dedicated tokens or
+   proper infix parse) and expose them as `when` heads — see the operator-status
+   finding above.
 5. **Level 2 shorthands:** `show page` / `serve asset` / `call` arm forms +
    `with status` / `with content_type` modifiers.
 6. **User docs:** once validated, promote examples into
@@ -252,15 +272,15 @@ cluster reduces from one arm per file to a single allowlisted arm plus a
 content-type helper:
 
 ```wfl
-store asset_files as ["style.css", "logbie-wordmark.svg",
-    "logbie-wordmark-on-forest.svg", "bie.svg", "bie-waiting.svg"]
+store asset_paths as ["/style.css", "/logbie-wordmark.svg",
+    "/logbie-wordmark-on-forest.svg", "/bie.svg", "/bie-waiting.svg"]
 
 define action called content_type_for with name:
-    check if name ends with ".css":
+    check if contains of name and ".css":
         return "text/css"
-    otherwise check if name ends with ".svg":
+    otherwise check if contains of name and ".svg":
         return "image/svg+xml"
-    otherwise check if name ends with ".json":
+    otherwise check if contains of name and ".json":
         return "application/json"
     otherwise:
         return "text/html"
@@ -269,14 +289,30 @@ end action
 ```
 
 ```wfl
-otherwise check if contains of asset_files and substring of path from 1:
-    store filename as substring of path from 1
-    store asset_data as call read_public with filename
-    store ctype as call content_type_for with filename
+otherwise check if contains of asset_paths and path:
+    store asset_data as call read_public with path
+    store ctype as call content_type_for with path
     respond to req with asset_data and content_type ctype
 ```
 
 This is the drop-in for the six asset arms; the API and page arms stay explicit
-because they *are* the route contract. See
-`TestPrograms/route_interim_pattern.wfl` for a validated demonstration of the
-reusable pieces (`content_type_for` + allowlist dispatch).
+because they *are* the route contract. Keying the allowlist on the full path (with
+its leading slash) avoids `substring`, and detecting the type with `contains`
+avoids the unreliable `ends with` — both choices use only operators verified to
+work under the full pipeline. See `TestPrograms/route_interim_pattern.wfl` for a
+runnable, release-build-validated demonstration (`content_type_for` + allowlist
+dispatch), whose expected output is:
+
+```
+=== Asset routing via allowlist + content_type_for ===
+200 /style.css  (text/css)
+200 /logo.svg  (image/svg+xml)
+200 /bie.svg  (image/svg+xml)
+200 /data.json  (application/json)
+404 /secret.env
+```
+
+> Note: if your `read_public` helper expects a bare filename rather than a
+> URL path, strip the leading slash inside the arm with the 3-argument
+> `substring of path and 1 and length of path` (not `substring … from N`,
+> which does not type-check).

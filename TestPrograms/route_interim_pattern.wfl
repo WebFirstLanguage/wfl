@@ -1,18 +1,18 @@
 // route_interim_pattern.wfl
 // Demonstrates the "ships-today" pattern for collapsing repetitive asset routes
-// using only existing WFL features: an allowlist plus a content-type helper.
-// This is the reusable core that the proposed `route` construct will formalize.
-// See Docs/development/route-construct-design.md.
+// using only confirmed-working WFL features: an allowlist plus a content-type
+// helper built on `contains`. This is the reusable core that the proposed
+// `route` construct will formalize. See Docs/development/route-construct-design.md.
 
-store asset_files as ["style.css", "logo.svg", "bie.svg", "data.json"]
+store asset_paths as ["/style.css", "/logo.svg", "/bie.svg", "/data.json"]
 
-// Content type derived from the file extension, written once instead of per-route.
+// Content type derived from the path, written once instead of once per route.
 define action called content_type_for with name:
-    check if name ends with ".css":
+    check if contains of name and ".css":
         return "text/css"
-    otherwise check if name ends with ".svg":
+    otherwise check if contains of name and ".svg":
         return "image/svg+xml"
-    otherwise check if name ends with ".json":
+    otherwise check if contains of name and ".json":
         return "application/json"
     otherwise:
         return "text/html"
@@ -20,12 +20,11 @@ define action called content_type_for with name:
 end action
 
 // One arm replaces the six near-identical asset arms. The allowlist keeps it
-// secure: only files explicitly listed are ever served.
-define action called serve as text with path:
-    store filename as substring of path from 1
-    check if contains of asset_files and filename:
-        store ctype as call content_type_for with filename
-        return "200 " with path with " -> " with filename with " (" with ctype with ")"
+// secure: only paths explicitly listed are ever served.
+define action called serve with path:
+    check if contains of asset_paths and path:
+        store ctype as call content_type_for with path
+        return "200 " with path with "  (" with ctype with ")"
     otherwise:
         return "404 " with path
     end check
