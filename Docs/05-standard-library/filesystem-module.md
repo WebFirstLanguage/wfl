@@ -111,7 +111,9 @@ path_join of <part1> and <part2>
 ```
 
 **Parameters:**
-- Two path components. To join more, chain the calls (see example).
+- Path components to join. The underlying builtin joins any number of
+  components, but the type checker currently accepts **two per call**, so to
+  join more than two, chain the calls (see example). Tracking: wfl#571.
 
 **Returns:** Text - Joined path with proper separators
 
