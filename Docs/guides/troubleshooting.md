@@ -105,8 +105,10 @@ store filename as "data"
 
 **Solution:**
 ```wfl
-check if length of list is greater than 0:
-    store item as pop from list
+store my_list as [1, 2, 3]
+check if length of my_list is greater than 0:
+    store item as pop of my_list
+    display item
 otherwise:
     display "List is empty"
 end check
