@@ -3401,7 +3401,7 @@ dependencies = [
  "rcgen",
  "regex",
  "reqwest",
- "rustls-pemfile 1.0.4",
+ "rustls-pemfile 2.2.0",
  "rustyline",
  "serde_json",
  "sha2",

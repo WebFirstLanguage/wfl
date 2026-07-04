@@ -121,8 +121,10 @@ fn validate_tls_pem_files(cert_path: &str, key_path: &str) -> Result<(), String>
             "Cannot open TLS certificate file '{cert_path}': {e}. For local development you can create a self-signed certificate with: openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj \"/CN=localhost\""
         )
     })?;
-    let cert_items = rustls_pemfile::read_all(&mut std::io::BufReader::new(cert_file))
-        .map_err(|e| format!("TLS certificate file '{cert_path}' is not valid PEM: {e}"))?;
+    let cert_items: Vec<rustls_pemfile::Item> =
+        rustls_pemfile::read_all(&mut std::io::BufReader::new(cert_file))
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("TLS certificate file '{cert_path}' is not valid PEM: {e}"))?;
     if !cert_items
         .iter()
         .any(|item| matches!(item, rustls_pemfile::Item::X509Certificate(_)))
@@ -134,14 +136,16 @@ fn validate_tls_pem_files(cert_path: &str, key_path: &str) -> Result<(), String>
 
     let key_file = std::fs::File::open(key_path)
         .map_err(|e| format!("Cannot open TLS private key file '{key_path}': {e}"))?;
-    let key_items = rustls_pemfile::read_all(&mut std::io::BufReader::new(key_file))
-        .map_err(|e| format!("TLS private key file '{key_path}' is not valid PEM: {e}"))?;
+    let key_items: Vec<rustls_pemfile::Item> =
+        rustls_pemfile::read_all(&mut std::io::BufReader::new(key_file))
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("TLS private key file '{key_path}' is not valid PEM: {e}"))?;
     if !key_items.iter().any(|item| {
         matches!(
             item,
-            rustls_pemfile::Item::RSAKey(_)
-                | rustls_pemfile::Item::PKCS8Key(_)
-                | rustls_pemfile::Item::ECKey(_)
+            rustls_pemfile::Item::Pkcs1Key(_)
+                | rustls_pemfile::Item::Pkcs8Key(_)
+                | rustls_pemfile::Item::Sec1Key(_)
         )
     }) {
         return Err(format!(
