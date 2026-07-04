@@ -139,14 +139,21 @@ display "Content: " with file_content
 Always use try-catch with async operations:
 
 ```wfl
+store file_handle as nothing
 try:
     open file at "data.txt" for reading as data_file
+    change file_handle to data_file
     wait for store file_content as read content from data_file
-    close file data_file
     display "Success: " with file_content
-catch:
-    display "Error reading file"
+when error:
+    display "Error reading file: " with error_message
 end try
+
+// Cleanup runs even if the read failed. A variable defined inside `try`
+// is not visible after `end try`, so we track the handle in an outer variable.
+check if file_handle is not nothing:
+    close file file_handle
+end check
 ```
 
 ## Async in Web Servers
@@ -209,25 +216,39 @@ wait for all operations complete as results
 
 ```wfl
 define action called handle_file with parameters filename:
+    // Track handles in outer variables so cleanup can run after `end try`
+    // (a variable defined inside `try` is not visible after it).
+    store in_handle as nothing
+    store out_handle as nothing
+    store result as no
     try:
         open file at filename for reading as in_file
+        change in_handle to in_file
         wait for store file_content as read content from in_file
-        close file in_file
 
         // Process content
         store processed as touppercase of file_content
 
         store output_name as filename with ".processed"
         open file at output_name for writing as out_file
+        change out_handle to out_file
         wait for write content processed into out_file
-        close file out_file
 
         display "Processed: " with filename
-        return yes
-    catch:
-        display "Error processing: " with filename
-        return no
+        change result to yes
+    when error:
+        display "Error processing: " with filename with ": " with error_message
+        change result to no
     end try
+
+    // Always close whatever we managed to open, even on failure
+    check if in_handle is not nothing:
+        close file in_handle
+    end check
+    check if out_handle is not nothing:
+        close file out_handle
+    end check
+    return result
 end action
 
 // Prepare an input directory with a sample file
