@@ -80,7 +80,7 @@ Full instructions: [Docs/02-getting-started/installation.md](Docs/02-getting-sta
 | `wfl --lint <file>` | Lint; add `--fix --in-place` to auto-fix |
 | `wfl --analyze <file>` | Static analysis |
 | `wfl --test <file>` | Run `describe`/`test` blocks |
-| `wfl --parse` / `--lex <file>` | Dump the AST / tokens |
+| `wfl --parse <file>` / `wfl --lex <file>` | Dump the AST / tokens |
 
 ## Documentation
 
