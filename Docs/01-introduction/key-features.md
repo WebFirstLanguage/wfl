@@ -9,9 +9,9 @@ Write code that reads like plain English:
 ```wfl
 store user name as "Alice"
 store user age as 28
-store is admin as no
+store is_admin as no
 
-check if user age is greater than 18 and is admin is yes:
+check if user age is greater than 18 and is_admin is yes:
     display "Full access granted"
 otherwise:
     check if user age is greater than 18:
@@ -49,17 +49,17 @@ The compiler knows types and prevents mistakes:
 Built-in async/await using Tokio runtime:
 
 ```wfl
-// Async file operations
-wait for file operation completes as result
-display "File saved: " with result
+// Async file operations - "wait for" awaits completion without blocking
+open file at "report.txt" for writing as output_file
+wait for write content "Report generated" into output_file
+close file output_file
+display "File saved"
 
-// Async web requests
-wait for response from "https://api.example.com/data"
-display "Data received!"
-
-// Multiple concurrent operations
-wait for all operations complete
-display "All tasks finished"
+// Reading is async too
+open file at "report.txt" for reading as input_file
+wait for store file_data as read content from input_file
+close file input_file
+display "File contents: " with file_data
 ```
 
 Non-blocking I/O is natural and easy to use.
@@ -70,20 +70,24 @@ Create HTTP servers without external frameworks:
 
 ```wfl
 // Start a server on port 8080
-listen on port 8080 as web server
+listen on port 8080 as web_server
 
 display "Server running at http://127.0.0.1:8080"
 
 // Handle incoming requests
-wait for request comes in on web server as req
+repeat forever:
+    wait for request comes in on web_server as incoming_request
 
-check if path is equal to "/":
-    respond to req with "Hello from WFL Web Server!"
-check if path is equal to "/about":
-    respond to req with "WFL - Programming in Plain English" and content type "text/plain"
-otherwise:
-    respond to req with "Page not found" and status 404
-end check
+    check if path of incoming_request is equal to "/":
+        respond to incoming_request with "Hello from WFL Web Server!"
+    otherwise:
+        check if path of incoming_request is equal to "/about":
+            respond to incoming_request with "WFL - Programming in Plain English" and content_type "text/plain"
+        otherwise:
+            respond to incoming_request with "Page not found" and status 404
+        end check
+    end check
+end repeat
 ```
 
 Features include:
@@ -99,15 +103,15 @@ Features include:
 Regex-like pattern engine with natural syntax:
 
 ```wfl
-create pattern email address:
-    one or more letter or digit or symbol from "._-"
+create pattern email_address:
+    one or more letter or digit
     followed by "@"
     followed by one or more letter or digit
     followed by "."
-    followed by between 2 and 4 letter
+    followed by 2 to 4 letter
 end pattern
 
-check if "user@example.com" matches email address:
+check if "user@example.com" matches email_address:
     display "Valid email!"
 end check
 ```
@@ -125,16 +129,19 @@ Object-oriented programming with natural syntax:
 
 ```wfl
 create container Person:
-    property name as text
-    property age as number
+    property name: Text
+    property age: Number
 
     action introduce:
         display "Hello, I'm " with name with " and I'm " with age with " years old."
-    end action
-end container
+    end
+end
 
-create new Person as alice with property name as "Alice" and property age as 28
-call alice introduce
+create new Person as alice:
+    name is "Alice"
+    age is 28
+end
+alice.introduce()
 // Output: Hello, I'm Alice and I'm 28 years old.
 ```
 
@@ -151,64 +158,76 @@ Features:
 
 ### Core Functions
 ```wfl
-display "Hello"                    // Output text
-store x as typeof of value         // Get type information
-check if isnothing of value        // Check for null/nothing
+store value as "example"
+display "Hello"                     // Output text
+store value_type as typeof of value // Get type information ("Text")
+store is_empty as isnothing of value // Check for null/nothing (no)
 ```
 
 ### Math Module
 ```wfl
 store absolute as abs of -5        // 5
 store rounded as round of 3.7      // 4
-store clamped as clamp of 15 between 0 and 10  // 10
+store clamped as clamp of 15 and 0 and 10  // 10
 ```
 
 ### Text Module
 ```wfl
-store upper as touppercase of "hello"           // "HELLO"
-store length as length of "WFL"                 // 3
-check if contains of "Hello World" and "World"  // yes
-store substring as substring of "Hello" from 0 length 2  // "He"
+store upper as touppercase of "hello"              // "HELLO"
+store text_length as length of "WFL"               // 3
+store has_world as contains of "Hello World" and "World"  // yes
+store sub as substring of "Hello" and 0 and 2      // "He"
 ```
 
 ### List Module
 ```wfl
-create list numbers: 1, 2, 3, 4, 5 end list
+create list numbers:
+    add 1
+    add 2
+    add 3
+    add 4
+    add 5
+end list
 push with numbers and 6
 store size as length of numbers                 // 6
-check if contains of numbers and 3              // yes
+store has_three as contains of numbers and 3    // yes
 ```
 
 ### Filesystem Module
 ```wfl
-open file at "data.txt" for reading as file
-store content as read content from file
-close file
+open file at "data.txt" for writing as my_file
+wait for write content "Sample data" into my_file
+close file my_file
 
-list files in "." as file list
-for each file in file list:
-    display "Found: " with file
+open file at "data.txt" for reading as read_file
+wait for store file_content as read content from read_file
+close file read_file
+display file_content
+
+wait for store entries as list files in "."
+for each entry in entries:
+    display "Found: " with entry
 end for
 ```
 
 ### Time Module
 ```wfl
 store now as current time in milliseconds
-store today as current date
-display "Today is: " with format of today as "YYYY-MM-DD"
+store today as current time formatted as "yyyy-MM-dd"
+display "Today is: " with today
 ```
 
 ### Random Module (Cryptographically Secure)
 ```wfl
-store dice as random int between 1 and 6
-store coin as random boolean
-store choice as random from ["red", "green", "blue"]
+store dice as random_int of 1 and 6
+store coin as random_boolean
+store choice as random_from of ["red", "green", "blue"]
 ```
 
 ### Crypto Module (WFLHASH)
 ```wfl
 store hash as wflhash256 of "sensitive data"
-store mac as wflmac256 of "message" with "secret key"
+store mac as wflmac256 of "message" and "secret key"
 ```
 
 **Note:** WFLHASH is a custom hash function, NOT externally audited. Use SHA-256/SHA-3/BLAKE3 for production security.
@@ -290,25 +309,29 @@ Errors include:
 Comprehensive file operations:
 
 ```wfl
-// Reading
-open file at "data.txt" for reading as file
-store content as read content from file
-close file
-
 // Writing
-open file at "output.txt" for writing as file
-write content "Hello, WFL!" into file
-close file
+open file at "output.txt" for writing as my_file
+wait for write content "Hello, WFL!" into my_file
+close file my_file
+
+// Reading
+open file at "output.txt" for reading as read_file
+wait for store file_content as read content from read_file
+close file read_file
+display file_content
 
 // Appending
-open file at "log.txt" for appending as file
-write content "New log entry\n" into file
-close file
+open file at "log.txt" for appending as log_file
+wait for append content "New log entry\n" into log_file
+close file log_file
 
 // Path operations
-check if path exists at "file.txt"
-store size as file size at "file.txt"
-store extension as path extension of "document.pdf"  // "pdf"
+check if file exists at "output.txt":
+    store the_size as file size of "output.txt"
+    display "Size: " with the_size
+end check
+store extension as path_extension of "document.pdf"  // "pdf"
+display extension
 ```
 
 ## 12. Subprocess Execution
@@ -319,8 +342,8 @@ Run external commands safely:
 execute command "git" with arguments ["status"] as result
 display "Git status: " with result
 
-spawn command "python" with arguments ["script.py"] as process
-wait for process completes
+wait for spawn command "python" with arguments ["script.py"] as background_process
+wait for process background_process to complete as exit_status
 ```
 
 Features:

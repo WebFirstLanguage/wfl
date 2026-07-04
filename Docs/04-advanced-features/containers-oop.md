@@ -92,9 +92,27 @@ display my_book.pages         // 250
 
 ### Modifying Properties
 
+Properties are changed from *inside* an action on the container—not by assigning
+to `object.property` directly. Give the container an action that updates the
+property:
+
 ```wfl
-store my_book.is_available as no
-display "Book is now unavailable"
+create container Book:
+    property title: Text
+    property is_available: Boolean
+
+    action check_out:
+        change is_available to no
+        display "Book is now unavailable"
+    end
+end
+
+create new Book as my_book:
+    title is "WFL Guide"
+    is_available is yes
+end
+
+my_book.check_out()
 ```
 
 ## Actions (Methods)
@@ -105,8 +123,8 @@ Actions are functions that belong to containers:
 create container Calculator:
     property value: Number
 
-    action add needs amount: Number:
-        store value as value + amount
+    action increase needs amount: Number:
+        change value to value + amount
     end
 
     action get_value: Number
@@ -118,8 +136,8 @@ create new Calculator as calc:
     value is 0
 end
 
-calc.add(10)
-calc.add(5)
+calc.increase(10)
+calc.increase(5)
 store result as calc.get_value()
 display "Result: " with result  // 15
 ```
@@ -146,6 +164,15 @@ end
 Containers can extend other containers:
 
 ```wfl
+create container Person:
+    property name: Text
+    property age: Number
+
+    action greet:
+        display "Hello, I am " with name
+    end
+end
+
 create container Employee extends Person:
     property job_title: Text
     property salary: Number
@@ -245,11 +272,11 @@ create container Task:
     end
 
     action to_string: Text
-        store status as "☐"
+        store mark as "☐"
         check if completed is yes:
-            change status to "✓"
+            change mark to "✓"
         end check
-        return status with " " with description with " (P" with priority with ")"
+        return mark with " " with description with " (P" with priority with ")"
     end
 end
 

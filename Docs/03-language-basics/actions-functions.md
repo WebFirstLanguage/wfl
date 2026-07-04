@@ -94,15 +94,18 @@ end action
 Actions can return values using `return`:
 
 ```wfl
-define action called add with parameters x and y:
-    store sum as x plus y
-    return sum
+define action called sum with parameters x and y:
+    store total as x plus y
+    return total
 end action
 
-store result as add with 10 and 20
+store result as sum of 10 and 20
 display "Result: " with result
 // Output: "Result: 30"
 ```
+
+> **Calling value-returning actions:** use `of` to pass arguments in an
+> expression — `sum of 10 and 20`. (`with` is string joining, not a call.)
 
 ### Return Examples
 
@@ -113,15 +116,15 @@ define action called calculate area with parameters width and height:
     return area
 end action
 
-store room area as calculate area with 10 and 12
+store room area as calculate area of 10 and 12
 display "Room area: " with room area with " sq ft"
 // Output: "Room area: 120 sq ft"
 ```
 
 **Is even:**
 ```wfl
-define action called is even with parameters number:
-    store remainder as number modulo 2
+define action called is_even with parameters number:
+    store remainder as number % 2
     check if remainder is equal to 0:
         return yes
     otherwise:
@@ -129,7 +132,7 @@ define action called is even with parameters number:
     end check
 end action
 
-check if is even with 42:
+check if is_even of 42:
     display "42 is even"
 end check
 // Output: "42 is even"
@@ -137,7 +140,7 @@ end check
 
 **Maximum of two numbers:**
 ```wfl
-define action called max with parameters a and b:
+define action called largest with parameters a and b:
     check if a is greater than b:
         return a
     otherwise:
@@ -145,8 +148,8 @@ define action called max with parameters a and b:
     end check
 end action
 
-store largest as max with 10 and 20
-display "Largest: " with largest
+store biggest as largest of 10 and 20
+display "Largest: " with biggest
 // Output: "Largest: 20"
 ```
 
@@ -179,26 +182,39 @@ define action called calculate total with parameters price and quantity:
     return price times quantity
 end action
 
-store total as calculate total with 19.99 and 3
+store total as calculate total of 19.99 and 3
 display "Total: $" with total
 ```
 
 ### Using Return Values
 
 ```wfl
+define action called sum with parameters x and y:
+    return x plus y
+end action
+
+define action called is_even with parameters number:
+    store remainder as number % 2
+    check if remainder is equal to 0:
+        return yes
+    otherwise:
+        return no
+    end check
+end action
+
 // Store the result
-store result as add with 5 and 3
+store result as sum of 5 and 3
 
 // Use directly in display
-display "Sum: " with add with 10 and 20
+display "Sum: " with sum of 10 and 20
 
 // Use in conditionals
-check if is even with 42:
+check if is_even of 42:
     display "Even number"
 end check
 
 // Use in calculations
-store double sum as add with 5 and 3 times 2
+store double sum as (sum of 5 and 3) times 2
 ```
 
 ## Variable Scope
@@ -220,25 +236,27 @@ call calculate
 ### Parameters are Local
 
 ```wfl
-define action called test with parameters x:
+define action called show local with parameters x:
     display "Parameter x: " with x
-    change x to x plus 10
-    display "Changed x: " with x
+    store adjusted as x plus 10        // work on a local copy
+    display "Adjusted copy: " with adjusted
 end action
 
 store y as 5
-call test with y
+call show local with y
 display "Original y: " with y  // y is still 5 (not modified)
 ```
 
 **Output:**
 ```
 Parameter x: 5
-Changed x: 15
+Adjusted copy: 15
 Original y: 5
 ```
 
-Parameters are **passed by value**, not by reference. Changes inside the action don't affect the original variable.
+Parameters are **passed by value**, not by reference. A parameter is a local,
+read-only name inside the action: to transform it, store the result in a new
+local variable. Either way, the caller's original variable is never affected.
 
 ### Accessing Global Variables
 
@@ -280,7 +298,7 @@ call print separator
 ### Validation
 
 ```wfl
-define action called is valid email with parameters email:
+define action called is_valid_email with parameters email:
     // Simplified validation
     check if contains of email and "@":
         check if contains of email and ".":
@@ -290,7 +308,7 @@ define action called is valid email with parameters email:
     return no
 end action
 
-check if is valid email with "user@example.com":
+check if is_valid_email of "user@example.com":
     display "Valid email!"
 end check
 ```
@@ -304,9 +322,9 @@ define action called calculate discount with parameters price and discount perce
     return final price
 end action
 
-store sale price as calculate discount with 100.00 and 20
+store sale price as calculate discount of 100.00 and 20
 display "Sale price: $" with sale price
-// Output: "Sale price: $80.0"
+// Output: "Sale price: $80"
 ```
 
 ### Formatting
@@ -316,8 +334,8 @@ define action called format currency with parameters amount:
     return "$" with amount
 end action
 
-display format currency with 19.99
-display format currency with 125.50
+display format currency of 19.99
+display format currency of 125.50
 ```
 
 **Output:**
@@ -331,29 +349,29 @@ $125.5
 ### Temperature Converter
 
 ```wfl
-define action called celsius to fahrenheit with parameters celsius:
+define action called celsius_to_fahrenheit with parameters celsius:
     store fahrenheit as celsius times 9 divided by 5 plus 32
     return fahrenheit
 end action
 
-define action called fahrenheit to celsius with parameters fahrenheit:
-    store celsius as fahrenheit minus 32 times 5 divided by 9
+define action called fahrenheit_to_celsius with parameters fahrenheit:
+    store celsius as (fahrenheit minus 32) times 5 divided by 9
     return celsius
 end action
 
 store temp c as 25
-store temp f as celsius to fahrenheit with temp c
+store temp f as celsius_to_fahrenheit of temp c
 display temp c with "°C = " with temp f with "°F"
 
 store temp f2 as 77
-store temp c2 as fahrenheit to celsius with temp f2
+store temp c2 as fahrenheit_to_celsius of temp f2
 display temp f2 with "°F = " with temp c2 with "°C"
 ```
 
 ### Grade Calculator
 
 ```wfl
-define action called calculate letter grade with parameters score:
+define action called calculate grade with parameters score:
     check if score is greater than or equal to 90:
         return "A"
     otherwise:
@@ -373,17 +391,17 @@ define action called calculate letter grade with parameters score:
     end check
 end action
 
-define action called calculate gpa with parameters letter:
-    check if letter is "A":
+define action called calculate gpa with parameters grade:
+    check if grade is "A":
         return 4.0
     otherwise:
-        check if letter is "B":
+        check if grade is "B":
             return 3.0
         otherwise:
-            check if letter is "C":
+            check if grade is "C":
                 return 2.0
             otherwise:
-                check if letter is "D":
+                check if grade is "D":
                     return 1.0
                 otherwise:
                     return 0.0
@@ -394,8 +412,8 @@ define action called calculate gpa with parameters letter:
 end action
 
 store my score as 85
-store my grade as calculate letter grade with my score
-store my gpa as calculate gpa with my grade
+store my grade as calculate grade of my score
+store my gpa as calculate gpa of my grade
 
 display "Score: " with my score
 display "Grade: " with my grade
@@ -406,7 +424,7 @@ display "GPA: " with my gpa
 ```
 Score: 85
 Grade: B
-GPA: 3.0
+GPA: 3
 ```
 
 ### Fibonacci
@@ -416,14 +434,14 @@ define action called fibonacci with parameters n:
     check if n is less than or equal to 1:
         return n
     otherwise:
-        store fib1 as fibonacci with n minus 1
-        store fib2 as fibonacci with n minus 2
+        store fib1 as fibonacci of (n minus 1)
+        store fib2 as fibonacci of (n minus 2)
         return fib1 plus fib2
     end check
 end action
 
 count from 0 to 10:
-    store fib as fibonacci with count
+    store fib as fibonacci of count
     display "Fibonacci(" with count with ") = " with fib
 end count
 ```
@@ -435,12 +453,12 @@ define action called factorial with parameters n:
     check if n is less than or equal to 1:
         return 1
     otherwise:
-        store prev as factorial with n minus 1
+        store prev as factorial of (n minus 1)
         return n times prev
     end check
 end action
 
-store result as factorial with 5
+store result as factorial of 5
 display "5! = " with result
 // Output: "5! = 120"
 ```
@@ -448,14 +466,14 @@ display "5! = " with result
 ### String Utilities
 
 ```wfl
-define action called trim and uppercase with parameters text:
-    store trimmed as trim of text
+define action called trim_and_uppercase with parameters value:
+    store trimmed as trim of value
     store upper as touppercase of trimmed
     return upper
 end action
 
-define action called is empty with parameters text:
-    store trimmed as trim of text
+define action called is_empty with parameters value:
+    store trimmed as trim of value
     check if length of trimmed is equal to 0:
         return yes
     otherwise:
@@ -464,10 +482,10 @@ define action called is empty with parameters text:
 end action
 
 store input as "  hello world  "
-display trim and uppercase with input
+display trim_and_uppercase of input
 // Output: "HELLO WORLD"
 
-check if is empty with "   ":
+check if is_empty of "   ":
     display "Empty string!"
 end check
 // Output: "Empty string!"
@@ -483,7 +501,7 @@ define action called square with parameters n:
 end action
 
 count from 1 to 5:
-    store squared as square with count
+    store squared as square of count
     display count with " squared is " with squared
 end count
 ```
@@ -500,7 +518,7 @@ end count
 ## Actions with Lists
 
 ```wfl
-define action called sum list with parameters numbers:
+define action called sum_list with parameters numbers:
     store total as 0
     for each number in numbers:
         change total to total plus number
@@ -514,8 +532,8 @@ create list values:
     add 30
 end list
 
-store sum as sum list with values
-display "Sum: " with sum
+store total sum as sum_list of values
+display "Sum: " with total sum
 // Output: "Sum: 60"
 ```
 
@@ -716,7 +734,7 @@ define action called calculate tax with parameters amount:
 end action
 
 define action called calculate total with parameters subtotal:
-    store tax as calculate tax with subtotal
+    store tax as calculate tax of subtotal
     return subtotal plus tax
 end action
 ```
@@ -760,7 +778,7 @@ temp          // What does it do?
 Check parameters before using them:
 
 ```wfl
-define action called divide with parameters numerator and denominator:
+define action called divide_safely with parameters numerator and denominator:
     check if denominator is equal to 0:
         display "Error: Cannot divide by zero"
         return nothing
@@ -769,7 +787,7 @@ define action called divide with parameters numerator and denominator:
     return numerator divided by denominator
 end action
 
-store result as divide with 10 and 0
+store result as divide_safely of 10 and 0
 // Output: "Error: Cannot divide by zero"
 ```
 
@@ -780,8 +798,8 @@ Here's a complete program using multiple actions:
 ```wfl
 // Shopping cart calculator
 
-define action called calculate discount with parameters price and is member:
-    check if is member is yes:
+define action called calculate discount with parameters price and is_member:
+    check if is_member is yes:
         return price times 0.9  // 10% member discount
     otherwise:
         return price
@@ -796,25 +814,25 @@ define action called format price with parameters amount:
     return "$" with amount
 end action
 
-define action called process order with parameters item price and quantity and customer is member:
+define action called process_order with parameters item price and quantity and customer is_member:
     // Calculate subtotal
     store subtotal as item price times quantity
-    display "Subtotal: " with format price with subtotal
+    display "Subtotal: " with format price of subtotal
 
     // Apply discount
-    store discounted as calculate discount with subtotal and customer is member
-    check if customer is member is yes:
+    store discounted as calculate discount of subtotal and customer is_member
+    check if customer is_member is yes:
         store saved as subtotal minus discounted
-        display "Member discount: -" with format price with saved
+        display "Member discount: -" with format price of saved
     end check
 
     // Calculate tax
-    store tax as calculate tax with discounted
-    display "Tax: " with format price with tax
+    store tax as calculate tax of discounted
+    display "Tax: " with format price of tax
 
     // Calculate total
     store total as discounted plus tax
-    display "Total: " with format price with total
+    display "Total: " with format price of total
 
     return total
 end action
@@ -823,10 +841,10 @@ end action
 display "=== Order Summary ==="
 display ""
 
-store final total as process order with 19.99 and 3 and yes
+store final total as process_order of 19.99 and 3 and yes
 
 display ""
-display "Amount charged: " with format price with final total
+display "Amount charged: " with format price of final total
 ```
 
 **Output:**
@@ -873,15 +891,15 @@ Done!
 ### Sum of Numbers
 
 ```wfl
-define action called sum to n with parameters n:
+define action called sum_to_n with parameters n:
     check if n is less than or equal to 0:
         return 0
     otherwise:
-        return n plus sum to n with n minus 1
+        return n plus sum_to_n of (n minus 1)
     end check
 end action
 
-store result as sum to n with 10
+store result as sum_to_n of 10
 display "Sum of 1-10: " with result
 // Output: "Sum of 1-10: 55"
 ```
@@ -889,16 +907,16 @@ display "Sum of 1-10: " with result
 ### Power Function
 
 ```wfl
-define action called power with parameters base and exponent:
+define action called raise power with parameters base and exponent:
     check if exponent is equal to 0:
         return 1
     otherwise:
-        store prev power as power with base and exponent minus 1
+        store prev power as raise power of base and (exponent minus 1)
         return base times prev power
     end check
 end action
 
-display "2^5 = " with power with 2 and 5
+display "2^5 = " with raise power of 2 and 5
 // Output: "2^5 = 32"
 ```
 

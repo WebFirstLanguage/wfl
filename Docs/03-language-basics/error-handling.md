@@ -36,8 +36,8 @@ end try
 ### Without Error Handling
 
 ```wfl
-open file at "missing.txt" for reading as file
-store content as read content from file
+open file at "missing.txt" for reading as my_file
+store file_content as read content from my_file
 // CRASH! Program stops if file doesn't exist
 ```
 
@@ -46,14 +46,20 @@ store content as read content from file
 ### With Error Handling
 
 ```wfl
+store file_handle as nothing
+
 try:
-    open file at "missing.txt" for reading as file
-    store content as read content from file
-    close file
-    display "File content: " with content
+    open file at "missing.txt" for reading as my_file
+    change file_handle to my_file
+    store file_content as read content from my_file
+    display "File content: " with file_content
 catch:
     display "Could not read file. It might not exist."
 end try
+
+check if file_handle is not nothing:
+    close file_handle
+end check
 ```
 
 **Result:** User sees a friendly message, program continues running.
@@ -110,32 +116,45 @@ end try
 ### File Operations
 
 ```wfl
+store file_handle as nothing
+
 try:
-    open file at "data.txt" for reading as file
-    store content as read content from file
-    close file
-    display "File content: " with content
+    open file at "data.txt" for reading as my_file
+    change file_handle to my_file
+    store file_content as read content from my_file
+    display "File content: " with file_content
 catch:
     display "Error: Could not read file"
 end try
+
+check if file_handle is not nothing:
+    close file_handle
+end check
 ```
 
-## Try-Catch-Finally
+## Cleanup After the Try Block
 
-The `finally` block always executes, whether an error occurred or not:
+WFL has no separate `finally` keyword. To run cleanup code whether or not an
+error occurred, place it **right after `end try`**. Once a `catch:` (or a
+`when` clause) has handled the error, execution continues past `end try`, so
+that code always runs. Track any state you need to inspect during cleanup in a
+variable that lives *outside* the try block:
 
 ```wfl
+store outcome as "unknown"
+
 try:
-    display "Opening file..."
-    open file at "data.txt" for reading as file
-    store content as read content from file
-    display "File read successfully"
+    display "Doing work"
+    store result as 10 divided by 2
+    display "Result: " with result
+    change outcome to "succeeded"
 catch:
-    display "Error reading file"
-finally:
-    display "Cleaning up..."
-    // close file if it was opened
+    display "Something went wrong"
+    change outcome to "failed"
 end try
+
+// This cleanup runs whether the work succeeded or failed
+display "Cleanup: work " with outcome
 ```
 
 **Syntax:**
@@ -144,46 +163,48 @@ try:
     <statements that might fail>
 catch:
     <error handling code>
-finally:
-    <cleanup code that always runs>
 end try
+<cleanup code that always runs>
 ```
 
-**Use `finally` for:**
+**Put cleanup after `end try` for:**
 - Closing files
 - Releasing resources
 - Cleanup operations
 - Logging
 
-### Finally Example
+### Cleanup Example
+
+Store the file handle in an outer variable so you can close it after the try
+block finishes:
 
 ```wfl
-store file opened as no
+store file_handle as nothing
 
 try:
-    open file at "data.txt" for reading as file
-    change file opened to yes
-    store content as read content from file
-    display "Content: " with content
+    open file at "log.txt" for writing as my_file
+    change file_handle to my_file
+    write content "log entry" into my_file
+    display "File written successfully"
 catch:
-    display "Error: Could not read file"
-finally:
-    check if file opened is yes:
-        close file
-        display "File closed"
-    end check
+    display "Error: Could not write file"
 end try
+
+check if file_handle is not nothing:
+    close file_handle
+    display "File closed"
+end check
 ```
 
 ## Accessing Error Information
 
-Use `error message` to get error details (if supported):
+Use `error_message` to get error details:
 
 ```wfl
 try:
     store result as 10 divided by 0
 catch:
-    display "An error occurred: " with error message
+    display "An error occurred: " with error_message
 end try
 ```
 
@@ -202,7 +223,7 @@ try:
 
     try:
         display "Inner try block"
-        store result as risky operation()
+        store result as risky_operation
         display "Inner success"
     catch:
         display "Inner catch: handled inner error"
@@ -222,20 +243,21 @@ end try
 ### Nested Example
 
 ```wfl
+store file_content as "default data"
+
 try:
     display "Processing file..."
 
     try:
-        open file at "data.txt" for reading as file
-        store content as read content from file
-        close file
+        open file at "data.txt" for reading as my_file
+        change file_content to read content from my_file
+        close my_file
     catch:
         display "Warning: Could not read data file, using defaults"
-        store content as "default data"
     end try
 
     // Process content
-    display "Processing: " with content
+    display "Processing: " with file_content
 
 catch:
     display "Fatal error in processing"
@@ -248,7 +270,7 @@ WFL supports catching specific error types (if implemented):
 
 ```wfl
 try:
-    open file at "missing.txt" for reading as file
+    open file at "missing.txt" for reading as my_file
 when file not found:
     display "File doesn't exist"
 when permission denied:
@@ -286,14 +308,19 @@ Common error types (check documentation for complete list):
 
 ```wfl
 store config as "default config"
+store file_handle as nothing
 
 try:
-    open file at "config.txt" for reading as file
-    change config to read content from file
-    close file
+    open file at "config.txt" for reading as my_file
+    change file_handle to my_file
+    change config to read content from my_file
 catch:
     display "Config file not found, using defaults"
 end try
+
+check if file_handle is not nothing:
+    close file_handle
+end check
 
 display "Configuration: " with config
 ```
@@ -301,7 +328,7 @@ display "Configuration: " with config
 ### Validation
 
 ```wfl
-define action called safe divide with parameters a and b:
+define action called safe_divide with parameters a and b:
     try:
         return a divided by b
     catch:
@@ -310,50 +337,50 @@ define action called safe divide with parameters a and b:
     end try
 end action
 
-store result1 as safe divide with 10 and 2   // 5
-store result2 as safe divide with 10 and 0   // 0 (with warning)
+store result1 as safe_divide of 10 and 2   // 5
+store result2 as safe_divide of 10 and 0   // 0 (with warning)
 ```
 
 ### Multiple Operations
 
 ```wfl
-store success count as 0
+store success_count as 0
 
 try:
-    operation1()
-    change success count to success count plus 1
+    operation1
+    change success_count to success_count plus 1
 catch:
     display "Operation 1 failed"
 end try
 
 try:
-    operation2()
-    change success count to success count plus 1
+    operation2
+    change success_count to success_count plus 1
 catch:
     display "Operation 2 failed"
 end try
 
-display "Successful operations: " with success count
+display "Successful operations: " with success_count
 ```
 
 ### Resource Cleanup
 
 ```wfl
-store file handle as nothing
+store file_handle as nothing
 
 try:
-    open file at "data.txt" for writing as file
-    change file handle to file
-    write content "important data" into file
+    open file at "data.txt" for writing as my_file
+    change file_handle to my_file
+    write content "important data" into my_file
     display "File written successfully"
 catch:
     display "Error writing to file"
-finally:
-    check if file handle is not nothing:
-        close file handle
-        display "File closed"
-    end check
 end try
+
+check if file_handle is not nothing:
+    close file_handle
+    display "File closed"
+end check
 ```
 
 ## Real-World Examples
@@ -361,38 +388,41 @@ end try
 ### Configuration Loader
 
 ```wfl
-define action called load config with parameters filename:
+define action called load_config with parameters filename:
     try:
-        open file at filename for reading as file
-        store config data as read content from file
-        close file
-        return config data
+        open file at filename for reading as my_file
+        store config_data as read content from my_file
+        close my_file
+        return config_data
     catch:
         display "Warning: Could not load " with filename
         return "default configuration"
     end try
 end action
 
-store app config as load config with "app.config"
-display "Using config: " with app config
+store app_config as load_config of "app.config"
+display "Using config: " with app_config
 ```
 
 ### Safe User Input Parser
 
 ```wfl
-define action called parse number with parameters text:
+define action called parse_number with parameters input_text:
     try:
-        // Attempt to convert text to number (if supported)
-        store number as convert text to number
-        return number
+        // Attempt to use the input as a number. WFL does not yet ship a
+        // text-to-number builtin, so text input fails the numeric operation
+        // and is handled by the catch block below.
+        store parsed as input_text times 1
+        return parsed
     catch:
-        display "Invalid number: " with text
+        display "Invalid number: " with input_text
         return 0
     end try
 end action
 
-store age as parse number with "25"      // 25
-store invalid as parse number with "abc"  // 0 (with error message)
+store age as parse_number of "25"
+store fallback_value as parse_number of "abc"
+display "Parsed results: " with age with ", " with fallback_value
 ```
 
 ### Database Query with Retry
@@ -424,54 +454,78 @@ end action
 ### Batch File Processing
 
 ```wfl
-list files in "input" as file list
+store file_list as list files in "."
 
-store processed count as 0
-store error count as 0
+store processed_count as 0
+store error_count as 0
 
-for each filename in file list:
+for each filename in file_list:
     try:
-        open file at filename for reading as file
-        store content as read content from file
-        close file
+        open file at filename for reading as my_file
+        store file_content as read content from my_file
+        close my_file
 
         // Process content
         display "Processed: " with filename
-        change processed count to processed count plus 1
+        change processed_count to processed_count plus 1
 
     catch:
         display "Error processing: " with filename
-        change error count to error count plus 1
+        change error_count to error_count plus 1
     end try
 end for
 
 display ""
-display "Processed: " with processed count
-display "Errors: " with error count
+display "Processed: " with processed_count
+display "Errors: " with error_count
 ```
 
 ## Otherwise Block
 
-The `otherwise` block executes when NO error occurred:
+The `otherwise` block is a **fallback for errors that no `when` clause
+matched**. It runs only when an error occurred and none of the specific
+`when` clauses handled it. It does **not** run when the try block succeeds,
+and it does **not** run when a general `catch:` (or `when error:`) has already
+handled the error.
 
+```wfl
+try:
+    open file at "missing.txt" for reading as my_file
+when permission denied:
+    display "Permission denied"
+otherwise:
+    display "Some other error was handled"
+end try
+```
+
+**Output:**
+```
+Some other error was handled
+```
+
+Opening a missing file raises a "file not found" error. The only specific
+clause here is `when permission denied`, so the `otherwise` block catches it
+instead.
+
+**On success, `otherwise` does not run:**
 ```wfl
 try:
     store result as 10 divided by 2
     display "Result: " with result
-catch:
-    display "Error occurred"
+when file not found:
+    display "File missing"
 otherwise:
-    display "Operation completed successfully"
+    display "This only runs on an unmatched error"
 end try
 ```
 
 **Output:**
 ```
 Result: 5
-Operation completed successfully
 ```
 
-**With error:**
+**Combined with a general `catch:`, `otherwise` never runs** because `catch:`
+already handles every error:
 ```wfl
 try:
     store result as 10 divided by 0
@@ -491,10 +545,10 @@ Error occurred
 ```wfl
 try:
     <statements>
-catch:
-    <error handling>
+when <specific error type>:
+    <specific handling>
 otherwise:
-    <success handling>
+    <fallback for any unmatched error>
 end try
 ```
 
@@ -505,7 +559,7 @@ end try
 **Bad:**
 ```wfl
 try:
-    risky operation()
+    risky_operation
 catch:
     // Silent failure - bad!
 end try
@@ -514,7 +568,7 @@ end try
 **Good:**
 ```wfl
 try:
-    risky operation()
+    risky_operation
 catch:
     display "Error in risky operation"
     // Log the error, inform the user, or take corrective action
@@ -525,6 +579,8 @@ end try
 
 **Bad:**
 ```wfl
+try:
+    risky_operation
 catch:
     display "Error"  // Not helpful
 end try
@@ -532,6 +588,8 @@ end try
 
 **Good:**
 ```wfl
+try:
+    risky_operation
 catch:
     display "Error loading user profile from database"
     display "Please check your connection and try again"
@@ -543,10 +601,10 @@ end try
 **Good:**
 ```wfl
 try:
-    open file at "data.txt"
+    open file at "data.txt" for reading as my_file
 when file not found:
     display "File doesn't exist, creating it..."
-    create file at "data.txt"
+    create file at "data.txt" with ""
 when permission denied:
     display "Cannot access file, check permissions"
 catch:
@@ -559,14 +617,19 @@ end try
 **Always close files, connections, etc.:**
 
 ```wfl
+store file_handle as nothing
+
 try:
-    open file at "data.txt" for reading as file
+    open file at "data.txt" for reading as my_file
+    change file_handle to my_file
     // ... operations
 catch:
     display "Error"
-finally:
-    close file  // Ensure file is closed
 end try
+
+check if file_handle is not nothing:
+    close file_handle  // Ensure the file is closed
+end check
 ```
 
 ## Common Mistakes
@@ -576,7 +639,7 @@ end try
 **Wrong:**
 ```wfl
 try:
-    risky operation()
+    risky_operation
 catch:
     display "Error"
 // Missing end try!
@@ -585,7 +648,7 @@ catch:
 **Right:**
 ```wfl
 try:
-    risky operation()
+    risky_operation
 catch:
     display "Error"
 end try
@@ -606,26 +669,26 @@ end try
 **Better:**
 ```wfl
 try:
-    operation1()
+    operation1
 catch:
     display "Error in operation1"
 end try
 
 try:
-    operation2()
+    operation2
 catch:
     display "Error in operation2"
 end try
 ```
 
-### Not Using Finally for Cleanup
+### Not Cleaning Up After the Try Block
 
 **Risky:**
 ```wfl
 try:
-    open file at "data.txt"
+    open file at "data.txt" for reading as my_file
     // operations
-    close file  // What if error occurs before this?
+    close my_file  // What if an error occurs before this line?
 catch:
     display "Error"
 end try
@@ -633,14 +696,19 @@ end try
 
 **Safe:**
 ```wfl
+store file_handle as nothing
+
 try:
-    open file at "data.txt"
+    open file at "data.txt" for reading as my_file
+    change file_handle to my_file
     // operations
 catch:
     display "Error"
-finally:
-    close file  // Always closes, even with error
 end try
+
+check if file_handle is not nothing:
+    close file_handle  // Always runs, even after an error
+end check
 ```
 
 ## Practice Exercises
@@ -657,7 +725,7 @@ Create a program that:
 - Tries to read "input.txt"
 - If successful, displays the content
 - If file doesn't exist, displays "File not found"
-- Always displays "Operation complete" at the end (use `finally`)
+- Always displays "Operation complete" at the end (place it after `end try`)
 
 ### Exercise 3: List Access
 
@@ -689,11 +757,11 @@ Create a program with nested try-catch where:
 In this section, you learned:
 
 ✅ **Basic try-catch** - `try:` ... `catch:` ... `end try`
-✅ **Try-catch-finally** - `finally:` for cleanup code
+✅ **Cleanup after try** - Place cleanup code after `end try`
 ✅ **Nested try-catch** - Error handling at multiple levels
 ✅ **Specific error types** - `when file not found`, etc.
-✅ **Error messages** - Accessing error information
-✅ **Otherwise block** - Code for success scenarios
+✅ **Error messages** - `error_message` for error details
+✅ **Otherwise block** - Fallback for unmatched error types
 ✅ **Common patterns** - File handling, validation, resource cleanup
 ✅ **Best practices** - Don't swallow errors, provide context, clean up resources
 

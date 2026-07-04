@@ -137,12 +137,12 @@ display "Same password, different hashes: " with hash1 is not equal to hash2
 
 **Example: Per-User Hashing**
 ```wfl
-define action called hash password with parameters password and username:
+define action called hash_password with parameters password and username:
     return wflhash256_with_salt of password and username
 end action
 
-store user1_hash as hash password with "secret" and "alice"
-store user2_hash as hash password with "secret" and "bob"
+store user1_hash as hash_password of "secret" and "alice"
+store user2_hash as hash_password of "secret" and "bob"
 
 // Even with same password, hashes are different
 display "Alice's hash: " with user1_hash
@@ -334,25 +334,25 @@ display "=== Demo Complete ==="
 ### File Integrity Checking
 
 ```wfl
-define action called checksum file with parameters filename:
+define action called checksum_file with parameters filename:
     try:
-        open file at filename for reading as file
-        wait for store content as read content from file
-        close file file
+        open file at filename for reading as file_handle
+        wait for store file_content as read content from file_handle
+        close file file_handle
 
-        store hash as wflhash256 of content
+        store hash as wflhash256 of file_content
         return hash
-    catch:
+    when error:
         return nothing
     end try
 end action
 
 // Create checksum
-store original_hash as checksum file with "important.txt"
+store original_hash as checksum_file of "important.txt"
 display "Original checksum: " with original_hash
 
 // Later, verify file hasn't changed
-store current_hash as checksum file with "important.txt"
+store current_hash as checksum_file of "important.txt"
 
 check if original_hash is equal to current_hash:
     display "✓ File is unchanged"
@@ -364,9 +364,9 @@ end check
 ### API Request Signing
 
 ```wfl
-define action called sign request with parameters data and api_key:
+define action called sign_request with parameters request_data and api_key:
     store timestamp as current time in milliseconds
-    store payload as data with "|" with timestamp
+    store payload as request_data with "|" with timestamp
     store signature as wflmac256 of payload and api_key
     return signature
 end action
@@ -374,18 +374,15 @@ end action
 store api_data as "action=transfer&amount=100"
 store api_key as "secret_api_key_xyz"
 
-store signature as sign request with api_data and api_key
+store signature as sign_request of api_data and api_key
 display "Request signature: " with signature
 ```
 
 ### Data Deduplication
 
 ```wfl
-create list seen_hashes
-end list
-
-create list unique_items
-end list
+store seen_hashes as []
+store unique_items as []
 
 store items as ["apple", "banana", "apple", "cherry", "banana"]
 

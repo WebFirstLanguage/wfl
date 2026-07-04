@@ -87,7 +87,12 @@ end count
 7 × 1 = 7
 7 × 2 = 14
 7 × 3 = 21
-...
+7 × 4 = 28
+7 × 5 = 35
+7 × 6 = 42
+7 × 7 = 49
+7 × 8 = 56
+7 × 9 = 63
 7 × 10 = 70
 ```
 
@@ -166,7 +171,7 @@ Hello, CAROL!
 
 ### Reversed Iteration
 
-Iterate backwards through a list (if supported):
+Iterate backwards through a list by reversing it first with `reverse_list`:
 
 ```wfl
 create list numbers:
@@ -175,7 +180,9 @@ create list numbers:
     add 3
 end list
 
-for each number in numbers reversed:
+reverse_list of numbers
+
+for each number in numbers:
     display number
 end for
 ```
@@ -280,7 +287,8 @@ Skip to the next iteration (if supported):
 
 ```wfl
 count from 1 to 10:
-    check if count modulo 2 is equal to 0:
+    store remainder as count % 2
+    check if remainder is equal to 0:
         skip  // Skip even numbers
     end check
     display count  // Only odd numbers
@@ -301,10 +309,10 @@ end count
 Loops inside loops for multi-dimensional iteration:
 
 ```wfl
-count from 1 to 3:
-    display "Outer: " with count
-    count from 1 to 2:
-        display "  Inner: " with count
+count from 1 to 3 as outer:
+    display "Outer: " with outer
+    count from 1 to 2 as inner:
+        display "  Inner: " with inner
     end count
 end count
 ```
@@ -325,10 +333,8 @@ Outer: 3
 ### Multiplication Table
 
 ```wfl
-count from 1 to 5:
-    store row as count
-    count from 1 to 5:
-        store column as count
+count from 1 to 5 as row:
+    count from 1 to 5 as column:
         store product as row times column
         display row with " × " with column with " = " with product
     end count
@@ -339,12 +345,12 @@ end count
 ### Grid Pattern
 
 ```wfl
-count from 1 to 3:
-    store row as count
-    count from 1 to 5:
-        display "*"
+count from 1 to 3 as row:
+    store line as ""
+    count from 1 to 5 as column:
+        change line to line with "*"
     end count
-    display ""  // Newline after each row
+    display line  // One row of stars
 end count
 ```
 
@@ -406,26 +412,27 @@ create list scores:
     add 88
 end list
 
-store a count as 0
+store a grades as 0
 
 for each score in scores:
     check if score is greater than or equal to 90:
-        change a count to a count plus 1
+        change a grades to a grades plus 1
     end check
 end for
 
-display "Number of A grades: " with a count
+display "Number of A grades: " with a grades
 // Output: "Number of A grades: 2"
 ```
 
 ### Building a List
 
 ```wfl
-create list even numbers
+create list even numbers:
 end list
 
 count from 1 to 10:
-    check if count modulo 2 is equal to 0:
+    store remainder as count % 2
+    check if remainder is equal to 0:
         push with even numbers and count
     end check
 end count
@@ -443,12 +450,12 @@ create list all items:
     add "avocado"
 end list
 
-create list a items
+create list a items:
 end list
 
 for each item in all items:
-    store first letter as substring of item from 0 length 1
-    check if first letter is "a":
+    store first_letter as substring of item and 0 and 1
+    check if first_letter is "a":
         push with a items and item
     end check
 end for
@@ -470,16 +477,16 @@ create list names:
 end list
 
 store search name as "Carol"
-store found as no
+store matched as no
 
 for each name in names:
     check if name is search name:
-        change found to yes
+        change matched to yes
         display "Found " with search name with "!"
     end check
 end for
 
-check if found is no:
+check if matched is no:
     display search name with " not found"
 end check
 ```
@@ -490,15 +497,15 @@ end check
 
 ```wfl
 // Count files in a directory
-list files in "." as file list
+wait for store file_list as list files in "."
 
-store file count as 0
+store total_files as 0
 
-for each file in file list:
-    change file count to file count plus 1
+for each item in file_list:
+    change total_files to total_files plus 1
 end for
 
-display "Total files: " with file count
+display "Total files: " with total_files
 ```
 
 ### Price Calculator with Tax
@@ -541,7 +548,7 @@ display "Time's up!"
 ### Score Analyzer
 
 ```wfl
-create list test scores:
+create list exam scores:
     add 85
     add 92
     add 78
@@ -551,16 +558,16 @@ create list test scores:
 end list
 
 store total as 0
-store count as 0
+store num scores as 0
 
-for each score in test scores:
+for each score in exam scores:
     change total to total plus score
-    change count to count plus 1
+    change num scores to num scores plus 1
 end for
 
-store average as total divided by count
+store average as total divided by num scores
 
-display "Total scores: " with count
+display "Total scores: " with num scores
 display "Sum: " with total
 display "Average: " with average
 ```
@@ -568,12 +575,12 @@ display "Average: " with average
 ### Pattern Generator
 
 ```wfl
-count from 1 to 5:
-    store row as count
-    count from 1 to row:
-        display "*"
+count from 1 to 5 as row:
+    store line as ""
+    count from 1 to row as column:
+        change line to line with "*"
     end count
-    display ""  // Newline
+    display line  // One row of stars
 end count
 ```
 
@@ -611,6 +618,16 @@ end count
 The iteration variable takes the name you specify:
 
 ```wfl
+create list fruits:
+    add "apple"
+    add "banana"
+end list
+
+create list numbers:
+    add 1
+    add 2
+end list
+
 for each fruit in fruits:         // Variable name is "fruit"
     display fruit
 end for

@@ -74,15 +74,22 @@ Best practices help you write good code consistently.
 
 **Good:**
 ```wfl
+store customer_balance as 500
+store minimum_balance as 100
+
 check if customer_balance is greater than minimum_balance:
-    approve_transaction for customer
+    display "Transaction approved"
 end check
 ```
 
 **Poor:**
 ```wfl
-check if cb > min:
-    approve(c)
+// Cryptic abbreviations — hard to read at a glance
+store cb as 500
+store mb as 100
+
+check if cb is greater than mb:
+    display "ok"
 end check
 ```
 
@@ -92,8 +99,9 @@ WFL's natural syntax is its strength—use it!
 
 **Wrong:**
 ```wfl
-store is as yes               // 'is' is reserved
-store file as "data.txt"      // 'file' is reserved
+// These FAIL to parse — 'is' and 'file' are reserved keywords:
+// store is as yes
+// store file as "data.txt"
 ```
 
 **Right:**

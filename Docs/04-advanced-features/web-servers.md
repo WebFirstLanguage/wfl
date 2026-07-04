@@ -142,26 +142,36 @@ The request variable contains information about the HTTP request:
 ### Path
 
 ```wfl
-wait for request comes in on server as req
+listen on port 8080 as web_server
+wait for request comes in on web_server as req
 
 check if path is equal to "/":
     respond to req with "Home page"
-check if path is equal to "/about":
-    respond to req with "About page"
 otherwise:
-    respond to req with "Not found" and status 404
+    check if path is equal to "/about":
+        respond to req with "About page"
+    otherwise:
+        respond to req with "Not found" and status 404
+    end check
 end check
 ```
 
-**Note:** Access `path` directly from the request context.
+**Note:** Once a request has arrived, access `path` directly from the request context.
 
 ### HTTP Method
 
 ```wfl
-check if method is "GET":
+listen on port 8080 as web_server
+wait for request comes in on web_server as req
+
+check if method is equal to "GET":
     respond to req with "GET request"
-check if method is "POST":
-    respond to req with "POST request"
+otherwise:
+    check if method is equal to "POST":
+        respond to req with "POST request"
+    otherwise:
+        respond to req with "Method Not Allowed" and status 405
+    end check
 end check
 ```
 
@@ -170,8 +180,12 @@ end check
 Access HTTP headers from requests:
 
 ```wfl
-store user_agent as header "User-Agent" from req
+listen on port 8080 as web_server
+wait for request comes in on web_server as req
+
+store user_agent as header "User-Agent" of req
 display "User agent: " with user_agent
+respond to req with "ok"
 ```
 
 ### Request Body
@@ -185,7 +199,7 @@ The request body is available two ways:
   disk with `write binary` or echoed back with `respond to`.
 
 ```wfl
-wait for request comes in on server as req
+wait for request comes in on web_server as req
 
 open file at "uploads/received.bin" for writing binary as out_file
 write binary body_bytes into out_file
@@ -348,7 +362,12 @@ create map query_headers:
     "Content-Location" is "/data/results/latest"
 end map
 
-check if req["method"] is "QUERY":
+listen on port 8080 as web_server
+wait for request comes in on web_server as req
+
+store results_json as "{\"items\": [1, 2, 3]}"
+
+check if method is equal to "QUERY":
     respond to req with results_json and content_type "application/json" and headers query_headers
 otherwise:
     respond to req with "Method Not Allowed" and status 405
@@ -362,40 +381,53 @@ See `TestPrograms/rfc10008_query_server.wfl` for a complete example.
 Handle different paths with conditionals:
 
 ```wfl
-listen on port 8080 as server
+listen on port 8080 as web_server
 
-wait for request comes in on server as req
+wait for request comes in on web_server as req
 
 check if path is equal to "/":
     respond to req with "Home Page"
-check if path is equal to "/hello":
-    respond to req with "Hello, World!"
-check if path is equal to "/about":
-    respond to req with "About WFL Server"
 otherwise:
-    respond to req with "404 - Page Not Found" and status 404
+    check if path is equal to "/hello":
+        respond to req with "Hello, World!"
+    otherwise:
+        check if path is equal to "/about":
+            respond to req with "About WFL Server"
+        otherwise:
+            respond to req with "404 - Page Not Found" and status 404
+        end check
+    end check
 end check
 ```
 
 ### Nested Routing
 
 ```wfl
-check if path is equal to "/":
-    respond to req with "Home"
-otherwise:
-    check if path starts with "/api/":
-        check if path is equal to "/api/status":
-            respond to req with "Status: OK"
-        check if path is equal to "/api/time":
-            store current as current time in milliseconds
-            respond to req with "Time: " with current
-        otherwise:
-            respond to req with "API endpoint not found" and status 404
-        end check
+listen on port 8080 as web_server
+
+main loop:
+    wait for request comes in on web_server as req
+    store req_path as path
+
+    check if req_path is equal to "/":
+        respond to req with "Home"
     otherwise:
-        respond to req with "Page not found" and status 404
+        check if req_path starts with "/api/":
+            check if req_path is equal to "/api/status":
+                respond to req with "Status: OK"
+            otherwise:
+                check if req_path is equal to "/api/time":
+                    store now_ms as current time in milliseconds
+                    respond to req with "Time: " with now_ms
+                otherwise:
+                    respond to req with "API endpoint not found" and status 404
+                end check
+            end check
+        otherwise:
+            respond to req with "Page not found" and status 404
+        end check
     end check
-end check
+end loop
 ```
 
 ### Route Parameters
@@ -455,40 +487,57 @@ final path stays inside the directory you intend to serve.
 Serve files from a directory:
 
 ```wfl
-listen on port 8080 as server
+listen on port 8080 as web_server
 
-wait for request comes in on server as req
+main loop:
+    wait for request comes in on web_server as req
+    store req_path as path
 
-check if path starts with "/static/":
-    // Extract filename: /static/file.html -> file.html
-    store filename as substring of path from 8 length 100
-    store filepath as "public/" with filename
-
-    check if file exists at filepath:
-        try:
-            open file at filepath for reading as static_file
-            store content as read content from static_file
-            close file static_file
-
-            // Determine content type
-            check if filepath ends with ".html":
-                respond to req with content and content_type "text/html"
-            check if filepath ends with ".css":
-                respond to req with content and content_type "text/css"
-            check if filepath ends with ".js":
-                respond to req with content and content_type "application/javascript"
+    check if req_path starts with "/static/":
+        // Validate the request path BEFORE building a filesystem path, so a
+        // crafted request like /static/../secret cannot escape the public dir.
+        check if req_path contains "..":
+            respond to req with "Forbidden" and status 403
+        otherwise:
+            check if req_path contains "\\":
+                respond to req with "Forbidden" and status 403
             otherwise:
-                respond to req with content and content_type "text/plain"
+                // Safe to build the path: extract /static/file.html -> file.html
+                store filename as substring of req_path from 8 length 100
+                store filepath as "public/" with filename
+
+                check if file exists at filepath:
+                    try:
+                        open file at filepath for reading as static_file
+                        store file_body as read content from static_file
+                        close file static_file
+
+                        // Determine content type
+                        check if filepath ends with ".html":
+                            respond to req with file_body and content_type "text/html"
+                        otherwise:
+                            check if filepath ends with ".css":
+                                respond to req with file_body and content_type "text/css"
+                            otherwise:
+                                check if filepath ends with ".js":
+                                    respond to req with file_body and content_type "application/javascript"
+                                otherwise:
+                                    respond to req with file_body and content_type "text/plain"
+                                end check
+                            end check
+                        end check
+                    catch:
+                        respond to req with "Error reading file" and status 500
+                    end try
+                otherwise:
+                    respond to req with "File not found" and status 404
+                end check
             end check
-        catch:
-            respond to req with "Error reading file" and status 500
-        end try
+        end check
     otherwise:
-        respond to req with "File not found" and status 404
+        respond to req with "Home page"
     end check
-otherwise:
-    respond to req with "Home page"
-end check
+end loop
 ```
 
 ## Serving Dynamic WFL Pages
@@ -590,17 +639,17 @@ respond to req with json_response and content_type "application/json"
 Always handle errors in web servers:
 
 ```wfl
-listen on port 8080 as server
+listen on port 8080 as web_server
 
-wait for request comes in on server as req
+wait for request comes in on web_server as req
 
 try:
     // Process request
     check if path is equal to "/data":
-        open file at "data.txt" for reading as file
-        store content as read content from file
-        close file
-        respond to req with content
+        open file at "data.txt" for reading as data_file
+        store file_body as read content from data_file
+        close file data_file
+        respond to req with file_body
     otherwise:
         respond to req with "Home"
     end check
@@ -616,9 +665,9 @@ Log each request for debugging:
 ```wfl
 store request_number as 0
 
-listen on port 8080 as server
+listen on port 8080 as web_server
 
-wait for request comes in on server as req
+wait for request comes in on web_server as req
 
 add 1 to request_number
 display "Request #" with request_number with ": " with method with " " with path
@@ -631,19 +680,19 @@ respond to req with "Request logged"
 Handle shutdown signals (if supported):
 
 ```wfl
-listen on port 8080 as server
+listen on port 8080 as web_server
 
-register signal handler for "SIGINT" as shutdown_handler
+register signal handler for SIGINT as shutdown_handler
 
 // Request loop
-wait for request comes in on server as req
+wait for request comes in on web_server as req
 respond to req with "OK"
 
 // Shutdown handler
 define action called shutdown_handler:
     display "Shutting down gracefully..."
-    stop accepting connections on server
-    close server server
+    stop accepting connections on web_server
+    close server web_server
 end action
 ```
 
@@ -653,7 +702,7 @@ end action
 display "=== WFL Web Server ==="
 display "Starting server on port 8080..."
 
-listen on port 8080 as server
+listen on port 8080 as web_server
 
 display "Server running at http://127.0.0.1:8080"
 display "Press Ctrl+C to stop"
@@ -662,7 +711,7 @@ display ""
 store request_count as 0
 
 // Main request loop
-wait for request comes in on server as req
+wait for request comes in on web_server as req
 
 add 1 to request_count
 display "Request #" with request_count with ": " with method with " " with path
@@ -684,23 +733,29 @@ check if path is equal to "/":
 </html>"
     respond to req with home_html and content_type "text/html"
 
-check if path is equal to "/hello":
-    respond to req with "Hello from WFL Web Server!" and content_type "text/plain"
+otherwise:
+    check if path is equal to "/hello":
+        respond to req with "Hello from WFL Web Server!" and content_type "text/plain"
 
-check if path is equal to "/api/status":
-    store status_json as "{
+    otherwise:
+        check if path is equal to "/api/status":
+            store status_json as "{
     \"status\": \"running\",
     \"requests_handled\": " with request_count with "
 }"
-    respond to req with status_json and content_type "application/json"
+            respond to req with status_json and content_type "application/json"
 
-check if path is equal to "/api/time":
-    store current as current time in milliseconds
-    store time_json as "{\"timestamp\": " with current with "}"
-    respond to req with time_json and content_type "application/json"
+        otherwise:
+            check if path is equal to "/api/time":
+                store now_ms as current time in milliseconds
+                store time_json as "{\"timestamp\": " with now_ms with "}"
+                respond to req with time_json and content_type "application/json"
 
-otherwise:
-    respond to req with "404 - Not Found" and status 404
+            otherwise:
+                respond to req with "404 - Not Found" and status 404
+            end check
+        end check
+    end check
 end check
 ```
 
@@ -850,8 +905,12 @@ end check
 ### Redirect
 
 ```wfl
+create map redirect_headers:
+    "Location" is "/new-page"
+end map
+
 check if path is equal to "/old-page":
-    respond to req with "" and status 301 and header "Location: /new-page"
+    respond to req with "" and status 301 and headers redirect_headers
 end check
 ```
 
@@ -889,13 +948,13 @@ end check
 **For multiple requests:** Use loops (requires signal handling for shutdown)
 
 ```wfl
-listen on port 8080 as server
+listen on port 8080 as web_server
 
-repeat while server is running:
-    wait for request comes in on server as req
+main loop:
+    wait for request comes in on web_server as req
     // Handle request
     respond to req with "OK"
-end repeat
+end loop
 ```
 
 ## Security Considerations

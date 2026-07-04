@@ -29,7 +29,7 @@ wait for execute command "<command>" as <variable>
 
 **Example:**
 ```wfl
-wait for execute command "ls -la" as output
+wait for execute command "ls -la" as listing
 display "Directory listing complete"
 ```
 
@@ -84,7 +84,8 @@ end check
 ### Kill a Process
 
 ```wfl
-wait for spawn command "long_running_task" as proc
+// "sleep" is a Unix command; on Windows use e.g. "timeout /t 5" instead.
+wait for spawn command "sleep 5" as proc
 
 // Wait a bit
 wait for 1000 milliseconds
@@ -159,7 +160,7 @@ end try
 ```wfl
 define action called git_status:
     try:
-        wait for execute command "git status" as output
+        wait for execute command "git status" as command_output
         display "Git status executed"
         return yes
     catch:
@@ -272,19 +273,25 @@ display "All tasks finished"
 
 **Dangerous:**
 ```wfl
-store user_input as get_user_input()  // User could input: "; rm -rf /"
+store user_input as "hello"  // Imagine this came from an untrusted user: "; rm -rf /"
 store cmd as "echo " with user_input
-wait for execute command cmd  // UNSAFE!
+wait for execute command cmd  // UNSAFE: user input goes straight into the command!
 ```
 
-**Safe:**
+**Safe:** Don't try to filter out "dangerous" characters — blocklists are always
+incomplete. Instead, restrict the input to a set of approved values (an allowlist)
+and pass it as an argument, so it is never spliced into a shell command string.
+
 ```wfl
-// Validate input first
-check if contains ";" in user_input or contains "|" in user_input:
-    display "Invalid input - special characters not allowed"
+store user_input as "hello"  // Untrusted input from a user or request
+
+// Restrict input to an approved set of values (allowlist)
+store allowed_values as ["hello", "status", "version"]
+check if allowed_values contains user_input:
+    // Pass the value as an argument (argv), never concatenated into a command
+    wait for execute command "echo" with arguments [user_input]
 otherwise:
-    store cmd as "echo " with user_input
-    wait for execute command cmd
+    display "Invalid input - value is not on the allowlist"
 end check
 ```
 

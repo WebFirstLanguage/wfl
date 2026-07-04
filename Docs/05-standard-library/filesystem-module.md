@@ -107,18 +107,23 @@ display "Directory structure created"
 
 **Signature:**
 ```wfl
-path_join of <part1> and <part2> [and <part3>...]
+path_join of <part1> and <part2> and ...
 ```
 
 **Parameters:**
-- Multiple path components (variadic)
+- One or more path components. `path_join` is variadic — it joins all the
+  components you pass (e.g. `path_join of "home" and "user" and "docs"` →
+  `home/user/docs`). Note: the type checker currently emits a non-fatal warning
+  when more than two components are passed, so the two-at-a-time / chained form
+  shown below avoids that warning. Tracking: wfl#571.
 
 **Returns:** Text - Joined path with proper separators
 
 **Example:**
 ```wfl
-store path as path_join of "home" and "user" and "documents"
-display path
+store part as path_join of "home" and "user"
+store dir_path as path_join of part and "documents"
+display dir_path
 // Output: home/user/documents (or home\user\documents on Windows)
 
 store file_path as path_join of "output" and "report.txt"
@@ -138,7 +143,7 @@ display file_path
 
 **Signature:**
 ```wfl
-path extension of <path>
+path_extension of <path>
 ```
 
 **Parameters:**
@@ -148,13 +153,13 @@ path extension of <path>
 
 **Example:**
 ```wfl
-store ext1 as path extension of "document.pdf"
+store ext1 as path_extension of "document.pdf"
 display ext1                              // Output: pdf
 
-store ext2 as path extension of "archive.tar.gz"
+store ext2 as path_extension of "archive.tar.gz"
 display ext2                              // Output: gz
 
-store ext3 as path extension of "readme"
+store ext3 as path_extension of "readme"
 display ext3                              // Output: (empty string)
 ```
 
@@ -165,26 +170,34 @@ display ext3                              // Output: (empty string)
 
 **Example: Content Type Mapping**
 ```wfl
-define action called get content type with parameters filename:
-    store ext as path extension of filename
+define action called get_content_type with parameters filename:
+    store ext as path_extension of filename
 
     check if ext is "html":
         return "text/html"
-    check if ext is "css":
-        return "text/css"
-    check if ext is "js":
-        return "application/javascript"
-    check if ext is "json":
-        return "application/json"
-    check if ext is "pdf":
-        return "application/pdf"
     otherwise:
-        return "text/plain"
+        check if ext is "css":
+            return "text/css"
+        otherwise:
+            check if ext is "js":
+                return "application/javascript"
+            otherwise:
+                check if ext is "json":
+                    return "application/json"
+                otherwise:
+                    check if ext is "pdf":
+                        return "application/pdf"
+                    otherwise:
+                        return "text/plain"
+                    end check
+                end check
+            end check
+        end check
     end check
 end action
 
-store type as get content type with "index.html"
-display type                              // Output: text/html
+store content_type as get_content_type of "index.html"
+display content_type                      // Output: text/html
 ```
 
 ---
@@ -195,7 +208,7 @@ display type                              // Output: text/html
 
 **Signature:**
 ```wfl
-path basename of <path>
+path_basename of <path>
 ```
 
 **Parameters:**
@@ -205,13 +218,13 @@ path basename of <path>
 
 **Example:**
 ```wfl
-store name1 as path basename of "documents/report.pdf"
+store name1 as path_basename of "documents/report.pdf"
 display name1                             // Output: report.pdf
 
-store name2 as path basename of "/home/user/file.txt"
+store name2 as path_basename of "/home/user/file.txt"
 display name2                             // Output: file.txt
 
-store name3 as path basename of "readme.md"
+store name3 as path_basename of "readme.md"
 display name3                             // Output: readme.md
 ```
 
@@ -228,7 +241,7 @@ display name3                             // Output: readme.md
 
 **Signature:**
 ```wfl
-path dirname of <path>
+path_dirname of <path>
 ```
 
 **Parameters:**
@@ -238,13 +251,13 @@ path dirname of <path>
 
 **Example:**
 ```wfl
-store dir1 as path dirname of "documents/report.pdf"
+store dir1 as path_dirname of "documents/report.pdf"
 display dir1                              // Output: documents
 
-store dir2 as path dirname of "/home/user/file.txt"
+store dir2 as path_dirname of "/home/user/file.txt"
 display dir2                              // Output: /home/user
 
-store dir3 as path dirname of "file.txt"
+store dir3 as path_dirname of "file.txt"
 display dir3                              // Output: (current directory)
 ```
 
@@ -261,7 +274,7 @@ display dir3                              // Output: (current directory)
 
 **Signature:**
 ```wfl
-path stem of <path>
+path_stem of <path>
 ```
 
 **Parameters:**
@@ -271,13 +284,13 @@ path stem of <path>
 
 **Example:**
 ```wfl
-store stem1 as path stem of "document.pdf"
+store stem1 as path_stem of "document.pdf"
 display stem1                             // Output: document
 
-store stem2 as path stem of "archive.tar.gz"
+store stem2 as path_stem of "archive.tar.gz"
 display stem2                             // Output: archive.tar
 
-store stem3 as path stem of "readme"
+store stem3 as path_stem of "readme"
 display stem3                             // Output: readme
 ```
 
@@ -289,9 +302,9 @@ display stem3                             // Output: readme
 **Example: Generate Output Filename**
 ```wfl
 store input as "report.txt"
-store stem as path stem of input
-store output as stem with ".processed.txt"
-display output
+store stem as path_stem of input
+store out_name as stem with ".processed.txt"
+display out_name
 // Output: report.processed.txt
 ```
 
@@ -305,10 +318,10 @@ display output
 
 **Signature:**
 ```wfl
-path exists at <path>
+path_exists of <path>
 ```
 
-**Alternative:**
+**Alternative (checks a file specifically):**
 ```wfl
 file exists at <path>
 ```
@@ -320,13 +333,18 @@ file exists at <path>
 
 **Example:**
 ```wfl
-check if path exists at "data.txt":
+// path_exists works for files or directories:
+store here as path_exists of "."
+display "Current directory exists: " with here
+
+// `file exists at` / `directory exists at` are more specific forms:
+check if file exists at "data.txt":
     display "File exists"
 otherwise:
     display "File not found"
 end check
 
-check if path exists at "output":
+check if directory exists at "output":
     display "Directory exists"
 otherwise:
     makedirs "output"
@@ -342,7 +360,7 @@ end check
 
 **Signature:**
 ```wfl
-is_file at <path>
+is_file of <path>
 ```
 
 **Parameters:**
@@ -352,11 +370,11 @@ is_file at <path>
 
 **Example:**
 ```wfl
-check if is_file at "data.txt":
+check if is_file of "data.txt":
     display "It's a file"
 end check
 
-check if is_file at "output":
+check if is_file of "output":
     display "It's a file"
 otherwise:
     display "It's a directory (or doesn't exist)"
@@ -371,10 +389,8 @@ end check
 
 **Signature:**
 ```wfl
-is_dir at <path>
+is_dir of <path>
 ```
-
-**Aliases:** `is_directory`
 
 **Parameters:**
 - `path` (Text): Path to check
@@ -383,7 +399,7 @@ is_dir at <path>
 
 **Example:**
 ```wfl
-check if is_dir at "output":
+check if is_dir of "output":
     display "It's a directory"
 end check
 ```
@@ -396,7 +412,7 @@ end check
 
 **Signature:**
 ```wfl
-file size at <path>
+file size of <path>
 ```
 
 **Parameters:**
@@ -406,7 +422,12 @@ file size at <path>
 
 **Example:**
 ```wfl
-store size as file size at "data.txt"
+// Create a file first so it has a size to report
+open file at "data.txt" for writing as data_file
+wait for write content "Hello, WFL!" into data_file
+close file data_file
+
+store size as file size of "data.txt"
 display "File size: " with size with " bytes"
 
 // Convert to KB
@@ -427,7 +448,7 @@ display "File size: " with round of kb with " KB"
 
 **Signature:**
 ```wfl
-count_lines at <path>
+count_lines of <path>
 ```
 
 **Parameters:**
@@ -437,7 +458,12 @@ count_lines at <path>
 
 **Example:**
 ```wfl
-store lines as count_lines at "code.wfl"
+// Create a small file first
+open file at "code.wfl" for writing as code_file
+wait for write content "line one\nline two\nline three" into code_file
+close file code_file
+
+store lines as count_lines of "code.wfl"
 display "File has " with lines with " lines"
 ```
 
@@ -462,6 +488,11 @@ copy_file from <source> to <destination>
 
 **Example:**
 ```wfl
+// Create a source file first
+open file at "original.txt" for writing as source_file
+wait for write content "Important data" into source_file
+close file source_file
+
 copy_file from "original.txt" to "backup.txt"
 display "File copied"
 ```
@@ -485,6 +516,11 @@ move_file from <source> to <destination>
 
 **Example:**
 ```wfl
+// Create a file to rename first
+open file at "old_name.txt" for writing as old_file
+wait for write content "content" into old_file
+close file old_file
+
 move_file from "old_name.txt" to "new_name.txt"
 display "File renamed"
 ```
@@ -509,10 +545,14 @@ remove_file at <path>
 
 **Example:**
 ```wfl
+// Create a temporary file to delete
+open file at "temp.txt" for writing as temp_file
+close file temp_file
+
 try:
     remove_file at "temp.txt"
     display "File deleted"
-catch:
+when error:
     display "Could not delete file"
 end try
 ```
@@ -541,10 +581,12 @@ remove_dir at <path> recursive yes
 
 **Example:**
 ```wfl
-// Remove empty directory
+// Create then remove an empty directory
+makedirs "empty_folder"
 remove_dir at "empty_folder"
 
-// Remove directory and all contents
+// Create a directory with contents, then remove it recursively
+makedirs "old_folder/sub"
 remove_dir at "old_folder" recursive yes
 ```
 
@@ -563,11 +605,11 @@ wait for store files as list files in "."
 display "Files in current directory: " with length of files
 
 // Filter WFL files
-create list wfl_files
+create list wfl_files:
 end list
 
 for each filename in files:
-    store ext as path extension of filename
+    store ext as path_extension of filename
     check if ext is "wfl":
         push with wfl_files and filename
     end check
@@ -578,10 +620,10 @@ display ""
 
 // File information
 for each wfl_file in wfl_files:
-    check if is_file at wfl_file:
-        store size as file size at wfl_file
-        store lines as count_lines at wfl_file
-        store stem as path stem of wfl_file
+    check if is_file of wfl_file:
+        store size as file size of wfl_file
+        store lines as count_lines of wfl_file
+        store stem as path_stem of wfl_file
 
         display wfl_file with ":"
         display "  Size: " with size with " bytes"
@@ -616,7 +658,7 @@ display "=== Demo Complete ==="
 
 In this module, you learned:
 
-✅ **Directory operations** - list_dir, makedirs, remove_dir
+✅ **Directory operations** - list files in, makedirs, remove_dir
 ✅ **Path operations** - join, extension, basename, dirname, stem
 ✅ **File information** - exists, is_file, is_dir, size, count_lines
 ✅ **File operations** - copy, move, remove

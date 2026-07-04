@@ -15,9 +15,9 @@ const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/;
 
 ```wfl
 create pattern email:
-    one or more letter or digit or symbol from "._-"
+    one or more letter or digit
     followed by "@"
-    followed by one or more letter or digit or symbol from ".-"
+    followed by one or more letter or digit
     followed by "."
     followed by 2 to 4 letter
 end pattern
@@ -61,6 +61,10 @@ end check
 ### Testing Matches
 
 ```wfl
+create pattern greeting:
+    "hello"
+end pattern
+
 store text as "hello world"
 
 check if text matches greeting:
@@ -266,7 +270,7 @@ end check
 
 ```wfl
 create pattern email_address:
-    one or more letter or digit or symbol from "._-"
+    one or more letter or digit
     followed by "@"
     followed by one or more letter or digit
     followed by "."
@@ -290,9 +294,9 @@ end check
 
 ```wfl
 create pattern email:
-    one or more letter or digit or symbol from "._-"
+    one or more letter or digit
     followed by "@"
-    followed by one or more letter or digit or symbol from ".-"
+    followed by one or more letter or digit
     followed by "."
     followed by 2 to 4 letter
 end pattern
@@ -305,7 +309,7 @@ define action called validate email with parameters address:
     end check
 end action
 
-check if validate email with "user@example.com":
+check if validate email of "user@example.com":
     display "Valid email address"
 end check
 ```
@@ -374,11 +378,11 @@ end check
 ### Input Validator
 
 ```wfl
-define action called validate input with parameters data and pattern_name:
-    check if data matches pattern_name:
+define action called validate input with parameters input_value and pattern_name:
+    check if input_value matches pattern_name:
         return yes
     otherwise:
-        display "Validation failed for: " with data
+        display "Validation failed for: " with input_value
         return no
     end check
 end action
@@ -387,7 +391,7 @@ create pattern alphanumeric:
     one or more letter or digit
 end pattern
 
-check if validate input with "abc123" and alphanumeric:
+check if validate input of "abc123" and alphanumeric:
     display "Input is valid"
 end check
 ```
@@ -440,7 +444,7 @@ end check
 
 ```wfl
 create pattern username:
-    3 to 16 letter or digit or symbol from "_-"
+    3 to 16 letter or digit
 end pattern
 ```
 
@@ -518,6 +522,8 @@ end pattern
 **Example:**
 
 ```wfl
+store text as "hello world"
+
 // Don't use pattern for this:
 create pattern has_hello:
     "hello"
@@ -535,14 +541,14 @@ end check
 
 **Wrong:**
 ```wfl
-create pattern test:
+create pattern example_pattern:
     "hello"
 // Missing end pattern!
 ```
 
 **Right:**
 ```wfl
-create pattern test:
+create pattern example_pattern:
     "hello"
 end pattern
 ```

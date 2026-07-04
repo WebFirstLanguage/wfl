@@ -162,7 +162,7 @@ If you MUST deprecate:
 
 ```wfl
 // Adding new parameter with default (SAFE)
-define action called process with parameters data and options:
+define action called process_records with parameters records and options:
     // options defaults to empty if not provided
 end action
 ```
@@ -171,7 +171,7 @@ end action
 
 ```wfl
 // Don't do this without deprecation period!
-// define action called process with parameters data:
+// define action called process_records with parameters records:
 ```
 
 ## Communication
@@ -206,9 +206,9 @@ Dev diary/
 
 Everyone uses same .wflcfg:
 
-```wfl
-// All team members format the same way
-wfl --fix code.wfl --in-place
+```bash
+# All team members format the same way (--fix must be combined with --lint)
+wfl --lint --fix code.wfl --in-place
 ```
 
 ### Shared Understanding

@@ -82,6 +82,7 @@ if (age >= 18) {
 
 **WFL:**
 ```wfl
+store age as 20
 check if age is greater than or equal to 18:
     display "Adult"
 end check
@@ -127,7 +128,7 @@ Every programming language has these building blocks. Here's how WFL implements 
 ```wfl
 store name as "Alice"
 store age as 25
-store is active as yes
+store is_active as yes
 ```
 
 **Learn more:** [Variables and Types →](variables-and-types.md)
@@ -135,6 +136,7 @@ store is active as yes
 ### Decisions (Conditionals)
 
 ```wfl
+store temperature as 35
 check if temperature is greater than 30:
     display "Hot!"
 otherwise:
@@ -151,7 +153,8 @@ count from 1 to 5:
     display count
 end count
 
-for each item in shopping list:
+store shopping_items as ["milk", "eggs", "bread"]
+for each item in shopping_items:
     display item
 end for
 ```
@@ -190,9 +193,9 @@ end for
 
 ```wfl
 try:
-    open file at "data.txt" for reading as file
-    store content as read content from file
-    close file
+    open file at "data.txt" for reading as my_file
+    store file_content as read content from my_file
+    close my_file
 when error:
     display "Could not read file"
 end try
@@ -234,14 +237,14 @@ Here's a program that uses all the basics you'll learn in this section:
 // Variables and types
 store items needed as 5
 store item name as "widgets"
-store in stock as yes
+store in_stock as yes
 
 // Display with type checking
 display "Item: " with item name
 display "Type of item name: " with typeof of item name
 
 // Conditional logic
-check if in stock is yes:
+check if in_stock is yes:
     display "We have " with items needed with " " with item name with " in stock"
 otherwise:
     display "Sorry, " with item name with " is out of stock"
@@ -273,7 +276,7 @@ define action called calculate total with parameters quantity and price:
 end action
 
 store unit price as 10.50
-store total as calculate total with items needed and unit price
+store total as calculate total of items needed and unit price
 display ""
 display "Total cost: $" with total
 

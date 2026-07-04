@@ -534,9 +534,9 @@ end
 
 define action called greet:
     display "Hello!"
-end
+end action
 
-store constant VERSION as "1.0.0"
+store new constant VERSION as "1.0.0"
 
 # Document which items are intended for external use
 export container Person
@@ -649,7 +649,7 @@ end check
 
 ```wfl
 # main.wfl
-create list as plugins
+store plugins as []
 
 push with plugins and "auth.wfl"
 push with plugins and "cache.wfl"
@@ -764,13 +764,13 @@ Step 5: Back to entry
 The following features are planned for future versions:
 
 ### Module Aliases (V2)
-```wfl
+```text
 load module from "utilities.wfl" as utils
 # Access module namespace in future version
 ```
 
 ### Export Control (V2)
-```wfl
+```text
 # In module:
 export variable helper_function
 export constant VERSION
@@ -779,20 +779,20 @@ export constant VERSION
 ```
 
 ### Selective Imports (V3)
-```wfl
+```text
 load calculate, validate from "math_utils.wfl"
 # Import only specific items
 ```
 
 ### Module Caching (V3)
-```wfl
+```text
 # Modules loaded once and cached
 load module from "expensive.wfl"
 load module from "expensive.wfl"  # Uses cached version
 ```
 
 ### Package System (V4)
-```wfl
+```text
 load module from "package:http-client"
 load module from "package:json-parser"
 ```

@@ -1,0 +1,12 @@
+// 02 - Variables and types. `store` creates, `change` updates.
+store name as "Alice"
+store age as 30
+store is_member as yes
+
+display "Name: " with name
+display "Age: " with age
+display "Member? " with is_member
+display "age is a " with typeof of age
+
+change age to age plus 1
+display "Next year: " with age

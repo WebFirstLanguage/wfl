@@ -99,7 +99,7 @@ define action called double with parameters n:
     return n times 2
 end action
 
-store result as double with 21
+store result as double of 21
 display "Double of 21 is " with result
 ```
 
@@ -112,9 +112,9 @@ display "Double of 21 is " with result
 ```wfl
 try:
     open file at "data.txt" for reading as myfile
-    wait for store content as read content from myfile
+    wait for store file_content as read content from myfile
     close file myfile
-    display content
+    display file_content
 catch:
     display "Error: Could not read file"
 end try
@@ -140,11 +140,12 @@ display "File written"
 ```wfl
 store numbers as [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-create list evens
+create list evens:
 end list
 
 for each num in numbers:
-    check if num % 2 is equal to 0:
+    store remainder as num % 2
+    check if remainder is equal to 0:
         push with evens and num
     end check
 end for
@@ -194,9 +195,10 @@ try:
     store result as 10 divided by 0
 catch:
     display "Error caught: Division by zero"
-finally:
-    display "Cleanup complete"
 end try
+
+// WFL has no `finally`; put cleanup after `end try`
+display "Cleanup complete"
 ```
 
 ---
@@ -209,7 +211,7 @@ define action called c_to_f with parameters celsius:
 end action
 
 store temp_c as 25
-store temp_f as c_to_f with temp_c
+store temp_f as c_to_f of temp_c
 display temp_c with "°C = " with temp_f with "°F"
 ```
 
@@ -220,16 +222,19 @@ display temp_c with "°C = " with temp_f with "°F"
 ### 16. Simple Web Server
 
 ```wfl
-listen on port 8080 as server
+listen on port 8080 as web_server
 display "Server at http://127.0.0.1:8080"
 
-wait for request comes in on server as req
+main loop:
+    wait for request comes in on web_server as req
+    store request_path as path of req
 
-check if path is equal to "/":
-    respond to req with "Hello from WFL!"
-otherwise:
-    respond to req with "Not found" and status 404
-end check
+    check if request_path is equal to "/":
+        respond to req with "Hello from WFL!"
+    otherwise:
+        respond to req with "Not found" and status 404
+    end check
+end loop
 ```
 
 ---
@@ -242,8 +247,8 @@ wait for store files as list files in "."
 display "Files in current directory:"
 for each filename in files:
     check if file exists at filename:
-        store size as file size at filename
-        display "  " with filename with " (" with size with " bytes)"
+        store file_bytes as file size of filename
+        display "  " with filename with " (" with file_bytes with " bytes)"
     end check
 end for
 ```
@@ -278,7 +283,7 @@ alice.introduce()
 display "Rolling dice..."
 
 count from 1 to 10:
-    store roll as random_int between 1 and 6
+    store roll as random_int of 1 and 6
     display "Roll " with count with ": " with roll
 end count
 ```
@@ -288,10 +293,10 @@ end count
 ### 20. Hash Generation
 
 ```wfl
-store data as "Sensitive information"
-store hash as wflhash256 of data
+store payload as "Sensitive information"
+store hash as wflhash256 of payload
 
-display "Data: " with data
+display "Data: " with payload
 display "Hash: " with substring of hash from 0 length 32 with "..."
 ```
 
@@ -337,7 +342,7 @@ display "Config: " with app_config
 
 ```wfl
 try:
-    wait for execute command "git status" as output
+    wait for execute command "git status" as command_output
     display "Git status executed"
 catch:
     display "Git command failed - is this a git repository?"
@@ -366,7 +371,7 @@ display "Days between: " with days_diff
 ```wfl
 display "=== Simple Task Manager ==="
 
-create list tasks
+create list tasks:
 end list
 
 // Add tasks
@@ -383,7 +388,7 @@ for each task in tasks:
 end for
 
 // Mark first task complete
-store completed as pop from tasks
+store completed as pop of tasks
 display ""
 display "Completed: " with completed
 

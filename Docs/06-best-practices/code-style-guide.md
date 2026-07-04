@@ -21,6 +21,8 @@ consistent_keyword_case = true
 **Use 4 spaces** (not tabs):
 
 ```wfl
+store condition as yes
+store another_condition as yes
 check if condition:
     display "Indented 4 spaces"
     check if another_condition:
@@ -44,10 +46,10 @@ display "This is a long message that has been"
 display "broken into multiple lines for readability"
 ```
 
-**Or:**
+**Or:** build the string across separate statements (WFL has no line-continuation):
 ```wfl
-store message as "This is a long message that has been " with
-    "broken across lines"
+store message_start as "This is a long message that has been "
+store message as message_start with "broken across lines"
 display message
 ```
 
@@ -57,6 +59,12 @@ display message
 
 **Too deep:**
 ```wfl
+store a as yes
+store b as yes
+store c as yes
+store d as yes
+store e as yes
+store f as yes
 check if a:
     check if b:
         check if c:
@@ -73,6 +81,11 @@ end check
 
 **Better:**
 ```wfl
+store a as yes
+store b as yes
+store c as yes
+store d as yes
+store e as yes
 check if a and b and c and d and e:
     // Use logical operators
 end check
@@ -80,7 +93,7 @@ end check
 
 **Or extract to action:**
 ```wfl
-define action called check conditions with parameters a and b and c:
+define action called check_conditions with parameters a and b and c:
     check if a:
         check if b:
             check if c:
@@ -97,6 +110,8 @@ end action
 **Use lowercase keywords consistently:**
 
 ```wfl
+store value as 15
+
 // Good
 check if value is greater than 10:
     display "Large value"
@@ -129,16 +144,18 @@ Use blank lines to separate logical sections:
 ```wfl
 // Configuration
 store max_users as 100
-store timeout as 30
+store timeout_seconds as 30
 
 // Validation
+store user_count as 42
 check if user_count is less than max_users:
-    allow_new_user()
+    display "Room for a new user"
 end check
 
 // Processing
+store users as ["alice", "bob"]
 for each user in users:
-    process_user(user)
+    display "Processing " with user
 end for
 ```
 
@@ -181,16 +198,18 @@ Quick rules:
 ### Always Use `end` Keywords
 
 ```wfl
+store condition as yes
 check if condition:
-    code
+    display "code"
 end check  // Always close blocks
 
 count from 1 to 10:
-    code
+    display "code"
 end count  // Always close
 
-for each item in list:
-    code
+store items as [1, 2, 3]
+for each item in items:
+    display "code"
 end for  // Always close
 ```
 
@@ -198,6 +217,7 @@ end for  // Always close
 
 **Good:**
 ```wfl
+store value as 15
 check if value is greater than 10:
     display "Large"
 otherwise:
@@ -207,6 +227,7 @@ end check
 
 **Avoid one-liners for complex logic:**
 ```wfl
+store x as 5
 // Harder to read:
 check if x is 5: display "Five" otherwise: display "Not five" end check
 ```
@@ -230,7 +251,7 @@ define action called celsius_to_fahrenheit with parameters celsius:
 end action
 
 define action called fahrenheit_to_celsius with parameters fahrenheit:
-    store celsius as fahrenheit minus celsius_to_f_offset divided by celsius_to_f_multiplier
+    store celsius as (fahrenheit minus celsius_to_f_offset) divided by celsius_to_f_multiplier
     return celsius
 end action
 
@@ -240,11 +261,11 @@ display ""
 
 // Test conversions
 store temp_c as 25
-store temp_f as celsius_to_fahrenheit with temp_c
+store temp_f as celsius_to_fahrenheit of temp_c
 display temp_c with "°C = " with temp_f with "°F"
 
 store temp_f2 as 77
-store temp_c2 as fahrenheit_to_celsius with temp_f2
+store temp_c2 as fahrenheit_to_celsius of temp_f2
 display temp_f2 with "°F = " with temp_c2 with "°C"
 ```
 

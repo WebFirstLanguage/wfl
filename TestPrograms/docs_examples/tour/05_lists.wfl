@@ -1,0 +1,13 @@
+// 05 - Building a list and filtering it.
+create list evens:
+end list
+
+count from 1 to 10:
+    store remainder as count % 2
+    check if remainder is equal to 0:
+        push with evens and count
+    end check
+end count
+
+display "Even numbers 1..10: " with evens
+display "How many: " with length of evens

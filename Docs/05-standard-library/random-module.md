@@ -51,11 +51,6 @@ end count
 random_between of <min> and <max>
 ```
 
-**Alternative:**
-```wfl
-random_between between <min> and <max>
-```
-
 **Parameters:**
 - `min` (Number): Minimum value
 - `max` (Number): Maximum value
@@ -84,7 +79,7 @@ display "Random percentage: " with percentage with "%"
 
 **Signature:**
 ```wfl
-random_int between <min> and <max>
+random_int of <min> and <max>
 ```
 
 **Parameters:**
@@ -95,10 +90,10 @@ random_int between <min> and <max>
 
 **Example:**
 ```wfl
-store dice_roll as random_int between 1 and 6
+store dice_roll as random_int of 1 and 6
 display "Dice roll: " with dice_roll
 
-store age as random_int between 18 and 65
+store age as random_int of 18 and 65
 display "Random age: " with age
 ```
 
@@ -110,8 +105,8 @@ display "Random age: " with age
 
 **Example: Roll Two Dice**
 ```wfl
-store die1 as random_int between 1 and 6
-store die2 as random_int between 1 and 6
+store die1 as random_int of 1 and 6
+store die2 as random_int of 1 and 6
 store total as die1 plus die2
 
 display "Die 1: " with die1
@@ -180,11 +175,6 @@ display "Tails: " with tails_count
 random_from of <list>
 ```
 
-**Alternative:**
-```wfl
-random_from <list>
-```
-
 **Parameters:**
 - `list` (List): List to select from
 
@@ -231,11 +221,6 @@ display greeting with ", welcome to WFL!"
 random_seed of <seed>
 ```
 
-**Alternative:**
-```wfl
-random_seed <seed>
-```
-
 **Parameters:**
 - `seed` (Number): Seed value
 
@@ -246,15 +231,15 @@ random_seed <seed>
 // Set seed for reproducibility
 random_seed of 12345
 
-store r1 as random_int between 1 and 100
-store r2 as random_int between 1 and 100
+store r1 as random_int of 1 and 100
+store r2 as random_int of 1 and 100
 display r1 with ", " with r2
 
 // Reset to same seed
 random_seed of 12345
 
-store r3 as random_int between 1 and 100
-store r4 as random_int between 1 and 100
+store r3 as random_int of 1 and 100
+store r4 as random_int of 1 and 100
 display r3 with ", " with r4
 
 // r1 = r3, r2 = r4 (same sequence!)
@@ -284,7 +269,7 @@ display ""
 // Random integers
 display "Dice rolls (1-6):"
 count from 1 to 5:
-    store roll as random_int between 1 and 6
+    store roll as random_int of 1 and 6
     display "  Roll " with count with ": " with roll
 end count
 display ""
@@ -352,9 +337,9 @@ display "Random password: " with password
 ### Random Color Generator
 
 ```wfl
-store red as random_int between 0 and 255
-store green as random_int between 0 and 255
-store blue as random_int between 0 and 255
+store red as random_int of 0 and 255
+store green as random_int of 0 and 255
+store blue as random_int of 0 and 255
 
 display "RGB(" with red with ", " with green with ", " with blue with ")"
 ```
@@ -363,36 +348,48 @@ display "RGB(" with red with ", " with green with ", " with blue with ")"
 
 ```wfl
 // 70% common, 20% uncommon, 10% rare
-store roll as random_int between 1 and 100
+store roll as random_int of 1 and 100
 
 check if roll is less than or equal to 70:
     display "Common item"
-check if roll is less than or equal to 90:
-    display "Uncommon item"
 otherwise:
-    display "Rare item!"
+    check if roll is less than or equal to 90:
+        display "Uncommon item"
+    otherwise:
+        display "Rare item!"
+    end check
 end check
 ```
 
 ### Shuffle List (Simple)
 
 ```wfl
-define action called simple shuffle with parameters list:
-    create list shuffled
+define action called simple_shuffle with parameters items:
+    // Work on a copy so the original list is left untouched.
+    create list pool:
+    end list
+    for each item in items:
+        push with pool and item
+    end for
+
+    create list shuffled:
     end list
 
-    store remaining_count as length of list
-
+    // Draw a random element and REMOVE it each time, so every
+    // element appears exactly once (no sampling with replacement).
+    store remaining_count as length of pool
     count from 1 to remaining_count:
-        store random_item as random_from of list
-        push with shuffled and random_item
+        store last_index as (length of pool) minus 1
+        store pick as random_int of 0 and last_index
+        push with shuffled and pool[pick]
+        remove_at of pool and pick
     end count
 
     return shuffled
 end action
 
 store deck as ["A", "K", "Q", "J"]
-store shuffled_deck as simple shuffle with deck
+store shuffled_deck as simple_shuffle of deck
 display "Shuffled: " with shuffled_deck
 ```
 
