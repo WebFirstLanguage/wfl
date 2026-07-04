@@ -205,9 +205,13 @@ write binary <binary-or-byte-list> into <handle>
 close file <handle>
 ```
 
-> **Note:** `data`, `bytes`, and `header` are reserved keywords, so choose
-> another name (e.g. `payload`, `content_bytes`, `signature_bytes`) when naming
-> a variable or list that holds binary content.
+> **Note:** `data` and `header` are **always-reserved** keywords and can never
+> be used as a variable or list name. `bytes` is **contextual** — it works as a
+> plain `store` variable but is rejected as a `create list` name. The simplest
+> way to avoid all of these is to append a descriptive suffix with an underscore:
+> `file_data`, `header_bytes`, `content_bytes`, `signature_bytes`. See
+> [`reserved-keywords.md`](../reference/reserved-keywords.md) for the full list
+> and the always-reserved vs. contextual distinction.
 
 Binary reads and writes are capped at 50 MB per operation as a safety limit.
 
@@ -398,11 +402,16 @@ wait for store text_files as list files in "input"
 store processed as 0
 
 for each filename in text_files:
+    // Track handles in outer variables so we can close them AFTER end try —
+    // WFL has no `finally`, and closing inside the try would leak a handle if a
+    // later read or write throws.
+    store in_handle as nothing
+    store out_handle as nothing
     try:
         // Read input file
         open file at "input/" with filename for reading as infile
+        change in_handle to infile
         wait for store file_content as read content from infile
-        close file infile
 
         // Process content (example: uppercase)
         store processed_content as touppercase of file_content
@@ -410,14 +419,20 @@ for each filename in text_files:
         // Write output file
         store outfile_name as "output/" with filename
         open file at outfile_name for writing as outfile
+        change out_handle to outfile
         wait for write content processed_content into outfile
-        close file outfile
 
         add 1 to processed
         display "Processed: " with filename
     when error:
         display "Error processing: " with filename
     end try
+    check if in_handle is not nothing:
+        close file in_handle
+    end check
+    check if out_handle is not nothing:
+        close file out_handle
+    end check
 end for
 
 display ""
@@ -456,21 +471,37 @@ close file setupfile
 define action called backup_file with parameters source:
     store backup_name as source with ".backup"
 
+    // Keep both handles in outer variables so we can close them after end try,
+    // and use a `succeeded` flag so the returns happen after cleanup — returning
+    // inside the try would skip the close on the success path.
+    store src_handle as nothing
+    store dest_handle as nothing
+    store succeeded as no
     try:
         open file at source for reading as src
+        change src_handle to src
         wait for store file_content as read content from src
-        close file src
 
         open file at backup_name for writing as dest
+        change dest_handle to dest
         wait for write content file_content into dest
-        close file dest
 
-        display "Backed up " with source with " to " with backup_name
-        return yes
+        change succeeded to yes
     when error:
         display "Backup failed for " with source
-        return no
     end try
+    check if src_handle is not nothing:
+        close file src_handle
+    end check
+    check if dest_handle is not nothing:
+        close file dest_handle
+    end check
+    check if succeeded is yes:
+        display "Backed up " with source with " to " with backup_name
+        return yes
+    otherwise:
+        return no
+    end check
 end action
 
 call backup_file with "important.txt"

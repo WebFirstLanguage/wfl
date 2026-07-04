@@ -169,17 +169,28 @@ def find_expected_output(lines: List[str], idx: int) -> Optional[str]:
 # running it and counting a guaranteed lexing failure as a hard error.
 PLACEHOLDER_RE = re.compile(r"<[^>\n]{1,40}>")
 
+# Quoted spans are stripped before placeholder detection: angle brackets inside a
+# string literal (e.g. `respond to req with "<h1>Welcome!</h1>"`) are real,
+# runnable WFL, whereas only *unquoted* `<token>` spans are template pseudo-syntax
+# that would fail to lex.
+STRING_LITERAL_RE = re.compile(r'"[^"\n]*"|\'[^\'\n]*\'')
+
 # WFL's built-in test framework (describe/test/expect) only runs under `--test`.
 TEST_FRAMEWORK_RE = re.compile(r"^\s*(describe|test)\s+\"|^\s*expect\s", re.MULTILINE)
 
 
+def has_placeholder(code: str) -> bool:
+    """True only for unquoted `<token>` template markers, not HTML in strings."""
+    return bool(PLACEHOLDER_RE.search(STRING_LITERAL_RE.sub("", code)))
+
+
 def looks_like_snippet(code: str) -> bool:
-    stripped = [l for l in code.splitlines() if l.strip()]
+    stripped = [line for line in code.splitlines() if line.strip()]
     if not stripped:
         return True
     if any(hint in code for hint in SNIPPET_HINTS):
         return True
-    if PLACEHOLDER_RE.search(code):
+    if has_placeholder(code):
         return True
     lowered = stripped[0].lstrip().lower()
     if lowered.startswith(SHELL_LEADS):
@@ -249,7 +260,7 @@ def run_block(blk: Block, wfl_bin: str, timeout: int) -> None:
 
 def normalize(s: str) -> str:
     # Collapse trailing whitespace per line; ignore blank-line-only diffs.
-    lines = [l.rstrip() for l in s.splitlines()]
+    lines = [line.rstrip() for line in s.splitlines()]
     while lines and lines[-1] == "":
         lines.pop()
     return "\n".join(lines)
@@ -300,7 +311,7 @@ def categorize(blk: Block) -> str:
         return "OUTPUT_DRIFT"
     # `<placeholder>` templates are pseudo-syntax; surface them as PLACEHOLDER
     # whether they were skipped as SNIPPET or attempted and failed.
-    if PLACEHOLDER_RE.search(code):
+    if has_placeholder(code):
         return "PLACEHOLDER"
     if cl == "SNIPPET":
         return "SNIPPET"
@@ -339,10 +350,10 @@ def categorize(blk: Block) -> str:
 
 def first_error_line(blk: Block) -> str:
     s = ANSI_RE.sub("", blk.stderr or "")
-    for l in s.splitlines():
-        l = l.strip()
-        if re.search(r"error\[|Lexing error|expected|Unexpected", l, re.I):
-            return re.sub(r"\s+", " ", l)[:100]
+    for line in s.splitlines():
+        line = line.strip()
+        if re.search(r"error\[|Lexing error|expected|Unexpected", line, re.I):
+            return re.sub(r"\s+", " ", line)[:100]
     return (s.strip().splitlines() or [""])[0][:100]
 
 
