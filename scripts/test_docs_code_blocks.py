@@ -164,11 +164,22 @@ def find_expected_output(lines: List[str], idx: int) -> Optional[str]:
     return None
 
 
+# A `<placeholder>` template (e.g. `store <name> as <value>`) is documentation
+# pseudo-syntax, not runnable WFL — recognize it so we skip execution instead of
+# running it and counting a guaranteed lexing failure as a hard error.
+PLACEHOLDER_RE = re.compile(r"<[^>\n]{1,40}>")
+
+# WFL's built-in test framework (describe/test/expect) only runs under `--test`.
+TEST_FRAMEWORK_RE = re.compile(r"^\s*(describe|test)\s+\"|^\s*expect\s", re.MULTILINE)
+
+
 def looks_like_snippet(code: str) -> bool:
     stripped = [l for l in code.splitlines() if l.strip()]
     if not stripped:
         return True
     if any(hint in code for hint in SNIPPET_HINTS):
+        return True
+    if PLACEHOLDER_RE.search(code):
         return True
     lowered = stripped[0].lstrip().lower()
     if lowered.startswith(SHELL_LEADS):
@@ -177,6 +188,10 @@ def looks_like_snippet(code: str) -> bool:
     if lowered.startswith(FRAGMENT_LEADS):
         return True
     return False
+
+
+def uses_test_framework(code: str) -> bool:
+    return bool(TEST_FRAMEWORK_RE.search(code))
 
 
 def run_block(blk: Block, wfl_bin: str, timeout: int) -> None:
@@ -189,9 +204,15 @@ def run_block(blk: Block, wfl_bin: str, timeout: int) -> None:
     workdir = tempfile.mkdtemp(prefix="wfl_doc_")
     tmp = str(Path(workdir) / "example.wfl")
     Path(tmp).write_text(blk.code + "\n", encoding="utf-8")
+    cmd = [str(Path(wfl_bin).resolve())]
+    if uses_test_framework(blk.code):
+        # describe/test/expect blocks need test mode to execute.
+        cmd.append("--test")
+        blk.note = "run with --test (describe/test/expect)"
+    cmd.append("example.wfl")
     try:
         proc = subprocess.run(
-            [str(Path(wfl_bin).resolve()), "example.wfl"],
+            cmd,
             capture_output=True, text=True, timeout=timeout, cwd=workdir,
         )
         blk.exit_code = proc.returncode
@@ -273,14 +294,18 @@ def categorize(blk: Block) -> str:
     se = ANSI_RE.sub("", blk.stderr or "")
     if cl == "PASS":
         return "PASS"
-    if cl == "SNIPPET":
-        return "SNIPPET"
     if cl == "TIMEOUT":
         return "SERVER_DEMO"
     if cl == "OUTPUT_MISMATCH":
         return "OUTPUT_DRIFT"
+    # `<placeholder>` templates are pseudo-syntax; surface them as PLACEHOLDER
+    # whether they were skipped as SNIPPET or attempted and failed.
+    if PLACEHOLDER_RE.search(code):
+        return "PLACEHOLDER"
+    if cl == "SNIPPET":
+        return "SNIPPET"
     # cl == ERROR below
-    if re.search(r"<[^>\n]{0,40}>", code) or "..." in code:
+    if "..." in code:
         return "PLACEHOLDER"
     if "Lexing error" in se and ("`>`" in se or "`<`" in se):
         return "PLACEHOLDER"
