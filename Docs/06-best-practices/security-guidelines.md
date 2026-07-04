@@ -24,9 +24,11 @@ define action called safe_echo with parameters user_text:
         return no
     end check
 
-    // Pass user input as an argument, never concatenated into the command string
-    // ("echo" is a standalone executable on Unix; on Windows it is a shell
-    //  built-in, so run it via "cmd" with arguments ["/c", "echo", user_text].)
+    // Pass user input as an argument, never concatenated into the command string.
+    // Note: `execute command` does NOT go through a shell, so this Unix/macOS
+    // form runs the standalone "echo" executable. On Windows "echo" is a shell
+    // built-in with no executable, so there you would instead run:
+    //   execute command "cmd" with arguments ["/c", "echo", user_text]
     wait for execute command "echo" with arguments [user_text]
     return yes
 end action
