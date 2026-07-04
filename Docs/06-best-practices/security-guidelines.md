@@ -125,7 +125,8 @@ display "API Key: " with api_key  // Don't log secrets!
 // Right:
 store key_length as length of api_key
 store start_index as key_length minus 4
-store last_four as substring of api_key and start_index and key_length
+// substring is (text, start, length) — take 4 characters from start_index
+store last_four as substring of api_key and start_index and 4
 display "API Key: ****" with last_four
 // Only show last 4 characters
 ```

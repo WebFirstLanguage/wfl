@@ -192,7 +192,7 @@ store phrase as "Hello, World!"
 
 display substring of phrase from 0 length 5    // Output: Hello
 display substring of phrase from 7 length 5    // Output: World
-display substring of phrase and 0 and 7        // Output: Hello,
+display substring of phrase and 0 and 6        // Output: Hello, (start 0, length 6)
 ```
 
 **Notes:**

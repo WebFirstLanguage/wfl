@@ -107,13 +107,15 @@ display "Directory structure created"
 
 **Signature:**
 ```wfl
-path_join of <part1> and <part2>
+path_join of <part1> and <part2> and ...
 ```
 
 **Parameters:**
-- Path components to join. The underlying builtin joins any number of
-  components, but the type checker currently accepts **two per call**, so to
-  join more than two, chain the calls (see example). Tracking: wfl#571.
+- One or more path components. `path_join` is variadic — it joins all the
+  components you pass (e.g. `path_join of "home" and "user" and "docs"` →
+  `home/user/docs`). Note: the type checker currently emits a non-fatal warning
+  when more than two components are passed, so the two-at-a-time / chained form
+  shown below avoids that warning. Tracking: wfl#571.
 
 **Returns:** Text - Joined path with proper separators
 

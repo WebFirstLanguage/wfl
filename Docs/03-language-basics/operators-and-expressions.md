@@ -291,10 +291,10 @@ display "Name: " with name with ", Age: " with age with ", City: " with city
 **NOT for math:**
 ```wfl
 // Wrong way to add numbers:
-store sum as 5 with 3             // This concatenates: "53"
+store joined as 5 with 3          // This concatenates: "53"
 
-// Right way:
-change sum to 5 plus 3            // This adds: 8
+// Right way (use a separate variable — a variable keeps its first type):
+store total as 5 plus 3           // This adds: 8
 ```
 
 ## Order of Operations

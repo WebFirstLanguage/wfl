@@ -108,7 +108,7 @@ create pattern email_address:
     followed by "@"
     followed by one or more letter or digit
     followed by "."
-    followed by letter between 2 and 4
+    followed by 2 to 4 letter
 end pattern
 
 check if "user@example.com" matches email_address:
