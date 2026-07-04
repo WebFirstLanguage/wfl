@@ -207,8 +207,8 @@ Dev diary/
 Everyone uses same .wflcfg:
 
 ```bash
-# All team members format the same way
-wfl --fix code.wfl --in-place
+# All team members format the same way (--fix must be combined with --lint)
+wfl --lint --fix code.wfl --in-place
 ```
 
 ### Shared Understanding

@@ -117,7 +117,7 @@ end try
 ### Don't Log Secrets
 
 ```wfl
-store api_key as "sk_live_abcd1234"
+store api_key as "EXAMPLE_not_a_real_key"
 
 // Wrong:
 display "API Key: " with api_key  // Don't log secrets!

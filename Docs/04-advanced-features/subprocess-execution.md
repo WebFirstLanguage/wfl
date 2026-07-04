@@ -84,6 +84,7 @@ end check
 ### Kill a Process
 
 ```wfl
+// "sleep" is a Unix command; on Windows use e.g. "timeout /t 5" instead.
 wait for spawn command "sleep 5" as proc
 
 // Wait a bit
