@@ -1809,6 +1809,8 @@ impl TypeChecker {
             Statement::ListenStatement {
                 port,
                 server_name: _server_name,
+                tls,
+                redirect_to_port,
                 line: _line,
                 column: _column,
             } => {
@@ -1824,6 +1826,47 @@ impl TypeChecker {
                         *_line,
                         *_column,
                     );
+                }
+
+                // Certificate and key paths must be text
+                if let Some(tls_config) = tls {
+                    for (path_expr, what) in [
+                        (tls_config.cert_path.as_ref(), "Certificate path"),
+                        (tls_config.key_path.as_ref(), "Key path"),
+                    ] {
+                        if let Some(expr) = path_expr {
+                            let path_type = self.infer_expression_type(expr);
+                            if path_type != Type::Text
+                                && path_type != Type::Unknown
+                                && path_type != Type::Error
+                            {
+                                self.type_error(
+                                    format!("{what} must be text"),
+                                    Some(Type::Text),
+                                    Some(path_type),
+                                    *_line,
+                                    *_column,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Redirect target must be a number
+                if let Some(target_port) = redirect_to_port {
+                    let target_type = self.infer_expression_type(target_port);
+                    if target_type != Type::Number
+                        && target_type != Type::Unknown
+                        && target_type != Type::Error
+                    {
+                        self.type_error(
+                            "Redirect target port must be a number".to_string(),
+                            Some(Type::Number),
+                            Some(target_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
                 }
             }
             Statement::WaitForRequestStatement {

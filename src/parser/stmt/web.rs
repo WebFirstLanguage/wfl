@@ -2,10 +2,12 @@
 
 use super::super::{Expression, ParseError, Parser, Statement};
 use crate::lexer::token::Token;
+use crate::parser::ast::TlsListenConfig;
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
 
 pub(crate) trait WebParser<'a>: ExprParser<'a> + PrimaryExprParser<'a> {
     fn parse_listen_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_tls_path_value(&mut self, marker: &str) -> Result<Expression, ParseError>;
     fn parse_respond_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_register_signal_handler_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_stop_accepting_connections_statement(&mut self) -> Result<Statement, ParseError>;
@@ -22,8 +24,107 @@ impl<'a> WebParser<'a> for Parser<'a> {
         // Expect "port"
         self.expect_token(Token::KeywordPort, "Expected 'port' after 'listen on'")?;
 
-        // Parse port expression
-        let port = self.parse_expression()?;
+        // Optional clause markers. `secured` and `redirecting` are contextual
+        // identifiers, not keywords, so existing programs can still use them
+        // as variable names. The lexer merges adjacent identifiers, so a
+        // variable port arrives glued to the marker (`my_port secured` lexes
+        // as Identifier("my_port secured")). Detect that BEFORE parsing the
+        // port expression: `with` is a concatenation operator, so
+        // parse_expression would otherwise swallow a following
+        // `with certificate ...` clause into the port expression.
+        let mut marker: Option<&str> = None;
+        let mut merged_port: Option<Expression> = None;
+        if let Some(token) = self.cursor.peek()
+            && let Token::Identifier(id) = &token.token
+        {
+            for candidate in ["secured", "redirecting"] {
+                if let Some(stripped) = id.strip_suffix(&format!(" {candidate}")) {
+                    merged_port = Some(Expression::Variable(
+                        stripped.to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                    marker = Some(candidate);
+                    break;
+                }
+            }
+            if marker.is_some() {
+                self.bump_sync(); // Consume the merged port variable + marker
+            }
+        }
+
+        // Parse port expression (unless already extracted from a merged token)
+        let port = match merged_port {
+            Some(port) => port,
+            None => self.parse_expression()?,
+        };
+        if marker.is_none()
+            && let Some(token) = self.cursor.peek()
+            && let Token::Identifier(id) = &token.token
+        {
+            match id.as_str() {
+                "secured" => {
+                    self.bump_sync();
+                    marker = Some("secured");
+                }
+                "redirecting" => {
+                    self.bump_sync();
+                    marker = Some("redirecting");
+                }
+                _ => {}
+            }
+        }
+
+        let mut tls: Option<TlsListenConfig> = None;
+        let mut redirect_to_port: Option<Expression> = None;
+
+        match marker {
+            Some("secured") => {
+                if let Some(token) = self.cursor.peek()
+                    && token.token == Token::KeywordWith
+                {
+                    // `secured with certificate <expr> and key <expr>`
+                    self.bump_sync(); // Consume "with"
+                    let cert_path = self.parse_tls_path_value("certificate")?;
+                    self.expect_token(
+                        Token::KeywordAnd,
+                        "Expected 'and key ...' after certificate path",
+                    )?;
+                    let key_path = self.parse_tls_path_value("key")?;
+                    tls = Some(TlsListenConfig {
+                        cert_path: Some(cert_path),
+                        key_path: Some(key_path),
+                    });
+                } else {
+                    // Bare `secured` — certificate and key paths come from
+                    // .wflcfg at runtime.
+                    tls = Some(TlsListenConfig {
+                        cert_path: None,
+                        key_path: None,
+                    });
+                }
+
+                // Reject `secured ... redirecting ...` explicitly: a listener
+                // either terminates TLS or redirects to one, never both.
+                if let Some(token) = self.cursor.peek()
+                    && let Token::Identifier(id) = &token.token
+                    && (id == "redirecting" || id.starts_with("redirecting "))
+                {
+                    return Err(ParseError::from_token(
+                        "'secured' and 'redirecting to port' cannot be combined on one listen statement"
+                            .to_string(),
+                        token,
+                    ));
+                }
+            }
+            Some("redirecting") => {
+                self.expect_token(Token::KeywordTo, "Expected 'to' after 'redirecting'")?;
+                self.expect_token(Token::KeywordPort, "Expected 'port' after 'redirecting to'")?;
+                // Primary expression only, so the following "as" stays available.
+                redirect_to_port = Some(self.parse_primary_expression()?);
+            }
+            _ => {}
+        }
 
         // Expect "as"
         self.expect_token(Token::KeywordAs, "Expected 'as' after port")?;
@@ -34,9 +135,54 @@ impl<'a> WebParser<'a> for Parser<'a> {
         Ok(Statement::ListenStatement {
             port,
             server_name,
+            tls,
+            redirect_to_port,
             line: listen_token.line,
             column: listen_token.column,
         })
+    }
+
+    /// Parses `<marker> <expr>` inside a `secured with ...` clause, where
+    /// marker is `certificate` or `key`. The marker is a contextual
+    /// identifier, so a variable value arrives merged with it
+    /// (`certificate cert_path` lexes as Identifier("certificate cert_path"))
+    /// while a string literal follows a lone marker token.
+    fn parse_tls_path_value(&mut self, marker: &str) -> Result<Expression, ParseError> {
+        let Some(token) = self.cursor.peek() else {
+            return Err(ParseError::from_span(
+                format!("Expected '{marker}' followed by a file path, found end of input"),
+                crate::diagnostics::Span { start: 0, end: 0 },
+                0,
+                0,
+            ));
+        };
+
+        if let Token::Identifier(id) = &token.token {
+            if id == marker {
+                self.bump_sync(); // Consume the marker
+                // Primary expression only, so a following "and"/"as" clause
+                // stays available.
+                self.parse_primary_expression()
+            } else if let Some(rest) = id.strip_prefix(&format!("{marker} ")) {
+                let rest = rest.to_string();
+                let (line, column) = (token.line, token.column);
+                self.bump_sync(); // Consume the merged marker + variable
+                Ok(Expression::Variable(rest, line, column))
+            } else {
+                Err(ParseError::from_token(
+                    format!("Expected '{marker}' before file path, found '{id}'"),
+                    token,
+                ))
+            }
+        } else {
+            Err(ParseError::from_token(
+                format!(
+                    "Expected '{marker}' before file path, found {:?}",
+                    token.token
+                ),
+                token,
+            ))
+        }
     }
 
     fn parse_respond_statement(&mut self) -> Result<Statement, ParseError> {

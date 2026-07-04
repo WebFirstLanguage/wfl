@@ -1237,15 +1237,23 @@ impl JavaScriptTranspiler {
             Statement::ListenStatement {
                 port,
                 server_name,
+                tls,
+                redirect_to_port,
                 line,
                 column,
-                ..
             } => {
                 self.warn(
                     "Server functionality has limitations: WFL's web server statements are transpiled to basic Node.js http setup. Features like middleware, routing, and request handling require manual implementation in JS",
                     *line,
                     *column,
                 );
+                if tls.is_some() || redirect_to_port.is_some() {
+                    self.warn(
+                        "HTTPS ('secured') and redirect ('redirecting to port') listen options are not supported by the JavaScript transpiler; the generated code uses a plain Node.js http server",
+                        *line,
+                        *column,
+                    );
+                }
                 let port_expr = self.transpile_expression(port)?;
                 Ok(format!(
                     "{}// Note: Basic server setup only - implement request handlers manually\n{}const {} = require('http').createServer(); {}.listen({});\n",

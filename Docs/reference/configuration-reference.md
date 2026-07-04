@@ -278,6 +278,26 @@ The IP address the web server binds to when using `listen on port` statements.
 
 **Security Note:** Setting this to `0.0.0.0` exposes your web server to the network. Only use this when you intend to accept external connections.
 
+#### web_server_tls_cert_file
+
+Default TLS certificate file used by `listen on port ... secured` statements that do not name a certificate themselves.
+
+- **Type:** File path string (PEM format)
+- **Default:** none
+- **Example:** `web_server_tls_cert_file = /etc/wfl/tls/cert.pem`
+
+Paths written directly in a `listen ... secured with certificate ... and key ...` statement take precedence over this setting. A plain `listen` statement (without `secured`) always serves HTTP regardless of this setting.
+
+#### web_server_tls_key_file
+
+Default TLS private key file used by `listen on port ... secured` statements that do not name a key themselves.
+
+- **Type:** File path string (PEM format)
+- **Default:** none
+- **Example:** `web_server_tls_key_file = /etc/wfl/tls/key.pem`
+
+**Security Note:** Protect the private key with restrictive file permissions (e.g. `chmod 600`). WFL validates both files at `listen` time and reports missing or malformed files with the offending path.
+
 ## Example Configuration Files
 
 ### Development Configuration
@@ -326,6 +346,10 @@ kill_on_shutdown = true
 
 # Localhost only web server
 web_server_bind_address = 127.0.0.1
+
+# TLS defaults for `listen ... secured`
+web_server_tls_cert_file = /etc/wfl/tls/cert.pem
+web_server_tls_key_file = /etc/wfl/tls/key.pem
 ```
 
 ### Minimal Configuration
