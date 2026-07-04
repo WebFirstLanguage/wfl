@@ -1,0 +1,18 @@
+// 04 - Loops: count, for-each, and a while-style repeat.
+display "Counting to 3:"
+count from 1 to 3:
+    display "  count is " with count
+end count
+
+store fruits as ["apple", "banana", "cherry"]
+display "Fruits:"
+for each fruit in fruits:
+    display "  " with fruit
+end for
+
+store n as 3
+repeat while n is greater than 0:
+    display "  liftoff in " with n
+    change n to n minus 1
+end repeat
+display "  liftoff!"

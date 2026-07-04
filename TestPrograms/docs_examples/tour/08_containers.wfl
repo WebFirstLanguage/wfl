@@ -1,0 +1,16 @@
+// 08 - Containers (objects): properties + actions, then an instance.
+create container Dog:
+    property name: Text
+    property tricks: Number
+
+    action show_info:
+        display name with " knows " with tricks with " tricks."
+    end
+end
+
+create new Dog as rex:
+    name is "Rex"
+    tricks is 3
+end
+
+rex.show_info()
