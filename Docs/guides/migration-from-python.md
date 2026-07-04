@@ -54,12 +54,12 @@ define action called greet with parameters name:
     display "Hello, " with name
 end action
 
-define action called add with parameters a and b:
+define action called add_numbers with parameters a and b:
     return a plus b
 end action
 
 call greet with "World"
-store result as add with 2 and 3
+store result as add_numbers of 2 and 3
 ```
 
 **Note:** Must explicitly `call` actions in WFL.
@@ -78,6 +78,7 @@ else:
 
 **WFL:**
 ```wfl
+store age as 20
 check if age is greater than or equal to 18:
     display "Adult"
 otherwise:
@@ -110,6 +111,9 @@ while condition:
 
 **WFL:**
 ```wfl
+store items as [1, 2, 3]
+store condition as no
+
 // Count loop
 count from 1 to 10:
     display count
@@ -141,9 +145,9 @@ index = arr.index(3)
 ```wfl
 store arr as [1, 2, 3]
 push with arr and 4
-store last as pop from arr
-store length as length of arr
-store index as indexof of arr and 3
+store last as pop of arr
+store list_length as length of arr
+store found_index as indexof of arr and 3
 ```
 
 ## Classes/Containers
@@ -199,9 +203,9 @@ with open('output.txt', 'w') as f:
 // Read
 try:
     open file at "data.txt" for reading as myfile
-    wait for store content as read content from myfile
+    wait for store file_content as read content from myfile
     close file myfile
-catch:
+when error:
     display "Error"
 end try
 
@@ -227,15 +231,24 @@ finally:
 
 **WFL:**
 ```wfl
+define action called risky_operation:
+    display "doing something risky"
+end action
+
+define action called cleanup:
+    display "cleaning up"
+end action
+
 try:
-    risky_operation()
+    call risky_operation
 when file not found:
     display "File not found"
-catch:
+when error:
     display "Error occurred"
-finally:
-    cleanup()
 end try
+
+// WFL has no finally; run cleanup after end try
+call cleanup
 ```
 
 ## What WFL Doesn't Have
@@ -256,7 +269,8 @@ end try
 
 **WFL:**
 ```wfl
-create list doubled
+store numbers as [1, 2, 3]
+create list doubled:
 end list
 
 for each num in numbers:
@@ -288,6 +302,8 @@ end
 
 **WFL:**
 ```wfl
+store name as "Alice"
+store age as 28
 display "Name: " with name with ", Age: " with age
 ```
 
