@@ -12,9 +12,9 @@ Quick recipes for common tasks. Each recipe follows the format: Problem → Solu
 ```wfl
 try:
     open file at "data.txt" for reading as myfile
-    wait for store content as read content from myfile
+    wait for store file_content as read content from myfile
     close file myfile
-    display content
+    display file_content
 catch:
     display "File not found"
 end try
@@ -159,8 +159,8 @@ create list items:
     add "third"
 end list
 
-// Or literal syntax:
-store items as ["first", "second", "third"]
+// Or use literal syntax to assign the whole list at once:
+change items to ["first", "second", "third"]
 ```
 
 ---
@@ -171,6 +171,7 @@ store items as ["first", "second", "third"]
 
 **Solution:**
 ```wfl
+store items as ["first", "second", "third"]
 push with items and "fourth"
 ```
 
@@ -182,7 +183,8 @@ push with items and "fourth"
 
 **Solution:**
 ```wfl
-store last as pop from items
+store items as ["first", "second", "third", "fourth"]
+store last as pop of items
 display "Removed: " with last
 ```
 
@@ -194,6 +196,7 @@ display "Removed: " with last
 
 **Solution:**
 ```wfl
+store items as ["first", "second", "third"]
 store index as indexof of items and "second"
 
 check if index is greater than or equal to 0:
@@ -213,11 +216,12 @@ end check
 ```wfl
 store numbers as [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-create list evens
+create list evens:
 end list
 
 for each num in numbers:
-    check if num % 2 is equal to 0:
+    store remainder as num % 2
+    check if remainder is equal to 0:
         push with evens and num
     end check
 end for
@@ -235,9 +239,9 @@ display evens
 
 **Solution:**
 ```wfl
-listen on port 8080 as server
+listen on port 8080 as web_server
 
-wait for request comes in on server as req
+wait for request comes in on web_server as req
 respond to req with "Hello!"
 ```
 
@@ -249,9 +253,9 @@ respond to req with "Hello!"
 
 **Solution:**
 ```wfl
-listen on port 8080 as server
+listen on port 8081 as web_server
 
-wait for request comes in on server as req
+wait for request comes in on web_server as req
 
 store html as "<!DOCTYPE html>
 <html><body><h1>WFL Server</h1></body></html>"
@@ -267,17 +271,22 @@ respond to req with html and content_type "text/html"
 
 **Solution:**
 ```wfl
-listen on port 8080 as server
+listen on port 8082 as web_server
 
-wait for request comes in on server as req
+main loop:
+    wait for request comes in on web_server as req
+    store request_path as path of req
 
-check if path is equal to "/":
-    respond to req with "Home"
-check if path is equal to "/about":
-    respond to req with "About"
-otherwise:
-    respond to req with "Not found" and status 404
-end check
+    check if request_path is equal to "/":
+        respond to req with "Home"
+    otherwise:
+        check if request_path is equal to "/about":
+            respond to req with "About"
+        otherwise:
+            respond to req with "Not found" and status 404
+        end check
+    end check
+end loop
 ```
 
 ---
@@ -336,7 +345,7 @@ end check
 
 **Solution:**
 ```wfl
-store dice_roll as random_int between 1 and 6
+store dice_roll as random_int of 1 and 6
 display "You rolled: " with dice_roll
 ```
 
@@ -365,8 +374,8 @@ display "Timestamp: " with timestamp
 
 **Solution:**
 ```wfl
-store data as "Important data"
-store hash as wflhash256 of data
+store payload as "Important data"
+store hash as wflhash256 of payload
 display "Hash: " with hash
 ```
 
@@ -398,14 +407,14 @@ define action called celsius_to_fahrenheit with parameters c:
 end action
 
 define action called fahrenheit_to_celsius with parameters f:
-    return f minus 32 times 5 divided by 9
+    return (f minus 32) times 5 divided by 9
 end action
 
 store c as 25
-display c with "°C = " with celsius_to_fahrenheit with c with "°F"
+display c with "°C = " with celsius_to_fahrenheit of c with "°F"
 
 store f as 77
-display f with "°F = " with fahrenheit_to_celsius with f with "°C"
+display f with "°F = " with fahrenheit_to_celsius of f with "°C"
 ```
 
 ---
@@ -413,11 +422,16 @@ display f with "°F = " with fahrenheit_to_celsius with f with "°C"
 ### Recipe: Word Counter
 
 ```wfl
+// Seed a sample document so this recipe runs standalone
+open file at "document.txt" for writing as writer
+wait for write content "The quick brown fox jumps" into writer
+close file writer
+
 open file at "document.txt" for reading as docfile
-wait for store content as read content from docfile
+wait for store file_content as read content from docfile
 close file docfile
 
-store words as split of content by " "
+store words as split of file_content by " "
 store word_count as length of words
 
 display "Word count: " with word_count
@@ -431,15 +445,15 @@ display "Word count: " with word_count
 wait for store files as list files in "."
 
 for each filename in files:
-    check if filename ends with ".txt":
+    check if endswith of filename and ".txt":
         try:
             open file at filename for reading as srcfile
-            wait for store content as read content from srcfile
+            wait for store file_content as read content from srcfile
             close file srcfile
 
             store backup_name as filename with ".backup"
             open file at backup_name for writing as backupfile
-            wait for write content content into backupfile
+            wait for write content file_content into backupfile
             close file backupfile
 
             display "Backed up: " with filename
