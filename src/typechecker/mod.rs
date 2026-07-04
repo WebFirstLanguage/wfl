@@ -1912,7 +1912,9 @@ impl TypeChecker {
                 {
                     self.type_error(
                         "Response content must be text or binary".to_string(),
-                        Some(Type::Text),
+                        // No single expected type: both Text and Binary are
+                        // accepted, so `None` avoids a misleading "expected Text".
+                        None,
                         Some(content_type_result),
                         *_line,
                         *_column,
