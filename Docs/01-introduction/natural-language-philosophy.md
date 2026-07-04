@@ -156,9 +156,10 @@ end
 **In Practice:**
 ```wfl
 // Async operations:
-open file at "/tmp/wfl_philosophy_demo.txt" for writing as demo_file
+open file at "philosophy_demo.txt" for writing as demo_file
 wait for write content "example data" into demo_file
-display "File saved: /tmp/wfl_philosophy_demo.txt"
+close file demo_file
+display "File saved: philosophy_demo.txt"
 
 // Pattern matching:
 create pattern email:
@@ -344,10 +345,12 @@ end check
 // 181+ built-in functions across 11 modules
 
 // File operations:
-open file at "/tmp/wfl_demo_data.txt" for writing as data_file
+open file at "demo_data.txt" for writing as data_file
 wait for write content "WFL sample data" into data_file
-open file at "/tmp/wfl_demo_data.txt" for reading as read_file
+close file data_file
+open file at "demo_data.txt" for reading as read_file
 store file_content as read content from read_file
+close file read_file
 
 // Text manipulation:
 store upper as touppercase of "hello"

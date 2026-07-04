@@ -124,7 +124,7 @@ create container Calculator:
     property value: Number
 
     action increase needs amount: Number:
-        store value as value + amount
+        change value to value + amount
     end
 
     action get_value: Number
