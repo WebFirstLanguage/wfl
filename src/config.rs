@@ -41,6 +41,10 @@ pub struct WflConfig {
     pub subprocess_config: SubprocessConfig,
     // Web server network binding
     pub web_server_bind_address: String,
+    // Web server TLS defaults: used by `listen ... secured` when the listen
+    // statement does not name certificate/key files itself
+    pub web_server_tls_cert_file: Option<String>,
+    pub web_server_tls_key_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +119,10 @@ impl Default for WflConfig {
             subprocess_config: SubprocessConfig::default(),
             // Web server network binding default
             web_server_bind_address: "127.0.0.1".to_string(),
+            // No TLS defaults: a `listen ... secured` statement must either
+            // name its certificate/key files or these must be set in .wflcfg
+            web_server_tls_cert_file: None,
+            web_server_tls_key_file: None,
         }
     }
 }
@@ -575,6 +583,40 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                         );
                     }
                 }
+                "web_server_tls_cert_file" => {
+                    let path = value.trim().to_string();
+                    if path.is_empty() {
+                        log::warn!(
+                            "Empty web_server_tls_cert_file in {}: ignoring",
+                            file.display()
+                        );
+                    } else {
+                        // Existence is checked at listen time so relative
+                        // paths resolve against the script's working directory
+                        config.web_server_tls_cert_file = Some(path);
+                        log::debug!(
+                            "Loaded web_server_tls_cert_file: {:?} from {}",
+                            config.web_server_tls_cert_file,
+                            file.display()
+                        );
+                    }
+                }
+                "web_server_tls_key_file" => {
+                    let path = value.trim().to_string();
+                    if path.is_empty() {
+                        log::warn!(
+                            "Empty web_server_tls_key_file in {}: ignoring",
+                            file.display()
+                        );
+                    } else {
+                        config.web_server_tls_key_file = Some(path);
+                        log::debug!(
+                            "Loaded web_server_tls_key_file: {:?} from {}",
+                            config.web_server_tls_key_file,
+                            file.display()
+                        );
+                    }
+                }
                 _ => {
                     log::warn!("Unknown configuration key: {} in {}", key, file.display());
                 }
@@ -995,6 +1037,83 @@ mod tests {
         assert_eq!(
             config.web_server_bind_address, "127.0.0.1",
             "Default web_server_bind_address should be 127.0.0.1"
+        );
+    }
+
+    #[test]
+    fn test_web_server_tls_files_default_none() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+
+        assert_eq!(
+            config.web_server_tls_cert_file, None,
+            "Default web_server_tls_cert_file should be None"
+        );
+        assert_eq!(
+            config.web_server_tls_key_file, None,
+            "Default web_server_tls_key_file should be None"
+        );
+    }
+
+    #[test]
+    fn test_web_server_tls_files_custom() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join(".wflcfg");
+
+        let config_content = r#"
+        web_server_tls_cert_file = /etc/wfl/cert.pem
+        web_server_tls_key_file = /etc/wfl/key.pem
+        "#;
+
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(config_content.as_bytes()).unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+
+        assert_eq!(
+            config.web_server_tls_cert_file.as_deref(),
+            Some("/etc/wfl/cert.pem"),
+            "web_server_tls_cert_file should be loaded"
+        );
+        assert_eq!(
+            config.web_server_tls_key_file.as_deref(),
+            Some("/etc/wfl/key.pem"),
+            "web_server_tls_key_file should be loaded"
+        );
+    }
+
+    #[test]
+    fn test_web_server_tls_files_empty_values_ignored() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join(".wflcfg");
+
+        let config_content = r#"
+        web_server_tls_cert_file =
+        web_server_tls_key_file =
+        "#;
+
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(config_content.as_bytes()).unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+
+        assert_eq!(
+            config.web_server_tls_cert_file, None,
+            "Empty web_server_tls_cert_file should stay None"
+        );
+        assert_eq!(
+            config.web_server_tls_key_file, None,
+            "Empty web_server_tls_key_file should stay None"
         );
     }
 

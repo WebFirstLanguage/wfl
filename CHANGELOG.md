@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- HTTPS support for the built-in web server: `listen on port 8443 secured with certificate "cert.pem" and key "key.pem" as server` (PEM files; paths may be expressions)
+- Bare `secured` form takes certificate/key paths from new `.wflcfg` settings `web_server_tls_cert_file` / `web_server_tls_key_file`; in-language paths always win, and a plain `listen` never becomes HTTPS via config
+- HTTP→HTTPS auto-redirect servers: `listen on port 8080 redirecting to port 8443 as redirect_server` answers every request natively with `301 Moved Permanently`, preserving host, path, and query (target port omitted when 443)
+- Certificate/key files are validated at `listen` time; missing or malformed files are reported with the offending path and a hint for generating dev certificates
+- `secured`, `certificate`, `key`, and `redirecting` are positional marker words, not reserved keywords — existing programs using them as variable names are unaffected
+- HTTPS section in `Docs/04-advanced-features/web-servers.md` (dev-cert generation, redirect and dual HTTP+HTTPS patterns, production notes); new settings documented in `Docs/reference/configuration-reference.md`
 - New `execute file` statement for running WFL files in-process: `execute [wfl] file at <path> [with <request>] [and read output as <variable>]`
 - Web servers can now serve dynamic WFL pages PHP-style: execute a `.wfl` file per request, pass it the HTTP request context (`method`, `path`, `client_ip`, `body`, `headers`), capture its display output, and respond with it
 - Output capture mechanism (`display`/`print` redirection) for nested interpreter runs, with correct nesting semantics

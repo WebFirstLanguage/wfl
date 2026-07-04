@@ -91,6 +91,15 @@ pub struct EventDefinition {
     pub column: usize,
 }
 
+/// TLS settings on a `listen` statement. Both paths `None` means the bare
+/// `secured` form: certificate and key paths come from .wflcfg at runtime
+/// (`web_server_tls_cert_file` / `web_server_tls_key_file`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TlsListenConfig {
+    pub cert_path: Option<Expression>,
+    pub key_path: Option<Expression>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     VariableDeclaration {
@@ -488,6 +497,10 @@ pub enum Statement {
     ListenStatement {
         port: Expression,
         server_name: String,
+        /// `secured [with certificate <expr> and key <expr>]` — HTTPS listener.
+        tls: Option<TlsListenConfig>,
+        /// `redirecting to port <expr>` — native HTTP->HTTPS 301 redirect server.
+        redirect_to_port: Option<Expression>,
         line: usize,
         column: usize,
     },
