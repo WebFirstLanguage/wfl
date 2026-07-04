@@ -568,7 +568,8 @@ define action called title case with parameters source:
         store len as length of word
         check if len is greater than 0:
             store first_char as substring of word and 0 and 1
-            store rest as substring of word and 1 and len
+            store rest_len as len minus 1                      // substring takes a LENGTH, not an end index
+            store rest as substring of word and 1 and rest_len
             store titled as touppercase of first_char with tolowercase of rest
             push with titled_words and titled
         end check

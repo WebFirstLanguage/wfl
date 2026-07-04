@@ -102,7 +102,7 @@ create container Book:
     property is_available: Boolean
 
     action check_out:
-        store is_available as no
+        change is_available to no
         display "Book is now unavailable"
     end
 end

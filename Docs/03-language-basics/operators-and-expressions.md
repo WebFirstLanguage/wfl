@@ -320,14 +320,14 @@ store result3 as 20 divided by 4 plus 2
 **Best practice:** Break complex expressions into steps for clarity:
 
 ```wfl
-// Instead of:
-store result as 10 plus 5 times 2 minus 3 divided by 1
+// Instead of one dense line:
+//   store result as 10 plus 5 times 2 minus 3 divided by 1
 
-// Do this:
+// Do this — name the intermediate steps:
 store step1 as 5 times 2           // 10
 store step2 as 3 divided by 1      // 3
 store step3 as 10 plus step1       // 20
-change result to step3 minus step2 // 17
+store result as step3 minus step2  // 17
 ```
 
 ## Type-Specific Operations
