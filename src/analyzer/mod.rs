@@ -1599,6 +1599,7 @@ impl Analyzer {
                 content,
                 status,
                 content_type,
+                headers,
                 ..
             } => {
                 // Analyze all expressions
@@ -1611,6 +1612,10 @@ impl Analyzer {
 
                 if let Some(ct_expr) = content_type {
                     self.analyze_expression(ct_expr);
+                }
+
+                if let Some(headers_expr) = headers {
+                    self.analyze_expression(headers_expr);
                 }
             }
 

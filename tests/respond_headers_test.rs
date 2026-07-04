@@ -97,9 +97,25 @@ fn start_server_thread(code: String) -> std::thread::JoinHandle<()> {
             let mut parser = Parser::new(&tokens);
             let ast = parser.parse().expect("Failed to parse WFL server code");
             let mut interpreter = Interpreter::new();
-            let _ = interpreter.interpret(&ast).await;
+            // Surface interpreter failures so a server that fails to start shows
+            // its real cause instead of only a downstream "connection refused".
+            if let Err(errors) = interpreter.interpret(&ast).await {
+                eprintln!("WFL server thread failed: {errors:?}");
+            }
         });
     })
+}
+
+/// Poll the port until the server is accepting connections, so tests do not
+/// depend on a fixed sleep that can be too short under CI load.
+async fn wait_for_port(port: u16) {
+    for _ in 0..100 {
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("Server on port {port} did not start accepting connections in time");
 }
 
 // End-to-end RFC 10008 flow: a WFL server receives a QUERY request, echoes the
@@ -124,8 +140,7 @@ async fn test_query_response_sets_custom_headers() {
 
     let server_handle = start_server_thread(server_code);
 
-    // Give the server time to bind.
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_port(port).await;
 
     let client = reqwest::Client::new();
     let response = client
@@ -183,6 +198,73 @@ async fn test_query_response_sets_custom_headers() {
     assert_eq!(
         body, "QUERY",
         "Server should have observed the QUERY method"
+    );
+
+    let _ = server_handle.join();
+}
+
+// A `Content-Type` (or other pipeline-computed header) in the custom headers map
+// must not override or duplicate the value set by the `content_type` clause /
+// response pipeline — the response must carry exactly one Content-Type.
+#[tokio::test]
+async fn test_content_type_in_headers_map_is_dropped() {
+    let port = 8124;
+    let server_code = format!(
+        r#"
+        create map sneaky_headers:
+            "Content-Type" is "text/evil"
+            "Content-Length" is "999"
+            "X-Ok" is "yes"
+        end map
+        listen on port {port} as ct_server
+        wait for request comes in on ct_server as req with timeout 10000
+        respond to req with "hello" and content_type "text/plain" and headers sneaky_headers
+        close server ct_server
+    "#
+    );
+
+    let server_handle = start_server_thread(server_code);
+    wait_for_port(port).await;
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(format!("http://127.0.0.1:{port}/"))
+        .header("Content-Length", "0")
+        .send()
+        .await
+        .expect("Failed to send request");
+
+    // Exactly one Content-Type, and it is the clause value — not "text/evil".
+    let content_types: Vec<String> = response
+        .headers()
+        .get_all("content-type")
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        content_types,
+        vec!["text/plain".to_string()],
+        "content_type clause must be the sole Content-Type"
+    );
+
+    // Content-Length stays the pipeline-computed value (5 bytes = "hello"),
+    // not the "999" the map tried to inject.
+    let content_lengths: Vec<String> = response
+        .headers()
+        .get_all("content-length")
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        content_lengths,
+        vec!["5".to_string()],
+        "Content-Length must stay pipeline-computed, not overridden by the map"
+    );
+
+    // A non-reserved custom header still passes through.
+    assert_eq!(
+        response.headers().get("x-ok").unwrap().to_str().unwrap(),
+        "yes"
     );
 
     let _ = server_handle.join();

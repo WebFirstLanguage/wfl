@@ -5779,7 +5779,7 @@ impl Interpreter {
                                     _ => {
                                         return Err(RuntimeError::new(
                                             format!(
-                                                "Response header '{name}' must be text, got {}",
+                                                "Response header '{name}' must be text, a number, or a boolean, got {}",
                                                 value.type_name()
                                             ),
                                             *line,
@@ -5787,10 +5787,18 @@ impl Interpreter {
                                         ));
                                     }
                                 };
-                                // The content_type clause is authoritative for
-                                // Content-Type; drop any duplicate from the map
-                                // so the response never carries two of them.
-                                if name.eq_ignore_ascii_case("content-type") {
+                                // Content-Type, Content-Length, and
+                                // Transfer-Encoding are computed by the response
+                                // pipeline (the `content_type` clause and warp's
+                                // builder set them explicitly). Warp *appends*
+                                // custom headers, so letting the map override
+                                // these would emit duplicate/conflicting headers
+                                // (RFC 7230 §3.3.2) and risk response splitting.
+                                // Drop them so the pipeline stays authoritative.
+                                if name.eq_ignore_ascii_case("content-type")
+                                    || name.eq_ignore_ascii_case("content-length")
+                                    || name.eq_ignore_ascii_case("transfer-encoding")
+                                {
                                     continue;
                                 }
                                 custom_headers.insert(name.clone(), value_str);

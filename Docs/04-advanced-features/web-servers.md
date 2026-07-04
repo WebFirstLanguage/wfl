@@ -238,9 +238,12 @@ respond to <request> with <content> and headers <map>
 ```
 
 **Notes:**
-- The map keys are header names and the values are header values (text).
-- The `content_type` clause remains authoritative for `Content-Type`; a
-  `Content-Type` key in the map is ignored so the response never carries two.
+- The map keys are header names; values are text (numbers and booleans are
+  accepted and converted to text).
+- The `content_type` clause remains authoritative for `Content-Type`. Keys the
+  response pipeline computes itself — `Content-Type`, `Content-Length`, and
+  `Transfer-Encoding` — are ignored if present in the map, so the response never
+  carries duplicate or conflicting copies of them.
 
 ### Combined
 
@@ -263,13 +266,16 @@ Because WFL treats HTTP methods as plain text, no special syntax is required.
 
 **Sending a QUERY (client):**
 
+Per RFC 10008 a `QUERY` request must include a `Content-Type` describing the
+query body, so set it in the request headers map:
+
 ```wfl
+create map request_headers:
+    "Content-Type" is "application/jsonpath"
+end map
+
 open url at "https://api.example.com/search" with method "QUERY" and headers request_headers and body "$.items[*]" and read response as result
 ```
-
-Per RFC 10008 a `QUERY` request must include a `Content-Type` describing the
-query body, so set it in the request headers map (for example
-`"Content-Type" is "application/jsonpath"`).
 
 **Handling a QUERY (server):**
 
