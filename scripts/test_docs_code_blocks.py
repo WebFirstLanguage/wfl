@@ -168,14 +168,15 @@ def run_block(blk: Block, wfl_bin: str, timeout: int) -> None:
         blk.classification = "SNIPPET"
         blk.note = "heuristic: incomplete fragment / non-wfl command"
         return
-    with tempfile.NamedTemporaryFile("w", suffix=".wfl", delete=False,
-                                     encoding="utf-8") as tf:
-        tf.write(blk.code + "\n")
-        tmp = tf.name
+    # Run each block inside its own throwaway working directory so examples
+    # that write files (data.txt, app.db, ...) don't litter the repo.
+    workdir = tempfile.mkdtemp(prefix="wfl_doc_")
+    tmp = str(Path(workdir) / "example.wfl")
+    Path(tmp).write_text(blk.code + "\n", encoding="utf-8")
     try:
         proc = subprocess.run(
-            [wfl_bin, tmp],
-            capture_output=True, text=True, timeout=timeout,
+            [str(Path(wfl_bin).resolve()), "example.wfl"],
+            capture_output=True, text=True, timeout=timeout, cwd=workdir,
         )
         blk.exit_code = proc.returncode
         blk.stdout = proc.stdout
@@ -185,10 +186,8 @@ def run_block(blk: Block, wfl_bin: str, timeout: int) -> None:
         blk.note = f"exceeded {timeout}s (likely a server / wait-forever demo)"
         return
     finally:
-        try:
-            Path(tmp).unlink()
-        except OSError:
-            pass
+        import shutil
+        shutil.rmtree(workdir, ignore_errors=True)
 
     if blk.exit_code != 0:
         blk.classification = "ERROR"
