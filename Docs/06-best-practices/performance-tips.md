@@ -8,20 +8,20 @@ Write efficient WFL code with these optimization strategies. Focus on algorithmi
 
 **Slow (O(n²)):**
 ```wfl
-create list unique_items
+store all_items as [1, 2, 2, 3, 3, 3]
+create list unique_items:
 end list
 
 for each item in all_items:
-    store found as no
-    for each unique in unique_items:
-        check if item is equal to unique:
-            change found to yes
-        end check
-    end for
-    check if found is no:
+    // Scanning unique_items for every item makes this O(n²)
+    check if unique_items contains item:
+        // already present, skip
+    otherwise:
         push with unique_items and item
     end check
 end for
+
+display unique_items
 ```
 
 **Faster with better algorithm:**
@@ -36,12 +36,18 @@ end for
 
 ```wfl
 // Async file operations
-open file at "data.txt" for reading as myfile
-wait for store content as read content from myfile
+open file at "perf_demo.txt" for writing as myfile
+wait for write content "sample data" into myfile
 close file myfile
 
-// Web server naturally async
-wait for request comes in on server as req
+open file at "perf_demo.txt" for reading as reader
+wait for store file_content as read content from reader
+close file reader
+display file_content
+
+// Web servers are naturally async too:
+//   listen on port 8080 as web_server
+//   wait for request comes in on web_server as req
 ```
 
 **Why:** Non-blocking I/O lets WFL handle other work while waiting.
@@ -51,13 +57,18 @@ wait for request comes in on server as req
 **Automatic in WFL!** Conditions stop evaluating when result is determined.
 
 ```wfl
-// Expensive operation only runs if quick check passes
-check if quick_check() and expensive_operation():
+store quick_check as yes
+store expensive_check as no
+
+// The second operand is only evaluated if the first doesn't decide the result
+check if quick_check and expensive_check:
     display "Both true"
+otherwise:
+    display "Short-circuited on the first check"
 end check
 
-// Expensive operation never runs if quick check is true
-check if quick_check() or expensive_operation():
+// With or, evaluation stops as soon as one operand is true
+check if quick_check or expensive_check:
     display "At least one true"
 end check
 ```
@@ -65,6 +76,9 @@ end check
 **Put cheap checks first:**
 
 ```wfl
+store user_is_logged_in as yes
+store has_database_permission as no
+
 // Good: cheap check first
 check if user_is_logged_in and has_database_permission:
     // database check only if logged in
@@ -82,18 +96,30 @@ end check
 
 **Inefficient:**
 ```wfl
+store large_list as ["  alice  ", "  bob  "]
+define action called process_item with parameters value:
+    return "[" with value with "]"
+end action
+
 for each item in large_list:
     store item_upper as touppercase of item
     store item_trimmed as trim of item_upper
-    store item_processed as process(item_trimmed)
+    store item_processed as process_item of item_trimmed
+    display item_processed
     // Many intermediate strings created
 end for
 ```
 
 **Better:**
 ```wfl
+store large_list as ["  alice  ", "  bob  "]
+define action called process_item with parameters value:
+    return "[" with value with "]"
+end action
+
 for each item in large_list:
-    store processed as process(trim of touppercase of item)
+    store processed as process_item of (trim of (touppercase of item))
+    display processed
     // Fewer intermediate values
 end for
 ```
@@ -104,20 +130,34 @@ end for
 
 **Slow:**
 ```wfl
+define action called expensive_calculation with parameters seed:
+    return 500
+end action
+define action called do_work with parameters value:
+    // process the value
+end action
+
 count from 1 to 1000:
-    check if count is less than expensive_calculation():
-        process(count)
+    check if count is less than (expensive_calculation of count):
+        do_work of count
     end check
-    // Calculates 1000 times!
+    // Calls expensive_calculation 1000 times!
 end count
 ```
 
 **Fast:**
 ```wfl
-store limit as expensive_calculation()  // Calculate once
+define action called expensive_calculation with parameters seed:
+    return 500
+end action
+define action called do_work with parameters value:
+    // process the value
+end action
+
+store limit as expensive_calculation of 0  // Calculate once
 count from 1 to 1000:
     check if count is less than limit:
-        process(count)
+        do_work of count
     end check
 end count
 ```
@@ -137,7 +177,7 @@ end count
 
 **List for ordered data:**
 ```wfl
-create list users  // Fast append, slow search
+create list users:  // Fast append, slow search
 end list
 ```
 
@@ -153,6 +193,8 @@ end list
 
 **Inefficient:**
 ```wfl
+store email_list as ["a@b.com", "c@d.com"]
+
 for each email in email_list:
     create pattern email_pattern:
         one or more letter or digit
@@ -162,12 +204,14 @@ for each email in email_list:
     check if email matches email_pattern:
         display "Valid"
     end check
-    // Creates pattern 1000 times!
+    // Creates pattern on every iteration!
 end for
 ```
 
 **Efficient:**
 ```wfl
+store email_list as ["a@b.com", "c@d.com"]
+
 // Create pattern once
 create pattern email_pattern:
     one or more letter or digit
@@ -188,6 +232,7 @@ end for
 **For many concatenations, build incrementally:**
 
 ```wfl
+store words as ["hello", "world", "again"]
 store result as ""
 
 for each word in words:
@@ -196,6 +241,8 @@ for each word in words:
     end check
     change result to result with word
 end for
+
+display result
 ```
 
 ## File I/O
@@ -230,13 +277,17 @@ Shows execution time to identify slow parts.
 **Don't guess what's slow. Measure it.**
 
 ```wfl
-store start as current time in milliseconds
+define action called perform_operation:
+    display "working..."
+end action
+
+store start_time as current time in milliseconds
 
 // Code to measure
-perform_operation()
+perform_operation
 
-store end as current time in milliseconds
-store elapsed as end minus start
+store end_time as current time in milliseconds
+store elapsed as end_time minus start_time
 display "Operation took " with elapsed with "ms"
 ```
 
@@ -246,18 +297,28 @@ display "Operation took " with elapsed with "ms"
 
 **Slow:**
 ```wfl
-for each item in list:
-    process(item)
+store items as ["a", "b", "c"]
+define action called handle_item with parameters value:
+    display "handling " with value
+end action
+
+for each item in items:
+    handle_item of item
     // Even if we only need first match
 end for
 ```
 
 **Fast:**
 ```wfl
-for each item in list:
-    check if matches(item):
-        process(item)
-        break  // Stop when found (if supported)
+store items as ["a", "match", "c"]
+define action called handle_item with parameters value:
+    display "handling " with value
+end action
+
+for each item in items:
+    check if item is equal to "match":
+        handle_item of item
+        break  // Stop as soon as we find it
     end check
 end for
 ```
@@ -282,11 +343,14 @@ define action called sum_to with parameters n:
     check if n is less than or equal to 0:
         return 0
     otherwise:
-        return n plus sum_to with n minus 1
+        return n plus (sum_to of (n minus 1))
     end check
 end action
 
-store result as sum_to with 10000  // Stack overflow!
+// A small depth is fine:
+display sum_to of 100
+
+// store result as sum_to of 10000  // Deep recursion can overflow the stack!
 ```
 
 **Better: Use iteration:**
