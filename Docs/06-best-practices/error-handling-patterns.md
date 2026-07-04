@@ -6,7 +6,7 @@ Robust applications handle errors gracefully. This guide shows proven patterns f
 
 1. **Always use try-catch for risky operations** (file I/O, network, user input)
 2. **Provide context in error messages** (what failed, why, how to fix)
-3. **Clean up resources** (use finally to close files)
+3. **Clean up resources** (close files after the `try` block — WFL has no `finally`)
 4. **Fail fast** (validate early)
 5. **Don't swallow errors** (log or display them)
 
@@ -18,25 +18,25 @@ Robust applications handle errors gracefully. This guide shows proven patterns f
 define action called safe_read_file with parameters filepath:
     try:
         open file at filepath for reading as myfile
-        wait for store content as read content from myfile
+        store file_content as read content from myfile
         close file myfile
-        return content
+        return file_content
     catch:
         display "Error: Could not read file '" with filepath with "'"
         return nothing
     end try
 end action
 
-store data as safe_read_file with "config.txt"
-check if isnothing of data:
+store config_data as safe_read_file of "config.txt"
+check if isnothing of config_data:
     display "Using default configuration"
-    store data as "default config"
+    change config_data to "default config"
 end check
 ```
 
-## Pattern 2: Resource Cleanup with Finally
+## Pattern 2: Resource Cleanup After try
 
-**Always close resources, even when errors occur:**
+**WFL has no `finally`. To always close resources, track the handle and clean up after the `try` block:**
 
 ```wfl
 store file_handle as nothing
@@ -48,12 +48,13 @@ try:
     display "Write successful"
 catch:
     display "Error: Failed to write file"
-finally:
-    check if file_handle is not nothing:
-        close file file_handle
-        display "File closed"
-    end check
 end try
+
+// Cleanup runs whether or not the try block succeeded
+check if file_handle is not nothing:
+    close file file_handle
+    display "File closed"
+end check
 ```
 
 ## Pattern 3: Validation Before Processing
@@ -83,18 +84,26 @@ end action
 **Separate try-catch for each operation:**
 
 ```wfl
+define action called perform_step1:
+    display "Running step 1"
+end action
+
+define action called perform_step2:
+    display "Running step 2"
+end action
+
 store step1_success as no
 store step2_success as no
 
 try:
-    perform_step1()
+    call perform_step1
     change step1_success to yes
 catch:
     display "Step 1 failed"
 end try
 
 try:
-    perform_step2()
+    call perform_step2
     change step2_success to yes
 catch:
     display "Step 2 failed"
@@ -112,13 +121,19 @@ end check
 **Retry transient failures:**
 
 ```wfl
+define action called risky_operation:
+    // Pretend this may fail on transient errors
+    return "operation result"
+end action
+
 define action called retry_operation with parameters max_attempts:
     store attempts as 0
 
     repeat while attempts is less than max_attempts:
         try:
-            store result as risky_operation()
-            display "Success after " with attempts plus 1 with " attempt(s)"
+            store result as risky_operation
+            store attempt_number as attempts plus 1
+            display "Success after " with attempt_number with " attempt(s)"
             return result
         catch:
             add 1 to attempts
@@ -133,6 +148,9 @@ define action called retry_operation with parameters max_attempts:
     display "All attempts failed"
     return nothing
 end action
+
+store final_result as retry_operation of 3
+display "Result: " with final_result
 ```
 
 ## Pattern 6: Graceful Degradation
@@ -143,16 +161,16 @@ end action
 define action called load_config_with_fallback with parameters filename:
     try:
         open file at filename for reading as myfile
-        wait for store config as read content from myfile
+        store config_text as read content from myfile
         close file myfile
-        return config
+        return config_text
     catch:
         display "Warning: Could not load config, using defaults"
         return "default configuration"
     end try
 end action
 
-store app_config as load_config_with_fallback with "app.config"
+store app_config as load_config_with_fallback of "app.config"
 // Always has a value, even if file doesn't exist
 ```
 
@@ -163,11 +181,11 @@ store app_config as load_config_with_fallback with "app.config"
 ```wfl
 try:
     open file at "data.txt" for reading as myfile
-    wait for store content as read content from myfile
+    store file_content as read content from myfile
     close file myfile
 when file not found:
     display "File doesn't exist - creating it"
-    create file at "data.txt"
+    create file at "data.txt" with ""
 when permission denied:
     display "Cannot access file - check permissions"
 catch:
@@ -180,36 +198,42 @@ end try
 **Collect multiple errors before failing:**
 
 ```wfl
-create list errors
-end list
+define action called validate_input with parameters username and password and email:
+    create list errors:
+    end list
 
-check if length of username is less than 3:
-    push with errors and "Username too short"
-end check
+    check if length of username is less than 3:
+        push with errors and "Username too short"
+    end check
 
-check if length of password is less than 8:
-    push with errors and "Password too short"
-end check
+    check if length of password is less than 8:
+        push with errors and "Password too short"
+    end check
 
-check if not contains "@" in email:
-    push with errors and "Invalid email format"
-end check
+    store has_at as email contains "@"
+    check if has_at is equal to no:
+        push with errors and "Invalid email format"
+    end check
 
-check if length of errors is greater than 0:
-    display "Validation errors:"
-    for each error in errors:
-        display "  - " with error
-    end for
-    return no
-otherwise:
-    return yes
-end check
+    check if length of errors is greater than 0:
+        display "Validation errors:"
+        for each validation_error in errors:
+            display "  - " with validation_error
+        end for
+        return no
+    otherwise:
+        return yes
+    end check
+end action
+
+store is_valid as validate_input of "ab" and "short" and "bademail"
+display "Valid: " with is_valid
 ```
 
 ## Best Practices
 
 ✅ **Always try-catch risky operations** - File I/O, network, subprocess
-✅ **Use finally for cleanup** - Ensure resources are freed
+✅ **Clean up after the try block** - Close resources after `end try` (WFL has no `finally`)
 ✅ **Provide helpful error messages** - Include context
 ✅ **Log errors** - For debugging
 ✅ **Validate early** - Fail fast on bad input
@@ -219,14 +243,14 @@ end check
 ✅ **Provide fallbacks** - Graceful degradation
 
 ❌ **Don't swallow errors** - Always log or display
-❌ **Don't leave resources open** - Use finally
+❌ **Don't leave resources open** - Close them after the try block
 ❌ **Don't give vague errors** - "Error" is not helpful
 ❌ **Don't assume success** - Always handle failure cases
 
 ## What You've Learned
 
 ✅ File operation error handling
-✅ Resource cleanup with finally
+✅ Resource cleanup after the try block
 ✅ Input validation patterns
 ✅ Multiple operation handling
 ✅ Retry logic

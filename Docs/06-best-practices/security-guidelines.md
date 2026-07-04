@@ -10,21 +10,22 @@ Security must be built into your WFL applications from the start. This guide cov
 
 **Dangerous:**
 ```wfl
-store user_input as get_input()
-wait for execute command "echo " with user_input  // UNSAFE!
-// User could input: "; rm -rf /"
+store user_input as "; rm -rf /"                  // imagine this arrived from a user
+store command_text as "echo " with user_input     // UNSAFE: the user controls the command string
+display "Would run: " with command_text           // building commands from raw input invites injection
 ```
 
 **Safe:**
 ```wfl
-define action called safe_echo with parameters text:
-    // Validate: no special characters
-    check if contains ";" in text or contains "|" in text or contains "&" in text:
+define action called safe_echo with parameters user_text:
+    // Validate: reject shell metacharacters
+    check if user_text contains ";" or user_text contains "|" or user_text contains "&":
         display "Error: Invalid characters"
         return no
     end check
 
-    wait for execute command "echo " with text
+    // Pass user input as an argument, never concatenated into the command string
+    wait for execute command "echo" with arguments [user_text] as command_result
     return yes
 end action
 ```
@@ -38,7 +39,7 @@ end action
 ```wfl
 define action called safe_read_file with parameters filename:
     // Check for directory traversal
-    check if contains ".." in filename or contains "/" in filename:
+    check if filename contains ".." or filename contains "/":
         display "Error: Invalid file path"
         return nothing
     end check
@@ -48,9 +49,9 @@ define action called safe_read_file with parameters filename:
 
     try:
         open file at safe_path for reading as myfile
-        wait for store content as read content from myfile
+        store file_content as read content from myfile
         close file myfile
-        return content
+        return file_content
     catch:
         return nothing
     end try
@@ -82,8 +83,8 @@ end action
 **Always salt user-specific data:**
 
 ```wfl
-define action called hash_user_data with parameters data and user_id:
-    return wflhash256_with_salt of data and user_id
+define action called hash_user_data with parameters user_data and user_id:
+    return wflhash256_with_salt of user_data and user_id
 end action
 ```
 
@@ -100,9 +101,13 @@ store db_password as "secretpassword"
 **Right:**
 ```wfl
 // Read from environment or config file
-open file at "secrets.config" for reading as secretfile
-wait for store api_key as read content from secretfile
-close file secretfile
+try:
+    open file at "secrets.config" for reading as secretfile
+    store api_key as read content from secretfile
+    close file secretfile
+catch:
+    display "Config file not found - create secrets.config"
+end try
 
 // Or better: use environment variables
 // store api_key as get_env("API_KEY")
@@ -111,11 +116,16 @@ close file secretfile
 ### Don't Log Secrets
 
 ```wfl
+store api_key as "sk_live_abcd1234"
+
 // Wrong:
 display "API Key: " with api_key  // Don't log secrets!
 
 // Right:
-display "API Key: ****" with substring of api_key from length of api_key minus 4 length 4
+store key_length as length of api_key
+store start_index as key_length minus 4
+store last_four as substring of api_key and start_index and key_length
+display "API Key: ****" with last_four
 // Only show last 4 characters
 ```
 
@@ -124,11 +134,13 @@ display "API Key: ****" with substring of api_key from length of api_key minus 4
 ### Validate All Paths
 
 ```wfl
-wait for request comes in on server as req
+// Assumes a running web server (see the web server guide)
+wait for request comes in on web_server as incoming_request
 
 // Validate path
-check if contains ".." in path:
-    respond to req with "Invalid path" and status 400
+store request_path as path of incoming_request
+check if request_path contains "..":
+    respond to incoming_request with "Invalid path" and status 400
     // Stop - don't process
 end check
 ```
@@ -137,8 +149,9 @@ end check
 
 ```wfl
 // Prevent large request attacks
+store request_body as body of incoming_request
 check if length of request_body is greater than 1000000:  // 1MB limit
-    respond to req with "Request too large" and status 413
+    respond to incoming_request with "Request too large" and status 413
 end check
 ```
 
@@ -147,11 +160,11 @@ end check
 ```wfl
 // Don't leak internal errors
 try:
-    store data as query_database()
-    respond to req with data
+    store response_data as query_database of request_path
+    respond to incoming_request with response_data
 catch:
     // Don't reveal: "Database connection failed at 192.168.1.5:5432"
-    respond to req with "Internal server error" and status 500
+    respond to incoming_request with "Internal server error" and status 500
     // Log detailed error internally
 end try
 ```
