@@ -1578,6 +1578,7 @@ impl Analyzer {
                     ("path", Type::Text),
                     ("client_ip", Type::Text),
                     ("body", Type::Text),
+                    ("body_bytes", Type::Binary),
                     ("headers", Type::Custom("Headers".to_string())),
                 ];
 
