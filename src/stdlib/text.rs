@@ -348,6 +348,35 @@ pub fn native_padright(args: Vec<Value>) -> Result<Value, RuntimeError> {
     perform_pad(args, false)
 }
 
+const MAX_FORMAT_PRECISION: f64 = 17.0;
+
+pub fn native_format_number(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("format_number", &args, 2)?;
+
+    let value = expect_number(&args[0])?;
+    if !value.is_finite() {
+        return Err(RuntimeError::new(
+            "format_number expects a finite number".to_string(),
+            0,
+            0,
+        ));
+    }
+
+    let precision = expect_number(&args[1])?;
+    if !(0.0..=MAX_FORMAT_PRECISION).contains(&precision) || precision.fract() != 0.0 {
+        return Err(RuntimeError::new(
+            format!(
+                "format_number expects a whole-number precision between 0 and {MAX_FORMAT_PRECISION}, got {precision}"
+            ),
+            0,
+            0,
+        ));
+    }
+
+    let precision = precision as usize;
+    Ok(Value::Text(Arc::from(format!("{value:.precision$}"))))
+}
+
 pub fn native_capitalize(args: Vec<Value>) -> Result<Value, RuntimeError> {
     unary_text_op("capitalize", args, |text| {
         let mut chars = text.chars();
@@ -408,6 +437,7 @@ pub fn register_text(env: &mut Environment) {
     env.define_native("lastindexof", native_last_index_of);
     env.define_native("padleft", native_padleft);
     env.define_native("padright", native_padright);
+    env.define_native("format_number", native_format_number);
     env.define_native("capitalize", native_capitalize);
     env.define_native("reverse", native_reverse_text);
     env.define_native("reverse_text", native_reverse_text);
@@ -687,5 +717,73 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(result, Value::Text(Arc::from(" worl")));
+    }
+
+    #[test]
+    fn test_format_number_one_decimal() {
+        let result = native_format_number(vec![Value::Number(45.678), Value::Number(1.0)]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("45.7")));
+    }
+
+    #[test]
+    fn test_format_number_whole_keeps_decimal() {
+        let result = native_format_number(vec![Value::Number(100.0), Value::Number(1.0)]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("100.0")));
+    }
+
+    #[test]
+    fn test_format_number_round_half_even() {
+        // 0.25 is exact in binary; Python's f"{0.25:.1f}" gives "0.2"
+        let result = native_format_number(vec![Value::Number(0.25), Value::Number(1.0)]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("0.2")));
+        // 0.75 is exact in binary; Python gives "0.8"
+        let result = native_format_number(vec![Value::Number(0.75), Value::Number(1.0)]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("0.8")));
+    }
+
+    #[test]
+    fn test_format_number_zero_precision() {
+        let result = native_format_number(vec![Value::Number(12.0), Value::Number(0.0)]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("12")));
+    }
+
+    #[test]
+    fn test_format_number_more_decimals() {
+        let result =
+            native_format_number(vec![Value::Number(1.0 / 3.0), Value::Number(3.0)]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("0.333")));
+    }
+
+    #[test]
+    fn test_format_number_negative_value() {
+        let result = native_format_number(vec![Value::Number(-2.345), Value::Number(2.0)]).unwrap();
+        assert_eq!(result, Value::Text(Arc::from("-2.35")));
+    }
+
+    #[test]
+    fn test_format_number_wrong_arg_count() {
+        assert!(native_format_number(vec![Value::Number(1.0)]).is_err());
+    }
+
+    #[test]
+    fn test_format_number_non_number_value() {
+        assert!(
+            native_format_number(vec![Value::Text(Arc::from("x")), Value::Number(1.0)]).is_err()
+        );
+    }
+
+    #[test]
+    fn test_format_number_bad_precision() {
+        assert!(native_format_number(vec![Value::Number(1.0), Value::Number(-1.0)]).is_err());
+        assert!(native_format_number(vec![Value::Number(1.0), Value::Number(1.5)]).is_err());
+        assert!(native_format_number(vec![Value::Number(1.0), Value::Number(100.0)]).is_err());
+    }
+
+    #[test]
+    fn test_format_number_non_finite_value() {
+        assert!(native_format_number(vec![Value::Number(f64::NAN), Value::Number(1.0)]).is_err());
+        assert!(
+            native_format_number(vec![Value::Number(f64::INFINITY), Value::Number(1.0)]).is_err()
+        );
     }
 }

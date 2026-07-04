@@ -157,8 +157,8 @@ impl TypeChecker {
             // Text functions
             "length" | "indexof" | "index_of" | "lastindexof" | "last_index_of" => Type::Number,
             "touppercase" | "to_uppercase" | "tolowercase" | "to_lowercase" | "substring"
-            | "replace" | "trim" | "padleft" | "padright" | "capitalize" | "reverse"
-            | "reverse_text" => Type::Text,
+            | "replace" | "trim" | "padleft" | "padright" | "format_number" | "capitalize"
+            | "reverse" | "reverse_text" => Type::Text,
             "contains" | "startswith" | "starts_with" | "endswith" | "ends_with" => Type::Boolean,
             "split" => Type::List(Box::new(Type::Text)),
             "join" => Type::Text,
