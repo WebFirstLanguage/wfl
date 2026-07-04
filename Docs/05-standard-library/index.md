@@ -88,15 +88,18 @@ store len as length of "WFL"
 
 // Lists
 store items as [1, 2, 3, 4, 5]
-store count as length of items
+store item_count as length of items
 push with items and 6
 
 // Files
-store size as file size at "data.txt"
-store ext as path extension of "document.pdf"
+open file at "data.txt" for writing as data_file
+wait for write content "sample" into data_file
+close file data_file
+store size as file size of "data.txt"
+store ext as path_extension of "document.pdf"
 
 // Random
-store dice_roll as random_int between 1 and 6
+store dice_roll as random_int of 1 and 6
 store coin_flip as random_boolean
 
 // Crypto
@@ -178,7 +181,7 @@ HELLO
 > length of "WFL"
 3
 
-> random_int between 1 and 6
+> random_int of 1 and 6
 4
 
 > typeof of 42
