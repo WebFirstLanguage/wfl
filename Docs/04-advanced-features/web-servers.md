@@ -188,6 +188,26 @@ display "User agent: " with user_agent
 respond to req with "ok"
 ```
 
+### Request Body
+
+The request body is available two ways:
+
+- `body` — the body decoded as text (lossy UTF-8). Use this for form posts,
+  JSON, and other text payloads.
+- `body_bytes` — the **raw bytes** of the body, preserved exactly. Use this for
+  binary uploads (file uploads, images, etc.); it can be written straight to
+  disk with `write binary` or echoed back with `respond to`.
+
+```wfl
+wait for request comes in on server as req
+
+open file at "uploads/received.bin" for writing binary as out_file
+write binary body_bytes into out_file
+close file out_file
+
+respond to req with "Uploaded"
+```
+
 ## Response Options
 
 ### With Status Code
@@ -230,6 +250,44 @@ respond to <request> with <content> and content_type <type>
 - `application/json` - JSON data
 - `text/css` - CSS stylesheets
 - `application/javascript` - JavaScript files
+
+### Serving Binary Files (Fonts, Images, etc.)
+
+`respond to` carries **binary** content losslessly, so you can serve fonts,
+images, favicons, PDFs, and other non-text assets straight from disk. Read the
+file with `read binary` (see [File I/O](file-io.md#binary-files)) and respond
+with the resulting bytes:
+
+```wfl
+open file at "public/fonts/Alegreya-Regular.ttf" for reading binary as f
+store font_bytes as read binary from f
+close file f
+
+respond to req with font_bytes and content_type "font/ttf"
+```
+
+If you omit `content_type` for binary content, it defaults to
+`application/octet-stream` (rather than `text/plain`).
+
+To pick the content type automatically from a file name, use the `mime_type`
+helper — handy for a static-file route:
+
+```wfl
+store asset_path as "public/fonts/Alegreya-Regular.ttf"
+open file at asset_path for reading binary as f
+store asset_bytes as read binary from f
+close file f
+
+respond to req with asset_bytes and content_type (mime_type of asset_path)
+```
+
+`mime_type of <name>` maps a file name or path to a content type by its
+extension (`.ttf`→`font/ttf`, `.woff2`→`font/woff2`, `.png`→`image/png`,
+`.svg`→`image/svg+xml`, `.ico`→`image/x-icon`, `.css`, `.js`, `.json`, …),
+falling back to `application/octet-stream` for unknown extensions.
+
+> **Note:** `data` is a reserved keyword — name the variable holding the bytes
+> something else (e.g. `font_bytes`, `payload`).
 
 ### With Custom Headers
 

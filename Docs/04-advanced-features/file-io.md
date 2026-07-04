@@ -149,6 +149,67 @@ display updated
 display "=== Demo Complete ==="
 ```
 
+## Binary Files
+
+Text reads (`read content`) require valid UTF-8, so they corrupt or reject
+non-text files such as fonts, images, PDFs, or compressed archives. For those,
+use WFL's **binary** file operations, which preserve every byte exactly.
+
+### Reading Binary Content
+
+```wfl
+open file at "logo.png" for reading binary as image
+store bytes as read binary from image
+close file image
+
+display "Read " with length of bytes with " bytes"
+```
+
+**Syntax:**
+```wfl
+open file at "<path>" for reading binary as <variable>
+store <variable> as read binary from <handle>
+close file <handle>
+```
+
+Read only the first N bytes (for example, to sniff a file header):
+
+```wfl
+open file at "logo.png" for reading binary as image
+store header as read 8 bytes from image
+close file image
+```
+
+### Writing Binary Content
+
+`write binary` accepts either a binary value (from `read binary`) or a list of
+byte numbers (each 0–255):
+
+```wfl
+create list bytes:
+    add 137
+    add 80
+    add 78
+    add 71
+end list
+
+open file at "signature.bin" for writing binary as out_file
+write binary bytes into out_file
+close file out_file
+```
+
+**Syntax:**
+```wfl
+open file at "<path>" for writing binary as <variable>
+write binary <binary-or-byte-list> into <handle>
+close file <handle>
+```
+
+> **Note:** `data` is a reserved keyword, so choose another variable name
+> (e.g. `bytes`, `payload`, `content_bytes`) when storing binary content.
+
+Binary reads and writes are capped at 50 MB per operation as a safety limit.
+
 ## Directory Operations
 
 ### Listing Files

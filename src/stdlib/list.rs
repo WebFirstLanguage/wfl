@@ -14,8 +14,14 @@ pub fn native_length(args: Vec<Value>) -> Result<Value, RuntimeError> {
     match &args[0] {
         Value::List(list) => Ok(Value::Number(list.borrow().len() as f64)),
         Value::Text(text) => Ok(Value::Number(text.chars().count() as f64)),
+        // Binary length is the number of bytes, letting `length of bytes`
+        // report the size of binary content (e.g. from `read binary`).
+        Value::Binary(bytes) => Ok(Value::Number(bytes.len() as f64)),
         _ => Err(RuntimeError::new(
-            format!("length expects a list or text, got {}", args[0].type_name()),
+            format!(
+                "length expects a list, text, or binary, got {}",
+                args[0].type_name()
+            ),
             0,
             0,
         )),
