@@ -239,6 +239,8 @@ Every script starts with a few variables defined by the runtime:
 - `script_path` - the absolute path of the running script file
 - `script_directory` - the absolute directory containing the running script
 
+When no script file is running (for example in the REPL or an embedded interpreter), `script_path` and `script_directory` are empty text (`""`) instead of absolute paths - check for empty text before relying on them in code that may run outside a script file.
+
 `script_path` and `script_directory` are handy for locating files relative to the script itself, no matter which directory it is launched from:
 
 ```wfl

@@ -313,6 +313,7 @@ end action
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn test_lexical_abspath() {
     use super::lexical_abspath;
@@ -338,6 +339,35 @@ fn test_lexical_abspath() {
     assert_eq!(
         lexical_abspath(Path::new("a/b.wfl"), Path::new("/w/./z/..")),
         "/w/a/b.wfl"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn test_lexical_abspath_windows() {
+    use super::lexical_abspath;
+    use std::path::Path;
+
+    // Absolute paths pass through unchanged
+    assert_eq!(
+        lexical_abspath(Path::new(r"C:\a\b\c.wfl"), Path::new(r"C:\cwd")),
+        r"C:\a\b\c.wfl"
+    );
+    // Relative paths join to the cwd
+    assert_eq!(
+        lexical_abspath(Path::new(r"Tools\foo.wfl"), Path::new(r"C:\repo")),
+        r"C:\repo\Tools\foo.wfl"
+    );
+    // "." components are dropped, ".." collapses lexically; forward slashes
+    // are accepted as separators and normalized
+    assert_eq!(
+        lexical_abspath(Path::new("./Tools/../src/x.rs"), Path::new(r"C:\base")),
+        r"C:\base\src\x.rs"
+    );
+    // ".." at the root is dropped
+    assert_eq!(
+        lexical_abspath(Path::new(r"C:\..\x"), Path::new(r"C:\")),
+        r"C:\x"
     );
 }
 
