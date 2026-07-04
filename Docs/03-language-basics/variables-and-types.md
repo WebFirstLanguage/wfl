@@ -9,7 +9,7 @@ Use the `store` keyword to create variables:
 ```wfl
 store name as "Alice"
 store age as 25
-store is active as yes
+store is_active as yes
 store account balance as 1250.75
 ```
 
@@ -23,7 +23,7 @@ The variable name can include spaces for readability:
 ```wfl
 store user name as "Bob"           // Variable name: "user name"
 store account balance as 1000.00   // Variable name: "account balance"
-store is admin as no               // Variable name: "is admin"
+store admin flag as no             // Variable name: "admin flag"
 ```
 
 ## Data Types
@@ -38,7 +38,7 @@ Text values are enclosed in double quotes:
 store first name as "Alice"
 store last name as "Smith"
 store greeting as "Hello, World!"
-store empty text as ""
+store empty_text as ""
 ```
 
 **Special characters:**
@@ -72,10 +72,10 @@ store product as x times y         // 200
 Boolean values represent true/false:
 
 ```wfl
-store is active as yes             // true
-store is locked as no              // false
+store is_active as yes             // true
+store is_locked as no              // false
 store has access as yes
-store is verified as no
+store is_verified as no
 ```
 
 **Alternative forms:**
@@ -86,7 +86,8 @@ store another flag as false        // Also valid
 
 **Common in conditionals:**
 ```wfl
-check if is active is yes:
+store is_active as yes
+check if is_active is yes:
     display "User is active"
 end check
 ```
@@ -97,11 +98,12 @@ Represents the absence of a value:
 
 ```wfl
 store result as nothing
-store undefined value as nothing
+store undefined_value as nothing
 ```
 
 **Check for nothing:**
 ```wfl
+store result as nothing
 check if isnothing of result:
     display "Result is empty"
 end check
@@ -122,9 +124,9 @@ User-defined types (covered in [Advanced Features](../04-advanced-features/conta
 
 ```wfl
 create container Person:
-    property name as text
-    property age as number
-end container
+    property name: Text
+    property age: Number
+end
 ```
 
 ## Type Inference
@@ -158,6 +160,7 @@ display typeof of value            // Output: "Nothing"
 
 **Practical use:**
 ```wfl
+store value as 42
 check if typeof of value is "Number":
     display "It's a number!"
 otherwise:
@@ -204,6 +207,8 @@ store name as "Alice"
 
 **Correct way:**
 ```wfl
+store age as 25
+store name as "Alice"
 // To combine number and text:
 display "Age: " with age                    // Output: "Age: 25"
 display name with " is " with age          // Output: "Alice is 25"
@@ -268,10 +273,10 @@ Variables inside blocks have their own scope:
 
 ```wfl
 count from 1 to 5:
-    store loop value as count
-    display loop value
+    store loop_value as count
+    display loop_value
 end count
-// display loop value              // ERROR: Not accessible outside loop
+// display loop_value             // ERROR: Not accessible outside loop
 ```
 
 ## Constants
@@ -414,13 +419,14 @@ display counter                    // Output: 2
 ### Flags
 
 ```wfl
-store found as no
+store value as 42
+store is_found as no
 
 check if value is 42:
-    change found to yes
+    change is_found to yes
 end check
 
-check if found is yes:
+check if is_found is yes:
     display "Found the answer!"
 end check
 ```
@@ -433,12 +439,12 @@ end check
 store first name as "Alice"
 store last name as "Johnson"
 store age as 28
-store is employed as yes
+store is_employed as yes
 store salary as 75000.00
 
 display "Name: " with first name with " " with last name
 display "Age: " with age
-display "Employed: " with is employed
+display "Employed: " with is_employed
 display "Salary: $" with salary
 ```
 
@@ -447,7 +453,7 @@ display "Salary: $" with salary
 Name: Alice Johnson
 Age: 28
 Employed: yes
-Salary: $75000.0
+Salary: $75000
 ```
 
 ### Temperature Converter
@@ -541,6 +547,8 @@ display age plus name              // ERROR: Cannot add Number and Text
 
 **Right:**
 ```wfl
+store age as 25
+store name as "Alice"
 display "Name: " with name with ", Age: " with age
 ```
 
