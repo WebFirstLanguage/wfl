@@ -735,11 +735,19 @@ impl TypeChecker {
                     .map(|p| p.param_type.as_ref().cloned().unwrap_or(Type::Unknown))
                     .collect::<Vec<Type>>();
 
+                // WFL has no return-type annotation syntax, so `return_type` is
+                // effectively always `None`; default to `Nothing` provisionally
+                // (so recursive calls in the body resolve to a function type),
+                // then refine it below by inferring from the body's `return`
+                // expressions (issue #569). Without this, every action-call
+                // result is typed `Nothing`, producing spurious "Expected Text
+                // but found Nothing" errors when the result feeds a builtin
+                // position that requires Text (e.g. `respond to req with ...`).
                 let return_type_value = return_type.as_ref().cloned().unwrap_or(Type::Nothing);
 
                 if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
                     symbol.symbol_type = Some(Type::Function {
-                        parameters: param_types,
+                        parameters: param_types.clone(),
                         return_type: Box::new(return_type_value),
                     });
                 }
@@ -769,11 +777,36 @@ impl TypeChecker {
                     self.check_statement_types(stmt);
                 }
 
+                // Infer the return type while body-locals and parameters are
+                // still in scope, but defer applying it to the action's symbol
+                // until after the scope is popped: `get_symbol_mut` only reaches
+                // the current (innermost) scope, so the action symbol — which
+                // lives in the parent scope — is only reachable once the param
+                // scope is gone (issue #569).
+                let inferred_return = if return_type.is_none() {
+                    Some(self.infer_action_return_type(body))
+                } else {
+                    None
+                };
+
                 if let Some(ret_type) = return_type {
                     self.check_return_statements(body, ret_type, *_line, *_column);
                 }
 
                 self.analyzer.pop_scope();
+
+                // Update the action's symbol so call sites see the real result
+                // type instead of the provisional `Nothing`. Skip pure `Nothing`
+                // results (void actions) to preserve existing behavior.
+                if let Some(inferred) = inferred_return
+                    && inferred != Type::Nothing
+                    && let Some(symbol) = self.analyzer.get_symbol_mut(name)
+                {
+                    symbol.symbol_type = Some(Type::Function {
+                        parameters: param_types,
+                        return_type: Box::new(inferred),
+                    });
+                }
             }
             Statement::IfStatement {
                 condition,
@@ -3611,6 +3644,93 @@ impl TypeChecker {
         }
     }
 
+    /// Infer an action's return type from its `return` statements (issue #569).
+    ///
+    /// WFL has no return-type annotation, so the type checker must derive it
+    /// from the body. Collect the type of every reachable `return <expr>` and
+    /// merge them: identical types collapse to that type; differing concrete
+    /// types (or an `Unknown`) widen to a permissive type so we never turn an
+    /// un-inferrable body into a false positive at the call site. A body with no
+    /// value-returning `return` yields `Nothing`, preserving void-action
+    /// behavior.
+    fn infer_action_return_type(&mut self, body: &[Statement]) -> Type {
+        let mut return_types = Vec::new();
+        self.collect_return_types(body, &mut return_types);
+
+        let mut result: Option<Type> = None;
+        for t in return_types {
+            result = Some(match result {
+                None => t,
+                Some(existing) if existing == t => existing,
+                // Differing return types (or an un-inferrable one): widen.
+                // `Unknown` stays `Unknown` (still permissive, and preserves the
+                // "could not infer" signal); otherwise fall back to `Any`, which
+                // is accepted everywhere a concrete type is required.
+                Some(existing) => {
+                    if existing == Type::Unknown || t == Type::Unknown {
+                        Type::Unknown
+                    } else {
+                        Type::Any
+                    }
+                }
+            });
+        }
+        result.unwrap_or(Type::Nothing)
+    }
+
+    /// Gather the inferred type of each `return <expr>` reachable in `body`,
+    /// descending into conditionals and loops (mirrors `check_return_statements`
+    /// traversal). Diagnostics produced while inferring are discarded: the body
+    /// pass has already reported them, so this is purely for type collection.
+    fn collect_return_types(&mut self, statements: &[Statement], out: &mut Vec<Type>) {
+        for statement in statements {
+            match statement {
+                Statement::ReturnStatement { value, .. } => {
+                    if let Some(expr) = value {
+                        let errors_before = self.errors.len();
+                        let t = self.infer_expression_type(expr);
+                        self.errors.truncate(errors_before);
+                        out.push(t);
+                    } else {
+                        out.push(Type::Nothing);
+                    }
+                }
+                Statement::IfStatement {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    self.collect_return_types(then_block, out);
+                    if let Some(else_stmts) = else_block {
+                        self.collect_return_types(else_stmts, out);
+                    }
+                }
+                Statement::SingleLineIf {
+                    then_stmt,
+                    else_stmt,
+                    ..
+                } => {
+                    self.collect_return_types(&[*(*then_stmt).clone()], out);
+                    if let Some(else_stmt) = else_stmt {
+                        self.collect_return_types(&[*(*else_stmt).clone()], out);
+                    }
+                }
+                Statement::ForEachLoop { body, .. }
+                | Statement::CountLoop { body, .. }
+                | Statement::WhileLoop { body, .. }
+                | Statement::RepeatUntilLoop { body, .. }
+                | Statement::ForeverLoop { body, .. }
+                | Statement::MainLoop { body, .. } => {
+                    self.collect_return_types(body, out);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // `line`/`column` are the action's fallback location, threaded through the
+    // recursive descent; each error site prefers the offending statement's own
+    // position, so the parameters are only forwarded to recursive calls.
     #[allow(clippy::only_used_in_recursion)]
     fn check_return_statements(
         &mut self,
@@ -4472,6 +4592,122 @@ mod tests {
             errors
                 .iter()
                 .any(|e| e.message.contains("must contain Text"))
+        );
+    }
+
+    /// Issue #569: an action's return type must be inferred from its body so a
+    /// call result feeding a Text-required position (e.g. `open file at ...`)
+    /// does not spuriously report "Expected Text but found Nothing".
+    #[test]
+    fn test_action_return_type_inferred_for_text_position() {
+        let program = Program {
+            statements: vec![
+                Statement::ActionDefinition {
+                    name: "h".to_string(),
+                    parameters: vec![Parameter {
+                        name: "name".to_string(),
+                        param_type: None,
+                        default_value: None,
+                        line: 1,
+                        column: 1,
+                    }],
+                    body: vec![Statement::ReturnStatement {
+                        value: Some(Expression::Literal(
+                            Literal::String(Arc::from("hello")),
+                            2,
+                            5,
+                        )),
+                        line: 2,
+                        column: 5,
+                    }],
+                    return_type: None,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::VariableDeclaration {
+                    name: "c".to_string(),
+                    value: Expression::ActionCall {
+                        name: "h".to_string(),
+                        arguments: vec![Argument {
+                            name: None,
+                            value: Expression::Literal(Literal::String(Arc::from("world")), 4, 1),
+                        }],
+                        line: 4,
+                        column: 1,
+                    },
+                    is_constant: false,
+                    line: 4,
+                    column: 1,
+                },
+                Statement::OpenFileStatement {
+                    path: Expression::Variable("c".to_string(), 5, 1),
+                    variable_name: "f".to_string(),
+                    mode: crate::parser::ast::FileOpenMode::Read,
+                    line: 5,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&program);
+        assert!(
+            result.is_ok(),
+            "Action returning Text should satisfy a Text-required position, got: {:?}",
+            result.err()
+        );
+    }
+
+    /// Issue #569 (converse): inference must not mask a genuine mismatch — an
+    /// action that returns a Number used where Text is required must still error.
+    #[test]
+    fn test_action_return_type_inference_still_flags_real_mismatch() {
+        let program = Program {
+            statements: vec![
+                Statement::ActionDefinition {
+                    name: "g".to_string(),
+                    parameters: vec![],
+                    body: vec![Statement::ReturnStatement {
+                        value: Some(Expression::Literal(Literal::Integer(42), 2, 5)),
+                        line: 2,
+                        column: 5,
+                    }],
+                    return_type: None,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::VariableDeclaration {
+                    name: "n".to_string(),
+                    value: Expression::ActionCall {
+                        name: "g".to_string(),
+                        arguments: vec![],
+                        line: 4,
+                        column: 1,
+                    },
+                    is_constant: false,
+                    line: 4,
+                    column: 1,
+                },
+                Statement::OpenFileStatement {
+                    path: Expression::Variable("n".to_string(), 5, 1),
+                    variable_name: "f".to_string(),
+                    mode: crate::parser::ast::FileOpenMode::Read,
+                    line: 5,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&program);
+        assert!(
+            result.is_err(),
+            "Action returning Number used as a file path must still be flagged"
+        );
+        let errors = result.err().unwrap();
+        assert!(
+            errors.iter().any(|e| e.found == Some(Type::Number)),
+            "Mismatch should report the inferred Number type, got: {errors:?}"
         );
     }
 }
