@@ -56,7 +56,7 @@ programs from *Hello, World!* to objects, each checked against the current build
 
 ## Install & build
 
-WFL is written in Rust (edition 2024, Rust 1.75+).
+WFL is written in Rust (edition 2024, which requires Rust 1.85 or newer).
 
 ```bash
 # Build the compiler/runtime
