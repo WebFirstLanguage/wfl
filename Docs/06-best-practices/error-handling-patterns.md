@@ -16,19 +16,22 @@ Robust applications handle errors gracefully. This guide shows proven patterns f
 
 ```wfl
 define action called safe_read_file with parameters filepath:
+    // Keep the handle and the result in outer variables so we can close the
+    // file AFTER end try and only then return — returning inside the try would
+    // skip the cleanup on the success path.
     store file_handle as nothing
+    store file_content as ""
     try:
         open file at filepath for reading as myfile
         change file_handle to myfile
-        store file_content as read content from myfile
-        return file_content
+        change file_content to read content from myfile
     when error:
         display "Error: Could not read file '" with filepath with "'"
-        return nothing
     end try
     check if file_handle is not nothing:
         close file file_handle
     end check
+    return file_content
 end action
 
 store config_data as safe_read_file of "config.txt"
@@ -163,19 +166,21 @@ display "Result: " with final_result
 
 ```wfl
 define action called load_config_with_fallback with parameters filename:
+    // Default result up front; close the file after end try, then return —
+    // so cleanup runs whether the read succeeds or fails.
     store file_handle as nothing
+    store config_text as "default configuration"
     try:
         open file at filename for reading as myfile
         change file_handle to myfile
-        store config_text as read content from myfile
-        return config_text
+        change config_text to read content from myfile
     when error:
         display "Warning: Could not load config, using defaults"
-        return "default configuration"
     end try
     check if file_handle is not nothing:
         close file file_handle
     end check
+    return config_text
 end action
 
 store app_config as load_config_with_fallback of "app.config"

@@ -250,9 +250,8 @@ define action called remove_item with parameters the_list and value:
     store index as indexof of the_list and value
 
     check if index is greater than or equal to 0:
-        display "Found " with value with " at index " with index
-        // Note: No built-in remove_at yet
-        // Would need manual implementation
+        remove_at of the_list and index
+        display "Removed " with value with " from index " with index
         return yes
     otherwise:
         display value with " not found in list"
