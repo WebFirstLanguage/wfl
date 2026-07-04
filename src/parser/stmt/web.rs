@@ -200,11 +200,12 @@ impl<'a> WebParser<'a> for Parser<'a> {
         // Parse content expression (use primary to avoid consuming "and")
         let content = self.parse_primary_expression()?;
 
-        // Optional status and content_type
+        // Optional status, content_type, and headers
         let mut status = None;
         let mut content_type = None;
+        let mut headers = None;
 
-        // Check for optional "and" clauses (status and/or content_type)
+        // Check for optional "and" clauses (status, content_type, and/or headers)
         loop {
             if let Some(token) = self.cursor.peek()
                 && token.token == Token::KeywordAnd
@@ -262,6 +263,30 @@ impl<'a> WebParser<'a> for Parser<'a> {
                                 Some(Expression::Variable(rest.to_string(), id_line, id_column));
                         }
                         continue;
+                    } else if let Token::Identifier(id) = &next_token.token
+                        && (id == "headers" || id.starts_with("headers "))
+                    {
+                        // Mirrors the outbound client's `with headers <map>` form.
+                        // The lexer merges adjacent identifiers, so a variable
+                        // value can arrive glued to the marker
+                        // (`and headers h` lexes as Identifier("headers h")).
+                        let id = id.clone();
+                        let (id_line, id_column) = (next_token.line, next_token.column);
+                        self.bump_sync(); // Consume "and"
+                        self.bump_sync(); // Consume the (possibly merged) "headers" marker
+                        let rest = id
+                            .strip_prefix("headers")
+                            .map(str::trim_start)
+                            .unwrap_or("");
+                        if rest.is_empty() {
+                            // Primary expression only, so a following "and
+                            // status ..." clause stays available.
+                            headers = Some(self.parse_primary_expression()?);
+                        } else {
+                            headers =
+                                Some(Expression::Variable(rest.to_string(), id_line, id_column));
+                        }
+                        continue;
                     }
                 }
             }
@@ -273,6 +298,7 @@ impl<'a> WebParser<'a> for Parser<'a> {
             content,
             status,
             content_type,
+            headers,
             line: respond_token.line,
             column: respond_token.column,
         })

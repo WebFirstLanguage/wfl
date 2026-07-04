@@ -850,6 +850,7 @@ impl Analyzer {
                 content,
                 status,
                 content_type,
+                headers,
                 ..
             } => {
                 self.mark_used_in_expression(request, usages);
@@ -859,6 +860,9 @@ impl Analyzer {
                 }
                 if let Some(content_type) = content_type {
                     self.mark_used_in_expression(content_type, usages);
+                }
+                if let Some(headers) = headers {
+                    self.mark_used_in_expression(headers, usages);
                 }
             }
             Statement::ListenStatement { port, .. } => {
@@ -1701,6 +1705,44 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("unused"));
         assert_eq!(diagnostics[0].code, "ANALYZE-UNUSED");
+    }
+
+    #[test]
+    fn test_respond_headers_expression_marks_variable_used() {
+        // Regression: a variable referenced only in the
+        // `respond ... and headers <map>` clause must be marked used, not
+        // falsely reported as unused. RFC 10008 servers build a header map
+        // (Accept-Query, Content-Location) and pass it straight to respond.
+        let program = Program {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: "response_headers".to_string(),
+                    value: Expression::Literal(Literal::Integer(1), 1, 1),
+                    is_constant: false,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::RespondStatement {
+                    request: Expression::Variable("req".to_string(), 2, 1),
+                    content: Expression::Literal(Literal::String(Arc::from("ok")), 2, 1),
+                    status: None,
+                    content_type: None,
+                    headers: Some(Expression::Variable("response_headers".to_string(), 2, 30)),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_unused_variables(&program, 0);
+
+        assert!(
+            diagnostics
+                .iter()
+                .all(|d| !d.message.contains("response_headers")),
+            "response_headers used only in `respond ... and headers` must not be flagged unused: {diagnostics:?}"
+        );
     }
 
     #[test]

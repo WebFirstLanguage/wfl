@@ -1896,6 +1896,7 @@ impl TypeChecker {
                 content,
                 status,
                 content_type,
+                headers,
                 line: _line,
                 column: _column,
             } => {
@@ -1939,6 +1940,24 @@ impl TypeChecker {
                             "Content type must be text".to_string(),
                             Some(Type::Text),
                             Some(ct_type),
+                            *_line,
+                            *_column,
+                        );
+                    }
+                }
+
+                // Check headers if provided (should be a map). Mirrors the
+                // outbound HttpRequestStatement headers check.
+                if let Some(headers_expr) = headers {
+                    let headers_type = self.infer_expression_type(headers_expr);
+                    if !matches!(
+                        headers_type,
+                        Type::Map(_, _) | Type::Unknown | Type::Any | Type::Error
+                    ) {
+                        self.type_error(
+                            "Response headers must be a map of header names to values".to_string(),
+                            Some(Type::Map(Box::new(Type::Text), Box::new(Type::Text))),
+                            Some(headers_type),
                             *_line,
                             *_column,
                         );
@@ -3794,6 +3813,46 @@ mod tests {
             errors
                 .iter()
                 .any(|e| e.message.contains("incompatible type"))
+        );
+    }
+
+    #[test]
+    fn test_respond_headers_must_be_a_map() {
+        // A non-map value in the `headers` clause must be a type error, the same
+        // way non-map request headers are rejected on `open url`.
+        let program = Program {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: "req".to_string(),
+                    value: Expression::Literal(Literal::String(Arc::from("stub")), 1, 1),
+                    is_constant: false,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::RespondStatement {
+                    request: Expression::Variable("req".to_string(), 2, 1),
+                    content: Expression::Literal(Literal::String(Arc::from("ok")), 2, 1),
+                    status: None,
+                    content_type: None,
+                    headers: Some(Expression::Literal(Literal::Integer(42), 2, 1)),
+                    line: 2,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&program);
+        assert!(
+            result.is_err(),
+            "Expected a type error for non-map response headers"
+        );
+        let errors = result.err().unwrap();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("Response headers must be a map")),
+            "Expected the response-headers type error, got: {errors:?}"
         );
     }
 

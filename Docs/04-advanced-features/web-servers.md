@@ -217,11 +217,87 @@ respond to <request> with <content> and content_type <type>
 - `text/css` - CSS stylesheets
 - `application/javascript` - JavaScript files
 
+### With Custom Headers
+
+Set extra response headers by passing a map to `and headers`. This mirrors the
+outbound client's `with headers` clause — the same "headers are a map" idea,
+nothing new to learn.
+
+```wfl
+create map extra_headers:
+    "Cache-Control" is "no-store"
+    "X-Request-Id" is "abc-123"
+end map
+
+respond to req with json_data and content_type "application/json" and headers extra_headers
+```
+
+**Syntax:**
+```wfl
+respond to <request> with <content> and headers <map>
+```
+
+**Notes:**
+- The map keys are header names; values are text (numbers and booleans are
+  accepted and converted to text).
+- The `content_type` clause remains authoritative for `Content-Type`. Keys the
+  response pipeline computes itself — `Content-Type`, `Content-Length`, and
+  `Transfer-Encoding` — are ignored if present in the map, so the response never
+  carries duplicate or conflicting copies of them.
+
 ### Combined
 
 ```wfl
-respond to req with "Created!" and status 201 and content_type "application/json"
+respond to req with "Created!" and status 201 and content_type "application/json" and headers extra_headers
 ```
+
+All optional clauses (`status`, `content_type`, `headers`) can appear in any
+order after the content.
+
+## The QUERY Method (RFC 10008)
+
+WFL supports [RFC 10008](https://www.rfc-editor.org/info/rfc10008/), the HTTP
+`QUERY` method. `QUERY` is a *safe* and *idempotent* request that carries a
+body — it fills the gap between `GET` (safe/idempotent but no body) and `POST`
+(has a body but is neither), which is ideal for complex read-only lookups whose
+parameters are too large or sensitive for the URL.
+
+Because WFL treats HTTP methods as plain text, no special syntax is required.
+
+**Sending a QUERY (client):**
+
+Per RFC 10008 a `QUERY` request must include a `Content-Type` describing the
+query body, so set it in the request headers map:
+
+```wfl
+create map request_headers:
+    "Content-Type" is "application/jsonpath"
+end map
+
+open url at "https://api.example.com/search" with method "QUERY" and headers request_headers and body "$.items[*]" and read response as result
+```
+
+**Handling a QUERY (server):**
+
+A `QUERY` request arrives like any other; dispatch on the method and use the
+`headers` clause to advertise `Accept-Query` (which query formats the endpoint
+accepts) and, optionally, `Content-Location` to point at a resource holding the
+results.
+
+```wfl
+create map query_headers:
+    "Accept-Query" is "application/jsonpath, application/sql"
+    "Content-Location" is "/data/results/latest"
+end map
+
+check if req["method"] is "QUERY":
+    respond to req with results_json and content_type "application/json" and headers query_headers
+otherwise:
+    respond to req with "Method Not Allowed" and status 405
+end check
+```
+
+See `TestPrograms/rfc10008_query_server.wfl` for a complete example.
 
 ## Routing
 
