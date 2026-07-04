@@ -50,7 +50,8 @@ tokio = { version = "1.35.1", features = ["full"] }
 reqwest = { version = "0.11.24", features = ["json"] }
 sqlx = { version = "0.8.1", features = ["runtime-tokio-rustls", "sqlite", "mysql", "postgres", "chrono"] }
 serde_json = "1.0.114"
-warp = "0.3.7"
+warp = { version = "0.3.7", features = ["tls"] }
+rustls-pemfile = "2"
 uuid = { version = "1.6.1", features = ["v4"] }
 bytes = "1.11.1"
 codespan-reporting = "0.11.1"
@@ -75,6 +76,7 @@ dhat-ad-hoc = ["dhat"]  # if you are doing ad hoc profiling
 
 [dev-dependencies]
 tempfile = "3.19.1"
+rcgen = "0.13"
 libc = "0.2.152"
 criterion = "0.4"
 

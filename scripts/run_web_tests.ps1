@@ -198,6 +198,98 @@ if (Test-Path "TestPrograms\web_route_params_test.wfl") {
     }
 }
 
+# Test 4: web_server_tls.wfl (HTTPS + HTTP->HTTPS redirect)
+if (Test-Path "TestPrograms\web_server_tls.wfl") {
+    $openssl = Get-Command openssl -ErrorAction SilentlyContinue
+    if (-not $openssl) {
+        Write-Host "[SKIP] web_server_tls.wfl - openssl not available to generate a test certificate" -ForegroundColor Yellow
+    } else {
+        $totalTests++
+        Write-Host ""
+        Write-Host "[INFO] Testing: web_server_tls.wfl on ports 8443 (https) and 8090 (redirect)" -ForegroundColor Blue
+
+        $tlsDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        New-Item -ItemType Directory -Path $tlsDir | Out-Null
+        & openssl req -x509 -newkey rsa:2048 -nodes -keyout "$tlsDir\key.pem" -out "$tlsDir\cert.pem" -days 1 -subj "/CN=localhost" 2>&1 | Out-Null
+
+        # The test program uses relative cert paths, so run it from the temp dir
+        $absBinary = Join-Path (Get-Location) $BinaryPath
+        $absTest = Join-Path (Get-Location) "TestPrograms\web_server_tls.wfl"
+        $tlsProcess = Start-Process -FilePath $absBinary -ArgumentList $absTest -WorkingDirectory $tlsDir -NoNewWindow -PassThru -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
+
+        try {
+            # Probe readiness via the redirect port: it answers natively and does
+            # not consume the program's single `wait for request`
+            $serverReady = $false
+            $retries = 0
+            $maxRetries = $Timeout * 2
+            while (-not $serverReady -and $retries -lt $maxRetries) {
+                Start-Sleep -Milliseconds 500
+                $retries++
+                try {
+                    Invoke-WebRequest -Uri "http://localhost:8090/" -TimeoutSec 2 -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop | Out-Null
+                    $serverReady = $true
+                } catch {
+                    if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 301) {
+                        $serverReady = $true
+                    }
+                }
+            }
+
+            $tlsOk = $true
+            if (-not $serverReady) {
+                Write-Host "[ERROR] TIMEOUT: TLS server did not start within ${Timeout}s" -ForegroundColor Red
+                $tlsOk = $false
+            } else {
+                # Redirect server: 301 with Location preserving path/query on the HTTPS port
+                $location = $null
+                try {
+                    $redirectResponse = Invoke-WebRequest -Uri "http://localhost:8090/some/path?x=1" -TimeoutSec 2 -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop
+                    $location = $redirectResponse.Headers["Location"]
+                } catch {
+                    if ($_.Exception.Response) {
+                        $location = $_.Exception.Response.Headers["Location"]
+                    }
+                }
+                if ($location -eq "https://localhost:8443/some/path?x=1") {
+                    Write-Host "[SUCCESS] PASS: redirect returns 301 to $location" -ForegroundColor Green
+                } else {
+                    Write-Host "[ERROR] FAIL: redirect Location was '$location'" -ForegroundColor Red
+                    $tlsOk = $false
+                }
+
+                # HTTPS request with certificate validation disabled (self-signed).
+                # -SkipCertificateCheck only exists in PowerShell 6+; on Windows
+                # PowerShell 5.1 skip this check gracefully instead of failing.
+                if ($PSVersionTable.PSVersion.Major -ge 6) {
+                    try {
+                        $httpsResponse = Invoke-WebRequest -Uri "https://localhost:8443/" -TimeoutSec 3 -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
+                        if ($httpsResponse.Content -like "*Hello over HTTPS!*") {
+                            Write-Host "[SUCCESS] PASS: HTTPS response '$($httpsResponse.Content)'" -ForegroundColor Green
+                        } else {
+                            Write-Host "[ERROR] FAIL: HTTPS request returned '$($httpsResponse.Content)'" -ForegroundColor Red
+                            $tlsOk = $false
+                        }
+                    } catch {
+                        Write-Host "[ERROR] FAIL: HTTPS request failed: $_" -ForegroundColor Red
+                        $tlsOk = $false
+                    }
+                } else {
+                    Write-Host "[SKIP] HTTPS request check requires PowerShell 6+ (-SkipCertificateCheck); redirect check still ran" -ForegroundColor Yellow
+                }
+            }
+
+            if ($tlsOk) { $passedTests++ }
+        } finally {
+            if (-not $tlsProcess.HasExited) {
+                $tlsProcess.Kill()
+                Write-Host "[INFO] Server process terminated" -ForegroundColor Gray
+            }
+            Remove-Item -Recurse -Force $tlsDir -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 # Summary
 Write-Host ""
 Write-Host "[INFO] ============================" -ForegroundColor Blue

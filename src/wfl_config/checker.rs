@@ -460,6 +460,34 @@ impl ConfigChecker {
             },
         );
 
+        expected_settings.insert(
+            "web_server_tls_cert_file".to_string(),
+            ExpectedSetting {
+                name: "web_server_tls_cert_file".to_string(),
+                config_type: ConfigType::String,
+                required: false,
+                default_value: None,
+                description: "Default TLS certificate file (PEM) for 'listen ... secured'"
+                    .to_string(),
+                valid_values: None,
+                category: "Web Server".to_string(),
+            },
+        );
+
+        expected_settings.insert(
+            "web_server_tls_key_file".to_string(),
+            ExpectedSetting {
+                name: "web_server_tls_key_file".to_string(),
+                config_type: ConfigType::String,
+                required: false,
+                default_value: None,
+                description: "Default TLS private key file (PEM) for 'listen ... secured'"
+                    .to_string(),
+                valid_values: None,
+                category: "Web Server".to_string(),
+            },
+        );
+
         Self { expected_settings }
     }
 

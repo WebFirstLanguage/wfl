@@ -1491,11 +1491,28 @@ impl Analyzer {
             Statement::ListenStatement {
                 port,
                 server_name,
+                tls,
+                redirect_to_port,
                 line,
                 column,
             } => {
                 // Analyze the port expression
                 self.analyze_expression(port);
+
+                // Analyze TLS certificate/key path expressions if present
+                if let Some(tls_config) = tls {
+                    if let Some(cert_path) = &tls_config.cert_path {
+                        self.analyze_expression(cert_path);
+                    }
+                    if let Some(key_path) = &tls_config.key_path {
+                        self.analyze_expression(key_path);
+                    }
+                }
+
+                // Analyze the redirect target port expression if present
+                if let Some(target_port) = redirect_to_port {
+                    self.analyze_expression(target_port);
+                }
 
                 // Define the server variable
                 let server_symbol = Symbol {

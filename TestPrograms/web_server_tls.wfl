@@ -1,0 +1,31 @@
+// CI-SKIP: starts an HTTPS web server and needs certificate files plus an HTTP client to drive it (covered by run_web_tests)
+# WFL HTTPS Web Server Example
+# Demonstrates TLS support on the built-in web server.
+#
+# Before running, create a self-signed certificate for local development:
+#   openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+
+display "=== WFL HTTPS Web Server ==="
+
+store cert_file as "cert.pem"
+store key_file as "key.pem"
+
+// HTTPS server with in-language certificate paths
+listen on port 8443 secured with certificate cert_file and key key_file as secure_server
+
+display "✓ Secure server started on port 8443"
+
+// HTTP -> HTTPS redirect: answers every plain-HTTP request with a
+// 301 redirect to the same path on port 8443. No request loop needed.
+listen on port 8090 redirecting to port 8443 as redirect_server
+
+display "✓ Redirect server started on port 8090"
+
+// Serve one HTTPS request, then shut down
+wait for request comes in on secure_server as incoming_request with timeout 30000
+respond to incoming_request with "Hello over HTTPS!" and content_type "text/plain"
+
+close server redirect_server
+close server secure_server
+
+display "✓ Servers closed"
