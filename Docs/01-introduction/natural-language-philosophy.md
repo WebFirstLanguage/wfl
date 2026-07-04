@@ -43,11 +43,13 @@ store name as "Alice"              // No semicolon
 display "Hello"                    // No parentheses needed
 
 // Natural alternatives available:
+store x as 10
+store y as 5
 store sum as x plus y              // "plus" instead of "+"
 store difference as x minus y      // "minus" instead of "-"
 
 // But familiar symbols still work:
-store sum as x + y                 // If you prefer
+change sum to x + y                // If you prefer
 ```
 
 **What's avoided:**
@@ -67,9 +69,10 @@ store sum as x + y                 // If you prefer
 **In Practice:**
 ```wfl
 // Clear intent:
-for each customer in customer list:
-    check if customer balance is greater than 0:
-        send reminder to customer
+store customer balances as [100, 0, 250]
+for each balance in customer balances:
+    check if balance is greater than 0:
+        display "Send reminder to customer"
     end check
 end for
 
@@ -132,9 +135,9 @@ store name as "Alice"              // Inferred as Text
 
 // Explicit type annotations when needed:
 create container Person:
-    property name as text          // Explicit type
-    property age as number
-end container
+    property name: Text            // Explicit type
+    property age: Number
+end
 ```
 
 **Benefits:**
@@ -153,20 +156,19 @@ end container
 **In Practice:**
 ```wfl
 // Async operations:
-wait for file operation completes as result
-display "File saved: " with result
+open file at "/tmp/wfl_philosophy_demo.txt" for writing as demo_file
+wait for write content "example data" into demo_file
+display "File saved: /tmp/wfl_philosophy_demo.txt"
 
 // Pattern matching:
 create pattern email:
-    one or more letter or digit
-    followed by "@"
-    followed by one or more letter or digit
+    one or more letter then "@" then one or more letter then "." then one or more letter
 end pattern
 
 // Web servers:
-listen on port 8080 as server
-wait for request on server as req
-respond to req with "Hello!"
+// listen on port 8080 as web_server
+// wait for request comes in on web_server as req
+// respond to req with "Hello!"
 ```
 
 ---
@@ -201,13 +203,14 @@ respond to req with "Hello!"
 **In Practice:**
 ```wfl
 // Automatic output escaping (prevents XSS)
+store user input as "hello"
 display user input                 // Automatically escaped
 
 // Secure subprocess execution
 execute command "ls" with arguments ["-la"]  // Input sanitized
 
 // Cryptographically secure random
-store token as random int between 1 and 1000000
+store token as random_int of 1 and 1000000
 
 // Memory safety (inherited from Rust)
 // No buffer overflows, no use-after-free
@@ -230,6 +233,7 @@ display "Hello, World!"
 store name as "Alice"
 
 // Conditionals (readable):
+store age as 25
 check if age is greater than 18:
     display "Adult"
 end check
@@ -248,23 +252,30 @@ end check
 **In Practice:**
 ```wfl
 // Pattern matching for complex validation
-create pattern url:
-    "http" followed by optional "s"
-    followed by "://"
-    followed by one or more any character
+create pattern link_pattern:
+    "http" then optional "s" then "://" then one or more letter
 end pattern
 
 // Container system with inheritance
+create container User:
+    property name: Text
+end
+
 create container AdminUser extends User:
-    property permissions as list
+    property permissions: List
 
-    action can access with resource:
+    action can_access needs resource: Text:
         return contains of permissions and resource
-    end action
-end container
+    end
+end
 
-// Async operations
-wait for all [operation1, operation2, operation3] complete
+create new AdminUser as admin:
+    name is "Root"
+    permissions is ["dashboard", "settings"]
+end
+
+store access_result as admin.can_access("settings")
+display "Can access settings: " with access_result
 ```
 
 **Balance:** Natural language doesn't mean verbose. WFL is concise where it matters.
@@ -307,8 +318,11 @@ wait for all [operation1, operation2, operation3] complete
 **In Practice:**
 ```wfl
 // Short-circuit evaluation (automatic):
-check if expensive operation() and another check:
-    // another check only runs if expensive operation is true
+store session active as yes
+store role granted as yes
+check if session active and role granted:
+    // "role granted" is only checked if "session active" is true
+    display "Access granted"
 end check
 
 // Future optimizations planned:
@@ -330,8 +344,10 @@ end check
 // 181+ built-in functions across 11 modules
 
 // File operations:
-open file at "data.txt" for reading as file
-store content as read content from file
+open file at "/tmp/wfl_demo_data.txt" for writing as data_file
+wait for write content "WFL sample data" into data_file
+open file at "/tmp/wfl_demo_data.txt" for reading as read_file
+store file_content as read content from read_file
 
 // Text manipulation:
 store upper as touppercase of "hello"
@@ -387,9 +403,11 @@ Each step builds naturally on the previous.
 ```wfl
 // Clear error handling:
 try:
-    store result as risky operation()
+    open file at "/tmp/does_not_exist.txt" for reading as risky_file
+    store result as read content from risky_file
+    display result
 when error:
-    display "Operation failed: " with error message
+    display "Operation failed: " with error_message
 end try
 
 // Transparent error reporting:
@@ -453,19 +471,21 @@ The 19 principles aren't isolated—they reinforce each other:
 store age as 25
 
 // Principle 3 (Readability) + Principle 18 (Best Practices):
-check if customer is eligible for discount:
-    apply discount to customer order
+store customer eligible as yes
+check if customer eligible:
+    display "Apply discount to customer order"
 end check
 
 // Principle 6 (Modern Features) + Principle 1 (Natural Language):
-wait for server response as data
-display "Received: " with data
+wait for execute command "echo response received" as cmd_output
+display "Received a response"
 
 // Principle 4 (Clear Errors) + Principle 17 (Error Transparency):
 try:
-    open file at "missing.txt"
+    open file at "/tmp/missing.txt" for reading as missing_file
+    store data_read as read content from missing_file
 when error:
-    display "File not found: " with error message
+    display "File not found: " with error_message
 end try
 ```
 
