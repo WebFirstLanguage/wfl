@@ -11,16 +11,23 @@ code, the harness compares the program's stdout against that expected text.
 Usage:
     python scripts/test_docs_code_blocks.py [--docs Docs] [--json report.json]
                                             [--filter substring] [--timeout 20]
+                                            [--audit path.md] [--show-errors]
 
-Exit code is 0 when every executed block passes, 1 otherwise.
-
-Blocks are classified so that partial snippets are not counted as hard
-failures:
+Each block gets a run *classification*:
   PASS            - ran to completion (and matched expected output if present)
   OUTPUT_MISMATCH - ran, but stdout differed from the documented Output block
-  SNIPPET         - looks like an incomplete fragment (skipped execution)
+  SNIPPET         - looks like an incomplete fragment (execution skipped)
   TIMEOUT         - exceeded the timeout (e.g. web-server / wait-forever demos)
   ERROR           - non-zero exit / crash while running a full program
+
+Exit code is 1 only when a block is a *hard* failure (ERROR or OUTPUT_MISMATCH).
+TIMEOUT and SNIPPET are expected outcomes (server demos, illustrative
+fragments) and do NOT fail the run.
+
+With --audit, ERROR/PASS results are further grouped into finer categories
+(DOC_SYNTAX, PLACEHOLDER, FRAGMENT, NEEDS_MODULE, LANG_GAP, ...) and written as
+a Markdown report (the same format as TestPrograms/docs_examples/DOC_CODE_AUDIT.md),
+so that report is reproducible from this script alone.
 """
 
 import argparse
@@ -29,23 +36,21 @@ import re
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field, asdict
+from collections import Counter, defaultdict
+from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 FENCE_RE = re.compile(r"^([ \t]*)```([a-zA-Z0-9_-]*)\s*$")
 
-# Heuristics: lead tokens that indicate a runnable top-level statement.
-RUNNABLE_LEADS = (
-    "display", "store", "create", "define", "check", "if", "count",
-    "for", "repeat", "open", "wait", "listen", "change", "push", "add",
-    "print", "main", "try", "when", "make", "let", "run",
-)
-
 # Tokens that strongly suggest a fragment rather than a full program.
-SNIPPET_HINTS = (
-    "...", "// ...", "# ...", "<", ">",  # placeholders / meta syntax
-)
+SNIPPET_HINTS = ("...", "// ...", "# ...")
+
+# Lead tokens that mean "this block starts mid-construct" -> not standalone.
+FRAGMENT_LEADS = ("otherwise", "and ", "or ", "with ", "then ", "end ")
+
+# Lead tokens for non-WFL shell/tooling lines.
+SHELL_LEADS = ("wfl ", "$", "cargo", "npm")
 
 
 @dataclass
@@ -55,6 +60,7 @@ class Block:
     code: str
     expected_output: Optional[str] = None
     classification: str = ""
+    category: str = ""
     exit_code: Optional[int] = None
     stdout: str = ""
     stderr: str = ""
@@ -71,11 +77,16 @@ def strip_indent(lines: List[str], indent: str) -> List[str]:
     return out
 
 
-def extract_blocks(md_path: Path) -> List[Block]:
-    """Extract wfl code blocks and any immediately-following Output block."""
+def extract_blocks(md_path: Path) -> Tuple[List[Block], List[int]]:
+    """Extract wfl code blocks and any immediately-following Output block.
+
+    Returns (blocks, unclosed_fence_lines) so callers can warn about a fenced
+    block that never closes (a common Markdown authoring slip that would
+    otherwise silently swallow the rest of the file)."""
     text = md_path.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
     blocks: List[Block] = []
+    unclosed: List[int] = []
     i = 0
     n = len(lines)
     while i < n:
@@ -97,6 +108,8 @@ def extract_blocks(md_path: Path) -> List[Block]:
                 break
             body.append(lines[i])
             i += 1
+        if not closed:
+            unclosed.append(fence_start + 1)
         if lang != "wfl":
             continue
         code = "\n".join(strip_indent(body, indent)).strip("\n")
@@ -106,7 +119,7 @@ def extract_blocks(md_path: Path) -> List[Block]:
         # Look ahead for an "Output" label + fenced block within a few lines.
         blk.expected_output = find_expected_output(lines, i)
         blocks.append(blk)
-    return blocks
+    return blocks, unclosed
 
 
 def find_expected_output(lines: List[str], idx: int) -> Optional[str]:
@@ -149,16 +162,13 @@ def looks_like_snippet(code: str) -> bool:
     stripped = [l for l in code.splitlines() if l.strip()]
     if not stripped:
         return True
-    first = stripped[0].lstrip()
-    # placeholder markers
-    for hint in ("...", "// ...", "# ..."):
-        if hint in code:
-            return True
-    lowered = first.lower()
-    if lowered.startswith(("wfl ", "$", "cargo", "npm")):
+    if any(hint in code for hint in SNIPPET_HINTS):
         return True
-    # Fragment if it starts mid-expression (e.g. "otherwise:", "and ...", "with")
-    if lowered.startswith(("otherwise", "and ", "or ", "with ", "then ", "end ")):
+    lowered = stripped[0].lstrip().lower()
+    if lowered.startswith(SHELL_LEADS):
+        return True
+    # Fragment if it starts mid-construct (e.g. "otherwise:", "and ...", "with").
+    if lowered.startswith(FRAGMENT_LEADS):
         return True
     return False
 
@@ -212,11 +222,158 @@ def normalize(s: str) -> str:
     return "\n".join(lines)
 
 
+# --- Finer categorization (used by --audit) --------------------------------
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+CATEGORY_DESC = {
+    "PASS": "Runs clean (matches Output block if present)",
+    "SNIPPET": "Illustrative fragment / shell command",
+    "PLACEHOLDER": "Template with <placeholder> / ... markers",
+    "FRAGMENT": "References a variable/action defined elsewhere in the prose",
+    "NEEDS_MODULE": "Imports a module file that does not exist standalone",
+    "NEEDS_FIXTURE": "Reads/writes a data file that must exist first",
+    "NEEDS_NETWORK": "Live network request / bound port",
+    "NEEDS_TLS": "Requires a TLS certificate on disk",
+    "NEEDS_TESTMODE": "Uses describe/test/expect (run with --test)",
+    "NEEDS_PERMISSION": "Blocked by the default security policy",
+    "SERVER_DEMO": "Long-running server / wait-forever demo (times out by design)",
+    "LANG_GAP": "Reads like valid WFL but the construct is unsupported (see issue #571)",
+    "DOC_SYNTAX": "Doc uses syntax the language does not accept, OR an intentional error demo",
+    "RUNTIME": "Valid syntax, fails at runtime (usually missing resource)",
+    "OUTPUT_DRIFT": "Runs, but stdout differs from the documented Output block",
+    "OTHER": "Uncategorized failure",
+}
+CATEGORY_ORDER = [
+    "PASS", "DOC_SYNTAX", "LANG_GAP", "OUTPUT_DRIFT", "FRAGMENT", "PLACEHOLDER",
+    "SNIPPET", "NEEDS_MODULE", "NEEDS_FIXTURE", "NEEDS_NETWORK", "NEEDS_TLS",
+    "NEEDS_TESTMODE", "NEEDS_PERMISSION", "SERVER_DEMO", "RUNTIME", "OTHER",
+]
+SECTION_KEYS = [
+    "01-introduction", "02-getting-started", "03-language-basics",
+    "04-advanced-features", "05-standard-library", "06-best-practices",
+    "guides", "reference", "development",
+]
+
+
+def categorize(blk: Block) -> str:
+    code, cl = blk.code, blk.classification
+    se = ANSI_RE.sub("", blk.stderr or "")
+    if cl == "PASS":
+        return "PASS"
+    if cl == "SNIPPET":
+        return "SNIPPET"
+    if cl == "TIMEOUT":
+        return "SERVER_DEMO"
+    if cl == "OUTPUT_MISMATCH":
+        return "OUTPUT_DRIFT"
+    # cl == ERROR below
+    if re.search(r"<[^>\n]{0,40}>", code) or "..." in code:
+        return "PLACEHOLDER"
+    if "Lexing error" in se and ("`>`" in se or "`<`" in se):
+        return "PLACEHOLDER"
+    if re.search(r"between\b", code) and "KeywordBetween" in se:
+        return "LANG_GAP"
+    if re.search(r"repeat\s+\d+\s+times", code):
+        return "LANG_GAP"
+    if any(s in se for s in ("Cannot resolve module path", "no project.wfl",
+                             "Cannot resolve package")):
+        return "NEEDS_MODULE"
+    if "test mode" in se:
+        return "NEEDS_TESTMODE"
+    if "TLS certificate" in se or "certificate is configured" in se:
+        return "NEEDS_TLS"
+    if re.search(r"No such file|does not exist|Failed to open file|Source file does not exist", se):
+        return "NEEDS_FIXTURE"
+    if re.search(r"Failed to send HTTP|error sending request|Connection refused|"
+                 r"Address already in use|start web server", se):
+        return "NEEDS_NETWORK"
+    if "blocked by security policy" in se:
+        return "NEEDS_PERMISSION"
+    if (re.search(r"is not defined|Undefined action|Undefined variable|Undefined function", se)
+            and "Parse errors" not in se):
+        return "FRAGMENT"
+    if "Parse errors" in se:
+        return "DOC_SYNTAX"
+    if "Runtime errors" in se:
+        return "RUNTIME"
+    return "OTHER"
+
+
+def first_error_line(blk: Block) -> str:
+    s = ANSI_RE.sub("", blk.stderr or "")
+    for l in s.splitlines():
+        l = l.strip()
+        if re.search(r"error\[|Lexing error|expected|Unexpected", l, re.I):
+            return re.sub(r"\s+", " ", l)[:100]
+    return (s.strip().splitlines() or [""])[0][:100]
+
+
+def section_of(doc: str) -> str:
+    for s in SECTION_KEYS:
+        if "/" + s + "/" in doc:
+            return s
+    return "other"
+
+
+def write_audit(blocks: List[Block], path: str) -> None:
+    for b in blocks:
+        b.category = categorize(b)
+    cats = Counter(b.category for b in blocks)
+    total = len(blocks)
+    o: List[str] = []
+    o.append("# Documentation Code Audit\n")
+    o.append("Generated by `scripts/test_docs_code_blocks.py --audit`, which extracts "
+             "every ` ```wfl ` block from `Docs/`, runs it through the release WFL "
+             "binary, and (where a doc shows an **Output:** block) compares actual vs. "
+             "expected stdout, then groups the results into the categories below.\n")
+    pct = round(100 * cats["PASS"] / total) if total else 0
+    o.append(f"**Corpus:** {total} `wfl` code blocks. **{cats['PASS']} run clean ({pct}%).**\n")
+
+    o.append("## By section\n")
+    o.append("| Section | Runnable | Fixable remaining |\n|---|---:|---:|")
+    bysec = defaultdict(Counter)
+    for b in blocks:
+        bysec[section_of(b.doc)][b.category] += 1
+    for s in SECTION_KEYS + ["other"]:
+        c = bysec[s]
+        fx = c["DOC_SYNTAX"] + c["LANG_GAP"] + c["OUTPUT_DRIFT"]
+        if c:
+            o.append(f"| {s} | {c['PASS']} | {fx} |")
+    o.append("\n> `reference` and `development` include intentional error "
+             "demonstrations (e.g. `error-codes.md`, `reserved-keywords.md`). "
+             "Remaining counts elsewhere are mostly intentional `<placeholder>` "
+             "templates and deliberate \"Wrong:\" examples.\n")
+
+    o.append("## Summary\n")
+    o.append("| Category | Count | Meaning |\n|---|---:|---|")
+    for k in CATEGORY_ORDER:
+        if cats.get(k):
+            o.append(f"| `{k}` | {cats[k]} | {CATEGORY_DESC[k]} |")
+    o.append("")
+
+    o.append("## Doc-fixable blocks by file (`DOC_SYNTAX`, `LANG_GAP`, `OUTPUT_DRIFT`)\n")
+    fix = [b for b in blocks if b.category in ("DOC_SYNTAX", "LANG_GAP", "OUTPUT_DRIFT")]
+    bydoc = defaultdict(list)
+    for b in fix:
+        bydoc[b.doc].append(b)
+    for doc in sorted(bydoc):
+        o.append(f"### {doc}  ({len(bydoc[doc])})\n")
+        o.append("| Line | Category | First error |\n|---:|---|---|")
+        for b in sorted(bydoc[doc], key=lambda x: x.start_line):
+            o.append(f"| {b.start_line} | {b.category} | {first_error_line(b).replace('|', chr(92) + '|')} |")
+        o.append("")
+    Path(path).write_text("\n".join(o), encoding="utf-8")
+    print(f"Wrote audit {path} ({len(fix)} fixable blocks remain)")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--docs", default="Docs")
     ap.add_argument("--wfl-bin", default="target/release/wfl")
     ap.add_argument("--json", default=None)
+    ap.add_argument("--audit", default=None,
+                    help="write the categorized Markdown audit report to this path")
     ap.add_argument("--filter", default=None, help="only docs whose path contains this")
     ap.add_argument("--timeout", type=int, default=20)
     ap.add_argument("--show-errors", action="store_true")
@@ -231,14 +388,15 @@ def main() -> int:
     for md in md_files:
         if "/Archive/" in str(md).replace("\\", "/"):
             continue
-        all_blocks.extend(extract_blocks(md))
+        blocks, unclosed = extract_blocks(md)
+        for ln in unclosed:
+            print(f"WARNING: unclosed fence in {md}:{ln}", file=sys.stderr)
+        all_blocks.extend(blocks)
 
     for blk in all_blocks:
         run_block(blk, args.wfl_bin, args.timeout)
 
-    counts = {}
-    for blk in all_blocks:
-        counts[blk.classification] = counts.get(blk.classification, 0) + 1
+    counts = Counter(blk.classification for blk in all_blocks)
 
     print(f"Scanned {len(md_files)} docs, {len(all_blocks)} wfl code blocks\n")
     for k in ("PASS", "OUTPUT_MISMATCH", "ERROR", "TIMEOUT", "SNIPPET"):
@@ -268,6 +426,9 @@ def main() -> int:
             encoding="utf-8",
         )
         print(f"Wrote {args.json}")
+
+    if args.audit:
+        write_audit(all_blocks, args.audit)
 
     hard_fail = counts.get("ERROR", 0) + counts.get("OUTPUT_MISMATCH", 0)
     return 1 if hard_fail else 0

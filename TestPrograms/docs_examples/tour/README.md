@@ -9,10 +9,16 @@ cargo build --release
 target/release/wfl TestPrograms/docs_examples/tour/01_hello.wfl
 ```
 
-Every example here is executed by `scripts/test_docs_code_blocks.py` and the
-integration suite, so if the language changes and one stops matching its output,
-CI notices. Read them in order — each builds on the last, and nothing you learn
-early has to be unlearned later.
+Every example here was run against the release binary, and the code blocks below
+match each program's real output. You can re-verify them yourself with the docs
+harness pointed at this folder:
+
+```bash
+python3 scripts/test_docs_code_blocks.py --docs TestPrograms/docs_examples/tour
+```
+
+Read them in order — each builds on the last, and nothing you learn early has to
+be unlearned later.
 
 ---
 
@@ -38,6 +44,8 @@ store age as 30
 store is_member as yes
 
 display "Name: " with name
+display "Age: " with age
+display "Member? " with is_member
 display "age is a " with typeof of age
 
 change age to age plus 1
@@ -56,7 +64,8 @@ Next year: 31
 ## 3. Conditionals — [`03_conditionals.wfl`](03_conditionals.wfl)
 
 Comparisons are words (`is greater than or equal to`). To chain choices, **nest**
-the next check inside `otherwise:` — there is no `otherwise check if`.
+the next check inside `otherwise:` (a compact `otherwise check if …:` else-if
+form also works — this tour uses the explicit nested style for clarity).
 
 ```wfl
 store score as 82
@@ -81,11 +90,13 @@ Three shapes: `count from … to …` (loop variable is `count`), `for each … 
 and `repeat while …`.
 
 ```wfl
+display "Counting to 3:"
 count from 1 to 3:
     display "  count is " with count
 end count
 
 store fruits as ["apple", "banana", "cherry"]
+display "Fruits:"
 for each fruit in fruits:
     display "  " with fruit
 end for
@@ -95,6 +106,7 @@ repeat while n is greater than 0:
     display "  liftoff in " with n
     change n to n minus 1
 end repeat
+display "  liftoff!"
 ```
 ```
 Counting to 3:
