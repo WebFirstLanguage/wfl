@@ -5686,6 +5686,7 @@ impl Interpreter {
                 content,
                 status,
                 content_type,
+                headers,
                 line,
                 column,
             } => {
@@ -5759,12 +5760,61 @@ impl Interpreter {
                     "text/plain".to_string() // Default content type
                 };
 
+                // Evaluate custom response headers (optional). Mirrors the
+                // outbound client's headers map: a WFL Object of name -> value.
+                // Enables RFC 10008 (HTTP QUERY) servers to advertise
+                // `Accept-Query` and point at results with `Content-Location`
+                // or `Location`.
+                let mut custom_headers: HashMap<String, String> = HashMap::new();
+                if let Some(headers_expr) = headers {
+                    let headers_val = self
+                        .evaluate_expression(headers_expr, Rc::clone(&env))
+                        .await?;
+                    match &headers_val {
+                        Value::Object(obj) => {
+                            for (name, value) in obj.borrow().iter() {
+                                let value_str = match value {
+                                    Value::Text(s) => s.to_string(),
+                                    Value::Number(_) | Value::Bool(_) => value.to_string(),
+                                    _ => {
+                                        return Err(RuntimeError::new(
+                                            format!(
+                                                "Response header '{name}' must be text, got {}",
+                                                value.type_name()
+                                            ),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+                                };
+                                // The content_type clause is authoritative for
+                                // Content-Type; drop any duplicate from the map
+                                // so the response never carries two of them.
+                                if name.eq_ignore_ascii_case("content-type") {
+                                    continue;
+                                }
+                                custom_headers.insert(name.clone(), value_str);
+                            }
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Expected a map for response headers, got {}",
+                                    headers_val.type_name()
+                                ),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    }
+                }
+
                 // Create response
                 let response = WflHttpResponse {
                     content: content_str,
                     status: status_code,
                     content_type: content_type_str,
-                    headers: HashMap::new(), // TODO: Add support for custom headers
+                    headers: custom_headers,
                 };
 
                 // Send response

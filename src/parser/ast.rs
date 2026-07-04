@@ -516,6 +516,9 @@ pub enum Statement {
         content: Expression,
         status: Option<Expression>,
         content_type: Option<Expression>,
+        /// Optional map of extra response headers, e.g. `Accept-Query` /
+        /// `Content-Location` / `Location` for RFC 10008 (HTTP QUERY).
+        headers: Option<Expression>,
         line: usize,
         column: usize,
     },

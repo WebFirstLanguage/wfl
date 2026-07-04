@@ -1,0 +1,40 @@
+// CI-SKIP: RFC 10008 QUERY server demo — requires an HTTP client to drive it (covered end-to-end by tests/respond_headers_test.rs)
+//
+// Demonstrates RFC 10008 (The HTTP QUERY Method) support in WFL.
+//
+// QUERY is a safe, idempotent HTTP method that carries a request body, closing
+// the gap between GET (no body) and POST (not safe/idempotent). WFL already
+// sends and receives QUERY because HTTP methods are plain strings end-to-end:
+//   - a client sends it with:  open url at "..." with method "QUERY" and body b ...
+//   - a server reads it from:  the request's "method" property
+//
+// The piece this file exercises is the `respond ... and headers <map>` clause,
+// which lets a WFL server set the RFC 10008 response headers `Accept-Query`
+// (advertising which query formats it accepts) and `Content-Location`
+// (pointing at a retrievable resource holding the results).
+
+display "=== RFC 10008 QUERY server demo ==="
+
+// The response headers RFC 10008 calls for. `Accept-Query` advertises the
+// query content types this endpoint understands; `Content-Location` identifies
+// a resource from which the same results can later be fetched with GET.
+create map query_response_headers:
+    "Accept-Query" is "application/jsonpath, application/sql"
+    "Content-Location" is "/data/results/latest"
+end map
+
+listen on port 8130 as query_server
+display "Listening for a QUERY on port 8130..."
+
+wait for request comes in on query_server as incoming with timeout 30000
+
+// A real handler would parse the query body and run it. Here we return a fixed
+// JSON result and advertise the RFC 10008 headers alongside it.
+store results as "{\"items\": [1, 2, 3]}"
+
+respond to incoming with results and content_type "application/json" and headers query_response_headers
+
+display "Responded to QUERY with Accept-Query and Content-Location headers"
+
+close server query_server
+display "=== Demo complete ==="

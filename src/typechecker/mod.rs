@@ -1896,6 +1896,7 @@ impl TypeChecker {
                 content,
                 status,
                 content_type,
+                headers: _headers,
                 line: _line,
                 column: _column,
             } => {
