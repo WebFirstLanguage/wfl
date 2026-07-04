@@ -36,8 +36,10 @@ store difference as 10 - 3         // Also valid
 
 **Natural language:**
 ```wfl
+store width as 8
+store height as 5
 store product as 5 times 4         // 20
-store area as width times height
+store area as width times height   // 40
 ```
 
 **Symbol alternative:**
@@ -60,23 +62,25 @@ store quotient as 20 / 4           // Also valid
 
 ### Modulo (Remainder)
 
-Get the remainder after division:
+Get the remainder after division with the `%` operator:
 
 ```wfl
-store remainder as 10 modulo 3     // 1 (10 ÷ 3 = 3 remainder 1)
-store check as 15 modulo 5         // 0 (15 ÷ 5 = 3 remainder 0)
+store remainder as 10 % 3          // 1 (10 ÷ 3 = 3 remainder 1)
+store divisible as 15 % 5          // 0 (15 ÷ 5 = 3 remainder 0)
 ```
 
-**Symbol alternative:**
+**In expressions:**
 ```wfl
-store remainder as 10 % 3          // Also valid
+store total as 17
+store leftover as total % 5        // 2
 ```
 
-**Common use:** Check if a number is even:
+**Common use:** Check if a number is even. Store the remainder first, then compare it:
 
 ```wfl
 store number as 42
-check if number modulo 2 is equal to 0:
+store remainder as number % 2
+check if remainder is equal to 0:
     display "Even number"
 otherwise:
     display "Odd number"
@@ -102,6 +106,7 @@ check if 5 is equal to 5:          // yes
     display "Equal!"
 end check
 
+store age as 25
 check if age is 25:                // Shorthand
     display "You are 25"
 end check
@@ -113,6 +118,7 @@ check if 5 is not equal to 3:      // yes
     display "Not equal!"
 end check
 
+store name as "Bob"
 check if name is not "Alice":
     display "You're not Alice"
 end check
@@ -125,7 +131,7 @@ check if 10 is greater than 5:     // yes
     display "10 > 5"
 end check
 
-// Shorthand: "is greater"
+store age as 20
 check if age is greater than 18:
     display "Adult"
 end check
@@ -138,6 +144,7 @@ check if 5 is greater than or equal to 5:   // yes
     display "5 >= 5"
 end check
 
+store score as 95
 check if score is greater than or equal to 90:
     display "A grade"
 end check
@@ -150,6 +157,7 @@ check if 3 is less than 10:        // yes
     display "3 < 10"
 end check
 
+store temperature as 20
 check if temperature is less than 32:
     display "Freezing!"
 end check
@@ -162,20 +170,24 @@ check if 5 is less than or equal to 5:      // yes
     display "5 <= 5"
 end check
 
+store age as 10
 check if age is less than or equal to 12:
     display "Child"
 end check
 ```
 
-### Alternative Comparison Syntax
+### Comparisons with Variables
 
-**Above/Below (more natural):**
+Comparisons work the same way whether you compare literals or variables:
+
 ```wfl
-check if temperature is above 30:
+store temperature as 35
+check if temperature is greater than 30:
     display "Hot!"
 end check
 
-check if score is below 50:
+store score as 40
+check if score is less than 50:
     display "Failed"
 end check
 ```
@@ -189,11 +201,15 @@ Combine multiple conditions.
 Both conditions must be true:
 
 ```wfl
+store age as 20
+store has license as yes
 check if age is greater than 18 and has license is yes:
     display "Can drive"
 end check
 
-check if score is greater than or equal to 90 and attendance is good:
+store score as 95
+store attendance as "good"
+check if score is greater than or equal to 90 and attendance is equal to "good":
     display "Excellent student"
 end check
 ```
@@ -203,10 +219,13 @@ end check
 At least one condition must be true:
 
 ```wfl
-check if is weekend is yes or is holiday is yes:
+store is_weekend as yes
+store is_holiday as no
+check if is_weekend is yes or is_holiday is yes:
     display "Day off!"
 end check
 
+store payment method as "cash"
 check if payment method is "cash" or payment method is "card":
     display "Payment accepted"
 end check
@@ -217,10 +236,12 @@ end check
 Negates a condition:
 
 ```wfl
-check if not is raining:
+store is_raining as no
+check if not is_raining:
     display "Go outside!"
 end check
 
+store has access as no
 check if not has access:
     display "Access denied"
 end check
@@ -229,7 +250,10 @@ end check
 ### Combining Logical Operators
 
 ```wfl
-check if age is greater than or equal to 18 and is citizen is yes or has permit is yes:
+store age as 20
+store is_citizen as yes
+store has permit as no
+check if age is greater than or equal to 18 and is_citizen is yes or has permit is yes:
     display "Can vote"
 end check
 ```
@@ -270,7 +294,7 @@ display "Name: " with name with ", Age: " with age with ", City: " with city
 store sum as 5 with 3             // This concatenates: "53"
 
 // Right way:
-store sum as 5 plus 3             // This adds: 8
+change sum to 5 plus 3            // This adds: 8
 ```
 
 ## Order of Operations
@@ -303,7 +327,7 @@ store result as 10 plus 5 times 2 minus 3 divided by 1
 store step1 as 5 times 2           // 10
 store step2 as 3 divided by 1      // 3
 store step3 as 10 plus step1       // 20
-store result as step3 minus step2  // 17
+change result to step3 minus step2 // 17
 ```
 
 ## Type-Specific Operations
@@ -313,10 +337,15 @@ store result as step3 minus step2  // 17
 ```wfl
 // Concatenation
 store greeting as "Hello" with " " with "World"
+display greeting
 
 // Comparison
 check if "apple" is equal to "apple":   // yes
+    display "Same word"
+end check
 check if "Apple" is equal to "apple":   // no (case-sensitive)
+    display "This does not display"
+end check
 ```
 
 ### Number Operations
@@ -336,10 +365,10 @@ store remainder as x modulo y      // 1
 ### Boolean Operations
 
 ```wfl
-store is active as yes
-store is verified as no
+store is_active as yes
+store is_verified as no
 
-check if is active is yes and is verified is yes:
+check if is_active is yes and is_verified is yes:
     display "Fully active account"
 otherwise:
     display "Account needs verification"
@@ -420,9 +449,9 @@ display "Distance squared: " with distance   // 25
 ### Age Calculation
 
 ```wfl
-store current year as 2026
-store birth year as 1995
-store age as current year minus birth year
+store current_year as 2026
+store birth_year as 1995
+store age as current_year minus birth_year
 
 display "Age: " with age           // Output: "Age: 31"
 ```
@@ -442,9 +471,9 @@ display "Final: $" with final price
 
 **Output:**
 ```
-Original: $100.0
-Discount: $20.0
-Final: $80.0
+Original: $100
+Discount: $20
+Final: $80
 ```
 
 ## Comparison Examples
@@ -463,9 +492,9 @@ end check
 
 ```wfl
 store temperature as 75
-store is raining as no
+store is_raining as no
 
-check if temperature is above 70 and not is raining:
+check if temperature is greater than 70 and not is_raining:
     display "Perfect day for a picnic!"
 end check
 ```
@@ -474,10 +503,10 @@ end check
 
 ```wfl
 store age as 20
-store is citizen as yes
-store is registered as yes
+store is_citizen as yes
+store is_registered as yes
 
-check if age is greater than or equal to 18 and is citizen is yes and is registered is yes:
+check if age is greater than or equal to 18 and is_citizen is yes and is_registered is yes:
     display "Eligible to vote"
 otherwise:
     display "Not eligible to vote"
@@ -509,6 +538,8 @@ display age plus name              // ERROR: Cannot add Number and Text
 
 **Right:**
 ```wfl
+store name as "Alice"
+store age as 25
 display "Name: " with name with ", Age: " with age
 ```
 
@@ -516,6 +547,7 @@ display "Name: " with name with ", Age: " with age
 
 **Wrong:**
 ```wfl
+store age as 18
 check if age is 18:                // Equality check
     display "Exactly 18"
 end check
@@ -523,6 +555,7 @@ end check
 
 **If you meant "at least 18":**
 ```wfl
+store age as 20
 check if age is greater than or equal to 18:
     display "Adult"
 end check
@@ -616,7 +649,7 @@ Check if:
 | Subtraction | `minus` | `-` | `10 minus 4` |
 | Multiplication | `times` | `*` | `6 times 7` |
 | Division | `divided by` | `/` | `20 divided by 4` |
-| Modulo | `modulo` | `%` | `10 modulo 3` |
+| Modulo | — | `%` | `10 % 3` |
 | Equal | `is equal to` | `is` | `x is 5` |
 | Not Equal | `is not equal to` | `is not` | `x is not 5` |
 | Greater | `is greater than` | - | `x is greater than 5` |
@@ -630,7 +663,7 @@ Check if:
 
 In this section, you learned:
 
-✅ **Arithmetic operators** - plus, minus, times, divided by, modulo
+✅ **Arithmetic operators** - plus, minus, times, divided by, and % (modulo)
 ✅ **Comparison operators** - is equal to, is greater than, is less than
 ✅ **Logical operators** - and, or, not
 ✅ **String concatenation** - with keyword
