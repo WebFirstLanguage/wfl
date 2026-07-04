@@ -90,7 +90,7 @@ end check
 store user input as "sample"
 
 store value as -5
-// FIXME: This calculation is incorrect for negative numbers
+// FIXME: value is hardcoded here; read it from user input instead
 store result as abs of value
 
 // NOTE: This is a temporary workaround

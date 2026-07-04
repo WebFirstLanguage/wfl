@@ -199,7 +199,7 @@ The request body is available two ways:
   disk with `write binary` or echoed back with `respond to`.
 
 ```wfl
-wait for request comes in on server as req
+wait for request comes in on web_server as req
 
 open file at "uploads/received.bin" for writing binary as out_file
 write binary body_bytes into out_file

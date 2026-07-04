@@ -159,10 +159,10 @@ use WFL's **binary** file operations, which preserve every byte exactly.
 
 ```wfl
 open file at "logo.png" for reading binary as image
-store bytes as read binary from image
+store payload as read binary from image
 close file image
 
-display "Read " with length of bytes with " bytes"
+display "Read " with length of payload with " bytes"
 ```
 
 **Syntax:**
@@ -176,7 +176,7 @@ Read only the first N bytes (for example, to sniff a file header):
 
 ```wfl
 open file at "logo.png" for reading binary as image
-store header as read 8 bytes from image
+store head_bytes as read 8 bytes from image
 close file image
 ```
 
@@ -186,7 +186,7 @@ close file image
 byte numbers (each 0–255):
 
 ```wfl
-create list bytes:
+create list signature_bytes:
     add 137
     add 80
     add 78
@@ -194,7 +194,7 @@ create list bytes:
 end list
 
 open file at "signature.bin" for writing binary as out_file
-write binary bytes into out_file
+write binary signature_bytes into out_file
 close file out_file
 ```
 
@@ -205,8 +205,9 @@ write binary <binary-or-byte-list> into <handle>
 close file <handle>
 ```
 
-> **Note:** `data` is a reserved keyword, so choose another variable name
-> (e.g. `bytes`, `payload`, `content_bytes`) when storing binary content.
+> **Note:** `data`, `bytes`, and `header` are reserved keywords, so choose
+> another name (e.g. `payload`, `content_bytes`, `signature_bytes`) when naming
+> a variable or list that holds binary content.
 
 Binary reads and writes are capped at 50 MB per operation as a safety limit.
 
