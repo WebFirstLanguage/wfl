@@ -200,6 +200,8 @@ impl<'a> Parser<'a> {
             Token::KeywordBinary => "binary".to_string(),
             Token::KeywordBytes => "bytes".to_string(),
             Token::KeywordThat => "that".to_string(),
+            Token::KeywordRoute => "route".to_string(),
+            Token::KeywordWhen => "when".to_string(),
             _ => format!("{:?}", token),
         }
     }
@@ -215,6 +217,7 @@ impl<'a> Parser<'a> {
                 | Token::KeywordIf
                 | Token::KeywordCount
                 | Token::KeywordFor
+                | Token::KeywordRoute
                 | Token::KeywordDefine
                 | Token::KeywordChange
                 | Token::KeywordTry

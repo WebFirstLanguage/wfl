@@ -17,6 +17,8 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_touppercase(analyzer);
     register_tolowercase(analyzer);
     register_substring(analyzer);
+    register_starts_with(analyzer);
+    register_ends_with(analyzer);
 
     register_list_length(analyzer);
     register_push(analyzer);
@@ -156,6 +158,22 @@ fn register_substring(analyzer: &mut Analyzer) {
     let param_types = vec![Type::Text, Type::Number, Type::Number];
 
     analyzer.register_builtin_function("substring", param_types, return_type);
+}
+
+fn register_starts_with(analyzer: &mut Analyzer) {
+    let return_type = Type::Boolean;
+    let param_types = vec![Type::Text, Type::Text];
+
+    analyzer.register_builtin_function("starts_with", param_types.clone(), return_type.clone());
+    analyzer.register_builtin_function("startswith", param_types, return_type);
+}
+
+fn register_ends_with(analyzer: &mut Analyzer) {
+    let return_type = Type::Boolean;
+    let param_types = vec![Type::Text, Type::Text];
+
+    analyzer.register_builtin_function("ends_with", param_types.clone(), return_type.clone());
+    analyzer.register_builtin_function("endswith", param_types, return_type);
 }
 
 fn register_list_length(analyzer: &mut Analyzer) {
