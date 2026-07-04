@@ -225,5 +225,8 @@ Rex knows 3 tricks.
 
 **Where to next?** The full guides live in [`Docs/`](../../../Docs/README.md).
 Start with [01 Introduction](../../../Docs/01-introduction/index.md) and
-[03 Language Basics](../../../Docs/03-language-basics/index.md) — every code
-example in those sections has been run and verified against this same binary.
+[03 Language Basics](../../../Docs/03-language-basics/index.md) — their runnable
+examples have been executed against this same binary. A few blocks in those
+sections are intentional error demos or `<placeholder>` templates; the current
+per-file status is tracked in
+[`DOC_CODE_AUDIT.md`](../DOC_CODE_AUDIT.md).

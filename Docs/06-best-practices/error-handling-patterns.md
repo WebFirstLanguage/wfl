@@ -16,22 +16,29 @@ Robust applications handle errors gracefully. This guide shows proven patterns f
 
 ```wfl
 define action called safe_read_file with parameters filepath:
-    // Keep the handle and the result in outer variables so we can close the
-    // file AFTER end try and only then return — returning inside the try would
-    // skip the cleanup on the success path.
+    // Keep the handle and result in outer variables so we can close the file
+    // AFTER end try and only then return — returning inside the try would skip
+    // cleanup on the success path. A `succeeded` flag lets us still return
+    // `nothing` on failure (so callers can use `isnothing`).
     store file_handle as nothing
+    store succeeded as no
     store file_content as ""
     try:
         open file at filepath for reading as myfile
         change file_handle to myfile
         change file_content to read content from myfile
+        change succeeded to yes
     when error:
         display "Error: Could not read file '" with filepath with "'"
     end try
     check if file_handle is not nothing:
         close file file_handle
     end check
-    return file_content
+    check if succeeded is yes:
+        return file_content
+    otherwise:
+        return nothing
+    end check
 end action
 
 store config_data as safe_read_file of "config.txt"
