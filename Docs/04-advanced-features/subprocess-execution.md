@@ -29,7 +29,7 @@ wait for execute command "<command>" as <variable>
 
 **Example:**
 ```wfl
-wait for execute command "ls -la" as output
+wait for execute command "ls -la" as listing
 display "Directory listing complete"
 ```
 
@@ -84,7 +84,7 @@ end check
 ### Kill a Process
 
 ```wfl
-wait for spawn command "long_running_task" as proc
+wait for spawn command "sleep 5" as proc
 
 // Wait a bit
 wait for 1000 milliseconds
@@ -159,7 +159,7 @@ end try
 ```wfl
 define action called git_status:
     try:
-        wait for execute command "git status" as output
+        wait for execute command "git status" as command_output
         display "Git status executed"
         return yes
     catch:
@@ -272,13 +272,15 @@ display "All tasks finished"
 
 **Dangerous:**
 ```wfl
-store user_input as get_user_input()  // User could input: "; rm -rf /"
+store user_input as "hello"  // Imagine this came from an untrusted user: "; rm -rf /"
 store cmd as "echo " with user_input
-wait for execute command cmd  // UNSAFE!
+wait for execute command cmd  // UNSAFE: user input goes straight into the command!
 ```
 
 **Safe:**
 ```wfl
+store user_input as "hello"  // Untrusted input from a user or request
+
 // Validate input first
 check if contains ";" in user_input or contains "|" in user_input:
     display "Invalid input - special characters not allowed"

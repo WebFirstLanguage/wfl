@@ -42,9 +42,9 @@ WFL's natural language syntax makes these advanced features approachable!
 ### Web Server (3 Lines!)
 
 ```wfl
-listen on port 8080 as server
-wait for request comes in on server as req
-respond to req with "Hello, Web!"
+listen on port 8080 as web_server
+wait for request comes in on web_server as incoming_request
+respond to incoming_request with "Hello, Web!"
 ```
 
 That's a working web server!
@@ -52,10 +52,14 @@ That's a working web server!
 ### File Operations
 
 ```wfl
-open file at "data.txt" for reading as file
-store content as read content from file
-close file
-display content
+open file at "data.txt" for writing as write_file
+wait for write content "Hello from a file!" into write_file
+close file write_file
+
+open file at "data.txt" for reading as read_file
+store file_content as read content from read_file
+close file read_file
+display file_content
 ```
 
 Simple and clear.
@@ -68,7 +72,7 @@ create pattern email:
     followed by "@"
     followed by one or more letter or digit
     followed by "."
-    followed by between 2 and 4 letter
+    followed by 2 to 4 letter
 end pattern
 
 check if "user@example.com" matches email:
@@ -82,16 +86,20 @@ Natural language patterns instead of cryptic regex.
 
 ```wfl
 create container Person:
-    property name as text
-    property age as number
+    property name: Text
+    property age: Number
 
     action introduce:
         display "I'm " with name
-    end action
-end container
+    end
+end
 
-create new Person as alice with property name as "Alice" and property age as 28
-call alice introduce
+create new Person as alice:
+    name is "Alice"
+    age is 28
+end
+
+alice.introduce()
 ```
 
 Object-oriented programming with readable syntax.
