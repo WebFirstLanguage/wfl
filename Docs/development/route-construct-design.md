@@ -99,8 +99,6 @@ Desugaring). It needs no analyzer, type-checker, or interpreter changes.
 
 ### Patterns
 
-| Pattern form                     | Matches when …                                  | Desugars to |
-|----------------------------------|-------------------------------------------------|-------------|
 | Pattern form                     | Matches when …                                  | Desugars to | Operator status today |
 |----------------------------------|-------------------------------------------------|-------------|-----------------------|
 | `when "/pricing":`               | subject `is equal to` the value                 | `is equal to` | works |
@@ -122,9 +120,9 @@ only survive `--analyze`'s leniency; they fault under the full pipeline. Likewis
 `substring of X from N` fails type checking because the `substring` builtin requires
 three arguments (`substring of X and start and end`).
 
-This is itself an argument for `route`: prefix/suffix matching is exactly what
-routing needs, and a first-class `when starts with …` head is a clean place to give
-these operators real token support (a dedicated `KeywordStartsWith`/`KeywordEndsWith`
+This is tracked as issue #566. It is itself an argument for `route`: prefix/suffix
+matching is exactly what routing needs, and a first-class `when starts with …` head
+is a clean place to give these operators real token support (a dedicated `KeywordStartsWith`/`KeywordEndsWith`
 or a proper infix parse) instead of relying on the fragile bareword path. Until that
 lands, the `contains`/equality/membership patterns above are the reliable subset,
 and the interim guidance below uses only those.

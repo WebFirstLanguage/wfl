@@ -26,7 +26,7 @@ These 19 principles are the foundation of WFL's design. Every language, document
 19. **Avoidance of Unnecessary Conventions** — Challenge legacy conventions (e.g., mandatory semicolons) that lack clear justification.
 
 ### The No-Unlearning Invariant (Overarching Design Law)
-WFL is deliberately both a "my first language" and a language strong enough for production. This only works as a *gradient*, not a *compromise* — the beginner path must be a strict subset of the expert path, with no cliffs between them. When principles appear to conflict, this invariant takes precedence:
+WFL is deliberately both a "my first language" and a language strong enough for production. This only works as a *gradient*, not a *compromise* — the beginner path must be a subset of the expert path, with no cliffs between them. When principles appear to conflict, this invariant takes precedence:
 
 > **For every feature, the beginner form and the expert form must be the same form, or connected by a smooth path with nothing to unlearn.**
 

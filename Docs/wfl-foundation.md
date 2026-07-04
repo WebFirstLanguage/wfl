@@ -99,7 +99,7 @@ The following principles have been refined and expanded to enhance WFL’s acces
     Goal: Innovate language design to align with natural communication and modern needs.
 
 The No-Unlearning Invariant (Overarching Design Law)
-WFL is deliberately both a "my first language" and a language strong enough for production. That dual goal only works as a *gradient*, not a *compromise*: the beginner path must be a strict subset of the expert path, with one continuous rope between them and no cliffs. The invariant that protects this — and that takes precedence when principles appear to conflict — is:
+WFL is deliberately both a "my first language" and a language strong enough for production. That dual goal only works as a *gradient*, not a *compromise*: the beginner path must be a subset of the expert path (possibly the whole of it), with one continuous rope between them and no cliffs. The invariant that protects this — and that takes precedence when principles appear to conflict — is:
 
     For every feature, the beginner form and the expert form must be the same form, or connected by a smooth path with nothing to unlearn.
 
