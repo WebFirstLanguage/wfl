@@ -258,19 +258,24 @@ if (Test-Path "TestPrograms\web_server_tls.wfl") {
                     $tlsOk = $false
                 }
 
-                # HTTPS request with certificate validation disabled (self-signed)
-                try {
-                    $httpsResponse = Invoke-WebRequest -Uri "https://localhost:8443/" -TimeoutSec 3 -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
-                    if ($httpsResponse.Content -like "*Hello over HTTPS!*") {
-                        Write-Host "[SUCCESS] PASS: HTTPS response '$($httpsResponse.Content)'" -ForegroundColor Green
-                    } else {
-                        Write-Host "[ERROR] FAIL: HTTPS request returned '$($httpsResponse.Content)'" -ForegroundColor Red
+                # HTTPS request with certificate validation disabled (self-signed).
+                # -SkipCertificateCheck only exists in PowerShell 6+; on Windows
+                # PowerShell 5.1 skip this check gracefully instead of failing.
+                if ($PSVersionTable.PSVersion.Major -ge 6) {
+                    try {
+                        $httpsResponse = Invoke-WebRequest -Uri "https://localhost:8443/" -TimeoutSec 3 -UseBasicParsing -SkipCertificateCheck -ErrorAction Stop
+                        if ($httpsResponse.Content -like "*Hello over HTTPS!*") {
+                            Write-Host "[SUCCESS] PASS: HTTPS response '$($httpsResponse.Content)'" -ForegroundColor Green
+                        } else {
+                            Write-Host "[ERROR] FAIL: HTTPS request returned '$($httpsResponse.Content)'" -ForegroundColor Red
+                            $tlsOk = $false
+                        }
+                    } catch {
+                        Write-Host "[ERROR] FAIL: HTTPS request failed: $_" -ForegroundColor Red
                         $tlsOk = $false
                     }
-                } catch {
-                    Write-Host "[ERROR] FAIL: HTTPS request failed: $_" -ForegroundColor Red
-                    Write-Host "[INFO] Note: -SkipCertificateCheck requires PowerShell 6+" -ForegroundColor Gray
-                    $tlsOk = $false
+                } else {
+                    Write-Host "[SKIP] HTTPS request check requires PowerShell 6+ (-SkipCertificateCheck); redirect check still ran" -ForegroundColor Yellow
                 }
             }
 

@@ -627,7 +627,7 @@ listen on port 8443 secured as secure_server
 
 Then set the defaults in `.wflcfg`:
 
-```
+```ini
 web_server_tls_cert_file = /etc/wfl/tls/cert.pem
 web_server_tls_key_file = /etc/wfl/tls/key.pem
 ```

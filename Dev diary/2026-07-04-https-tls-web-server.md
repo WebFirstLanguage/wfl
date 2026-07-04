@@ -53,9 +53,10 @@ the HTTP half of a dual-server setup.
 ### warp TLS plumbing
 
 - `warp` is now built with `features = ["tls"]`. That pulls in tokio-rustls
-  0.24 → **rustls 0.21**, which coexists with the **rustls 0.23** already in
-  the tree via sqlx's `runtime-tokio-rustls`. Two rustls majors compile fine
-  side by side; unifying them means upgrading warp (or replacing it) some day.
+  0.25 → **rustls 0.22.4**, which coexists with the **rustls 0.23.35** already
+  in the tree via sqlx's `runtime-tokio-rustls`. Two rustls minors compile
+  fine side by side; unifying them means upgrading warp (or replacing it)
+  some day.
 - warp's `TlsServer` has no `try_bind_ephemeral`, and its `bind_ephemeral`
   panics *inside the spawned task* on a bad certificate or occupied port. The
   interpreter therefore uses `try_bind_with_graceful_shutdown` with a

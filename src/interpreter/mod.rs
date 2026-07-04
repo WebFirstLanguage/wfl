@@ -5166,12 +5166,16 @@ impl Interpreter {
                     let target_val = self
                         .evaluate_expression(target_port_expr, Rc::clone(&env))
                         .await?;
+                    // Reject non-integer and out-of-range values instead of
+                    // letting the float->u16 cast saturate to a wrong port
                     let target_port = match &target_val {
-                        Value::Number(n) => *n as u16,
+                        Value::Number(n) if n.fract() == 0.0 && *n >= 1.0 && *n <= 65535.0 => {
+                            *n as u16
+                        }
                         _ => {
                             return Err(RuntimeError::new(
                                 format!(
-                                    "Expected number for redirect target port, got {target_val:?}"
+                                    "Expected a whole number between 1 and 65535 for redirect target port, got {target_val:?}"
                                 ),
                                 *line,
                                 *column,

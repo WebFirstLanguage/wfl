@@ -5,7 +5,7 @@
 //
 // Self-signed certificates are generated per test with rcgen (localhost +
 // 127.0.0.1 SANs); reqwest clients accept them via
-// danger_accept_invalid_certs. Ports 8210-8216 (the bind-address tests use
+// danger_accept_invalid_certs. Ports 8210-8219 (the bind-address tests use
 // 8200-8203).
 
 use std::sync::Arc;
@@ -27,9 +27,12 @@ fn write_self_signed_cert(dir: &std::path::Path) -> (String, String) {
     std::fs::write(&cert_path, certified.cert.pem()).expect("Failed to write cert.pem");
     std::fs::write(&key_path, certified.key_pair.serialize_pem()).expect("Failed to write key.pem");
 
+    // Forward slashes: these paths are embedded in WFL string literals, and
+    // Windows backslashes would be rejected by the WFL lexer. Windows file
+    // APIs accept forward-slash paths.
     (
-        cert_path.to_string_lossy().into_owned(),
-        key_path.to_string_lossy().into_owned(),
+        cert_path.to_string_lossy().replace('\\', "/"),
+        key_path.to_string_lossy().replace('\\', "/"),
     )
 }
 
@@ -228,6 +231,24 @@ async fn test_bare_secured_without_config_is_actionable_error() {
     assert!(
         message.contains("web_server_tls_cert_file"),
         "Error should point at the .wflcfg settings, got: {message}"
+    );
+}
+
+#[tokio::test]
+async fn test_out_of_range_redirect_target_port_is_error() {
+    let code = r#"listen on port 8219 redirecting to port 0 as bad_redirect"#;
+    let tokens = lex_wfl_with_positions(code);
+    let mut parser = Parser::new(&tokens);
+    let ast = parser.parse().expect("Failed to parse");
+
+    let mut interpreter = Interpreter::with_config(Arc::new(WflConfig::default()));
+    let result = interpreter.interpret(&ast).await;
+
+    let errors = result.expect_err("Out-of-range redirect target port should be a runtime error");
+    let message = format!("{errors:?}");
+    assert!(
+        message.contains("between 1 and 65535"),
+        "Error should explain the valid port range, got: {message}"
     );
 }
 
