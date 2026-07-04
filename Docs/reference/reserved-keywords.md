@@ -91,6 +91,23 @@ create list called items     // ✅ 'list' is a type keyword here
 
 **Why the overlap?** The parser checks structural keywords first. Even though these keywords are listed as contextual in the source code, the structural check takes precedence, making them always reserved.
 
+### Marker Words That Are Not Keywords at All
+
+A few words have special meaning in exactly one statement position but are **not reserved in any way** — they are ordinary identifiers that the parser recognizes purely by position. They do not count toward the 178 keywords, and you can freely use them as variable names everywhere:
+
+- `secured` - HTTPS marker in `listen on port 8443 secured ... as server`
+- `certificate` - certificate path marker in `secured with certificate "cert.pem"`
+- `key` - private key path marker in `secured with ... and key "key.pem"`
+- `redirecting` - redirect marker in `listen on port 8080 redirecting to port 8443 as server`
+- `content_type` - response content type marker in `respond to req with ... and content_type "text/html"`
+
+```wfl
+// All perfectly valid — these words are not reserved:
+store key as "secret_key_456"
+store certificate as "diploma"
+store secured as yes
+```
+
 ### Why Some Keywords Appear in Multiple Lists
 
 You might notice keywords like `push`, `zero`, and `than` appear in both the structural and contextual keyword lists in the compiler source code. This isn't a bug—it's by design:

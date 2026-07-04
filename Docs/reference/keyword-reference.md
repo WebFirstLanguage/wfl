@@ -366,6 +366,9 @@ connect to database at "sqlite://app.db" as db
 - 24 contextual keywords CAN be used as variables in certain contexts
 - 5 appear contextual but are actually always reserved
 
+### "What about `secured`, `certificate`, `key`, `redirecting`, `content_type`?" → Not keywords
+These words are recognized purely by position inside `listen` / `respond` statements and are **never reserved** — use them as variable names freely. See [Marker Words That Are Not Keywords](reserved-keywords.md#marker-words-that-are-not-keywords-at-all).
+
 ---
 
 ## Related Documentation

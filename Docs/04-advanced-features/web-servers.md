@@ -599,6 +599,101 @@ open url at "http://127.0.0.1:8080/" and read content as api_response
 display "Response: " with api_response
 ```
 
+## HTTPS / TLS
+
+WFL's web server can terminate TLS itself — no reverse proxy required. Add `secured` to a `listen` statement:
+
+```wfl
+listen on port 8443 secured with certificate "cert.pem" and key "key.pem" as secure_server
+```
+
+The certificate and private key are PEM files. Both values are ordinary expressions, so variables work too:
+
+```wfl
+store cert_file as "/etc/wfl/tls/cert.pem"
+store key_file as "/etc/wfl/tls/key.pem"
+listen on port 8443 secured with certificate cert_file and key key_file as secure_server
+```
+
+Everything else — `wait for request`, `respond to` — works exactly as for plain HTTP.
+
+### Certificate paths from configuration
+
+For deployments where certificate locations differ per machine, leave the paths out of the code and use the bare `secured` form:
+
+```wfl
+listen on port 8443 secured as secure_server
+```
+
+Then set the defaults in `.wflcfg`:
+
+```ini
+web_server_tls_cert_file = /etc/wfl/tls/cert.pem
+web_server_tls_key_file = /etc/wfl/tls/key.pem
+```
+
+Paths written in the `listen` statement always win over the configuration file. A plain `listen` (without `secured`) always serves HTTP, no matter what the configuration contains — adding certificate paths to `.wflcfg` never silently converts an HTTP server to HTTPS.
+
+If a server is marked `secured` but no certificate can be found — in the statement or the configuration — the program stops at startup with an error explaining both options.
+
+### Redirecting HTTP to HTTPS
+
+To send visitors who arrive over plain HTTP to your secure server, start a redirect server:
+
+```wfl
+listen on port 8443 secured with certificate "cert.pem" and key "key.pem" as secure_server
+listen on port 8080 redirecting to port 8443 as redirect_server
+```
+
+The redirect server answers **every** request natively with `301 Moved Permanently`, pointing at the same host, path, and query string on the HTTPS port (the port is omitted from the `Location` URL when the target is 443). Requests to a redirect server never reach your `wait for request` loop — you don't write any handler code for it. `close server redirect_server` shuts it down like any other server.
+
+### Serving HTTP and HTTPS side by side
+
+If you'd rather serve different content on HTTP (instead of redirecting), just start two servers — each `listen` creates an independent server:
+
+```wfl
+listen on port 8080 as http_server
+listen on port 8443 secured with certificate "cert.pem" and key "key.pem" as secure_server
+
+wait for request comes in on http_server as plain_request
+respond to plain_request with "This is the plain HTTP page"
+
+wait for request comes in on secure_server as tls_request
+respond to tls_request with "This is the secure page"
+```
+
+Note that `wait for request` listens to one named server at a time, and responses are handled sequentially (see Limitations below). TLS handshakes themselves are concurrent.
+
+### Certificates for local development
+
+Create a self-signed certificate with openssl:
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+```
+
+Or, for a certificate your browser trusts without warnings, use [mkcert](https://github.com/FiloSottile/mkcert):
+
+```bash
+mkcert -install
+mkcert localhost 127.0.0.1
+```
+
+Test with curl (`-k` skips certificate validation for self-signed certs):
+
+```bash
+curl -k https://localhost:8443/
+```
+
+⚠️ Self-signed certificates are for development only. In production, use a certificate from a real authority (e.g. Let's Encrypt via certbot).
+
+### Production notes
+
+- The private key file must be readable by the WFL process — protect it with file permissions (`chmod 600 key.pem`).
+- Certificate and key files are validated at `listen` time; a missing or malformed file is reported with the offending path before the server starts.
+- Terminating TLS at a reverse proxy (Caddy, nginx) or CDN in front of a plain-HTTP WFL server remains a perfectly good deployment option — use whichever fits your infrastructure.
+- Remember to set `web_server_bind_address = 0.0.0.0` in `.wflcfg` if the server must be reachable from other machines.
+
 ## Common Patterns
 
 ### API Endpoint
@@ -651,10 +746,9 @@ end check
 ### Current Limitations
 
 - **Single request handling:** Each `wait for request` handles one request
-- **Blocking:** Server handles requests sequentially
+- **Blocking:** Server handles requests sequentially (TLS handshakes are concurrent, but your responses are serialized)
 - **No middleware system** (yet) - Implement manually
 - **No built-in session management** - Implement yourself
-- **No HTTPS** (yet) - HTTP only for now
 
 ### Workarounds
 
@@ -688,6 +782,8 @@ end repeat
 In this section, you learned:
 
 ✅ **Starting servers** - `listen on port`
+✅ **HTTPS** - `listen on port ... secured with certificate ... and key ...`
+✅ **HTTP→HTTPS redirects** - `listen on port ... redirecting to port ...`
 ✅ **Accepting requests** - `wait for request`
 ✅ **Sending responses** - `respond to`
 ✅ **Routing** - Using conditionals to handle different paths

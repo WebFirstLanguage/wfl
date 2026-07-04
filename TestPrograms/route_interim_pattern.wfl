@@ -1,0 +1,48 @@
+// route_interim_pattern.wfl
+// Demonstrates the "ships-today" pattern for collapsing repetitive asset routes
+// using only confirmed-working WFL features: an allowlist plus a content-type
+// helper built on `contains`. This is the reusable core that the proposed
+// `route` construct will formalize. See Docs/development/route-construct-design.md.
+
+store asset_paths as ["/style.css", "/logo.svg", "/bie.svg", "/data.json"]
+
+// Content type derived from the path, written once instead of once per route.
+define action called content_type_for with name:
+    check if contains of name and ".css":
+        return "text/css"
+    otherwise check if contains of name and ".svg":
+        return "image/svg+xml"
+    otherwise check if contains of name and ".json":
+        return "application/json"
+    otherwise:
+        return "text/html"
+    end check
+end action
+
+// One arm replaces the six near-identical asset arms. The allowlist keeps it
+// secure: only paths explicitly listed are ever served.
+define action called serve with path:
+    check if contains of asset_paths and path:
+        store ctype as call content_type_for with path
+        return "200 " with path with "  (" with ctype with ")"
+    otherwise:
+        return "404 " with path
+    end check
+end action
+
+display "=== Asset routing via allowlist + content_type_for ==="
+
+store r1 as call serve with "/style.css"
+display r1
+
+store r2 as call serve with "/logo.svg"
+display r2
+
+store r3 as call serve with "/bie.svg"
+display r3
+
+store r4 as call serve with "/data.json"
+display r4
+
+store r5 as call serve with "/secret.env"
+display r5

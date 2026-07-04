@@ -233,6 +233,73 @@ if [ -f "TestPrograms/web_route_params_test.wfl" ]; then
     fi
 fi
 
+# Test 4: web_server_tls.wfl (HTTPS + HTTP->HTTPS redirect)
+if [ -f "TestPrograms/web_server_tls.wfl" ]; then
+    if ! command -v openssl >/dev/null 2>&1; then
+        echo -e "${YELLOW}[SKIP]${NC} web_server_tls.wfl - openssl not available to generate a test certificate"
+    else
+        total_tests=$((total_tests + 1))
+        echo ""
+        echo -e "${BLUE}[INFO]${NC} Testing: web_server_tls.wfl on ports 8443 (https) and 8090 (redirect)"
+
+        tls_dir=$(mktemp -d)
+        openssl req -x509 -newkey rsa:2048 -nodes -keyout "$tls_dir/key.pem" \
+            -out "$tls_dir/cert.pem" -days 1 -subj "/CN=localhost" >/dev/null 2>&1
+
+        # The test program uses relative cert paths, so run it from the temp dir
+        abs_binary="$(pwd)/$BINARY_PATH"
+        abs_test="$(pwd)/TestPrograms/web_server_tls.wfl"
+        (cd "$tls_dir" && "$abs_binary" "$abs_test" > /dev/null 2>&1) &
+        tls_pid=$!
+
+        # Probe readiness via the redirect port: it answers natively and does
+        # not consume the program's single `wait for request`
+        tls_ready=false
+        retries=0
+        max_retries=$((TIMEOUT * 2))
+        while [ "$tls_ready" = false ] && [ $retries -lt $max_retries ]; do
+            sleep 0.5
+            retries=$((retries + 1))
+            if curl -ks --max-time 2 -o /dev/null "http://localhost:8090/" 2>/dev/null; then
+                tls_ready=true
+            fi
+        done
+
+        tls_ok=true
+        if [ "$tls_ready" = false ]; then
+            echo -e "${RED}[ERROR]${NC} TIMEOUT: TLS server did not start within ${TIMEOUT}s"
+            tls_ok=false
+        else
+            # Redirect server: 301 with Location preserving path/query on the HTTPS port
+            redirect_out=$(curl -ks -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 2 "http://localhost:8090/some/path?x=1")
+            if [[ "$redirect_out" == "301 https://localhost:8443/some/path?x=1" ]]; then
+                echo -e "${GREEN}[SUCCESS]${NC} PASS: redirect returns 301 to https://localhost:8443/some/path?x=1"
+            else
+                echo -e "${RED}[ERROR]${NC} FAIL: redirect returned '$redirect_out'"
+                tls_ok=false
+            fi
+
+            # HTTPS request (consumes the program's single request, then it exits)
+            https_resp=$(curl -ks --max-time 3 "https://localhost:8443/")
+            if [[ "$https_resp" == *"Hello over HTTPS!"* ]]; then
+                echo -e "${GREEN}[SUCCESS]${NC} PASS: HTTPS response '$https_resp'"
+            else
+                echo -e "${RED}[ERROR]${NC} FAIL: HTTPS request returned '$https_resp'"
+                tls_ok=false
+            fi
+        fi
+
+        if kill -0 $tls_pid 2>/dev/null; then
+            kill $tls_pid 2>/dev/null || true
+        fi
+        rm -rf "$tls_dir"
+
+        if [ "$tls_ok" = true ]; then
+            passed_tests=$((passed_tests + 1))
+        fi
+    fi
+fi
+
 # Summary
 echo ""
 echo -e "${BLUE}[INFO]${NC} ============================"
