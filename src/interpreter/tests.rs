@@ -312,3 +312,86 @@ end action
         panic!("Expected Value::List, got {:?}", result);
     }
 }
+
+#[test]
+fn test_lexical_abspath() {
+    use super::lexical_abspath;
+    use std::path::Path;
+
+    // Absolute paths pass through unchanged
+    assert_eq!(
+        lexical_abspath(Path::new("/a/b/c.wfl"), Path::new("/cwd")),
+        "/a/b/c.wfl"
+    );
+    // Relative paths join to the cwd
+    assert_eq!(
+        lexical_abspath(Path::new("Tools/foo.wfl"), Path::new("/home/user/wfl")),
+        "/home/user/wfl/Tools/foo.wfl"
+    );
+    // "." components are dropped, ".." collapses lexically (like Python os.path.abspath)
+    assert_eq!(
+        lexical_abspath(Path::new("./Tools/../src/x.rs"), Path::new("/base")),
+        "/base/src/x.rs"
+    );
+    // ".." at the root is dropped, matching os.path.normpath("/../x") == "/x"
+    assert_eq!(lexical_abspath(Path::new("/../x"), Path::new("/")), "/x");
+    assert_eq!(
+        lexical_abspath(Path::new("a/b.wfl"), Path::new("/w/./z/..")),
+        "/w/a/b.wfl"
+    );
+}
+
+#[tokio::test]
+async fn test_script_path_and_directory_globals() {
+    let mut interpreter = Interpreter::new();
+    interpreter.set_source_file(std::path::PathBuf::from("Tools/rust_loc_counter.wfl"));
+
+    let tokens = lex_wfl_with_positions("store placeholder as 1");
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().unwrap();
+    interpreter.interpret(&program).await.unwrap();
+
+    let env = interpreter.global_env.borrow();
+    let script_path = env.get("script_path").expect("script_path defined");
+    let script_directory = env
+        .get("script_directory")
+        .expect("script_directory defined");
+    match (&script_path, &script_directory) {
+        (Value::Text(path_text), Value::Text(dir_text)) => {
+            assert!(
+                std::path::Path::new(path_text.as_ref()).is_absolute(),
+                "script_path should be absolute, got {path_text}"
+            );
+            assert!(
+                path_text.ends_with("Tools/rust_loc_counter.wfl")
+                    || path_text.ends_with("Tools\\rust_loc_counter.wfl"),
+                "unexpected script_path {path_text}"
+            );
+            assert!(
+                dir_text.ends_with("Tools"),
+                "unexpected script_directory {dir_text}"
+            );
+        }
+        other => panic!("Expected Text globals, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_script_path_globals_empty_without_source_file() {
+    let mut interpreter = Interpreter::new();
+
+    let tokens = lex_wfl_with_positions("store placeholder as 1");
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().unwrap();
+    interpreter.interpret(&program).await.unwrap();
+
+    let env = interpreter.global_env.borrow();
+    assert_eq!(
+        env.get("script_path"),
+        Some(Value::Text(std::sync::Arc::from("")))
+    );
+    assert_eq!(
+        env.get("script_directory"),
+        Some(Value::Text(std::sync::Arc::from("")))
+    );
+}

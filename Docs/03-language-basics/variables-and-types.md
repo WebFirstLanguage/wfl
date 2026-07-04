@@ -227,6 +227,25 @@ end action
 call use global                    // Output: 100
 ```
 
+### Runtime-Provided Globals
+
+Every script starts with a few variables defined by the runtime:
+
+- `args` - list of command-line arguments passed after the script name
+- `arg_count` - how many arguments were passed
+- `positional_args` - arguments that are not `--flag` style options
+- `program_name` - the file name of the running script
+- `current_directory` - the directory the script was launched from
+- `script_path` - the absolute path of the running script file
+- `script_directory` - the absolute directory containing the running script
+
+`script_path` and `script_directory` are handy for locating files relative to the script itself, no matter which directory it is launched from:
+
+```wfl
+store data_dir as path_join of script_directory and "data"
+display "Data lives in: " with data_dir
+```
+
 ### Local Scope (Actions)
 
 Variables inside actions are local to that action:
