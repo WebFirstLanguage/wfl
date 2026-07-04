@@ -45,6 +45,7 @@ store name as "Developer"
 change name to "Expert Developer"
 
 // Conditionals
+store temperature as 35
 check if temperature is greater than 30:
     display "It's hot!"
 otherwise:
@@ -56,7 +57,8 @@ count from 1 to 10:
     display "Number: " with count
 end count
 
-for each item in shopping list:
+store shopping items as ["milk", "bread", "eggs"]
+for each item in shopping items:
     display "Need to buy: " with item
 end for
 ```
@@ -70,11 +72,11 @@ WFL knows what type your data is:
 ```wfl
 store age as 25              // WFL knows this is a number
 store name as "Alice"         // WFL knows this is text
-store is active as yes        // WFL knows this is a boolean
+store is_active as yes        // WFL knows this is a boolean
 
-display typeof of age         // Output: "Number"
-display typeof of name        // Output: "Text"
-display typeof of is active   // Output: "Boolean"
+display typeof of age         // Output: Number
+display typeof of name        // Output: Text
+display typeof of is_active   // Output: Boolean
 ```
 
 The compiler catches type errors before your code runs, preventing common bugs.
@@ -85,15 +87,17 @@ WFL includes powerful features with readable syntax:
 
 **Web Servers:**
 ```wfl
-listen on port 8080 as server
+listen on port 8080 as web_server
 
-wait for request comes in on server as req
-respond to req with "Hello from WFL!"
+wait for request comes in on web_server as incoming_request
+respond to incoming_request with "Hello from WFL!"
 ```
 
 **Async Operations:**
 ```wfl
-wait for file operation completes
+open file at "output.txt" for writing as my_file
+wait for write content "Hello, WFL!" into my_file
+close file my_file
 display "File saved successfully!"
 ```
 
@@ -199,10 +203,14 @@ WFL is built on 19 guiding principles (detailed in [Natural Language Philosophy]
 **Principle 1: Natural Language Syntax**
 ```wfl
 // Instead of: x += 10
+store score as 0
 add 10 to score
 
 // Instead of: if (x > 5 && y < 10)
+store attempts as 3
 check if score is greater than 5 and attempts is less than 10:
+    display "Keep going!"
+end check
 ```
 
 **Principle 2: Minimize Special Characters**
@@ -215,9 +223,11 @@ display "Hello, " with name
 **Principle 3: Readability and Clarity**
 ```wfl
 // Code that reads like documentation
-for each customer in customer list:
-    check if customer balance is greater than 0:
-        send reminder to customer
+store customers as ["Alice", "Bob", "Carol"]
+for each customer in customers:
+    store balance as 100
+    check if balance is greater than 0:
+        display "Send reminder to " with customer
     end check
 end for
 ```
