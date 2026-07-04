@@ -1,329 +1,477 @@
 // Rust Line Counter - WFL Implementation
-// Analyzes Rust source files and generates line count statistics
-// 
-// This is a WebFirst Language implementation of the rust_loc_counter.py tool
-// It recursively scans .rs files and provides accurate counts of:
-// - Total lines
-// - Code lines  
-// - Comment lines
-// - Blank lines
 //
-// Usage: wfl rust_loc_counter.wfl [directory]
-// Default directory: ./src
+// A 1:1 port of Tools/rust_loc_counter.py: given the same source tree it
+// produces byte-identical output, both the report printed to stdout and the
+// markdown report written to ../Docs/rust_loc_report.md (only the embedded
+// wall-clock timestamps differ between runs).
+//
+// Like the Python script, it scans <script dir>/../src for .rs files and
+// categorizes each line as code, comment, or blank.
+//
+// Usage: wfl Tools/rust_loc_counter.wfl
 
-// Function to check if a line is blank (empty or only whitespace)
-define action called is_blank_line with line:
-    store trimmed as line
-    // WFL doesn't have trim, so check if empty
-    check if length of line is 0:
-        return true
+// Emulates Python's s.split(needle, 1)[1]: everything after the first
+// occurrence of needle. Callers only use it when needle is present.
+define action called after_first with fx_text and fx_needle:
+    store fx_found_at as index_of of fx_text and fx_needle
+    check if fx_found_at is less than 0:
+        return ""
     end check
-    return false
+    store fx_start as fx_found_at plus length of fx_needle
+    store fx_total_len as length of fx_text
+    return substring of fx_text and fx_start and fx_total_len
 end action
 
-// Function to check if a line starts with a single-line comment
-define action called is_single_line_comment with line:
-    // Check if line starts with //
-    check if length of line is greater than 1:
-        store first_two as line[0] with line[1]
-        check if first_two is "//":
-            return true
+// Counts lines in one Rust file, mirroring count_lines_in_file() in the
+// Python script branch for branch (including its quirks, e.g. a line that
+// starts with "/*" counts as a comment even when code follows "*/").
+// Returns [total, code, comments, blank]; [0, 0, 0, 0] on read errors.
+define action called analyze_rust_file with af_path:
+    store af_stats as []
+    try:
+        open file at af_path for reading as af_handle
+        wait for store af_content as read content from af_handle
+        close file af_handle
+
+        store af_total as 0
+        store af_code as 0
+        store af_comments as 0
+        store af_blank as 0
+        store af_in_block as false
+
+        check if af_content is not "":
+            store af_raw_lines as split af_content by "\n"
+            store af_line_count as length of af_raw_lines
+            // Python's file iteration yields no trailing empty line when the
+            // file ends with a newline, but split does - drop it.
+            store af_ends_nl as ends_with of af_content and "\n"
+            check if af_ends_nl is true:
+                change af_line_count to af_line_count minus 1
+            end check
+
+            store af_index as 0
+            repeat while af_index is less than af_line_count:
+                store af_raw_line as af_raw_lines[af_index]
+                store af_line as trim of af_raw_line
+                change af_total to af_total plus 1
+
+                store af_starts_block as starts_with of af_line and "/*"
+                store af_starts_line as starts_with of af_line and "//"
+
+                check if af_line is "":
+                    change af_blank to af_blank plus 1
+                otherwise check if af_in_block is true:
+                    change af_comments to af_comments plus 1
+                    store af_has_close as contains of af_line and "*/"
+                    check if af_has_close is true:
+                        change af_in_block to false
+                        store af_after_raw as call after_first with af_line and "*/"
+                        store af_after as trim of af_after_raw
+                        check if af_after is not "":
+                            store af_after_comment as starts_with of af_after and "//"
+                            check if af_after_comment is false:
+                                change af_code to af_code plus 1
+                            end check
+                        end check
+                    end check
+                otherwise check if af_starts_block is true:
+                    change af_comments to af_comments plus 1
+                    store af_same_close as contains of af_line and "*/"
+                    check if af_same_close is false:
+                        change af_in_block to true
+                    end check
+                otherwise check if af_starts_line is true:
+                    change af_comments to af_comments plus 1
+                otherwise:
+                    change af_code to af_code plus 1
+                    store af_open_at as index_of of af_line and "/*"
+                    check if af_open_at is greater than or equal to 0:
+                        store af_line_len as length of af_line
+                        store af_tail as substring of af_line and af_open_at and af_line_len
+                        store af_tail_close as contains of af_tail and "*/"
+                        check if af_tail_close is false:
+                            change af_in_block to true
+                        end check
+                    end check
+                end check
+
+                change af_index to af_index plus 1
+            end repeat
         end check
-    end check
-    return false
+
+        push with af_stats and af_total
+        push with af_stats and af_code
+        push with af_stats and af_comments
+        push with af_stats and af_blank
+    when error:
+        display "Error processing " with af_path
+        push with af_stats and 0
+        push with af_stats and 0
+        push with af_stats and 0
+        push with af_stats and 0
+    end try
+    return af_stats
 end action
 
-// Function to analyze a single Rust file
-define action called analyze_rust_file with file_path:
-    store stats as []
-    
-    try:
-        // Get total line count
-        store total_lines as count_lines of file_path
-        
-        // Read file content to analyze each line
-        open file at file_path for reading as rust_file
-        wait for store file_content as read content from rust_file
-        close file rust_file
-        
-        // Split content into lines
-        store lines as split file_content by "\n"
-        
-        // Initialize counters
-        store code_lines as 0
-        store comment_lines as 0
-        store blank_lines as 0
-        store in_block_comment as false
-        
-        // Process each line
-        for each line in lines:
-            store is_blank as true
-            store is_comment as false
-            store is_code as false
-            
-            // Check if line has any non-whitespace content
-            check if length of line is greater than 0:
-                store is_blank as false
-                
-                // Handle block comments
-                check if in_block_comment is true:
-                    add 1 to comment_lines
-                    store is_comment as true
-                    
-                    // Check for end of block comment
-                    store has_end as contains of line and "*/"
-                    check if has_end is true:
-                        change in_block_comment to false
-                        
-                        // Check if there's code after the block comment
-                        store parts as split line by "*/"
-                        check if length of parts is greater than 1:
-                            store after_comment as parts[1]
-                            check if length of after_comment is greater than 0:
-                                // Check if it's not another comment
-                                store is_comment_after as is_single_line_comment with after_comment
-                                check if is_comment_after is false:
-                                    add 1 to code_lines
-                                    store is_code as true
-                                end check
-                            end check
-                        end check
-                    end check
-                else:
-                    // Check for start of block comment
-                    store has_start as contains of line and "/*"
-                    check if has_start is true:
-                        add 1 to comment_lines
-                        store is_comment as true
-                        
-                        // Check if block comment ends on same line
-                        store has_end_same as contains of line and "*/"
-                        check if has_end_same is false:
-                            change in_block_comment to true
-                        end check
-                    else:
-                        // Check for single-line comment
-                        store is_single_comment as is_single_line_comment with line
-                        check if is_single_comment is true:
-                            add 1 to comment_lines
-                            store is_comment as true
-                        else:
-                            // Skip truly empty lines
-                            store trimmed_line as line
-                            store i as 0
-                            store has_content as false
-                            
-                            count from 0 to length of line:
-                                store char as line[i]
-                                check if char is not " ":
-                                    check if char is not "\t":
-                                        change has_content to true
-                                    end check
-                                end check
-                                add 1 to i
-                            end count
-                            
-                            check if has_content is true:
-                                add 1 to code_lines
-                                store is_code as true
-                            else:
-                                add 1 to blank_lines
-                                store is_blank as true
-                            end check
-                        end check
-                    end check
-                end check
-            else:
-                add 1 to blank_lines
+// Recursive replica of os.walk(topdown): the current directory's .rs files
+// first (in raw readdir order, same as os.scandir), then each subdirectory
+// in that same order. ws_rel tracks the path key relative to the repo root
+// ("src/...") exactly as the Python script's os.path.relpath produces it.
+define action called walk_src with ws_abs and ws_rel and ws_sink:
+    store ws_entries as list_dir of ws_abs
+    for each ws_entry in ws_entries:
+        store ws_full as path_join of ws_abs and ws_entry
+        store ws_entry_is_dir as is_dir of ws_full
+        check if ws_entry_is_dir is false:
+            store ws_is_rust as ends_with of ws_entry and ".rs"
+            check if ws_is_rust is true:
+                store ws_key as ws_rel with "/" with ws_entry
+                store ws_stats as call analyze_rust_file with ws_full
+                store ws_row as []
+                push with ws_row and ws_key
+                push with ws_row and ws_stats[0]
+                push with ws_row and ws_stats[1]
+                push with ws_row and ws_stats[2]
+                push with ws_row and ws_stats[3]
+                push with ws_sink and ws_row
             end check
-        end for
-        
-        // Return statistics as a list
-        add total_lines to stats
-        add code_lines to stats
-        add comment_lines to stats
-        add blank_lines to stats
-        
-    when error:
-        display "Error analyzing file: " with file_path
-        add 0 to stats
-        add 0 to stats
-        add 0 to stats
-        add 0 to stats
-    end try
-    
-    return stats
-end action
-
-// Main action to run the line counter
-define action called run_rust_loc_counter with target_dir:
-    display "=========================================="
-    display "RUST CODE LINE COUNT REPORT"
-    display "Target directory: " with target_dir
-    display "=========================================="
-    display ""
-    
-    // Initialize totals
-    store total_files as 0
-    store total_lines as 0
-    store total_code as 0
-    store total_comments as 0  
-    store total_blank as 0
-    
-    // Store file statistics
-    store file_stats as []
-    
-    // Get all files in the directory
-    try:
-        wait for store all_files as list files recursively in target_dir
-        
-        // Process each .rs file
-        for each file_path in all_files:
-            store has_rs as contains of file_path and ".rs"
-            check if has_rs is true:
-                // Make sure it ends with .rs
-                store path_length as length of file_path
-                check if path_length is greater than 3:
-                    store last_three as file_path[path_length - 3] with file_path[path_length - 2] with file_path[path_length - 1]
-                    check if last_three is ".rs":
-                        add 1 to total_files
-                        
-                        // Analyze the file
-                        store file_result as analyze_rust_file with file_path
-                        
-                        // Extract statistics
-                        store file_total as file_result[0]
-                        store file_code as file_result[1]
-                        store file_comments as file_result[2]
-                        store file_blank as file_result[3]
-                        
-                        // Update totals
-                        add file_total to total_lines
-                        add file_code to total_code
-                        add file_comments to total_comments
-                        add file_blank to total_blank
-                        
-                        // Store for detailed report
-                        store file_info as []
-                        add file_path to file_info
-                        add file_total to file_info
-                        add file_code to file_info
-                        add file_comments to file_info
-                        add file_blank to file_info
-                        add file_info to file_stats
-                        
-                        display "Processed: " with file_path with " (" with file_total with " lines)"
-                    end check
-                end check
-            end check
-        end for
-        
-    when error:
-        display "Error listing files in: " with target_dir
-    end try
-    
-    // Calculate percentages
-    store code_percent as 0
-    store comment_percent as 0
-    store blank_percent as 0
-    
-    check if total_lines is greater than 0:
-        store code_percent as total_code
-        multiply code_percent by 100
-        divide code_percent by total_lines
-        
-        store comment_percent as total_comments
-        multiply comment_percent by 100
-        divide comment_percent by total_lines
-        
-        store blank_percent as total_blank
-        multiply blank_percent by 100
-        divide blank_percent by total_lines
-    end check
-    
-    // Display overall statistics
-    display ""
-    display "OVERALL STATISTICS:"
-    display "Total files processed: " with total_files
-    display "Total lines: " with total_lines
-    display "Code lines: " with total_code with " (" with code_percent with "%)"
-    display "Comment lines: " with total_comments with " (" with comment_percent with "%)"
-    display "Blank lines: " with total_blank with " (" with blank_percent with "%)"
-    
-    // Display detailed file statistics
-    display ""
-    display "LINES BY FILE:"
-    display "File                                              Total      Code       Comments   Blank"
-    display "-------------------------------------------------------------------------"
-    
-    for each file_info in file_stats:
-        store file_name as file_info[0]
-        store file_total as file_info[1]
-        store file_code as file_info[2]
-        store file_comments as file_info[3]
-        store file_blank as file_info[4]
-        
-        // Format output (simplified due to WFL limitations)
-        display file_name with "  " with file_total with "  " with file_code with "  " with file_comments with "  " with file_blank
+        end check
     end for
-    
-    // Generate markdown report
-    display ""
-    display "Generating markdown report..."
-    
-    try:
-        store markdown_report as "# Rust Code Line Count Report
-
-*Generated by WFL Rust Line Counter*
-
-## Overall Statistics
-
-- **Total files processed:** "
-        change markdown_report to markdown_report with total_files with "
-- **Total lines:** " with total_lines with "
-- **Code lines:** " with total_code with " (" with code_percent with "%)
-- **Comment lines:** " with total_comments with " (" with comment_percent with "%)
-- **Blank lines:** " with total_blank with " (" with blank_percent with "%)
-
-## Lines by File
-
-| File | Total | Code | Comments | Blank |
-| ---- | ----- | ---- | -------- | ----- |
-"
-        
-        // Add file entries to markdown
-        for each file_info in file_stats:
-            store file_name as file_info[0]
-            store file_total as file_info[1]
-            store file_code as file_info[2]
-            store file_comments as file_info[3]
-            store file_blank as file_info[4]
-            
-            change markdown_report to markdown_report with "| " with file_name with " | " with file_total with " | " with file_code with " | " with file_comments with " | " with file_blank with " |
-"
-        end for
-        
-        change markdown_report to markdown_report with "
-
----
-_Generated by WFL Rust Line Counter_
-"
-        
-        // Write markdown report
-        open file at "./Docs/rust_loc_report.md" for writing as md_file
-        wait for write content markdown_report into md_file
-        close file md_file
-        
-        display "✓ Markdown report written to ./Docs/rust_loc_report.md"
-        
-    when error:
-        display "✗ Could not write markdown report"
-    end try
-    
-    return "Analysis complete: " with total_files with " files, " with total_lines with " total lines"
+    for each ws_entry2 in ws_entries:
+        store ws_full2 as path_join of ws_abs and ws_entry2
+        store ws_dir_check as is_dir of ws_full2
+        check if ws_dir_check is true:
+            store ws_child_rel as ws_rel with "/" with ws_entry2
+            call walk_src with ws_full2 and ws_child_rel and ws_sink
+        end check
+    end for
 end action
 
-// Run the line counter on the src directory by default
-store result as run_rust_loc_counter with "./src"
+// Stable descending sort by the numeric second element of each row,
+// equivalent to Python's sorted(items, key=lambda x: x[1][0], reverse=True):
+// rows with equal totals keep their insertion order.
+define action called stable_sort_desc with sb_entries:
+    store sb_sorted as []
+    for each sb_candidate in sb_entries:
+        store sb_rebuilt as []
+        store sb_inserted as false
+        for each sb_existing in sb_sorted:
+            check if sb_inserted is false:
+                check if sb_existing[1] is less than sb_candidate[1]:
+                    push with sb_rebuilt and sb_candidate
+                    change sb_inserted to true
+                end check
+            end check
+            push with sb_rebuilt and sb_existing
+        end for
+        check if sb_inserted is false:
+            push with sb_rebuilt and sb_candidate
+        end check
+        change sb_sorted to sb_rebuilt
+    end for
+    return sb_sorted
+end action
+
+// Emulates Python's str.split() with no arguments for the space-separated
+// header lines: split on spaces and drop the empty pieces.
+define action called split_ws with sw_text:
+    store sw_pieces as split sw_text by " "
+    store sw_words as []
+    for each sw_piece in sw_pieces:
+        check if sw_piece is not "":
+            push with sw_words and sw_piece
+        end check
+    end for
+    return sw_words
+end action
+
+// Builds the plain-text report, mirroring generate_report() in the Python
+// script line by line.
+define action called build_report with br_files and br_dirs and br_totals:
+    store br_lines as []
+    store br_eq as "================================================================================"
+    store br_dash as "--------------------------------------------------------------------------------"
+
+    push with br_lines and br_eq
+    push with br_lines and "RUST CODE LINE COUNT REPORT"
+    store br_stamp as format_datetime of datetime_now and "%Y-%m-%d %H:%M:%S"
+    store br_gen as "Generated on: " with br_stamp
+    push with br_lines and br_gen
+    push with br_lines and br_eq
+
+    store br_file_count as br_totals[0]
+    store br_sum_total as br_totals[1]
+    store br_sum_code as br_totals[2]
+    store br_sum_comments as br_totals[3]
+    store br_sum_blank as br_totals[4]
+
+    // Percentages use the same operation order as the Python f-strings:
+    // (part / total) * 100, then one-decimal formatting.
+    store br_code_ratio as br_sum_code divided by br_sum_total
+    store br_code_pct as br_code_ratio times 100
+    store br_code_pct_text as format_number of br_code_pct and 1
+    store br_comment_ratio as br_sum_comments divided by br_sum_total
+    store br_comment_pct as br_comment_ratio times 100
+    store br_comment_pct_text as format_number of br_comment_pct and 1
+    store br_blank_ratio as br_sum_blank divided by br_sum_total
+    store br_blank_pct as br_blank_ratio times 100
+    store br_blank_pct_text as format_number of br_blank_pct and 1
+
+    push with br_lines and ""
+    push with br_lines and "OVERALL STATISTICS:"
+    store br_files_line as "Total files processed: " with br_file_count
+    push with br_lines and br_files_line
+    store br_total_line as "Total lines: " with br_sum_total
+    push with br_lines and br_total_line
+    store br_code_line as "Code lines: " with br_sum_code with " (" with br_code_pct_text with "%)"
+    push with br_lines and br_code_line
+    store br_comment_line as "Comment lines: " with br_sum_comments with " (" with br_comment_pct_text with "%)"
+    push with br_lines and br_comment_line
+    store br_blank_line as "Blank lines: " with br_sum_blank with " (" with br_blank_pct_text with "%)"
+    push with br_lines and br_blank_line
+
+    push with br_lines and ""
+    push with br_lines and "LINES BY DIRECTORY:"
+    store br_h0 as padright of "Directory" and 40
+    store br_h1 as padright of "Total" and 10
+    store br_h2 as padright of "Code" and 10
+    store br_h3 as padright of "Comments" and 10
+    store br_h4 as padright of "Blank" and 10
+    store br_header as br_h0 with " " with br_h1 with " " with br_h2 with " " with br_h3 with " " with br_h4
+    push with br_lines and br_header
+    push with br_lines and br_dash
+
+    for each br_dir_row in br_dirs:
+        store br_d_name as padright of br_dir_row[0] and 40
+        store br_d_total_text as "" with br_dir_row[1]
+        store br_d_total as padright of br_d_total_text and 10
+        store br_d_code_text as "" with br_dir_row[2]
+        store br_d_code as padright of br_d_code_text and 10
+        store br_d_comments_text as "" with br_dir_row[3]
+        store br_d_comments as padright of br_d_comments_text and 10
+        store br_d_blank_text as "" with br_dir_row[4]
+        store br_d_blank as padright of br_d_blank_text and 10
+        store br_d_line as br_d_name with " " with br_d_total with " " with br_d_code with " " with br_d_comments with " " with br_d_blank
+        push with br_lines and br_d_line
+    end for
+
+    push with br_lines and ""
+    push with br_lines and "LINES BY FILE:"
+    change br_h0 to padright of "File" and 50
+    store br_file_header as br_h0 with " " with br_h1 with " " with br_h2 with " " with br_h3 with " " with br_h4
+    push with br_lines and br_file_header
+    push with br_lines and br_dash
+
+    for each br_file_row in br_files:
+        store br_f_name as padright of br_file_row[0] and 50
+        store br_f_total_text as "" with br_file_row[1]
+        store br_f_total as padright of br_f_total_text and 10
+        store br_f_code_text as "" with br_file_row[2]
+        store br_f_code as padright of br_f_code_text and 10
+        store br_f_comments_text as "" with br_file_row[3]
+        store br_f_comments as padright of br_f_comments_text and 10
+        store br_f_blank_text as "" with br_file_row[4]
+        store br_f_blank as padright of br_f_blank_text and 10
+        store br_f_line as br_f_name with " " with br_f_total with " " with br_f_code with " " with br_f_comments with " " with br_f_blank
+        push with br_lines and br_f_line
+    end for
+
+    return join of br_lines and "\n"
+end action
+
+// Converts the plain-text report to markdown, replicating the Python
+// save_report_to_markdown() branch ladder exactly - including its quirks
+// (prev_line only updates in the final else branch, in_table never resets,
+// and the file table is sliced with the directory table's column widths).
+// Do not "fix" these: they are required for byte parity.
+define action called report_to_markdown with md_report:
+    store md_lines as []
+    push with md_lines and "# Rust Code Line Count Report"
+    store md_stamp as format_datetime of datetime_now and "%Y-%m-%d %H:%M:%S"
+    store md_gen as "*Generated on: " with md_stamp with "*"
+    push with md_lines and md_gen
+    push with md_lines and ""
+
+    store md_in_section as false
+    store md_in_table as false
+    store md_prev as ""
+    store md_widths as [40, 10, 10, 10, 10]
+
+    store md_rows as split md_report by "\n"
+    for each md_row in md_rows:
+        store md_is_eq as starts_with of md_row and "="
+        check if md_is_eq is true:
+            continue
+        end check
+        store md_is_title as starts_with of md_row and "RUST CODE LINE COUNT REPORT"
+        check if md_is_title is true:
+            continue
+        end check
+        store md_is_gen as starts_with of md_row and "Generated on:"
+        check if md_is_gen is true:
+            continue
+        end check
+        store md_trimmed as trim of md_row
+        check if md_trimmed is "":
+            push with md_lines and ""
+            continue
+        end check
+        store md_is_overall as starts_with of md_row and "OVERALL STATISTICS:"
+        check if md_is_overall is true:
+            push with md_lines and "## Overall Statistics"
+            continue
+        end check
+        store md_is_dir_section as starts_with of md_row and "LINES BY DIRECTORY:"
+        check if md_is_dir_section is true:
+            push with md_lines and "## Lines by Directory"
+            change md_in_section to true
+            continue
+        end check
+        store md_is_file_section as starts_with of md_row and "LINES BY FILE:"
+        check if md_is_file_section is true:
+            push with md_lines and "## Lines by File"
+            change md_in_section to true
+            continue
+        end check
+        store md_is_dash as starts_with of md_row and "-"
+        store md_table_dash as false
+        check if md_in_section is true:
+            check if md_is_dash is true:
+                change md_table_dash to true
+            end check
+        end check
+        check if md_table_dash is true:
+            store md_words as call split_ws with md_prev
+            store md_words_joined as join of md_words and " | "
+            store md_header_row as "| " with md_words_joined with " |"
+            push with md_lines and md_header_row
+            store md_dash_cells as []
+            for each md_word in md_words:
+                push with md_dash_cells and "---"
+            end for
+            store md_dashes_joined as join of md_dash_cells and " | "
+            store md_dash_row as "| " with md_dashes_joined with " |"
+            push with md_lines and md_dash_row
+            change md_in_table to true
+            continue
+        end check
+        check if md_in_table is true:
+            store md_cells as []
+            store md_remaining as md_row
+            for each md_width in md_widths:
+                store md_raw_cell as substring of md_remaining and 0 and md_width
+                store md_cell as trim of md_raw_cell
+                push with md_cells and md_cell
+                store md_rem_len as length of md_remaining
+                check if md_width is less than md_rem_len:
+                    store md_rest_len as md_rem_len minus md_width
+                    change md_remaining to substring of md_remaining and md_width and md_rest_len
+                otherwise:
+                    change md_remaining to ""
+                end check
+            end for
+            store md_cells_joined as join of md_cells and " | "
+            store md_cell_row as "| " with md_cells_joined with " |"
+            push with md_lines and md_cell_row
+            continue
+        end check
+        change md_prev to md_row
+        push with md_lines and md_row
+    end for
+
+    return join of md_lines and "\n"
+end action
+
+// --- Main flow, mirroring main() in the Python script ---
+
+// Python: src_directory = join(dirname(abspath(__file__)), "..", "src").
+// abspath(__file__) is normalized but the ".." from the join stays literal,
+// so the printed path is e.g. /repo/Tools/../src.
+store parent_ref as path_join of script_directory and ".."
+store src_dir as path_join of parent_ref and "src"
+
+display "Counting lines of Rust code in " with src_dir with "..."
+
+store all_file_rows as []
+call walk_src with src_dir and "src" and all_file_rows
+
+// Overall totals, accumulated in walk order like the Python script.
+store grand_total as 0
+store grand_code as 0
+store grand_comments as 0
+store grand_blank as 0
+for each tally_row in all_file_rows:
+    store tally_total as tally_row[1]
+    add tally_total to grand_total
+    store tally_code as tally_row[2]
+    add tally_code to grand_code
+    store tally_comments as tally_row[3]
+    add tally_comments to grand_comments
+    store tally_blank as tally_row[4]
+    add tally_blank to grand_blank
+end for
+
+// Per-directory totals. Directory keys are collected in first-seen walk
+// order, matching the insertion order of the Python defaultdict.
+store dir_keys as []
+for each seen_row in all_file_rows:
+    store seen_key as seen_row[0]
+    store seen_dir as path_dirname of seen_key
+    store seen_at as index_of of dir_keys and seen_dir
+    check if seen_at is less than 0:
+        push with dir_keys and seen_dir
+    end check
+end for
+
+store all_dir_rows as []
+for each agg_dir in dir_keys:
+    store agg_total as 0
+    store agg_code as 0
+    store agg_comments as 0
+    store agg_blank as 0
+    for each agg_row in all_file_rows:
+        store agg_row_key as agg_row[0]
+        store agg_row_dir as path_dirname of agg_row_key
+        check if agg_row_dir is agg_dir:
+            store agg_row_total as agg_row[1]
+            add agg_row_total to agg_total
+            store agg_row_code as agg_row[2]
+            add agg_row_code to agg_code
+            store agg_row_comments as agg_row[3]
+            add agg_row_comments to agg_comments
+            store agg_row_blank as agg_row[4]
+            add agg_row_blank to agg_blank
+        end check
+    end for
+    store agg_out as []
+    push with agg_out and agg_dir
+    push with agg_out and agg_total
+    push with agg_out and agg_code
+    push with agg_out and agg_comments
+    push with agg_out and agg_blank
+    push with all_dir_rows and agg_out
+end for
+
+store sorted_dirs as call stable_sort_desc with all_dir_rows
+store sorted_files as call stable_sort_desc with all_file_rows
+
+store report_totals as []
+store file_row_count as length of all_file_rows
+push with report_totals and file_row_count
+push with report_totals and grand_total
+push with report_totals and grand_code
+push with report_totals and grand_comments
+push with report_totals and grand_blank
+
+store report_text as call build_report with sorted_files and sorted_dirs and report_totals
+display report_text
+
+store markdown_text as call report_to_markdown with report_text
+store docs_dir as path_join of parent_ref and "Docs"
+store out_path as path_join of docs_dir and "rust_loc_report.md"
+open file at out_path for writing as md_handle
+wait for write content markdown_text into md_handle
+close file md_handle
+
 display ""
-display result
+display "Report saved to " with out_path
