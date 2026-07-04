@@ -25,6 +25,13 @@ These 19 principles are the foundation of WFL's design. Every language, document
 18. **Encouragement of Best Practices** — Promote standards that yield high-quality, maintainable code.
 19. **Avoidance of Unnecessary Conventions** — Challenge legacy conventions (e.g., mandatory semicolons) that lack clear justification.
 
+### The No-Unlearning Invariant (Overarching Design Law)
+WFL is deliberately both a "my first language" and a language strong enough for production. This only works as a *gradient*, not a *compromise* — the beginner path must be a subset of the expert path, with no cliffs between them. When principles appear to conflict, this invariant takes precedence:
+
+> **For every feature, the beginner form and the expert form must be the same form, or connected by a smooth path with nothing to unlearn.**
+
+Apply it as a test on every language, docs, or tooling change: if a beginner learns a habit that a production user must later undo — or must work around the language to do the most natural thing — that is a crack in the tightrope to fix, not to document. Terser expert forms are welcome only when a beginner can grow into them without unlearning the simple form. Full description in `Docs/wfl-foundation.md`.
+
 ## Project Structure & Modules
 - `src/`: Core compiler/runtime (`main.rs`, `lib.rs`, `repl.rs`, `builtins.rs`).
 - `crates/`: Internal crates (e.g., `wfl_core`).
