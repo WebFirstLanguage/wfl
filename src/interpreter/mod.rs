@@ -72,14 +72,20 @@ pub struct WflHttpRequest {
     pub method: String,
     pub path: String,
     pub client_ip: String,
-    pub body: String,
+    /// Raw request body bytes. Exposed to WFL both as a lossy-UTF-8 `body`
+    /// text variable (backward compatible) and as a lossless `body_bytes`
+    /// binary value, so binary uploads survive intact.
+    pub body: Vec<u8>,
     pub headers: HashMap<String, String>,
     pub response_sender: Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct WflHttpResponse {
-    pub content: String,
+    /// Raw response body bytes. Text responses store their UTF-8 encoding;
+    /// binary responses (`Value::Binary`) store their bytes verbatim, so
+    /// fonts/images/etc. are served losslessly.
+    pub content: Vec<u8>,
     pub status: u16,
     pub content_type: String,
     pub headers: HashMap<String, String>,
@@ -5147,8 +5153,10 @@ impl Interpreter {
                                     }
                                 }
 
-                                // Convert body to string
-                                let body_str = String::from_utf8_lossy(&body).to_string();
+                                // Keep the raw body bytes so binary uploads survive;
+                                // WFL exposes both a lossy-text `body` and a lossless
+                                // `body_bytes` view of these bytes.
+                                let body_bytes = body.to_vec();
 
                                 // Create response channel
                                 let (response_sender, response_receiver) =
@@ -5160,7 +5168,7 @@ impl Interpreter {
                                     method: method.to_string(),
                                     path: path.as_str().to_string(),
                                     client_ip,
-                                    body: body_str,
+                                    body: body_bytes,
                                     headers: header_map,
                                     response_sender: Arc::new(tokio::sync::Mutex::new(Some(
                                         response_sender,
@@ -5181,9 +5189,11 @@ impl Interpreter {
                                             warp::http::StatusCode::from_u16(response.status)
                                                 .unwrap_or(warp::http::StatusCode::OK);
 
-                                        // Convert content to bytes for accurate Content-Length calculation
-                                        // HTTP Content-Length must match exact byte count of body
-                                        let content_bytes = response.content.into_bytes();
+                                        // Content is already raw bytes (text responses
+                                        // stored their UTF-8 encoding, binary responses
+                                        // their verbatim bytes), so Content-Length is the
+                                        // exact byte count of the body.
+                                        let content_bytes = response.content;
                                         let content_length = content_bytes.len();
 
                                         let mut reply_builder = warp::http::Response::builder()
@@ -5643,10 +5653,15 @@ impl Interpreter {
                     "client_ip".to_string(),
                     Value::Text(Arc::from(request.client_ip.clone())),
                 );
+                // `body` is a lossy-UTF-8 text view (backward compatible);
+                // `body_bytes` is the lossless binary view for binary uploads.
+                let body_text = String::from_utf8_lossy(&request.body).into_owned();
+                let body_binary = Value::Binary(Arc::from(request.body.as_slice()));
                 request_properties.insert(
                     "body".to_string(),
-                    Value::Text(Arc::from(request.body.clone())),
+                    Value::Text(Arc::from(body_text.as_str())),
                 );
+                request_properties.insert("body_bytes".to_string(), body_binary.clone());
                 request_properties.insert("headers".to_string(), headers_object.clone());
                 let request_object = Value::Object(Rc::new(RefCell::new(request_properties)));
 
@@ -5664,7 +5679,8 @@ impl Interpreter {
                     Value::Text(Arc::from(request.client_ip.clone())),
                 );
 
-                env_mut.define_or_replace("body", Value::Text(Arc::from(request.body.clone())));
+                env_mut.define_or_replace("body", Value::Text(Arc::from(body_text.as_str())));
+                env_mut.define_or_replace("body_bytes", body_binary);
 
                 env_mut.define_or_replace("headers", headers_object);
 
@@ -5715,13 +5731,17 @@ impl Interpreter {
                     }
                 };
 
-                // Evaluate response content
+                // Evaluate response content. Binary values are carried through
+                // as raw bytes so fonts/images/etc. serve losslessly; text and
+                // scalar values keep their existing UTF-8 rendering.
                 let content_val = self.evaluate_expression(content, Rc::clone(&env)).await?;
-                let content_str = match &content_val {
-                    Value::Text(text) => text.as_ref().to_string(),
-                    Value::Number(n) => n.to_string(),
-                    Value::Bool(b) => b.to_string(),
-                    _ => format!("{:?}", content_val),
+                let is_binary = matches!(content_val, Value::Binary(_));
+                let content_bytes: Vec<u8> = match &content_val {
+                    Value::Text(text) => text.as_bytes().to_vec(),
+                    Value::Number(n) => n.to_string().into_bytes(),
+                    Value::Bool(b) => b.to_string().into_bytes(),
+                    Value::Binary(bytes) => bytes.to_vec(),
+                    _ => format!("{content_val:?}").into_bytes(),
                 };
 
                 // Evaluate status code (optional)
@@ -5756,6 +5776,10 @@ impl Interpreter {
                             ));
                         }
                     }
+                } else if is_binary {
+                    // Binary responses default to a generic binary media type
+                    // rather than text/plain so browsers don't misinterpret them.
+                    "application/octet-stream".to_string()
                 } else {
                     "text/plain".to_string() // Default content type
                 };
@@ -5819,7 +5843,7 @@ impl Interpreter {
 
                 // Create response
                 let response = WflHttpResponse {
-                    content: content_str,
+                    content: content_bytes,
                     status: status_code,
                     content_type: content_type_str,
                     headers: custom_headers,

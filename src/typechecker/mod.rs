@@ -211,6 +211,7 @@ impl TypeChecker {
             // Web routing helpers
             "path_params" => Type::Map(Box::new(Type::Text), Box::new(Type::Text)),
             "path_matches" => Type::Boolean,
+            "mime_type" => Type::Text,
 
             // Text functions registered under stdlib-specific names
             "string_split" => Type::List(Box::new(Type::Text)),
@@ -1900,15 +1901,20 @@ impl TypeChecker {
                 line: _line,
                 column: _column,
             } => {
-                // Check content type (should be text)
+                // Check content type (text or binary). Binary content is served
+                // losslessly as raw bytes (e.g. fonts, images); text content keeps
+                // its UTF-8 encoding.
                 let content_type_result = self.infer_expression_type(content);
                 if content_type_result != Type::Text
+                    && content_type_result != Type::Binary
                     && content_type_result != Type::Unknown
                     && content_type_result != Type::Error
                 {
                     self.type_error(
-                        "Response content must be text".to_string(),
-                        Some(Type::Text),
+                        "Response content must be text or binary".to_string(),
+                        // No single expected type: both Text and Binary are
+                        // accepted, so `None` avoids a misleading "expected Text".
+                        None,
                         Some(content_type_result),
                         *_line,
                         *_column,

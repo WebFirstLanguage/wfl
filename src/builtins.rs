@@ -49,6 +49,7 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     // Web routing helpers (implemented in stdlib/web.rs)
     "path_params",
     "path_matches",
+    "mime_type",
     // Math functions (implemented in stdlib/math.rs)
     "min",
     "max",
@@ -285,6 +286,8 @@ pub fn get_function_arity(name: &str) -> usize {
         // === WEB ROUTING HELPERS ===
         // Two argument functions: (path, template)
         "path_params" | "path_matches" => 2,
+        // Single argument: (name)
+        "mime_type" => 1,
 
         // === TEXT FUNCTIONS ===
         // Single argument functions

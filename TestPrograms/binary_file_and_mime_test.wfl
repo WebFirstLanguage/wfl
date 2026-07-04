@@ -1,0 +1,71 @@
+// Binary file I/O and MIME type support (issue #573)
+// Demonstrates that WFL handles binary content losslessly at the language
+// level and can pick content types for static assets. Self-terminating
+// (no web server): the end-to-end serving path is covered by the Rust
+// integration test tests/web_server_binary_test.rs.
+
+display "=== Binary file + MIME test ==="
+
+// Build a small binary payload as a list of byte values (0-255), including
+// values above 0x7F that are not valid standalone UTF-8.
+create list payload:
+    add 0
+    add 127
+    add 128
+    add 200
+    add 255
+end list
+
+// Write the raw bytes, then read them back.
+open file at "binary_roundtrip.bin" for writing binary as out_file
+write binary payload into out_file
+close file out_file
+
+open file at "binary_roundtrip.bin" for reading binary as in_file
+store loaded as read binary from in_file
+store loaded_size as file size of in_file
+store loaded_length as length of loaded
+close file in_file
+
+check if loaded_size is equal to 5:
+    display "PASS: round-tripped 5 bytes losslessly (file size)"
+otherwise:
+    display "FAIL: expected 5 bytes, got " with loaded_size
+end check
+
+check if loaded_length is equal to 5:
+    display "PASS: read binary returned 5 bytes"
+otherwise:
+    display "FAIL: expected 5 bytes from read binary, got " with loaded_length
+end check
+
+// The mime_type helper maps a file name/path to an HTTP content type so
+// static assets (`respond to req with <bytes> and content_type ...`) serve
+// with the right type out of the box.
+store ttf_type as mime_type of "Alegreya-Regular.ttf"
+store png_type as mime_type of "favicon.png"
+store unknown_type as mime_type of "notes"
+
+display "mime_type of Alegreya-Regular.ttf: " with ttf_type
+check if ttf_type is equal to "font/ttf":
+    display "PASS: .ttf maps to font/ttf"
+otherwise:
+    display "FAIL: .ttf mapped to " with ttf_type
+end check
+
+check if png_type is equal to "image/png":
+    display "PASS: .png maps to image/png"
+otherwise:
+    display "FAIL: .png mapped to " with png_type
+end check
+
+check if unknown_type is equal to "application/octet-stream":
+    display "PASS: unknown extension falls back to application/octet-stream"
+otherwise:
+    display "FAIL: unknown mapped to " with unknown_type
+end check
+
+// Clean up the temporary file.
+delete file at "binary_roundtrip.bin"
+
+display "=== Binary file + MIME test complete ==="
