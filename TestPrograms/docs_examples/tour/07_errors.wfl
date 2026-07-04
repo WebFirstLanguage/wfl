@@ -1,9 +1,10 @@
 // 07 - Error handling with try / when error. `error_message` holds the text.
+// (Division by zero is a deterministic, cross-platform error.)
 try:
-    open file at "/no/such/path.txt" for reading as f
-    display "opened the file"
+    store result as 10 divided by 0
+    display "result: " with result
 when error:
-    display "Could not open file: " with error_message
+    display "Caught an error: " with error_message
 end try
 
 display "Program continues after the error."

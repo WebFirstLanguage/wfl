@@ -181,16 +181,16 @@ available as `error_message`. Execution continues afterward.
 
 ```wfl
 try:
-    open file at "/no/such/path.txt" for reading as f
-    display "opened the file"
+    store result as 10 divided by 0
+    display "result: " with result
 when error:
-    display "Could not open file: " with error_message
+    display "Caught an error: " with error_message
 end try
 
 display "Program continues after the error."
 ```
 ```text
-Could not open file: Failed to open file /no/such/path.txt: No such file or directory (os error 2)
+Caught an error: Division by zero
 Program continues after the error.
 ```
 

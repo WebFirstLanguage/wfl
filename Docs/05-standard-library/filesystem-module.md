@@ -333,6 +333,11 @@ file exists at <path>
 
 **Example:**
 ```wfl
+// path_exists works for files or directories:
+store here as path_exists of "."
+display "Current directory exists: " with here
+
+// `file exists at` / `directory exists at` are more specific forms:
 check if file exists at "data.txt":
     display "File exists"
 otherwise:
