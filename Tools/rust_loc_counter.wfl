@@ -125,7 +125,7 @@ define action called walk_src with ws_abs and ws_rel and ws_sink:
         check if ws_entry_is_dir is false:
             store ws_is_rust as ends_with of ws_entry and ".rs"
             check if ws_is_rust is true:
-                store ws_key as ws_rel with "/" with ws_entry
+                store ws_key as path_join of ws_rel and ws_entry
                 store ws_stats as call analyze_rust_file with ws_full
                 store ws_row as []
                 push with ws_row and ws_key
@@ -141,7 +141,7 @@ define action called walk_src with ws_abs and ws_rel and ws_sink:
         store ws_full2 as path_join of ws_abs and ws_entry2
         store ws_dir_check as is_dir of ws_full2
         check if ws_dir_check is true:
-            store ws_child_rel as ws_rel with "/" with ws_entry2
+            store ws_child_rel as path_join of ws_rel and ws_entry2
             call walk_src with ws_full2 and ws_child_rel and ws_sink
         end check
     end for

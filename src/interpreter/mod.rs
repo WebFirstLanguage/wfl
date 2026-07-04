@@ -1951,16 +1951,29 @@ impl Interpreter {
             let _ = env.define("current_directory", Value::Text(Arc::from(current_dir)));
 
             // Store the running script's absolute path and directory,
-            // the equivalent of Python's __file__ / dirname(abspath(__file__))
+            // the equivalent of Python's __file__ / dirname(abspath(__file__)).
+            // Always absolute or empty: empty when no script file is running,
+            // or when a relative script path can't be resolved because the
+            // current directory is unavailable.
             let (script_path, script_directory) = match self.current_source_file.borrow().as_ref() {
                 Some(source_file) => {
-                    let cwd = std::env::current_dir().unwrap_or_default();
-                    let abs = lexical_abspath(source_file, &cwd);
-                    let dir = std::path::Path::new(&abs)
-                        .parent()
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    (abs, dir)
+                    let cwd = if source_file.is_absolute() {
+                        // lexical_abspath ignores cwd for absolute paths
+                        Some(PathBuf::new())
+                    } else {
+                        std::env::current_dir().ok()
+                    };
+                    match cwd {
+                        Some(cwd) => {
+                            let abs = lexical_abspath(source_file, &cwd);
+                            let dir = std::path::Path::new(&abs)
+                                .parent()
+                                .map(|p| p.to_string_lossy().into_owned())
+                                .unwrap_or_default();
+                            (abs, dir)
+                        }
+                        None => (String::new(), String::new()),
+                    }
                 }
                 None => (String::new(), String::new()),
             };
