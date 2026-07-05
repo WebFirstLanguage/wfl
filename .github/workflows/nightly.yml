@@ -123,7 +123,7 @@ jobs:
     needs: check-for-changes
     if: needs.check-for-changes.outputs.should_build == 'true'
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       TARGET: x86_64-pc-windows-msvc
     steps:
@@ -546,3 +546,4 @@ jobs:
             $ASSET_FILES
 
           echo "Release created successfully: $TAG with $(echo $ASSET_FILES | wc -w) assets"
+
