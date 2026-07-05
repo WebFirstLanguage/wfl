@@ -2259,7 +2259,17 @@ impl Analyzer {
                 line,
                 column,
             } => {
-                self.analyze_expression(function);
+                // A bare-`Variable` callee is the idiomatic `of` call form
+                // (e.g. `greet of "bob"`, parsed as FunctionCall { function:
+                // Variable("greet"), .. }). It is resolved explicitly in the
+                // block below — including the include-aware relaxation — so
+                // analyzing it here would recurse into the Variable arm and
+                // report it as a *fatal* undefined variable before the block
+                // can relax it (issue #580). Only analyze the callee directly
+                // when it is a more complex expression.
+                if !matches!(&**function, Expression::Variable(_, _, _)) {
+                    self.analyze_expression(function);
+                }
 
                 if let Expression::Variable(name, _, _) = &**function {
                     if let Some(symbol) = self.current_scope.resolve(name) {
@@ -2320,9 +2330,44 @@ impl Analyzer {
                                 }
                             }
                         }
-                    } else if Self::is_builtin_function(name) {
-                        // A known builtin that isn't present as a scope symbol is
+                    } else if Self::is_builtin_function(name)
+                        || self.action_parameters.contains(name)
+                        || name == "count"
+                    {
+                        // A known builtin, an action parameter, or the count
+                        // loop variable isn't present as a scope symbol but is
                         // still callable (its arguments are still analyzed).
+                        for arg in arguments {
+                            self.analyze_expression(&arg.value);
+                        }
+                    } else if self.has_includes {
+                        // Callee not in scope and not a builtin, but the program
+                        // uses `include from`. The action may be exposed by an
+                        // included file at runtime (which the analyzer cannot
+                        // see), so treating this as a fatal error would abort the
+                        // program before the include runs. This is the `of`-form
+                        // counterpart of the ActionCall relaxation below (issues
+                        // #580 / #548); it may also be a genuine typo, so it is a
+                        // non-fatal warning rather than being fully suppressed.
+                        self.warnings.push(SemanticError::new(
+                            format!("Undefined action '{name}'"),
+                            *line,
+                            *column,
+                        ));
+                        for arg in arguments {
+                            self.analyze_expression(&arg.value);
+                        }
+                    } else {
+                        // No includes: preserve the pre-existing fatal behavior
+                        // (and the try_depth > 0 warning downgrade) for a
+                        // genuinely undefined callee — this is exactly what the
+                        // unconditional `analyze_expression(function)` above used
+                        // to produce for a bare-Variable callee.
+                        self.report_undefined_name(
+                            format!("Variable '{name}' is not defined"),
+                            *line,
+                            *column,
+                        );
                         for arg in arguments {
                             self.analyze_expression(&arg.value);
                         }

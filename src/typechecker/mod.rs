@@ -2659,6 +2659,26 @@ impl TypeChecker {
                 line,
                 column,
             } => {
+                // The idiomatic `of` call form (`greet of "bob"`) parses as a
+                // FunctionCall whose callee is a bare Variable. When that callee
+                // is not resolvable statically but the program uses `include
+                // from`, the action may be exposed by an included file at
+                // runtime, so its result type is unknowable — treat it as Any to
+                // avoid cascading "could not infer type" errors, mirroring the
+                // ActionCall path (issues #580 / #548). Arguments are still
+                // inferred so type errors inside them are not missed.
+                if let Expression::Variable(callee, _, _) = &**function {
+                    let is_known = self.analyzer.get_symbol(callee).is_some()
+                        || Analyzer::is_builtin_function(callee)
+                        || self.analyzer.get_action_parameters().contains(callee);
+                    if !is_known && self.has_includes {
+                        for arg in arguments {
+                            let _ = self.infer_expression_type(&arg.value);
+                        }
+                        return Type::Any;
+                    }
+                }
+
                 let function_type = self.infer_expression_type(function);
 
                 match function_type {
