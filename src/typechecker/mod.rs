@@ -434,6 +434,7 @@ impl TypeChecker {
                 body,
                 when_clauses,
                 otherwise_block,
+                finally_block,
                 line: _line,
                 column: _column,
             } => {
@@ -454,6 +455,12 @@ impl TypeChecker {
 
                 if let Some(otherwise_stmts) = otherwise_block {
                     for stmt in otherwise_stmts {
+                        self.check_statement_types(stmt);
+                    }
+                }
+
+                if let Some(finally_stmts) = finally_block {
+                    for stmt in finally_stmts {
                         self.check_statement_types(stmt);
                     }
                 }

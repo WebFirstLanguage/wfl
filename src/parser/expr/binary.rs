@@ -34,6 +34,21 @@ pub(crate) trait BinaryExprParser<'a> {
 
     /// Parses a comma-separated or 'and'-separated argument list for action calls.
     fn parse_argument_list(&mut self) -> Result<Vec<Argument>, ParseError>;
+
+    /// Parses a single argument of an `of`-call (e.g. `fibonacci of n minus 1`).
+    ///
+    /// Unlike the full binary-expression parser, this absorbs *only* arithmetic
+    /// (`plus`/`minus`/`times`/`divided by`/`/`/`%`/`modulo`), so that a call
+    /// argument binds the surrounding arithmetic — `fib of n minus 1` means
+    /// `fib of (n minus 1)`. Crucially it stops at `and` (the argument
+    /// separator), `with` (concatenation), `from`/`by`/`length` (stdlib call
+    /// separators), comparisons, and pattern keywords, leaving those for the
+    /// caller so multi-argument and postfix forms keep working.
+    fn parse_of_call_argument(&mut self) -> Result<Expression, ParseError>;
+
+    /// Multiplicative level of an `of`-call argument: times / divided by / `/`
+    /// / `%` / modulo (precedence 3).
+    fn parse_of_call_arg_term(&mut self) -> Result<Expression, ParseError>;
 }
 
 impl<'a> BinaryExprParser<'a> for Parser<'a> {
@@ -62,7 +77,9 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                 Token::KeywordMinus => Some((Operator::Minus, 2)),
                 Token::KeywordTimes => Some((Operator::Multiply, 3)),
                 Token::KeywordDividedBy => Some((Operator::Divide, 3)),
+                Token::Slash => Some((Operator::Divide, 3)),
                 Token::Percent => Some((Operator::Modulo, 3)),
+                Token::KeywordModulo => Some((Operator::Modulo, 3)),
                 Token::KeywordDivided => {
                     // Check if next token is "by" more efficiently
                     if self.peek_divided_by() {
@@ -78,10 +95,64 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                 }
                 Token::Equals => Some((Operator::Equals, 1)),
                 Token::KeywordIs => {
+                    // Comparisons live at precedence 1. When we are parsing the
+                    // right-hand side of a tighter operator (arithmetic, prec 2/3),
+                    // we must stop *before* consuming any comparison tokens so the
+                    // comparison binds around the whole arithmetic result. Without
+                    // this guard `y plus 1 is equal to 4` eagerly eats "is equal to"
+                    // while parsing the RHS of `plus`, corrupting the parse.
+                    if 1 < precedence {
+                        break;
+                    }
+
                     self.bump_sync(); // Consume "is"
 
                     if let Some(next_token) = self.cursor.peek() {
                         match &next_token.token {
+                            // "is between A and B" — inclusive range check that
+                            // desugars to `X >= A and X <= B`.
+                            Token::KeywordBetween => {
+                                self.bump_sync(); // Consume "between"
+                                let lower = self.parse_binary_expression(2)?;
+                                self.expect_token(
+                                    Token::KeywordAnd,
+                                    "Expected 'and' between the bounds of 'is between'",
+                                )?;
+                                let upper = self.parse_binary_expression(2)?;
+
+                                let lower_bound = Expression::BinaryOperation {
+                                    left: Box::new(left.clone()),
+                                    operator: Operator::GreaterThanOrEqual,
+                                    right: Box::new(lower),
+                                    line,
+                                    column,
+                                };
+                                let upper_bound = Expression::BinaryOperation {
+                                    left: Box::new(left),
+                                    operator: Operator::LessThanOrEqual,
+                                    right: Box::new(upper),
+                                    line,
+                                    column,
+                                };
+                                left = Expression::BinaryOperation {
+                                    left: Box::new(lower_bound),
+                                    operator: Operator::And,
+                                    right: Box::new(upper_bound),
+                                    line,
+                                    column,
+                                };
+                                continue;
+                            }
+                            // "is above N" / "is below N" — natural synonyms for
+                            // greater-than / less-than.
+                            Token::KeywordAbove => {
+                                self.bump_sync(); // Consume "above"
+                                Some((Operator::GreaterThan, 1))
+                            }
+                            Token::KeywordBelow => {
+                                self.bump_sync(); // Consume "below"
+                                Some((Operator::LessThan, 1))
+                            }
                             Token::KeywordEqual => {
                                 self.bump_sync(); // Consume "equal"
 
@@ -290,6 +361,11 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     Some((Operator::And, 0))
                 }
                 Token::KeywordOr => {
+                    // Logical 'or' lives at precedence 0; do not consume it while
+                    // parsing a tighter sub-expression.
+                    if 0 < precedence {
+                        break;
+                    }
                     self.bump_sync(); // Consume "or"
 
                     // Handle "or equal to" as a special case
@@ -513,6 +589,10 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                     }
                 }
                 Token::KeywordContains => {
+                    // 'contains' is a comparison operator at precedence 1.
+                    if 1 < precedence {
+                        break;
+                    }
                     self.bump_sync(); // Consume "contains"
 
                     if let Some(pattern_token) = self.cursor.peek()
@@ -569,8 +649,14 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                         self.bump_sync(); // Consume "divided"
                         self.expect_token(Token::KeywordBy, "Expected 'by' after 'divided'")?;
                     }
+                    Token::Slash => {
+                        self.bump_sync(); // Consume "/"
+                    }
                     Token::Percent => {
                         self.bump_sync(); // Consume "%"
+                    }
+                    Token::KeywordModulo => {
+                        self.bump_sync(); // Consume "modulo"
                     }
                     Token::Equals => {
                         self.bump_sync(); // Consume "="
@@ -666,6 +752,77 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
             line: call_line,
             column: call_column,
         })
+    }
+
+    fn parse_of_call_argument(&mut self) -> Result<Expression, ParseError> {
+        // Additive level: plus / minus (precedence 2).
+        let mut left = self.parse_of_call_arg_term()?;
+
+        while let Some(token_pos) = self.cursor.peek() {
+            let (operator, line, column) = match &token_pos.token {
+                Token::Plus | Token::KeywordPlus => {
+                    (Operator::Plus, token_pos.line, token_pos.column)
+                }
+                Token::Minus | Token::KeywordMinus => {
+                    (Operator::Minus, token_pos.line, token_pos.column)
+                }
+                _ => break,
+            };
+            self.bump_sync(); // Consume the additive operator
+            let right = self.parse_of_call_arg_term()?;
+            left = Expression::BinaryOperation {
+                left: Box::new(left),
+                operator,
+                right: Box::new(right),
+                line,
+                column,
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_of_call_arg_term(&mut self) -> Result<Expression, ParseError> {
+        let mut left = self.parse_primary_expression()?;
+
+        while let Some(token_pos) = self.cursor.peek() {
+            let line = token_pos.line;
+            let column = token_pos.column;
+            let operator = match &token_pos.token {
+                Token::KeywordTimes => Operator::Multiply,
+                Token::KeywordDividedBy | Token::Slash => Operator::Divide,
+                Token::Percent | Token::KeywordModulo => Operator::Modulo,
+                Token::KeywordDivided => {
+                    if self.peek_divided_by() {
+                        Operator::Divide
+                    } else {
+                        break;
+                    }
+                }
+                _ => break,
+            };
+
+            match &token_pos.token {
+                Token::KeywordDivided => {
+                    self.bump_sync(); // Consume "divided"
+                    self.expect_token(Token::KeywordBy, "Expected 'by' after 'divided'")?;
+                }
+                _ => {
+                    self.bump_sync(); // Consume the multiplicative operator
+                }
+            }
+
+            let right = self.parse_primary_expression()?;
+            left = Expression::BinaryOperation {
+                left: Box::new(left),
+                operator,
+                right: Box::new(right),
+                line,
+                column,
+            };
+        }
+
+        Ok(left)
     }
 
     fn parse_argument_list(&mut self) -> Result<Vec<Argument>, ParseError> {

@@ -29,6 +29,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                 Token::KeywordWhen
                     | Token::KeywordCatch
                     | Token::KeywordOtherwise
+                    | Token::KeywordFinally
                     | Token::KeywordEnd
             ) {
                 break;
@@ -42,6 +43,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
 
         let mut when_clauses = Vec::new();
         let mut otherwise_block = None;
+        let mut finally_block = None;
 
         // Parse when clauses
         while let Some(token) = self.cursor.peek() {
@@ -50,7 +52,8 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                     self.bump_sync(); // Consume "when"
 
                     // Parse error type
-                    let (error_type, error_name) = if let Some(next_token) = self.cursor.peek() {
+                    let (error_type, mut error_name) = if let Some(next_token) = self.cursor.peek()
+                    {
                         match &next_token.token {
                             Token::KeywordError => {
                                 self.bump_sync(); // Consume "error"
@@ -197,6 +200,31 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                         ));
                     };
 
+                    // Optional "as <name>" to bind the caught error under a
+                    // custom name, e.g. `when error as e:`. Without it the error
+                    // is still available via the implicit `error_message` alias.
+                    if let Some(as_token) = self.cursor.peek()
+                        && matches!(&as_token.token, Token::KeywordAs)
+                    {
+                        self.bump_sync(); // Consume "as"
+                        if let Some(name_token) = self.cursor.peek() {
+                            if let Token::Identifier(name) = &name_token.token {
+                                error_name = name.clone();
+                                self.bump_sync(); // Consume the binding name
+                            } else {
+                                return Err(ParseError::from_token(
+                                    "Expected a name after 'as' in error handler".to_string(),
+                                    name_token,
+                                ));
+                            }
+                        } else {
+                            return Err(ParseError::from_token(
+                                "Expected a name after 'as' in error handler".to_string(),
+                                as_token,
+                            ));
+                        }
+                    }
+
                     self.expect_token(Token::Colon, "Expected ':' after error type")?;
 
                     // Skip any Eol tokens after the colon
@@ -209,6 +237,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                             Token::KeywordWhen
                                 | Token::KeywordCatch
                                 | Token::KeywordOtherwise
+                                | Token::KeywordFinally
                                 | Token::KeywordEnd
                         ) {
                             break;
@@ -263,6 +292,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                             Token::KeywordWhen
                                 | Token::KeywordCatch
                                 | Token::KeywordOtherwise
+                                | Token::KeywordFinally
                                 | Token::KeywordEnd
                         ) {
                             break;
@@ -290,7 +320,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
 
                     let mut otherwise_body = Vec::new();
                     while let Some(token) = self.cursor.peek() {
-                        if matches!(&token.token, Token::KeywordEnd) {
+                        if matches!(&token.token, Token::KeywordFinally | Token::KeywordEnd) {
                             break;
                         }
                         if matches!(&token.token, Token::Eol) {
@@ -300,6 +330,27 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
                         otherwise_body.push(self.parse_statement()?);
                     }
                     otherwise_block = Some(otherwise_body);
+                    // Do not break: a `finally:` clause may still follow.
+                }
+                Token::KeywordFinally => {
+                    self.bump_sync(); // Consume "finally"
+                    self.expect_token(Token::Colon, "Expected ':' after 'finally'")?;
+
+                    // Skip any Eol tokens after the colon
+                    self.skip_eol();
+
+                    let mut finally_body = Vec::new();
+                    while let Some(token) = self.cursor.peek() {
+                        if matches!(&token.token, Token::KeywordEnd) {
+                            break;
+                        }
+                        if matches!(&token.token, Token::Eol) {
+                            self.bump_sync(); // Skip Eol between statements
+                            continue;
+                        }
+                        finally_body.push(self.parse_statement()?);
+                    }
+                    finally_block = Some(finally_body);
                     break;
                 }
                 Token::KeywordEnd => {
@@ -317,10 +368,12 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
             }
         }
 
-        // Ensure at least one when or catch clause
-        if when_clauses.is_empty() {
+        // A try must catch something or clean up: at least one 'when'/'catch'
+        // clause, or a 'finally' block.
+        if when_clauses.is_empty() && finally_block.is_none() {
             return Err(ParseError::from_token(
-                "Try statement must have at least one 'when' or 'catch' clause".to_string(),
+                "Try statement must have at least one 'when', 'catch', or 'finally' clause"
+                    .to_string(),
                 try_token,
             ));
         }
@@ -332,6 +385,7 @@ impl<'a> ErrorHandlingParser<'a> for Parser<'a> {
             body,
             when_clauses,
             otherwise_block,
+            finally_block,
             line: try_token.line,
             column: try_token.column,
         })

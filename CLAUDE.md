@@ -148,7 +148,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Location**: `Docs/` organized in 6 sections (Introduction, Getting Started, Language Basics, Advanced Features, Standard Library, Best Practices).
 - **Structure**: Follow `Docs/wfl-documentation-policy.md` and 19 principles in `Docs/wfl-foundation.md`.
 - **Reference Documentation**: Two-tiered system for keywords
-  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 178 keywords)
+  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 180 keywords)
   - `Docs/reference/reserved-keywords.md` - Complete technical reference (10-15 pages, classifications, edge cases)
   - Both updated together; quick reference for speed, comprehensive for understanding
 - **Validation**: ALL code examples MUST be validated with MCP tools before adding to docs.
@@ -157,7 +157,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
   - Use MCP tools: `mcp__wfl-lsp__parse_wfl`, `mcp__wfl-lsp__analyze_wfl`, `mcp__wfl-lsp__typecheck_wfl`, `mcp__wfl-lsp__lint_wfl`
 - **Critical Syntax**:
   - Conditionals use NESTED blocks: `otherwise: check if`, NOT `otherwise check if`
-  - Reserved keywords: **178 keywords total** (52 structural, 29 contextual, 95 other, 7 literals)
+  - Reserved keywords: **180 keywords total** (53 structural, 29 contextual, 96 other, 7 literals)
     - Always reserved: `is`, `file`, `add`, `current`, `check`, `store`, etc.
     - Contextual (can be variables in some contexts): `count`, `list`, `pattern`, `text`, `at`, etc.
     - Use underscores to avoid conflicts: `is_active`, `filename`, `my_list`

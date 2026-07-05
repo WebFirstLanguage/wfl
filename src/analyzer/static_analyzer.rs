@@ -486,6 +486,7 @@ impl Analyzer {
                 body,
                 when_clauses,
                 otherwise_block,
+                finally_block,
                 ..
             } => {
                 for stmt in body {
@@ -498,6 +499,11 @@ impl Analyzer {
                 }
                 if let Some(otherwise) = otherwise_block {
                     for stmt in otherwise {
+                        self.collect_variable_declarations(stmt, usages);
+                    }
+                }
+                if let Some(finally) = finally_block {
+                    for stmt in finally {
                         self.collect_variable_declarations(stmt, usages);
                     }
                 }
@@ -781,6 +787,7 @@ impl Analyzer {
                 body,
                 when_clauses,
                 otherwise_block,
+                finally_block,
                 ..
             } => {
                 for stmt in body {
@@ -793,6 +800,11 @@ impl Analyzer {
                 }
                 if let Some(otherwise) = otherwise_block {
                     for stmt in otherwise {
+                        self.mark_used_variables(stmt, usages);
+                    }
+                }
+                if let Some(finally) = finally_block {
+                    for stmt in finally {
                         self.mark_used_variables(stmt, usages);
                     }
                 }

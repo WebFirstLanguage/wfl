@@ -1122,9 +1122,13 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                         Token::KeywordOf => {
                             self.bump_sync(); // Consume "of"
 
-                            // Parse the first argument after "of"
-                            // Use parse_primary_expression to avoid treating "and" as a binary operator
-                            let first_arg = self.parse_primary_expression()?;
+                            // Parse the first argument after "of". This absorbs
+                            // arithmetic — `fibonacci of n minus 1` means
+                            // `fibonacci of (n minus 1)`, which recursion relies on —
+                            // but stops at `and`, `with`, `from`/`by`, comparisons,
+                            // and pattern keywords so multi-argument and postfix
+                            // forms keep working.
+                            let first_arg = self.parse_of_call_argument()?;
 
                             let is_function_call = matches!(
                                 expr,
@@ -1156,8 +1160,9 @@ impl<'a> PrimaryExprParser<'a> for Parser<'a> {
                                     if is_separator {
                                         self.bump_sync(); // Consume the separator
 
-                                        // Use parse_primary_expression to avoid treating next "and" as binary operator
-                                        let arg_value = self.parse_primary_expression()?;
+                                        // Each argument absorbs arithmetic while
+                                        // `and`/`with`/`from`/`by` stay separators.
+                                        let arg_value = self.parse_of_call_argument()?;
 
                                         arguments.push(Argument {
                                             name: None,
