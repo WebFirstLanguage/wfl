@@ -4,69 +4,11 @@
 //! tests drive the *full* pipeline (lex → parse → analyze → typecheck →
 //! interpret) through the compiled binary and assert on observable output.
 
-use std::env;
-use std::fs;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-fn get_wfl_binary_path() -> PathBuf {
-    let current_dir = env::current_dir().unwrap();
-    let release_path = current_dir.join(if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    });
-    if release_path.exists() {
-        return release_path;
-    }
-    let debug_path = current_dir.join(if cfg!(target_os = "windows") {
-        "target/debug/wfl.exe"
-    } else {
-        "target/debug/wfl"
-    });
-    if debug_path.exists() {
-        return debug_path;
-    }
-    panic!("WFL binary not found. Build with `cargo build` first.");
-}
-
-static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-fn get_unique_test_file_path(prefix: &str) -> PathBuf {
-    let counter = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    env::temp_dir().join(format!(
-        "{}_{}_{:?}_{}_{}.wfl",
-        prefix,
-        std::process::id(),
-        thread::current().id(),
-        timestamp,
-        counter
-    ))
-}
-
-fn run_wfl_program(program_content: &str, test_name: &str) -> std::process::Output {
-    let binary_path = get_wfl_binary_path();
-    let test_file = get_unique_test_file_path(test_name);
-    fs::write(&test_file, program_content).expect("Failed to write test file");
-
-    let output = Command::new(&binary_path)
-        .arg(&test_file)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .output()
-        .expect("Failed to execute WFL binary");
-
-    let _ = fs::remove_file(&test_file);
-    output
-}
+// Shared harness: `get_wfl_binary_path`, `get_unique_test_file_path`, and
+// `run_wfl_program` (which already runs the binary under a 30s timeout, so a
+// bug that hangs the interpreter fails fast instead of stalling CI).
+mod test_helpers;
+use test_helpers::run_wfl_program;
 
 /// Run a program, assert it exited cleanly, and return trimmed stdout lines.
 fn run_ok(program: &str, test_name: &str) -> Vec<String> {

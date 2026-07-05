@@ -1955,9 +1955,13 @@ fn route_starts_and_ends_with_desugar_to_builtins() {
         "route path:\n    when starts with \"/api/\":\n        display \"api\"\nend route",
     );
     if let Statement::IfStatement { condition, .. } = starts {
+        // Assert the callee name AND that the arguments are (subject, literal)
+        // in that order, so a swapped or hardcoded argument fails the test.
         assert!(
-            matches!(condition, Expression::FunctionCall { ref function, .. }
-            if matches!(**function, Expression::Variable(ref n, ..) if n == "starts_with"))
+            matches!(condition, Expression::FunctionCall { ref function, ref arguments, .. }
+            if matches!(**function, Expression::Variable(ref n, ..) if n == "starts_with")
+                && matches!(arguments[0].value, Expression::Variable(ref n, ..) if n == "path")
+                && matches!(arguments[1].value, Expression::Literal(Literal::String(ref s), ..) if s.as_ref() == "/api/"))
         );
     } else {
         panic!("expected IfStatement");
@@ -1968,8 +1972,10 @@ fn route_starts_and_ends_with_desugar_to_builtins() {
     );
     if let Statement::IfStatement { condition, .. } = ends {
         assert!(
-            matches!(condition, Expression::FunctionCall { ref function, .. }
-            if matches!(**function, Expression::Variable(ref n, ..) if n == "ends_with"))
+            matches!(condition, Expression::FunctionCall { ref function, ref arguments, .. }
+            if matches!(**function, Expression::Variable(ref n, ..) if n == "ends_with")
+                && matches!(arguments[0].value, Expression::Variable(ref n, ..) if n == "path")
+                && matches!(arguments[1].value, Expression::Literal(Literal::String(ref s), ..) if s.as_ref() == ".css"))
         );
     } else {
         panic!("expected IfStatement");

@@ -14,14 +14,19 @@ The `route` construct is implemented as parser-level desugaring, exactly as the
   `when` is reused as the arm head (`src/lexer/token.rs`).
 - **Parser:** `src/parser/stmt/route.rs` lowers a `route … end route` block into
   the same `IfStatement` chain a hand-written `check if / otherwise check if /
-  otherwise` would produce. No analyzer, type-checker, or interpreter changes.
+  otherwise` would produce. The lowering introduces no new AST node, so the
+  **route construct itself** needs no analyzer, type-checker, or interpreter
+  changes — the desugared chain flows through the existing pipeline unchanged.
 - **Patterns (all reliable under the full pipeline):** equality (`when V`),
   or-lists (`when V1 or V2`), `when contains V`, `when one of L`, and — resolving
   the issue #566 concern below — `when starts with V` and `when ends with V`.
   Because the route head consumes these operator words as tokens directly (instead
   of relying on the fragile bareword path), they desugar cleanly to the
-  `starts_with` / `ends_with` builtins, which are now also registered in the
-  type checker (`src/stdlib/typechecker.rs`).
+  `starts_with` / `ends_with` builtins. Those builtins already existed at runtime
+  but lacked type signatures; this change additionally registers them in the type
+  checker (`src/stdlib/typechecker.rs`). That stdlib registration is the one change
+  outside the parser — it is independent of the route lowering and benefits any
+  caller of `starts_with` / `ends_with`, not just `route`.
 - **Tests:** parser unit tests (`src/parser/tests.rs`), a lexer token test
   (`src/lexer/tests.rs`), an end-to-end pipeline test suite (`tests/route_test.rs`),
   and a runnable demonstration (`TestPrograms/route_comprehensive.wfl`).
