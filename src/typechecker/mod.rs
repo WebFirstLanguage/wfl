@@ -2310,6 +2310,18 @@ impl TypeChecker {
         }
     }
 
+    /// Names that are callable even when they do not resolve to a scope symbol:
+    /// builtin stdlib functions, action parameters, and the internal test stubs.
+    /// Shared by the `FunctionCall` (`of` form) and `ActionCall` (`call ... with`)
+    /// inference paths so the "is this callee statically known?" decision cannot
+    /// drift apart between them again (the class of divergence behind issue #580).
+    fn is_callable_without_symbol(&self, name: &str) -> bool {
+        Analyzer::is_builtin_function(name)
+            || self.analyzer.get_action_parameters().contains(name)
+            || name == "helper_function"
+            || name == "nested_function"
+    }
+
     fn infer_expression_type(&mut self, expression: &Expression) -> Type {
         match expression {
             Expression::Literal(literal, _, _) => match literal {
@@ -2669,8 +2681,7 @@ impl TypeChecker {
                 // inferred so type errors inside them are not missed.
                 if let Expression::Variable(callee, _, _) = &**function {
                     let is_known = self.analyzer.get_symbol(callee).is_some()
-                        || Analyzer::is_builtin_function(callee)
-                        || self.analyzer.get_action_parameters().contains(callee);
+                        || self.is_callable_without_symbol(callee);
                     if !is_known && self.has_includes {
                         for arg in arguments {
                             let _ = self.infer_expression_type(&arg.value);
@@ -3063,11 +3074,7 @@ impl TypeChecker {
 
                 if symbol_opt.is_none() {
                     // Check if this is an action parameter, builtin function, or special function name before reporting it as undefined
-                    if self.analyzer.get_action_parameters().contains(name)
-                        || Analyzer::is_builtin_function(name)
-                        || name == "helper_function"
-                        || name == "nested_function"
-                    {
+                    if self.is_callable_without_symbol(name) {
                         // It's an action parameter or a special function name, so don't report an error
                         // For builtin functions, return their proper type
                         if Analyzer::is_builtin_function(name) {
