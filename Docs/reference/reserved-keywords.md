@@ -5,7 +5,7 @@ Complete technical documentation for all WFL reserved keywords.
 **→ For quick lookup:** [Keyword Reference (Quick) →](keyword-reference.md)
 
 **Source:** WFL Compiler v26.1.x (extracted from `src/lexer/token.rs`)
-**Total:** 180 keywords and literals
+**Total:** 181 keywords and literals
 **Last Updated:** 2026-01-16
 
 ---
@@ -16,7 +16,7 @@ Complete technical documentation for all WFL reserved keywords.
    - [What Makes a Keyword "Structural"?](#what-makes-a-keyword-structural)
    - [What Makes a Keyword "Contextual"?](#what-makes-a-keyword-contextual)
    - [Why Some Keywords Appear in Multiple Lists](#why-some-keywords-appear-in-multiple-lists)
-2. [Structural Keywords (53)](#structural-keywords-53)
+2. [Structural Keywords (54)](#structural-keywords-54)
 3. [Contextual Keywords (29)](#contextual-keywords-29)
 4. [Other Reserved Keywords (96)](#other-reserved-keywords-96)
 5. [Boolean & Null Literals (7)](#boolean--null-literals-7)
@@ -29,7 +29,7 @@ Complete technical documentation for all WFL reserved keywords.
 
 ## Understanding Keyword Classifications
 
-WFL's 180 reserved keywords are organized into four distinct types. Understanding these classifications helps you know which keywords you can never use as variable names, and which ones might be available in certain contexts.
+WFL's 181 reserved keywords are organized into four distinct types. Understanding these classifications helps you know which keywords you can never use as variable names, and which ones might be available in certain contexts.
 
 ### What Makes a Keyword "Structural"?
 
@@ -38,7 +38,7 @@ WFL's 180 reserved keywords are organized into four distinct types. Understandin
 **Key characteristics:**
 - **Always reserved** - Cannot be used as variable names in any context
 - **Parser priority** - Checked first by the parser
-- **Total count:** 53 keywords
+- **Total count:** 54 keywords
 
 **Examples:**
 ```wfl
@@ -93,7 +93,7 @@ create list called items     // ✅ 'list' is a type keyword here
 
 ### Marker Words That Are Not Keywords at All
 
-A few words have special meaning in exactly one statement position but are **not reserved in any way** — they are ordinary identifiers that the parser recognizes purely by position. They do not count toward the 180 keywords, and you can freely use them as variable names everywhere:
+A few words have special meaning in exactly one statement position but are **not reserved in any way** — they are ordinary identifiers that the parser recognizes purely by position. They do not count toward the 181 keywords, and you can freely use them as variable names everywhere:
 
 - `secured` - HTTPS marker in `listen on port 8443 secured ... as server`
 - `certificate` - certificate path marker in `secured with certificate "cert.pem"`
@@ -125,7 +125,7 @@ store push as "save"         // ❌ ERROR: 'push' is reserved (structural)
 
 ---
 
-## Structural Keywords (53)
+## Structural Keywords (54)
 
 These keywords **MUST** always be reserved and **CANNOT** be used as variable names. They define program structure and control flow.
 
@@ -170,6 +170,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `repeat` | Loop construct | `repeat 10 times:` |
 | `requires` | Interface requirement | `requires method run` |
 | `return` | Return value | `return result` |
+| `route` | Dispatch on a value (match/switch) | `route path:` |
 | `skip` | Continue (alias) | `skip` |
 | `static` | Static member | `static property counter` |
 | `store` | Create variable | `store x as 10` |
@@ -180,12 +181,12 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `try` | Error handling | `try:` |
 | `until` | Loop condition | `repeat until x is 10:` |
 | `wait` | Async wait | `wait for result` |
-| `when` | Specific error type | `catch when FileError:` |
+| `when` | Error type / `route` arm head | `catch when FileError:` · `when "/health":` |
 | `while` | Loop condition | `repeat while x is less than 10:` |
 | `with` | Parameter separator | `call action with x and y` |
 | `zero` | Pattern quantifier | `define pattern zero or more digits` |
 
-**Total:** 53 structural keywords
+**Total:** 54 structural keywords
 
 **Important Note:** The keywords `any`, `push`, `skip`, `than`, and `zero` also appear in the contextual keyword list in the source code, but since structural keywords are checked first in the parser, they **CANNOT** be used as variable names.
 
@@ -275,7 +276,7 @@ All other reserved keywords that don't fall into structural or contextual-only c
 
 **Count:** 96 other reserved keywords
 
-**Note:** This count (96) represents keywords that are not in the structural (53) or contextual-only (24) categories, and are not boolean/null literals (7). Total: 53 + 24 + 96 + 7 = 180.
+**Note:** This count (96) represents keywords that are not in the structural (54) or contextual-only (24) categories, and are not boolean/null literals (7). Total: 54 + 24 + 96 + 7 = 181.
 
 ---
 
@@ -361,7 +362,7 @@ Keywords organized by functional area for easier reference.
 
 ### Rule 1: Structural Keywords Are Always Reserved
 
-Never use the 52 structural keywords as variable names, function names, or any other identifier.
+Never use the 54 structural keywords as variable names, function names, or any other identifier.
 
 **Wrong:**
 ```wfl
@@ -534,7 +535,7 @@ store zero as 0             // ❌ ERROR: 'zero' is also structural
 
 ## Complete Alphabetical Reference
 
-Complete reference table of all 180 keywords.
+Complete reference table of all 181 keywords.
 
 | Keyword | Type | Category | As Var? | Example |
 |---------|------|----------|---------|---------|
@@ -680,6 +681,7 @@ Complete reference table of all 180 keywords.
 | `response` | Other | Web/Network | ❌ | `HTTP response` |
 | `return` | Structural | Operations | ❌ | `return value` |
 | `reversed` | Contextual | Control Flow | ✅ | `count reversed` |
+| `route` | Structural | Control Flow | ❌ | `route path:` |
 | `running` | Other | Process | ❌ | `process running` |
 | `same` | Other | Comparison | ❌ | `is same as` |
 | `script` | Other | Pattern | ❌ | `unicode script` |
@@ -720,7 +722,7 @@ Complete reference table of all 180 keywords.
 | `yes` | Literal | Values | ❌ | Boolean true |
 | `zero` | Structural | Pattern | ❌ | `zero or more` |
 
-**Total: 180 keywords and literals**
+**Total: 181 keywords and literals**
 
 ---
 

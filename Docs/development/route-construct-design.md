@@ -1,8 +1,42 @@
 # Design: The `route` Construct
 
-**Status:** Proposed (design/spec — not yet implemented)
+**Status:** Implemented — Level 1 + patterns (phases 1–4, 6). Level 2 declarative
+arms (phase 5) and the dedicated-AST/LSP work (phase 7) remain follow-ups.
 **Author:** WFL design discussion
 **Applies to:** Language + parser; flagship use is web-server request routing.
+
+## Implementation status
+
+The `route` construct is implemented as parser-level desugaring, exactly as the
+"Parser desugaring (recommended for Level 1)" strategy below describes. Highlights:
+
+- **Lexer:** `route` is a dedicated structural keyword (`Token::KeywordRoute`);
+  `when` is reused as the arm head (`src/lexer/token.rs`).
+- **Parser:** `src/parser/stmt/route.rs` lowers a `route … end route` block into
+  the same `IfStatement` chain a hand-written `check if / otherwise check if /
+  otherwise` would produce. The lowering introduces no new AST node, so the
+  **route construct itself** needs no analyzer, type-checker, or interpreter
+  changes — the desugared chain flows through the existing pipeline unchanged.
+- **Patterns (all reliable under the full pipeline):** equality (`when V`),
+  or-lists (`when V1 or V2`), `when contains V`, `when one of L`, and — resolving
+  the issue #566 concern below — `when starts with V` and `when ends with V`.
+  Because the route head consumes these operator words as tokens directly (instead
+  of relying on the fragile bareword path), they desugar cleanly to the
+  `starts_with` / `ends_with` builtins. Those builtins already existed at runtime
+  but lacked type signatures; this change additionally registers them in the type
+  checker (`src/stdlib/typechecker.rs`). That stdlib registration is the one change
+  outside the parser — it is independent of the route lowering and benefits any
+  caller of `starts_with` / `ends_with`, not just `route`.
+- **Tests:** parser unit tests (`src/parser/tests.rs`), a lexer token test
+  (`src/lexer/tests.rs`), an end-to-end pipeline test suite (`tests/route_test.rs`),
+  and a runnable demonstration (`TestPrograms/route_comprehensive.wfl`).
+- **Docs:** user guide at `Docs/04-advanced-features/routing.md`, cross-linked from
+  control flow; keyword references updated (`route` added as the 53rd structural
+  keyword, total 179).
+
+**Not yet implemented:** the Level 2 declarative arm forms (`show page`,
+`serve asset`, `call … with …`, plus `with status` / `with content_type`
+modifiers) and the optional dedicated `Statement::Route` AST node for tooling.
 
 ## Motivation
 

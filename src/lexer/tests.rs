@@ -617,6 +617,22 @@ fn test_boolean_literal_values() {
     }
 }
 
+#[test]
+fn test_route_keyword_lexing() {
+    use logos::Logos;
+
+    // `route` is a dedicated structural keyword.
+    let mut lexer = Token::lexer("route");
+    assert_eq!(lexer.next(), Some(Ok(Token::KeywordRoute)));
+
+    // `when` remains its own keyword, reused as the route arm head.
+    let mut lexer = Token::lexer("when");
+    assert_eq!(lexer.next(), Some(Ok(Token::KeywordWhen)));
+
+    // `route` is structural (must always be reserved).
+    assert!(Token::KeywordRoute.is_structural_keyword());
+}
+
 // --- Issue #571 regression tests: new operator/keyword tokens ---
 
 #[test]

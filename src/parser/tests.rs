@@ -1816,6 +1816,254 @@ end pattern"#;
     }
 }
 
+// ---------------------------------------------------------------------------
+// `route` construct — desugaring to the `check if` / `IfStatement` chain.
+// ---------------------------------------------------------------------------
+
+/// Parse a source string that contains exactly one statement and return it.
+fn parse_single(input: &str) -> Statement {
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+    parser
+        .parse_statement()
+        .unwrap_or_else(|e| panic!("parse failed for {input:?}: {e:?}"))
+}
+
+#[test]
+fn route_equality_arm_desugars_to_equals_if() {
+    let stmt = parse_single("route path:\n    when \"/\":\n        display \"home\"\nend route");
+    if let Statement::IfStatement {
+        condition,
+        then_block,
+        else_block,
+        ..
+    } = stmt
+    {
+        match condition {
+            Expression::BinaryOperation {
+                left,
+                operator: Operator::Equals,
+                right,
+                ..
+            } => {
+                assert!(matches!(*left, Expression::Variable(ref n, ..) if n == "path"));
+                assert!(
+                    matches!(*right, Expression::Literal(Literal::String(ref s), ..) if s.as_ref() == "/")
+                );
+            }
+            other => panic!("expected Equals condition, got {other:?}"),
+        }
+        assert_eq!(then_block.len(), 1, "arm body should have one statement");
+        assert!(else_block.is_none(), "no otherwise -> no else block");
+    } else {
+        panic!("route should desugar to an IfStatement, got {stmt:?}");
+    }
+}
+
+#[test]
+fn route_or_list_arm_desugars_to_or_of_equalities() {
+    let stmt =
+        parse_single("route code:\n    when 404 or 410:\n        display \"gone\"\nend route");
+    if let Statement::IfStatement { condition, .. } = stmt {
+        match condition {
+            Expression::BinaryOperation {
+                operator: Operator::Or,
+                left,
+                right,
+                ..
+            } => {
+                assert!(matches!(
+                    *left,
+                    Expression::BinaryOperation {
+                        operator: Operator::Equals,
+                        ..
+                    }
+                ));
+                assert!(matches!(
+                    *right,
+                    Expression::BinaryOperation {
+                        operator: Operator::Equals,
+                        ..
+                    }
+                ));
+            }
+            other => panic!("expected Or condition, got {other:?}"),
+        }
+    } else {
+        panic!("expected IfStatement, got {stmt:?}");
+    }
+}
+
+#[test]
+fn route_contains_arm_desugars_to_contains_call() {
+    let stmt =
+        parse_single("route path:\n    when contains \"admin\":\n        display \"a\"\nend route");
+    if let Statement::IfStatement { condition, .. } = stmt {
+        match condition {
+            Expression::FunctionCall {
+                function,
+                arguments,
+                ..
+            } => {
+                assert!(matches!(*function, Expression::Variable(ref n, ..) if n == "contains"));
+                assert_eq!(arguments.len(), 2);
+                // contains of subject and needle
+                assert!(
+                    matches!(arguments[0].value, Expression::Variable(ref n, ..) if n == "path")
+                );
+                assert!(
+                    matches!(arguments[1].value, Expression::Literal(Literal::String(ref s), ..) if s.as_ref() == "admin")
+                );
+            }
+            other => panic!("expected contains FunctionCall, got {other:?}"),
+        }
+    } else {
+        panic!("expected IfStatement, got {stmt:?}");
+    }
+}
+
+#[test]
+fn route_one_of_arm_is_membership_contains() {
+    let stmt =
+        parse_single("route path:\n    when one of assets:\n        display \"a\"\nend route");
+    if let Statement::IfStatement { condition, .. } = stmt {
+        match condition {
+            Expression::FunctionCall {
+                function,
+                arguments,
+                ..
+            } => {
+                assert!(matches!(*function, Expression::Variable(ref n, ..) if n == "contains"));
+                // membership: contains of list and subject
+                assert!(
+                    matches!(arguments[0].value, Expression::Variable(ref n, ..) if n == "assets")
+                );
+                assert!(
+                    matches!(arguments[1].value, Expression::Variable(ref n, ..) if n == "path")
+                );
+            }
+            other => panic!("expected contains FunctionCall, got {other:?}"),
+        }
+    } else {
+        panic!("expected IfStatement, got {stmt:?}");
+    }
+}
+
+#[test]
+fn route_starts_and_ends_with_desugar_to_builtins() {
+    let starts = parse_single(
+        "route path:\n    when starts with \"/api/\":\n        display \"api\"\nend route",
+    );
+    if let Statement::IfStatement { condition, .. } = starts {
+        // Assert the callee name AND that the arguments are (subject, literal)
+        // in that order, so a swapped or hardcoded argument fails the test.
+        assert!(
+            matches!(condition, Expression::FunctionCall { ref function, ref arguments, .. }
+            if matches!(**function, Expression::Variable(ref n, ..) if n == "starts_with")
+                && matches!(arguments[0].value, Expression::Variable(ref n, ..) if n == "path")
+                && matches!(arguments[1].value, Expression::Literal(Literal::String(ref s), ..) if s.as_ref() == "/api/"))
+        );
+    } else {
+        panic!("expected IfStatement");
+    }
+
+    let ends = parse_single(
+        "route path:\n    when ends with \".css\":\n        display \"css\"\nend route",
+    );
+    if let Statement::IfStatement { condition, .. } = ends {
+        assert!(
+            matches!(condition, Expression::FunctionCall { ref function, ref arguments, .. }
+            if matches!(**function, Expression::Variable(ref n, ..) if n == "ends_with")
+                && matches!(arguments[0].value, Expression::Variable(ref n, ..) if n == "path")
+                && matches!(arguments[1].value, Expression::Literal(Literal::String(ref s), ..) if s.as_ref() == ".css"))
+        );
+    } else {
+        panic!("expected IfStatement");
+    }
+}
+
+#[test]
+fn route_otherwise_becomes_final_else_chain() {
+    let stmt = parse_single(
+        "route x:\n    when 1:\n        display \"one\"\n    when 2:\n        display \"two\"\n    otherwise:\n        display \"other\"\nend route",
+    );
+    // Outer if is arm 1; its else is [inner if for arm 2]; inner if's else is the otherwise body.
+    if let Statement::IfStatement { else_block, .. } = stmt {
+        let inner = else_block.expect("arm 1 should have an else");
+        assert_eq!(inner.len(), 1);
+        if let Statement::IfStatement {
+            else_block: inner_else,
+            ..
+        } = &inner[0]
+        {
+            let default_body = inner_else
+                .as_ref()
+                .expect("arm 2 should have otherwise else");
+            assert_eq!(default_body.len(), 1, "otherwise body has one statement");
+            assert!(matches!(
+                default_body[0],
+                Statement::DisplayStatement { .. }
+            ));
+        } else {
+            panic!("expected nested IfStatement for arm 2");
+        }
+    } else {
+        panic!("expected IfStatement");
+    }
+}
+
+#[test]
+fn route_with_only_otherwise_runs_unconditionally() {
+    let stmt = parse_single("route x:\n    otherwise:\n        display \"always\"\nend route");
+    if let Statement::IfStatement {
+        condition,
+        then_block,
+        else_block,
+        ..
+    } = stmt
+    {
+        assert!(matches!(
+            condition,
+            Expression::Literal(Literal::Boolean(true), ..)
+        ));
+        assert_eq!(then_block.len(), 1);
+        assert!(else_block.is_none());
+    } else {
+        panic!("expected IfStatement");
+    }
+}
+
+#[test]
+fn empty_route_is_a_noop() {
+    let stmt = parse_single("route x:\nend route");
+    if let Statement::IfStatement {
+        condition,
+        then_block,
+        ..
+    } = stmt
+    {
+        assert!(matches!(
+            condition,
+            Expression::Literal(Literal::Boolean(false), ..)
+        ));
+        assert!(then_block.is_empty());
+    } else {
+        panic!("expected IfStatement");
+    }
+}
+
+#[test]
+fn route_otherwise_before_when_is_an_error() {
+    let input = "route x:\n    otherwise:\n        display \"d\"\n    when 5:\n        display \"five\"\nend route";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+    let result = parser.parse_statement();
+    assert!(
+        result.is_err(),
+        "otherwise before a when arm must be rejected"
+    );
+}
+
 // --- Issue #571 regression tests: precedence, of-calls, between, above/below,
 //     finally, and caught-error binding ---
 

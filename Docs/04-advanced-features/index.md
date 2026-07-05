@@ -13,6 +13,7 @@ This section covers WFL's advanced capabilities:
 5. **[Containers (OOP)](containers-oop.md)** - Object-oriented programming
 6. **[Subprocess Execution](subprocess-execution.md)** - Running external commands
 7. **[Interoperability](interoperability.md)** - Working with other technologies
+8. **[Routing](routing.md)** - Dispatch on a value with `route` (WFL's match/switch)
 
 ## Prerequisites
 
