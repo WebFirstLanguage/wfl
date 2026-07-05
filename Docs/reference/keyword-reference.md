@@ -4,7 +4,7 @@ Quick lookup for all WFL reserved keywords.
 
 **→ For complete technical details:** [Reserved Keywords (Complete) →](reserved-keywords.md)
 
-**Total:** 179 keywords and literals
+**Total:** 181 keywords and literals
 
 ---
 
@@ -73,7 +73,7 @@ Quick lookup for all WFL reserved keywords.
 
 ---
 
-## Operations Keywords (24)
+## Operations Keywords (25)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -91,6 +91,7 @@ Quick lookup for all WFL reserved keywords.
 | `kill` | Terminate process | ✗ |
 | `load` | Load module | ✗ |
 | `minus` | Subtraction | ✗ |
+| `modulo` | Modulo/remainder (word form of `%`) | ✗ |
 | `module` | Module reference | ✗ |
 | `multiply` | Multiplication | ✗ |
 | `plus` | Addition | ✗ |
@@ -238,12 +239,13 @@ Quick lookup for all WFL reserved keywords.
 
 ---
 
-## Error Handling Keywords (5)
+## Error Handling Keywords (6)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
 | `catch` | Error handler | ✗ |
 | `error` | Error reference | ✗ |
+| `finally` | Always-run cleanup clause | ✗ |
 | `try` | Error handling block | ✗ |
 | `when` | Specific error type; also a `route` arm head | ✗ |
 

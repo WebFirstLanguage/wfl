@@ -858,6 +858,7 @@ impl JavaScriptTranspiler {
                 body,
                 when_clauses,
                 otherwise_block,
+                finally_block,
                 ..
             } => {
                 let mut result = format!("{}try {{\n", self.indent());
@@ -920,7 +921,18 @@ impl JavaScriptTranspiler {
                 result.push('\n');
 
                 self.pop_indent();
-                result.push_str(&format!("{}}}\n", self.indent()));
+                result.push_str(&format!("{}}}", self.indent()));
+
+                if let Some(finally) = finally_block {
+                    result.push_str(" finally {\n");
+                    self.push_indent();
+                    for s in finally {
+                        result.push_str(&self.transpile_statement(s)?);
+                    }
+                    self.pop_indent();
+                    result.push_str(&format!("{}}}", self.indent()));
+                }
+                result.push('\n');
                 Ok(result)
             }
 
@@ -2066,11 +2078,16 @@ impl JavaScriptTranspiler {
                 body,
                 when_clauses,
                 otherwise_block,
+                finally_block,
                 ..
             } => {
                 self.contains_async(body)
                     || when_clauses.iter().any(|c| self.contains_async(&c.body))
                     || otherwise_block
+                        .as_ref()
+                        .map(|b| self.contains_async(b))
+                        .unwrap_or(false)
+                    || finally_block
                         .as_ref()
                         .map(|b| self.contains_async(b))
                         .unwrap_or(false)

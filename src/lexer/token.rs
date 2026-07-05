@@ -203,6 +203,8 @@ pub enum Token {
     KeywordRoute,
     #[token("catch")]
     KeywordCatch,
+    #[token("finally")]
+    KeywordFinally, // always-run cleanup clause on try/when
     #[token("data")]
     KeywordData,
     #[token("date")]
@@ -233,6 +235,8 @@ pub enum Token {
     KeywordDivided, // e.g., "divided by"
     #[token("by")]
     KeywordBy,
+    #[token("modulo")]
+    KeywordModulo, // word form of the '%' operator
     #[token("contains")]
     KeywordContains,
     #[token("pattern")]
@@ -407,6 +411,12 @@ pub enum Token {
 
     #[token("%")]
     Percent,
+
+    // Division operator. The `//[^\r\n]*` comment skip pattern is longer than a
+    // bare `/`, so logos' longest-match rule keeps `//` comments working while a
+    // lone `/` lexes as division.
+    #[token("/")]
+    Slash,
 
     #[token(".")]
     Dot,
@@ -588,6 +598,7 @@ impl Token {
                 | Token::KeywordWhen
                 | Token::KeywordRoute
                 | Token::KeywordCatch
+                | Token::KeywordFinally
                 | Token::KeywordSkip
                 | Token::KeywordThan
                 | Token::KeywordPush

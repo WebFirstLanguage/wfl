@@ -2063,3 +2063,165 @@ fn route_otherwise_before_when_is_an_error() {
         "otherwise before a when arm must be rejected"
     );
 }
+
+// --- Issue #571 regression tests: precedence, of-calls, between, above/below,
+//     finally, and caught-error binding ---
+
+/// Parse `store result as <expr>` and return the declared value expression.
+fn parse_value_expr(expr_src: &str) -> Expression {
+    let input = format!("store result as {expr_src}");
+    let tokens = lex_wfl_with_positions(&input);
+    let mut parser = Parser::new(&tokens);
+    match parser.parse_statement() {
+        Ok(Statement::VariableDeclaration { value, .. }) => value,
+        other => panic!("expected a variable declaration, got {other:?}"),
+    }
+}
+
+#[test]
+fn arithmetic_binds_tighter_than_comparison() {
+    // `y plus 1 is equal to 4` must parse as `(y plus 1) is equal to 4`.
+    let expr = parse_value_expr("y plus 1 is equal to 4");
+    match expr {
+        Expression::BinaryOperation { operator, left, .. } => {
+            assert_eq!(
+                operator,
+                Operator::Equals,
+                "top operator should be equality"
+            );
+            assert!(
+                matches!(
+                    *left,
+                    Expression::BinaryOperation {
+                        operator: Operator::Plus,
+                        ..
+                    }
+                ),
+                "left of the comparison should be the `plus` sub-expression, got {left:?}"
+            );
+        }
+        other => panic!("expected a comparison at the top, got {other:?}"),
+    }
+}
+
+#[test]
+fn of_call_argument_absorbs_arithmetic() {
+    // `f of n minus 1` must parse as `f of (n minus 1)`, not `(f of n) minus 1`.
+    let expr = parse_value_expr("f of n minus 1");
+    match expr {
+        Expression::FunctionCall { arguments, .. } => {
+            assert_eq!(arguments.len(), 1, "should be a single call argument");
+            assert!(
+                matches!(
+                    &arguments[0].value,
+                    Expression::BinaryOperation {
+                        operator: Operator::Minus,
+                        ..
+                    }
+                ),
+                "the argument should be `n minus 1`, got {:?}",
+                arguments[0].value
+            );
+        }
+        other => panic!("expected a function call, got {other:?}"),
+    }
+}
+
+#[test]
+fn of_call_argument_still_stops_at_with() {
+    // `substring of s and 0 and 1 with x` must keep `with` as concatenation on
+    // the whole call, i.e. produce a Concatenation whose left is the call.
+    let expr = parse_value_expr(r#"substring of s and 0 and 1 with "!""#);
+    match expr {
+        Expression::Concatenation { left, .. } => {
+            assert!(
+                matches!(*left, Expression::FunctionCall { .. }),
+                "left of the concatenation should be the substring call, got {left:?}"
+            );
+        }
+        other => panic!("expected a concatenation, got {other:?}"),
+    }
+}
+
+#[test]
+fn is_between_desugars_to_two_comparisons() {
+    // `x is between 1 and 10` => `(x >= 1) and (x <= 10)`.
+    let expr = parse_value_expr("x is between 1 and 10");
+    match expr {
+        Expression::BinaryOperation {
+            operator: Operator::And,
+            left,
+            right,
+            ..
+        } => {
+            assert!(
+                matches!(
+                    *left,
+                    Expression::BinaryOperation {
+                        operator: Operator::GreaterThanOrEqual,
+                        ..
+                    }
+                ),
+                "lower bound should be >=, got {left:?}"
+            );
+            assert!(
+                matches!(
+                    *right,
+                    Expression::BinaryOperation {
+                        operator: Operator::LessThanOrEqual,
+                        ..
+                    }
+                ),
+                "upper bound should be <=, got {right:?}"
+            );
+        }
+        other => panic!("expected an `and` of two comparisons, got {other:?}"),
+    }
+}
+
+#[test]
+fn is_above_and_below_map_to_greater_and_less() {
+    assert!(matches!(
+        parse_value_expr("t is above 30"),
+        Expression::BinaryOperation {
+            operator: Operator::GreaterThan,
+            ..
+        }
+    ));
+    assert!(matches!(
+        parse_value_expr("t is below 30"),
+        Expression::BinaryOperation {
+            operator: Operator::LessThan,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn try_statement_parses_finally_and_named_error_binding() {
+    let input = "try:\n\
+                 display \"x\"\n\
+                 when error as e:\n\
+                 display e\n\
+                 finally:\n\
+                 display \"done\"\n\
+                 end try";
+    let tokens = lex_wfl_with_positions(input);
+    let mut parser = Parser::new(&tokens);
+    match parser.parse_statement() {
+        Ok(Statement::TryStatement {
+            when_clauses,
+            finally_block,
+            ..
+        }) => {
+            assert_eq!(when_clauses.len(), 1);
+            assert_eq!(
+                when_clauses[0].error_name, "e",
+                "`when error as e` should bind the error under `e`"
+            );
+            let finally = finally_block.expect("finally block should be present");
+            assert_eq!(finally.len(), 1, "finally block should have one statement");
+        }
+        other => panic!("expected a try statement, got {other:?}"),
+    }
+}

@@ -5,7 +5,7 @@ Complete technical documentation for all WFL reserved keywords.
 **→ For quick lookup:** [Keyword Reference (Quick) →](keyword-reference.md)
 
 **Source:** WFL Compiler v26.1.x (extracted from `src/lexer/token.rs`)
-**Total:** 179 keywords and literals
+**Total:** 181 keywords and literals
 **Last Updated:** 2026-01-16
 
 ---
@@ -16,9 +16,9 @@ Complete technical documentation for all WFL reserved keywords.
    - [What Makes a Keyword "Structural"?](#what-makes-a-keyword-structural)
    - [What Makes a Keyword "Contextual"?](#what-makes-a-keyword-contextual)
    - [Why Some Keywords Appear in Multiple Lists](#why-some-keywords-appear-in-multiple-lists)
-2. [Structural Keywords (53)](#structural-keywords-53)
+2. [Structural Keywords (54)](#structural-keywords-54)
 3. [Contextual Keywords (29)](#contextual-keywords-29)
-4. [Other Reserved Keywords (95)](#other-reserved-keywords-95)
+4. [Other Reserved Keywords (96)](#other-reserved-keywords-96)
 5. [Boolean & Null Literals (7)](#boolean--null-literals-7)
 6. [Keywords by Feature Category](#keywords-by-feature-category)
 7. [Usage Guidelines & Best Practices](#usage-guidelines--best-practices)
@@ -29,7 +29,7 @@ Complete technical documentation for all WFL reserved keywords.
 
 ## Understanding Keyword Classifications
 
-WFL's 179 reserved keywords are organized into four distinct types. Understanding these classifications helps you know which keywords you can never use as variable names, and which ones might be available in certain contexts.
+WFL's 181 reserved keywords are organized into four distinct types. Understanding these classifications helps you know which keywords you can never use as variable names, and which ones might be available in certain contexts.
 
 ### What Makes a Keyword "Structural"?
 
@@ -38,7 +38,7 @@ WFL's 179 reserved keywords are organized into four distinct types. Understandin
 **Key characteristics:**
 - **Always reserved** - Cannot be used as variable names in any context
 - **Parser priority** - Checked first by the parser
-- **Total count:** 53 keywords
+- **Total count:** 54 keywords
 
 **Examples:**
 ```wfl
@@ -93,7 +93,7 @@ create list called items     // ✅ 'list' is a type keyword here
 
 ### Marker Words That Are Not Keywords at All
 
-A few words have special meaning in exactly one statement position but are **not reserved in any way** — they are ordinary identifiers that the parser recognizes purely by position. They do not count toward the 179 keywords, and you can freely use them as variable names everywhere:
+A few words have special meaning in exactly one statement position but are **not reserved in any way** — they are ordinary identifiers that the parser recognizes purely by position. They do not count toward the 181 keywords, and you can freely use them as variable names everywhere:
 
 - `secured` - HTTPS marker in `listen on port 8443 secured ... as server`
 - `certificate` - certificate path marker in `secured with certificate "cert.pem"`
@@ -125,7 +125,7 @@ store push as "save"         // ❌ ERROR: 'push' is reserved (structural)
 
 ---
 
-## Structural Keywords (53)
+## Structural Keywords (54)
 
 These keywords **MUST** always be reserved and **CANNOT** be used as variable names. They define program structure and control flow.
 
@@ -149,6 +149,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `end` | Close block | `end` |
 | `event` | Define an event | `event click` |
 | `extends` | Inheritance | `container Person extends Human:` |
+| `finally` | Always-run cleanup clause on try | `finally:` |
 | `for` | For loop | `for each x in items:` |
 | `forever` | Infinite loop | `repeat forever:` |
 | `from` | Count loop start | `count from 1 to 10:` |
@@ -185,7 +186,7 @@ These keywords **MUST** always be reserved and **CANNOT** be used as variable na
 | `with` | Parameter separator | `call action with x and y` |
 | `zero` | Pattern quantifier | `define pattern zero or more digits` |
 
-**Total:** 53 structural keywords
+**Total:** 54 structural keywords
 
 **Important Note:** The keywords `any`, `push`, `skip`, `than`, and `zero` also appear in the contextual keyword list in the source code, but since structural keywords are checked first in the parser, they **CANNOT** be used as variable names.
 
@@ -244,15 +245,15 @@ These keywords appear in the contextual list but also appear as structural keywo
 
 ---
 
-## Other Reserved Keywords (95)
+## Other Reserved Keywords (96)
 
 All other reserved keywords that don't fall into structural or contextual-only categories. These keywords cannot be used as variable names.
 
 ### File & I/O Operations (14)
 `append`, `appending`, `close`, `content`, `delete`, `directory`, `exists`, `file`, `found`, `open`, `permission`, `denied`, `recursively`, `write`
 
-### Arithmetic & Comparison (15)
-`add`, `above`, `below`, `divide`, `divided`, `equal`, `greater`, `is`, `less`, `minus`, `multiply`, `plus`, `same`, `subtract`, `times`
+### Arithmetic & Comparison (16)
+`add`, `above`, `below`, `divide`, `divided`, `equal`, `greater`, `is`, `less`, `minus`, `modulo`, `multiply`, `plus`, `same`, `subtract`, `times`
 
 ### Pattern Matching (26)
 `ahead`, `behind`, `between`, `capture`, `captured`, `category`, `character`, `digit`, `exactly`, `find`, `greedy`, `lazy`, `letter`, `matches`, `more`, `of`, `one`, `optional`, `replace`, `script`, `split`, `start`, `unicode`, `whitespace`
@@ -273,9 +274,9 @@ All other reserved keywords that don't fall into structural or contextual-only c
 ### Miscellaneous (6)
 `comes`, `downward`, `exit`, `loop`, `parameters`, `upward`
 
-**Count:** 95 other reserved keywords
+**Count:** 96 other reserved keywords
 
-**Note:** This count (95) represents keywords that are not in the structural (53) or contextual-only (24) categories, and are not boolean/null literals (7). Total: 53 + 24 + 95 + 7 = 179.
+**Note:** This count (96) represents keywords that are not in the structural (54) or contextual-only (24) categories, and are not boolean/null literals (7). Total: 54 + 24 + 96 + 7 = 181.
 
 ---
 
@@ -361,7 +362,7 @@ Keywords organized by functional area for easier reference.
 
 ### Rule 1: Structural Keywords Are Always Reserved
 
-Never use the 53 structural keywords as variable names, function names, or any other identifier.
+Never use the 54 structural keywords as variable names, function names, or any other identifier.
 
 **Wrong:**
 ```wfl
@@ -534,7 +535,7 @@ store zero as 0             // ❌ ERROR: 'zero' is also structural
 
 ## Complete Alphabetical Reference
 
-Complete reference table of all 179 keywords.
+Complete reference table of all 181 keywords.
 
 | Keyword | Type | Category | As Var? | Example |
 |---------|------|----------|---------|---------|
@@ -606,6 +607,7 @@ Complete reference table of all 179 keywords.
 | `false` | Literal | Values | ❌ | Boolean false |
 | `file` | Other | File I/O | ❌ | `open file` |
 | `files` | Contextual | File I/O | ✅ | `list files` |
+| `finally` | Structural | Error Handling | ❌ | `finally:` |
 | `find` | Other | Pattern | ❌ | `find pattern` |
 | `for` | Structural | Control Flow | ❌ | `for each` |
 | `forever` | Structural | Control Flow | ❌ | `repeat forever` |
@@ -636,6 +638,7 @@ Complete reference table of all 179 keywords.
 | `matches` | Other | Pattern | ❌ | `pattern matches` |
 | `milliseconds` | Other | Web/Network | ❌ | `timeout milliseconds` |
 | `minus` | Other | Operations | ❌ | `minus 5` |
+| `modulo` | Other | Operations | ❌ | `10 modulo 3` |
 | `missing` | Literal | Values | ❌ | Null alias |
 | `module` | Structural | Operations | ❌ | `load module` |
 | `more` | Other | Pattern | ❌ | `one or more` |
@@ -719,7 +722,7 @@ Complete reference table of all 179 keywords.
 | `yes` | Literal | Values | ❌ | Boolean true |
 | `zero` | Structural | Pattern | ❌ | `zero or more` |
 
-**Total: 179 keywords and literals**
+**Total: 181 keywords and literals**
 
 ---
 

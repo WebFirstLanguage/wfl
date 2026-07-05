@@ -425,3 +425,88 @@ async fn test_script_path_globals_empty_without_source_file() {
         Some(Value::Text(std::sync::Arc::from("")))
     );
 }
+
+// --- Issue #571 regression tests: runtime behaviour of the new constructs ---
+
+async fn eval_program(source: &str) -> Value {
+    let tokens = lex_wfl_with_positions(source);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("program should parse");
+    let mut interpreter = Interpreter::new();
+    interpreter
+        .interpret(&program)
+        .await
+        .expect("program should run without error")
+}
+
+#[tokio::test]
+async fn test_slash_division_runtime() {
+    match eval_program("10 / 4").await {
+        Value::Number(n) => assert_eq!(n, 2.5),
+        other => panic!("expected number, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_modulo_word_runtime() {
+    match eval_program("12 modulo 5").await {
+        Value::Number(n) => assert_eq!(n, 2.0),
+        other => panic!("expected number, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_arithmetic_binds_tighter_than_comparison_runtime() {
+    // `3 plus 1 is equal to 4` should be true, not a type error.
+    match eval_program("3 plus 1 is equal to 4").await {
+        Value::Bool(b) => assert!(b),
+        other => panic!("expected boolean, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_is_between_runtime() {
+    match eval_program("5 is between 1 and 10").await {
+        Value::Bool(b) => assert!(b),
+        other => panic!("expected boolean, got {other:?}"),
+    }
+    match eval_program("15 is between 1 and 10").await {
+        Value::Bool(b) => assert!(!b),
+        other => panic!("expected boolean, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_finally_runs_on_success_path() {
+    let source = "store log as \"\"\n\
+                  try:\n\
+                  change log to log with \"body;\"\n\
+                  when error:\n\
+                  change log to log with \"caught;\"\n\
+                  finally:\n\
+                  change log to log with \"finally;\"\n\
+                  end try\n\
+                  log";
+    match eval_program(source).await {
+        Value::Text(s) => assert_eq!(&*s, "body;finally;"),
+        other => panic!("expected text, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_finally_runs_after_caught_error_with_binding() {
+    let source = "store log as \"\"\n\
+                  try:\n\
+                  change log to log with \"body;\"\n\
+                  open file at \"/nonexistent/issue571.txt\" for reading as f\n\
+                  when error as e:\n\
+                  change log to log with \"caught;\"\n\
+                  finally:\n\
+                  change log to log with \"finally;\"\n\
+                  end try\n\
+                  log";
+    match eval_program(source).await {
+        Value::Text(s) => assert_eq!(&*s, "body;caught;finally;"),
+        other => panic!("expected text, got {other:?}"),
+    }
+}

@@ -870,6 +870,7 @@ impl Analyzer {
                 body,
                 when_clauses,
                 otherwise_block,
+                finally_block,
                 ..
             } => {
                 let outer_scope = std::mem::take(&mut self.current_scope);
@@ -938,6 +939,20 @@ impl Analyzer {
 
                     let otherwise_scope = std::mem::take(&mut self.current_scope);
                     if let Some(parent) = otherwise_scope.parent {
+                        self.current_scope = *parent;
+                    }
+                }
+
+                if let Some(finally_stmts) = finally_block {
+                    let outer_scope = std::mem::take(&mut self.current_scope);
+                    self.current_scope = Scope::with_parent(outer_scope);
+
+                    for stmt in finally_stmts {
+                        self.analyze_statement(stmt);
+                    }
+
+                    let finally_scope = std::mem::take(&mut self.current_scope);
+                    if let Some(parent) = finally_scope.parent {
                         self.current_scope = *parent;
                     }
                 }

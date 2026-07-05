@@ -33,6 +33,10 @@ store remainder as 10 % 3                // 1
 | Less or Equal | `is less than or equal to` | `x is less than or equal to 5` |
 | Above | `is above` | `x is above 5` |
 | Below | `is below` | `x is below 5` |
+| In range | `is between A and B` | `x is between 1 and 10` |
+
+`is between A and B` is an inclusive range check — it is exactly equivalent to
+writing `x is greater than or equal to A and x is less than or equal to B`.
 
 **Examples:**
 ```wfl
@@ -41,6 +45,7 @@ check if age is 18:                      // Shorthand
 check if age is not 21:
 check if score is greater than 90:
 check if temperature is above 30:
+check if age is between 18 and 65:       // inclusive range
 ```
 
 ## Logical Operators

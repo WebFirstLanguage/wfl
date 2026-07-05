@@ -357,6 +357,10 @@ pub enum Statement {
         body: Vec<Statement>,
         when_clauses: Vec<WhenClause>,
         otherwise_block: Option<Vec<Statement>>,
+        /// Cleanup block that runs on both the success and error paths, after any
+        /// matching `when`/`otherwise` clause. Present only when a `finally:`
+        /// clause was written.
+        finally_block: Option<Vec<Statement>>,
         line: usize,
         column: usize,
     },
