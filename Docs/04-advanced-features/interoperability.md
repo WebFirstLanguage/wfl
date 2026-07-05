@@ -10,7 +10,7 @@ Run external programs and tools:
 
 ```wfl
 // Run Node.js scripts
-wait for execute command "node script.js" as output
+wait for execute command "node script.js" as node_output
 
 // Run Python scripts
 wait for execute command "python analyze.py" as result
@@ -27,15 +27,15 @@ Read and write files in any format:
 
 ```wfl
 // Read JSON file (as text, parse manually)
-open file at "data.json" for reading as file
-wait for store json_text as read content from file
-close file file
+open file at "data.json" for reading as json_file
+wait for store json_text as read content from json_file
+close file json_file
 
 // Write CSV files
-open file at "export.csv" for writing as file
-wait for write content "Name,Age\n" into file
-wait for append content "Alice,28\n" into file
-close file file
+open file at "export.csv" for writing as csv_file
+wait for write content "Name,Age\n" into csv_file
+wait for append content "Alice,28\n" into csv_file
+close file csv_file
 ```
 
 ### 3. **HTTP Client**
@@ -131,7 +131,7 @@ parameterized queries, type mapping, and per-backend notes.
 
 **Future syntax (conceptual):**
 
-```wfl
+```text
 // Import JavaScript library
 use javascript library "moment" as moment
 
@@ -145,7 +145,7 @@ store formatted_date as moment.format("YYYY-MM-DD")
 
 **Future syntax (conceptual):**
 
-```wfl
+```text
 // Parse JSON
 store data as parse json from json_text
 
@@ -172,7 +172,7 @@ display json
 
 **Future syntax (conceptual):**
 
-```wfl
+```text
 // Generate HTML
 create html document as page:
     add heading level 1 with "Welcome"
@@ -194,7 +194,7 @@ store html as "<!DOCTYPE html>
 </body>
 </html>"
 
-respond to req with html and content type "text/html"
+respond to req with html and content_type "text/html"
 ```
 
 ## Current Interoperability Patterns
@@ -297,16 +297,16 @@ wait for execute command "node process_users.js users.json"
 // data_processor.wfl
 display "Preparing data for Python..."
 
-open file at "input.txt" for writing as file
-wait for write content "data to process" into file
-close file file
+open file at "input.txt" for writing as input_file
+wait for write content "data to process" into input_file
+close file input_file
 
 display "Calling Python script..."
 wait for execute command "python process.py input.txt output.txt" as result
 
-open file at "output.txt" for reading as file
-wait for store processed as read content from file
-close file file
+open file at "output.txt" for reading as output_file
+wait for store processed as read content from output_file
+close file output_file
 
 display "Result: " with processed
 ```
@@ -328,9 +328,9 @@ with open(sys.argv[2], 'w') as f:
 // Call Node.js for async operations
 wait for execute command "node fetch_api.js"
 
-open file at "api_result.json" for reading as file
-wait for store api_data as read content from file
-close file file
+open file at "api_result.json" for reading as result_file
+wait for store api_data as read content from result_file
+close file result_file
 
 display "API data: " with api_data
 ```
@@ -414,34 +414,34 @@ console.log(output);
 ### Planned Features
 
 **1. Native JSON Support**
-```wfl
+```text
 // Planned
 store data as parse json from json_string
 store json as to json of object
 ```
 
 **2. JavaScript Interop**
-```wfl
+```text
 // Planned
 use javascript library "lodash" as _
 store result as _.chunk(array, 2)
 ```
 
 **3. FFI (Foreign Function Interface)**
-```wfl
+```text
 // Planned
 import c library "libcustom.so" as custom
 store result as custom.function(args)
 ```
 
 **4. WebAssembly Compilation**
-```wfl
+```text
 // Planned
 // Compile WFL to WASM for browser execution
 ```
 
 **5. Database Adapters**
-```wfl
+```text
 // Planned
 connect to postgres at "localhost/mydb" as db
 wait for store users as query db with "SELECT * FROM users"

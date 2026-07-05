@@ -307,17 +307,18 @@ describe "Shopping Cart":
 
     setup:
         display "Setting up test cart..."
-        store cart_items as []
     end setup
 
     test "starts empty":
+        store cart_items as []
         expect cart_items to be empty
         expect cart_items to have length 0
     end test
 
     test "can add items":
-        add "apple" to cart_items
-        add "banana" to cart_items
+        store cart_items as []
+        push with cart_items and "apple"
+        push with cart_items and "banana"
         expect cart_items to have length 2
         expect cart_items to contain "apple"
     end test

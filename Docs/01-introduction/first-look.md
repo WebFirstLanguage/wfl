@@ -28,7 +28,7 @@ WFL is as simple as the simplest languages, but with more natural phrasing.
 // Declaring variables
 store user name as "Alice"
 store user age as 28
-store is active as yes
+store is_active as yes
 store account balance as 1250.75
 
 // Changing variables
@@ -37,7 +37,7 @@ change user age to 29
 // Type inference
 display typeof of user name        // Output: "Text"
 display typeof of user age          // Output: "Number"
-display typeof of is active         // Output: "Boolean"
+display typeof of is_active         // Output: "Boolean"
 ```
 
 ### JavaScript Equivalent
@@ -204,14 +204,16 @@ create list numbers:
     add 5
 end list
 
-// Or use literal syntax
-store numbers as [1, 2, 3, 4, 5]
+// Or use literal syntax:
+// store numbers as [1, 2, 3, 4, 5]
 
 // List operations
 push with numbers and 6
-store last as pop from numbers
+store last as pop of numbers
 store size as length of numbers
-check if contains of numbers and 3
+check if numbers contains 3:
+    display "Found 3!"
+end check
 
 // Iterate
 for each number in numbers:
@@ -241,13 +243,12 @@ for (const number of numbers) {
 ### WFL
 ```wfl
 try:
-    store result as risky operation()
+    store result as 10 divided by 2
     display "Success: " with result
 when error:
-    display "An error occurred: " with error message
-otherwise:
-    display "Operation completed"
+    display "An error occurred while processing"
 end try
+display "Operation completed"
 ```
 
 ### JavaScript Equivalent
@@ -266,21 +267,21 @@ try {
 
 ### WFL
 ```wfl
-// Read a file
-open file at "data.txt" for reading as file
-store content as read content from file
-close file
-display "File content: " with content
-
 // Write a file
-open file at "output.txt" for writing as file
-write content "Hello, WFL!" into file
-close file
+open file at "output.txt" for writing as my_file
+write content "Hello, WFL!" into my_file
+close file my_file
+
+// Read a file
+open file at "output.txt" for reading as read_file
+store file_content as read content from read_file
+close file read_file
+display "File content: " with file_content
 
 // List files in directory
-list files in "." as file list
-for each file in file list:
-    display "Found: " with file
+store file_names as list files in "."
+for each entry in file_names:
+    display "Found: " with entry
 end for
 ```
 
@@ -307,19 +308,21 @@ for (const file of fileList) {
 ### WFL
 ```wfl
 // Start a web server
-listen on port 8080 as web server
+listen on port 8080 as web_server
 
 display "Server running at http://127.0.0.1:8080"
 
 // Handle requests
-wait for request comes in on web server as req
+wait for request comes in on web_server as req
 
 check if path is equal to "/":
     respond to req with "Welcome to WFL!"
-check if path is equal to "/about":
-    respond to req with "WFL - Programming in Plain English"
 otherwise:
-    respond to req with "Page not found" and status 404
+    check if path is equal to "/about":
+        respond to req with "WFL - Programming in Plain English"
+    otherwise:
+        respond to req with "Page not found" and status 404
+    end check
 end check
 ```
 
@@ -353,11 +356,7 @@ app.listen(8080, () => {
 ```wfl
 // Define a pattern for email validation
 create pattern email address:
-    one or more letter or digit or symbol from "._-"
-    followed by "@"
-    followed by one or more letter or digit
-    followed by "."
-    followed by between 2 and 4 letter
+    one or more letter then "@" then one or more letter then "." then 2 to 4 letter
 end pattern
 
 // Test the pattern
@@ -389,25 +388,28 @@ if (emailPattern.test("user@example.com")) {
 ```wfl
 // Define a container (class)
 create container Person:
-    property name as text
-    property age as number
+    property name: Text
+    property age: Number
 
     action introduce:
         display "Hello, I'm " with name with " and I'm " with age with " years old."
-    end action
+    end
 
-    action have birthday:
+    action have_birthday:
         change age to age plus 1
         display "Happy birthday! Now " with age with " years old."
-    end action
-end container
+    end
+end
 
 // Create an instance
-create new Person as alice with property name as "Alice" and property age as 28
+create new Person as alice:
+    name is "Alice"
+    age is 28
+end
 
 // Call methods
-call alice introduce
-call alice have birthday
+alice.introduce()
+alice.have_birthday()
 
 // Output:
 // Hello, I'm Alice and I'm 28 years old.
@@ -441,17 +443,17 @@ alice.haveBirthday();
 
 ### WFL
 ```wfl
-// Async file operation
-wait for file operation completes as result
-display "File saved: " with result
+// Async file write
+open file at "notes.txt" for writing as my_file
+wait for write content "Saved!" into my_file
+close file my_file
+display "File saved"
 
-// Async web request (conceptual)
-wait for response from "https://api.example.com/data" as data
-display "Received: " with data
-
-// Multiple async operations
-wait for all operations complete
-display "All tasks finished!"
+// Async file read
+open file at "notes.txt" for reading as read_file
+wait for store file_data as read content from read_file
+close file read_file
+display "Received: " with file_data
 ```
 
 ### JavaScript Async/Await Equivalent
@@ -481,27 +483,36 @@ Here's a complete WFL program that demonstrates multiple features:
 
 // Define Task container
 create container Task:
-    property description as text
-    property completed as boolean
+    property description: Text
+    property completed: Boolean
 
-    action mark complete:
+    action mark_complete:
         change completed to yes
         display "✓ Completed: " with description
-    end action
-end container
+    end
+end
 
 // Main program
 display "=== Task Manager ==="
 display ""
 
 // Create task list
-create list tasks
+create list tasks:
 end list
 
 // Add some tasks
-create new Task as task1 with property description as "Learn WFL" and property completed as no
-create new Task as task2 with property description as "Build web server" and property completed as no
-create new Task as task3 with property description as "Write documentation" and property completed as no
+create new Task as task1:
+    description is "Learn WFL"
+    completed is no
+end
+create new Task as task2:
+    description is "Build web server"
+    completed is no
+end
+create new Task as task3:
+    description is "Write documentation"
+    completed is no
+end
 
 push with tasks and task1
 push with tasks and task2
@@ -510,25 +521,25 @@ push with tasks and task3
 // Display all tasks
 display "All Tasks:"
 for each task in tasks:
-    check if task completed is yes:
-        display "  ✓ " with task description
+    check if task.completed is yes:
+        display "  ✓ " with task.description
     otherwise:
-        display "  ☐ " with task description
+        display "  ☐ " with task.description
     end check
 end for
 
 display ""
 
 // Complete first task
-call task1 mark complete
+task1.mark_complete()
 
 display ""
 display "Updated Tasks:"
 for each task in tasks:
-    check if task completed is yes:
-        display "  ✓ " with task description
+    check if task.completed is yes:
+        display "  ✓ " with task.description
     otherwise:
-        display "  ☐ " with task description
+        display "  ☐ " with task.description
     end check
 end for
 ```

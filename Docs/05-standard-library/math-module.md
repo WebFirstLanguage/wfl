@@ -110,7 +110,7 @@ display floor of -2.9              // Output: -3
 ```wfl
 store total_items as 47
 store items_per_page as 10
-store pages as floor of total_items divided by items_per_page
+store pages as floor of (total_items divided by items_per_page)
 display "Total pages: " with pages
 // Output: Total pages: 4
 ```
@@ -148,7 +148,7 @@ display ceil of -2.9               // Output: -2
 ```wfl
 store items as 47
 store box_capacity as 10
-store boxes_needed as ceil of items divided by box_capacity
+store boxes_needed as ceil of (items divided by box_capacity)
 display "Boxes needed: " with boxes_needed
 // Output: Boxes needed: 5
 ```
@@ -161,7 +161,7 @@ display "Boxes needed: " with boxes_needed
 
 **Signature:**
 ```wfl
-clamp of <value> between <min> and <max>
+clamp of <value> and <min> and <max>
 ```
 
 **Parameters:**
@@ -178,10 +178,10 @@ clamp of <value> between <min> and <max>
 
 **Example:**
 ```wfl
-display clamp of 5 between 0 and 10       // Output: 5
-display clamp of -5 between 0 and 10      // Output: 0
-display clamp of 15 between 0 and 10      // Output: 10
-display clamp of 7.5 between 0 and 10     // Output: 7.5
+display clamp of 5 and 0 and 10          // Output: 5
+display clamp of -5 and 0 and 10         // Output: 0
+display clamp of 15 and 0 and 10         // Output: 10
+display clamp of 7.5 and 0 and 10        // Output: 7.5
 ```
 
 **Use Cases:**
@@ -193,7 +193,7 @@ display clamp of 7.5 between 0 and 10     // Output: 7.5
 **Example: Volume Control**
 ```wfl
 define action called set volume with parameters level:
-    store clamped_volume as clamp of level between 0 and 100
+    store clamped_volume as clamp of level and 0 and 100
     display "Volume set to: " with clamped_volume with "%"
     return clamped_volume
 end action
@@ -209,7 +209,7 @@ store health as 100
 store damage as 30
 
 change health to health minus damage
-store health as clamp of health between 0 and 100
+change health to clamp of health and 0 and 100
 
 display "Health: " with health
 // Ensures health stays between 0 and 100
@@ -246,9 +246,9 @@ display ""
 
 // Clamping
 store test_values as [-10, 0, 5, 10, 15, 20]
-for each test in test_values:
-    store clamped as clamp of test between 0 and 10
-    display test with " clamped to [0,10]: " with clamped
+for each entry in test_values:
+    store clamped as clamp of entry and 0 and 10
+    display entry with " clamped to [0,10]: " with clamped
 end for
 
 display ""
@@ -301,7 +301,7 @@ store quantity as 3
 store subtotal as price times quantity
 store tax as subtotal times 0.0825
 store total as subtotal plus tax
-store rounded_total as round of total times 100 divided by 100
+store rounded_total as round of (total times 100) divided by 100
 
 display "Total: $" with rounded_total
 ```
@@ -321,14 +321,14 @@ display "Score: " with rounded_pct with "%"
 
 ```wfl
 define action called validate age with parameters age:
-    store clamped_age as clamp of age between 0 and 120
+    store clamped_age as clamp of age and 0 and 120
     check if age is not equal to clamped_age:
         display "Age adjusted from " with age with " to " with clamped_age
     end check
     return clamped_age
 end action
 
-store user_age as validate age with 150
+store user_age as validate age of 150
 // Output: Age adjusted from 150 to 120
 display "Age: " with user_age
 // Output: Age: 120

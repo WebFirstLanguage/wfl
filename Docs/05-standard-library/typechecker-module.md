@@ -15,6 +15,7 @@ The primary type checking function is in the Core module:
 **See:** [Core Module: typeof](core-module.md#typeof)
 
 ```wfl
+store value as 42
 store value_type as typeof of value
 
 check if value_type is "Number":
@@ -27,6 +28,7 @@ end check
 **See:** [Core Module: isnothing](core-module.md#isnothing)
 
 ```wfl
+store value as nothing
 check if isnothing of value:
     display "Value is nothing"
 end check
@@ -37,12 +39,12 @@ end check
 ### Validate Number
 
 ```wfl
-define action called is number with parameters value:
+define action called is_number with parameters value:
     store value_type as typeof of value
     return value_type is "Number"
 end action
 
-check if is number with 42:
+check if is_number of 42:
     display "Valid number"
 end check
 ```
@@ -50,12 +52,12 @@ end check
 ### Validate Text
 
 ```wfl
-define action called is text with parameters value:
+define action called is_text with parameters value:
     store value_type as typeof of value
     return value_type is "Text"
 end action
 
-check if is text with "hello":
+check if is_text of "hello":
     display "Valid text"
 end check
 ```
@@ -63,12 +65,12 @@ end check
 ### Validate List
 
 ```wfl
-define action called is list with parameters value:
+define action called is_list with parameters value:
     store value_type as typeof of value
     return value_type is "List"
 end action
 
-check if is list with [1, 2, 3]:
+check if is_list of [1, 2, 3]:
     display "Valid list"
 end check
 ```
@@ -76,12 +78,12 @@ end check
 ### Validate Boolean
 
 ```wfl
-define action called is boolean with parameters value:
+define action called is_boolean with parameters value:
     store value_type as typeof of value
     return value_type is "Boolean"
 end action
 
-check if is boolean with yes:
+check if is_boolean of yes:
     display "Valid boolean"
 end check
 ```
@@ -91,10 +93,14 @@ end check
 Use type checking to guard operations:
 
 ```wfl
-define action called safe divide with parameters a and b:
+define action called is_number with parameters value:
+    return typeof of value is "Number"
+end action
+
+define action called safe_divide with parameters a and b:
     // Check types
-    check if is number with a:
-        check if is number with b:
+    check if is_number of a:
+        check if is_number of b:
             // Check for zero
             check if b is not equal to 0:
                 return a divided by b
@@ -112,10 +118,10 @@ define action called safe divide with parameters a and b:
     end check
 end action
 
-store result as safe divide with 10 and 2
+store result as safe_divide of 10 and 2
 display result                  // 5
 
-store bad as safe divide with "ten" and 2
+store bad as safe_divide of "ten" and 2
 display bad                     // nothing (with error message)
 ```
 
@@ -124,33 +130,41 @@ display bad                     // nothing (with error message)
 ### Dynamic Type Handling
 
 ```wfl
-define action called process value with parameters val:
+define action called process_value with parameters val:
     store val_type as typeof of val
 
     check if val_type is "Number":
         display "Number: " with val times 2
-    check if val_type is "Text":
-        display "Text: " with touppercase of val
-    check if val_type is "List":
-        display "List of length: " with length of val
-    check if val_type is "Boolean":
-        check if val is yes:
-            display "Boolean: True"
-        otherwise:
-            display "Boolean: False"
-        end check
-    check if val_type is "Null":
-        display "Value is nothing"
     otherwise:
-        display "Unknown type: " with val_type
+        check if val_type is "Text":
+            display "Text: " with touppercase of val
+        otherwise:
+            check if val_type is "List":
+                display "List of length: " with length of val
+            otherwise:
+                check if val_type is "Boolean":
+                    check if val is yes:
+                        display "Boolean: True"
+                    otherwise:
+                        display "Boolean: False"
+                    end check
+                otherwise:
+                    check if val_type is "Null":
+                        display "Value is nothing"
+                    otherwise:
+                        display "Unknown type: " with val_type
+                    end check
+                end check
+            end check
+        end check
     end check
 end action
 
-call process value with 42
-call process value with "hello"
-call process value with [1, 2, 3]
-call process value with yes
-call process value with nothing
+call process_value with 42
+call process_value with "hello"
+call process_value with [1, 2, 3]
+call process_value with yes
+call process_value with nothing
 ```
 
 **Output:**
@@ -167,8 +181,12 @@ Value is nothing
 ### Assert Type
 
 ```wfl
-define action called assert number with parameters value:
-    check if is number with value:
+define action called is_number with parameters value:
+    return typeof of value is "Number"
+end action
+
+define action called assert_number with parameters value:
+    check if is_number of value:
         return value
     otherwise:
         display "Type assertion failed: expected Number, got " with typeof of value
@@ -176,10 +194,10 @@ define action called assert number with parameters value:
     end check
 end action
 
-store validated as assert number with 42
+store validated as assert_number of 42
 // Returns: 42
 
-store invalid as assert number with "hello"
+store invalid as assert_number of "hello"
 // Returns: nothing (with error message)
 ```
 
@@ -190,7 +208,7 @@ display "=== Typechecker Module Demo ==="
 display ""
 
 // Define type validators
-define action called validate input with parameters value and expected_type:
+define action called validate_input with parameters value and expected_type:
     store actual_type as typeof of value
 
     check if actual_type is equal to expected_type:
@@ -203,16 +221,16 @@ define action called validate input with parameters value and expected_type:
 end action
 
 // Test validations
-call validate input with 42 and "Number"
-call validate input with "hello" and "Text"
-call validate input with yes and "Boolean"
-call validate input with [1, 2, 3] and "List"
-call validate input with nothing and "Null"
+call validate_input with 42 and "Number"
+call validate_input with "hello" and "Text"
+call validate_input with yes and "Boolean"
+call validate_input with [1, 2, 3] and "List"
+call validate_input with nothing and "Null"
 display ""
 
 // Type mismatch
-call validate input with "hello" and "Number"
-call validate input with 42 and "Text"
+call validate_input with "hello" and "Number"
+call validate_input with 42 and "Text"
 display ""
 
 display "=== Demo Complete ==="

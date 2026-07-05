@@ -205,13 +205,14 @@ change name to "new value"
 
 // Output
 display "Hello"
-display "Value: " with variable
+display "Value: " with name
 
 // Conditionals
-check if condition:
-    // code
+store score as 75
+check if score is greater than 50:
+    display "high score"
 otherwise:
-    // code
+    display "low score"
 end check
 
 // Loops
@@ -219,14 +220,16 @@ count from 1 to 10:
     display count
 end count
 
-for each item in list:
+for each item in ["first", "second"]:
     display item
 end for
 
 // Functions
-define action called name with parameters param1 and param2:
-    return result
+define action called add_numbers with parameters param1 and param2:
+    return param1 plus param2
 end action
+
+display add_numbers of 2 and 3
 
 // Lists
 create list items:
@@ -236,15 +239,20 @@ end list
 
 // Error Handling
 try:
-    // risky code
+    store result as 10 divided by 2
+    display result
 when error:
-    // handle error
+    display "handle error"
 end try
 ```
 
 ### Common Built-in Functions
 
 ```wfl
+store value as 42
+store my_list as ["a", "b", "c"]
+store item as "a"
+
 // Core
 display "text"
 typeof of value
@@ -260,33 +268,34 @@ ceil of 3.2        // 4
 touppercase of "hello"                    // "HELLO"
 tolowercase of "HELLO"                    // "hello"
 contains of "hello world" and "world"     // yes
-substring of "hello" from 0 length 2      // "he"
+substring of "hello" and 0 and 2          // "he"
 length of "hello"                         // 5
 
 // Lists
-length of list                            // count
-push with list and item
-pop from list
-contains of list and item
+length of my_list                         // count
+push with my_list and item
+pop of my_list
+contains of my_list and item
 ```
 
 ### File Operations
 
 ```wfl
-// Read file
-open file at "data.txt" for reading as file
-store content as read content from file
-close file
-
 // Write file
-open file at "output.txt" for writing as file
-write content "data" into file
-close file
+open file at "output.txt" for writing as out_file
+write content "data" into out_file
+close file out_file
+
+// Read file
+open file at "output.txt" for reading as in_file
+store file_content as read content from in_file
+close file in_file
+display file_content
 
 // List files
-list files in "." as files
-for each file in files:
-    display file
+store dir_files as list files in "."
+for each entry in dir_files:
+    display entry
 end for
 ```
 

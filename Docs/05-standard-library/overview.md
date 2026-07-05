@@ -38,14 +38,15 @@ Functions use descriptive, natural language names:
 
 ```wfl
 // Traditional languages:
-Math.abs(-5)
-str.toUpperCase()
-arr.indexOf(3)
+//   Math.abs(-5)
+//   str.toUpperCase()
+//   arr.indexOf(3)
 
 // WFL:
-abs of -5
-touppercase of "hello"
-indexof of list and 3
+display abs of -5
+display touppercase of "hello"
+store numbers as [1, 2, 3]
+display indexof of numbers and 3
 ```
 
 **Principle:** If you can say it in English, you can write it in WFL.
@@ -61,9 +62,10 @@ All functions follow consistent patterns:
 
 Examples:
 ```wfl
-abs of -5
-typeof of variable
-touppercase of "text"
+display abs of -5
+store value as 42
+display typeof of value
+display touppercase of "text"
 ```
 
 **Multiple arguments:**
@@ -73,16 +75,17 @@ touppercase of "text"
 
 Examples:
 ```wfl
-contains of "hello world" and "world"
-substring of "hello" from 0 length 2
-clamp of 15 between 0 and 10
+display contains of "hello world" and "world"
+display substring of "hello" from 0 length 2
+display clamp of 15 and 0 and 10
 ```
 
 **Special contexts:**
 ```wfl
-file exists at "path"
-length of list
-random_int between 1 and 6
+display file exists at "path"
+store items as [1, 2, 3]
+display length of items
+display random_int of 1 and 6
 ```
 
 ### Type Safety
@@ -90,8 +93,8 @@ random_int between 1 and 6
 Functions validate argument types:
 
 ```wfl
-abs of "hello"  // ERROR: Expected Number, got Text
-round of 3.7    // OK: Returns 4
+// abs of "hello"  // ERROR: Expected Number, got Text
+display round of 3.7    // OK: Returns 4
 ```
 
 Clear error messages help you fix problems quickly.
@@ -163,25 +166,24 @@ store upper as touppercase of "text"
 ### Basic Usage
 
 ```wfl
-// Call function with 'of'
-store result as function of argument
+// Call a function with 'of':  <function> of <value>
 
 // Examples:
 store absolute as abs of -10
 store uppercase as touppercase of "hello"
+store value as 42
 store type as typeof of value
 ```
 
 ### Multiple Arguments
 
 ```wfl
-// Use 'and' to separate arguments
-store result as function of arg1 and arg2
+// Use 'and' to separate arguments:  <function> of <arg1> and <arg2>
 
 // Examples:
 store has_world as contains of "hello world" and "world"
 store sub as substring of "hello" from 0 length 2
-store clamped as clamp of 15 between 0 and 10
+store clamped as clamp of 15 and 0 and 10
 ```
 
 ### In Expressions
@@ -190,11 +192,12 @@ store clamped as clamp of 15 between 0 and 10
 // Use functions anywhere you'd use a value
 display "Absolute: " with abs of -5
 
+store name as "Alice"
 check if length of name is greater than 3:
     display "Name is long enough"
 end check
 
-count from 1 to random_int between 5 and 10:
+count from 1 to random_int of 5 and 10:
     display count
 end count
 ```
@@ -204,12 +207,13 @@ end count
 Functions return appropriate types:
 
 ```wfl
-abs of -5              // Returns: Number (5)
-typeof of 42           // Returns: Text ("Number")
-isnothing of value     // Returns: Boolean (yes/no)
-touppercase of "hi"    // Returns: Text ("HI")
-length of [1, 2, 3]    // Returns: Number (3)
-random_boolean         // Returns: Boolean (yes/no)
+store value as nothing
+display abs of -5              // Returns: Number (5)
+display typeof of 42           // Returns: Text ("Number")
+display isnothing of value     // Returns: Boolean (yes/no)
+display touppercase of "hi"    // Returns: Text ("HI")
+display length of [1, 2, 3]    // Returns: Number (3)
+display random_boolean         // Returns: Boolean (yes/no)
 ```
 
 ## Error Handling
@@ -218,9 +222,9 @@ Functions can fail. Always handle errors for risky operations:
 
 ```wfl
 try:
-    store size as file size at "missing.txt"
+    store size as file size of "missing.txt"
     display "Size: " with size
-catch:
+when error:
     display "File not found"
 end try
 ```
@@ -260,17 +264,20 @@ end try
 Some functions have multiple names for convenience:
 
 ```wfl
-// These are equivalent:
-typeof of x
-type_of of x
+store x as 42
+store value as nothing
 
 // These are equivalent:
-isnothing of value
-is_nothing of value
+display typeof of x
+display type_of of x
 
 // These are equivalent:
-touppercase of text
-to_uppercase of text
+display isnothing of value
+display is_nothing of value
+
+// These are equivalent:
+display touppercase of "hello"
+display to_uppercase of "hello"
 ```
 
 Use whichever reads most naturally in your code!

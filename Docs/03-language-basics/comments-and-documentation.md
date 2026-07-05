@@ -19,6 +19,8 @@ store age as 25  // This is also a comment
 
 **Before a line:**
 ```wfl
+store subtotal as 100
+store tax as 8
 // Calculate the total
 store total as subtotal plus tax
 ```
@@ -59,6 +61,7 @@ The code already says what it does!
 ```wfl
 // Using 21 as minimum age for alcohol laws in US
 store drinking age as 21
+store age as 25
 
 check if age is greater than or equal to drinking age:
     display "Can purchase alcohol"
@@ -71,11 +74,11 @@ end check
 // Calculate leap year using standard algorithm:
 // Divisible by 4 AND (not divisible by 100 OR divisible by 400)
 store year as 2024
-store is leap as no
+store is_leap as no
 
-check if year modulo 4 is equal to 0:
-    check if year modulo 100 is not equal to 0 or year modulo 400 is equal to 0:
-        change is leap to yes
+check if (year % 4) is equal to 0:
+    check if (year % 100) is not equal to 0 or (year % 400) is equal to 0:
+        change is_leap to yes
     end check
 end check
 ```
@@ -86,7 +89,8 @@ end check
 // TODO: Add input validation
 store user input as "sample"
 
-// FIXME: This calculation is incorrect for negative numbers
+store value as -5
+// FIXME: value is hardcoded here; read it from user input instead
 store result as abs of value
 
 // NOTE: This is a temporary workaround
@@ -98,7 +102,7 @@ store default value as 0
 ```wfl
 // Workaround for issue #123: Using slower algorithm
 // until performance issue is fixed
-store result as slow but reliable calculation()
+store result as 42
 ```
 
 ### 5. Document Algorithms
@@ -191,8 +195,11 @@ Needs a comment because the code is cryptic.
 ### After (WFL)
 
 ```wfl
-check if user has permission is yes and user is active is yes:
-    grant access to user
+store user_has_permission as yes
+store user_is_active as yes
+
+check if user_has_permission is yes and user_is_active is yes:
+    display "Access granted to user"
 end check
 ```
 
@@ -205,7 +212,7 @@ No comment needed—the code explains itself!
 // Don't need comments:
 store customer total balance as 1000.00
 store minimum account balance as 25.00
-store is premium member as yes
+store is_premium_member as yes
 ```
 
 **Actions:**
@@ -219,8 +226,9 @@ end action
 **Loops:**
 ```wfl
 // Clear intent:
+store premium customers as ["Alice", "Bob"]
 for each customer in premium customers:
-    send loyalty reward to customer
+    display "Sending loyalty reward to " with customer
 end for
 ```
 
@@ -336,6 +344,8 @@ store users as ["Alice" and "Bob"]
 ```wfl
 // Loop from 1 to 10  ← Unnecessary
 count from 1 to 10:
+    display count
+end count
 ```
 
 ❌ **Comment out code** (use version control instead)
@@ -346,8 +356,9 @@ count from 1 to 10:
 
 ❌ **Leave misleading comments**
 ```wfl
+store x as 5
 // Add 5 to x
-store x as x plus 10  // Comment is wrong!
+change x to x plus 10  // Comment is wrong!
 ```
 
 ❌ **Over-comment simple code**
@@ -390,7 +401,7 @@ Mark incomplete work:
 store user input as "sample"
 
 // TODO: Implement error handling
-store result as risky operation()
+store result as "pending"
 ```
 
 ### FIXME
@@ -398,6 +409,7 @@ store result as risky operation()
 Mark broken code that needs fixing:
 
 ```wfl
+store value as -5
 // FIXME: This doesn't handle negative numbers correctly
 store abs value as value times -1
 ```
@@ -416,8 +428,8 @@ store hardcoded value as 42
 Important information:
 
 ```wfl
-// NOTE: This must run before initialize()
-store config as load configuration()
+// NOTE: This must run before initialize
+store config as "default configuration"
 ```
 
 ### OPTIMIZE
@@ -426,7 +438,7 @@ Mark performance improvements:
 
 ```wfl
 // OPTIMIZE: This could be cached
-store expensive result as complex calculation()
+store expensive result as 42
 ```
 
 ## Example: Well-Commented Program
@@ -443,8 +455,8 @@ store expensive result as complex calculation()
 // ===================
 
 // Conversion formula: F = C × 9/5 + 32
-store celsius to fahrenheit multiplier as 9 divided by 5
-store celsius to fahrenheit offset as 32
+store c_to_f_multiplier as 9 divided by 5
+store c_to_f_offset as 32
 
 // ==================
 // === Functions ===
@@ -452,15 +464,15 @@ store celsius to fahrenheit offset as 32
 
 // Convert Celsius to Fahrenheit
 // Uses standard conversion formula
-define action called c to f with parameters celsius:
-    store fahrenheit as celsius times celsius to fahrenheit multiplier plus celsius to fahrenheit offset
+define action called c_to_f with parameters celsius:
+    store fahrenheit as (celsius times c_to_f_multiplier) plus c_to_f_offset
     return fahrenheit
 end action
 
 // Convert Fahrenheit to Celsius
 // Inverse of c_to_f formula
-define action called f to c with parameters fahrenheit:
-    store celsius as fahrenheit minus celsius to fahrenheit offset divided by celsius to fahrenheit multiplier
+define action called f_to_c with parameters fahrenheit:
+    store celsius as (fahrenheit minus c_to_f_offset) divided by c_to_f_multiplier
     return celsius
 end action
 
@@ -473,11 +485,11 @@ display ""
 
 // Test conversions
 store temp c as 25
-store temp f as c to f with temp c
+store temp f as c_to_f of temp c
 display temp c with "°C = " with temp f with "°F"
 
 store temp f2 as 77
-store temp c2 as f to c with temp f2
+store temp c2 as f_to_c of temp f2
 display temp f2 with "°F = " with temp c2 with "°C"
 
 // TODO: Add user input support
@@ -575,8 +587,13 @@ WFL's natural language syntax reduces the need for comments:
 // "Calculate total price including discount and tax"
 
 // WFL code explains itself:
+store item price as 20.00
+store quantity as 3
+store discount rate as 0.1
+store tax rate as 0.08
+
 store subtotal as item price times quantity
-store discounted as subtotal times 1 minus discount rate
+store discounted as subtotal times (1 minus discount rate)
 store tax as discounted times tax rate
 store total as discounted plus tax
 ```

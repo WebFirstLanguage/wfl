@@ -99,7 +99,7 @@ check if isnothing of match:
     display "No phone number found"
 otherwise:
     display "Found: " with match.matched_text
-    display "At position: " with match.start
+    display "At position: " with match["start"]
 end check
 ```
 
@@ -137,10 +137,10 @@ create pattern word:
 end pattern
 
 store text as "The quick brown fox"
-store matches as find all word in text
+store word_matches as pattern_find_all of text and word
 
-display "Found " with length of matches with " words:"
-for each match in matches:
+display "Found " with length of word_matches with " words:"
+for each match in word_matches:
     display "  - " with match.matched_text
 end for
 ```
@@ -229,7 +229,7 @@ display ""
 
 // Find all matches
 store sentence as "The quick brown fox jumps over the lazy dog"
-store word_matches as find all word in sentence
+store word_matches as pattern_find_all of sentence and word
 
 display "Words found: " with length of word_matches
 for each word_match in word_matches:
@@ -246,15 +246,15 @@ display "=== Demo Complete ==="
 
 ```wfl
 create pattern email:
-    one or more letter or digit or symbol from "._-"
+    one or more letter or digit
     followed by "@"
     followed by one or more letter or digit
     followed by "."
     followed by 2 to 4 letter
 end pattern
 
-define action called extract email with parameters text:
-    store match as find email in text
+define action called extract_email with parameters input_text:
+    store match as find email in input_text
     check if isnothing of match:
         return nothing
     otherwise:
@@ -263,7 +263,7 @@ define action called extract email with parameters text:
 end action
 
 store contact as "Contact Alice at alice@example.com for details"
-store email_addr as extract email with contact
+store email_addr as extract_email of contact
 display "Email: " with email_addr
 // Output: Email: alice@example.com
 ```
@@ -283,7 +283,7 @@ create pattern phone:
     exactly 3 digit then "-" then exactly 3 digit then "-" then exactly 4 digit
 end pattern
 
-define action called validate contact with parameters email_val and phone_val:
+define action called validate_contact with parameters email_val and phone_val:
     store email_ok as email_val matches email
     store phone_ok as phone_val matches phone
 
@@ -300,7 +300,7 @@ define action called validate contact with parameters email_val and phone_val:
     end check
 end action
 
-check if validate contact with "user@example.com" and "555-123-4567":
+check if validate_contact of "user@example.com" and "555-123-4567":
     display "Contact information is valid"
 end check
 ```

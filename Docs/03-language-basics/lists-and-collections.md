@@ -44,11 +44,11 @@ store <name> as [<value> and <value> and ...]
 Create an empty list:
 
 ```wfl
-create list items
+create list items:
 end list
 
-// Or (if literal syntax supports it):
-store items as []
+// Or with literal syntax:
+store blank values as []
 ```
 
 ## Accessing List Elements
@@ -92,9 +92,9 @@ Get the number of items in a list:
 
 ```wfl
 store numbers as [1 and 2 and 3 and 4 and 5]
-store size as length of numbers
+store total items as length of numbers
 
-display "List has " with size with " items"
+display "List has " with total items with " items"
 // Output: "List has 5 items"
 ```
 
@@ -129,7 +129,7 @@ create list stack:
     add "third"
 end list
 
-store last item as pop from stack
+store last item as pop of stack
 
 display "Popped: " with last item
 // Output: "Popped: third"
@@ -139,7 +139,7 @@ display "Popped: " with last item
 
 **Syntax:**
 ```wfl
-<variable> as pop from <list>
+store <variable> as pop of <list>
 ```
 
 ### Contains
@@ -236,7 +236,7 @@ Item 2: third
 ### Building a List
 
 ```wfl
-create list squares
+create list squares:
 end list
 
 count from 1 to 10:
@@ -253,11 +253,11 @@ display "Squares: " with squares
 ```wfl
 store all numbers as [1 and 2 and 3 and 4 and 5 and 6 and 7 and 8 and 9 and 10]
 
-create list even numbers
+create list even numbers:
 end list
 
 for each number in all numbers:
-    check if number modulo 2 is equal to 0:
+    check if (number % 2) is equal to 0:
         push with even numbers and number
     end check
 end for
@@ -271,7 +271,7 @@ display "Even numbers: " with even numbers
 ```wfl
 store celsius temps as [0 and 10 and 20 and 30 and 40]
 
-create list fahrenheit temps
+create list fahrenheit temps:
 end list
 
 for each celsius in celsius temps:
@@ -293,19 +293,19 @@ create list items:
     add "date"
 end list
 
-store search for as "cherry"
-store found at as -1
+store search value as "cherry"
+store match index as -1
 
 count from 0 to length of items minus 1:
-    check if items[count] is equal to search for:
-        change found at to count
+    check if items[count] is equal to search value:
+        change match index to count
     end check
 end count
 
-check if found at is greater than or equal to 0:
-    display "Found " with search for with " at index " with found at
+check if match index is greater than or equal to 0:
+    display "Found " with search value with " at index " with match index
 otherwise:
-    display search for with " not found"
+    display search value with " not found"
 end check
 ```
 
@@ -367,6 +367,8 @@ Row: [5, 6]
 
 **Accessing nested elements:**
 ```wfl
+store matrix as [[1 and 2] and [3 and 4] and [5 and 6]]
+
 store first row as matrix[0]       // [1, 2]
 store first element as first row[0] // 1
 
@@ -379,7 +381,7 @@ store first element as first row[0] // 1
 ### Shopping List
 
 ```wfl
-create list shopping list:
+create list shopping items:
     add "milk"
     add "eggs"
     add "bread"
@@ -389,12 +391,12 @@ end list
 display "=== Shopping List ==="
 store item number as 1
 
-for each item in shopping list:
+for each item in shopping items:
     display item number with ". " with item
     change item number to item number plus 1
 end for
 
-store total items as length of shopping list
+store total items as length of shopping items
 display ""
 display "Total items: " with total items
 ```
@@ -465,8 +467,8 @@ display "Highest score: " with max score
 store sentence as "the quick brown fox jumps over the lazy dog"
 store words as split of sentence by " "
 
-store word count as length of words
-display "Word count: " with word count
+store num words as length of words
+display "Word count: " with num words
 // Output: "Word count: 9"
 
 display "Words:"
@@ -480,7 +482,7 @@ end for
 ```wfl
 store all items as ["apple" and "banana" and "apple" and "cherry" and "banana"]
 
-create list unique items
+create list unique items:
 end list
 
 for each item in all items:
@@ -496,23 +498,23 @@ display "Unique items: " with unique items
 ### Statistics Calculator
 
 ```wfl
-store data as [10 and 15 and 20 and 25 and 30]
+store numbers as [10 and 15 and 20 and 25 and 30]
 
 // Calculate sum
 store sum as 0
-for each value in data:
+for each value in numbers:
     change sum to sum plus value
 end for
 
 // Calculate average
-store count as length of data
-store average as sum divided by count
+store quantity as length of numbers
+store average as sum divided by quantity
 
 // Find min and max
-store min as data[0]
-store max as data[0]
+store min as numbers[0]
+store max as numbers[0]
 
-for each value in data:
+for each value in numbers:
     check if value is less than min:
         change min to value
     end check
@@ -549,6 +551,7 @@ store first as items[1]  // This gets "second", not "first"!
 
 **Right:**
 ```wfl
+store items as ["first" and "second" and "third"]
 store first as items[0]  // Index 0 is the first item
 ```
 
@@ -562,8 +565,9 @@ store item as items[10]  // ERROR: Index out of bounds!
 
 **Safe:**
 ```wfl
-store size as length of items
-check if 10 is less than size:
+store items as ["a" and "b" and "c"]
+store total items as length of items
+check if 10 is less than total items:
     store item as items[10]
 otherwise:
     display "Index too large"
@@ -592,16 +596,19 @@ end list
 
 **Dangerous:**
 ```wfl
-create list empty
+create list blank stack:
 end list
 
-store item as pop from empty  // ERROR: Cannot pop from empty list
+store item as pop of blank stack  // ERROR: Cannot pop from empty list
 ```
 
 **Safe:**
 ```wfl
-check if length of empty is greater than 0:
-    store item as pop from empty
+create list blank stack:
+end list
+
+check if length of blank stack is greater than 0:
+    store item as pop of blank stack
 otherwise:
     display "List is empty"
 end check

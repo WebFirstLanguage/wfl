@@ -25,11 +25,12 @@ store total_count as 0
 ```wfl
 store user name as "Alice"
 store account balance as 1000.00
-store is verified as yes
-store total count as 0
+store account verified as yes
+store item total as 0
 ```
 
-Both work. **Be consistent within a project.**
+Both work. **Be consistent within a project.** (Avoid reserved words like
+`is` or `count` inside a spaced name — pick wording that doesn't collide.)
 
 ### Descriptive Over Cryptic
 
@@ -63,25 +64,52 @@ store rc as 3
 
 ```wfl
 define action called calculate_total with parameters items:
+    return items
+end action
+
 define action called validate_email with parameters address:
+    return yes
+end action
+
 define action called send_notification with parameters user:
-define action called format_date with parameters date:
+    display "notifying " with user
+end action
+
+define action called format_order_date with parameters date_value:
+    return date_value
+end action
 ```
 
 ### Be Specific
 
 **Good:**
 ```wfl
-define action called calculate_discount_for_member
-define action called send_welcome_email
-define action called validate_credit_card
+define action called calculate_discount_for_member:
+    display "calculating member discount"
+end action
+
+define action called send_welcome_email:
+    display "sending welcome email"
+end action
+
+define action called validate_credit_card:
+    display "validating credit card"
+end action
 ```
 
 **Poor:**
 ```wfl
-define action called calc
-define action called process
-define action called do_stuff
+define action called calc:
+    display "vague name"
+end action
+
+define action called proc:
+    display "vague name"
+end action
+
+define action called do_stuff:
+    display "vague name"
+end action
 ```
 
 ## Container Names
@@ -90,17 +118,29 @@ define action called do_stuff
 
 ```wfl
 create container Person:
+end
+
 create container ShoppingCart:
+end
+
 create container EmailValidator:
+end
+
 create container DatabaseConnection:
+end
 ```
 
 ### Singular Nouns
 
 ```wfl
 create container User:        // Not Users
+end
+
 create container Product:     // Not Products
+end
+
 create container Order:       // Not Orders
+end
 ```
 
 ## Constants
@@ -134,10 +174,17 @@ store should_retry as no
 ### Use Plural Nouns
 
 ```wfl
-create list users
-create list products
-create list error_messages
-create list pending_tasks
+create list users:
+end list
+
+create list products:
+end list
+
+create list error_messages:
+end list
+
+create list pending_tasks:
+end list
 ```
 
 ## File and Path Names
@@ -156,9 +203,22 @@ store log_file as "application.log"
 
 ```wfl
 create pattern email_address:
+    one or more letter or digit
+    followed by "@"
+    one or more letter or digit
+end pattern
+
 create pattern us_phone_number:
+    one or more digit
+end pattern
+
 create pattern credit_card_number:
+    one or more digit
+end pattern
+
 create pattern iso_date_format:
+    one or more digit
+end pattern
 ```
 
 ## Examples
@@ -180,7 +240,7 @@ define action called calculate_loyalty_discount with parameters purchase_amount:
     end check
 end action
 
-store discounted_total as calculate_loyalty_discount with 100.00
+store discounted_total as calculate_loyalty_discount of 100.00
 display "Total after discount: $" with discounted_total
 ```
 
@@ -201,7 +261,7 @@ define action called calc_d with parameters amt:
     end check
 end action
 
-store dt as calc_d with 100.00
+store dt as calc_d of 100.00
 display "Total: $" with dt
 ```
 

@@ -22,14 +22,31 @@ const students = data.filter(s => s.grade >= 90)
 
 ### The Same Logic in WFL
 ```wfl
-create list honor students
+create container Student:
+    property name: Text
+    property grade: Number
+end
+
+create new Student as alice:
+    name is "Alice"
+    grade is 95
+end
+create new Student as bob:
+    name is "Bob"
+    grade is 82
+end
+
+store students as [alice, bob]
+create list honor students:
 end list
 
-for each student in data:
-    check if student grade is greater than or equal to 90:
-        push with honor students and student name
+for each student in students:
+    check if student.grade is greater than or equal to 90:
+        push with honor students and student.name
     end check
 end for
+
+display honor students
 ```
 
 **Any English reader can understand this.** No symbols to decode. No syntax to memorize. Just natural language.
@@ -71,8 +88,12 @@ if (user.age >= 18 && user.verified && !user.banned) {
 
 **WFL:**
 ```wfl
-check if user age is greater than or equal to 18 and user is verified and user is not banned:
-    grant access to user
+store user_age as 25
+store user_verified as yes
+store user_banned as no
+
+check if user_age is greater than or equal to 18 and user_verified is yes and user_banned is no:
+    display "Access granted"
 end check
 ```
 
@@ -92,15 +113,19 @@ function calc(c, a) {
 
 **WFL approach:**
 ```wfl
-define action called calculate discount with parameters customer and amount:
-    check if customer tier is "gold":
+define action called calculate discount with parameters customer_tier and amount:
+    check if customer_tier is "gold":
         return amount times 0.8
-    check if customer tier is "silver":
-        return amount times 0.9
     otherwise:
-        return amount
+        check if customer_tier is "silver":
+            return amount times 0.9
+        otherwise:
+            return amount
+        end check
     end check
 end action
+
+display calculate discount of "gold" and 100
 ```
 
 **No comments needed.** The code explains itself.
@@ -149,10 +174,10 @@ WFL catches these mistakes **before** your code runs.
 **WFL:** Built-in web server, no setup required
 
 ```wfl
-listen on port 8080 as server
+listen on port 8080 as web_server
 
-wait for request on server as req
-respond to req with "Hello, Web!"
+wait for request comes in on web_server as incoming_request
+respond to incoming_request with "Hello, Web!"
 ```
 
 **That's it.** A working web server in 4 lines.
@@ -266,14 +291,17 @@ You build side projects and want to ship fast.
 Built-in HTTP server, routing, and middleware.
 
 ```wfl
-listen on port 8080 as api
+listen on port 8090 as api
 
-wait for request on api as req
+wait for request comes in on api as incoming_request
+store request_path as path of incoming_request
 
-check if path is "/users":
-    respond to req with user list as JSON
-check if path is "/health":
-    respond to req with "OK"
+check if request_path is equal to "/users":
+    respond to incoming_request with "{\"users\": [\"Alice\", \"Bob\"]}" and content_type "application/json"
+otherwise:
+    check if request_path is equal to "/health":
+        respond to incoming_request with "OK"
+    end check
 end check
 ```
 
@@ -282,11 +310,15 @@ end check
 Clear, maintainable scripts for repetitive tasks.
 
 ```wfl
-list files in "logs" as log files
+store logs_dir as "logs"
+create directory at logs_dir
 
-for each log file in log files:
-    check if file size of log file is greater than 10000000:
-        display "Large log found: " with log file
+wait for store log_files as list files in logs_dir
+
+for each log_file in log_files:
+    store log_path as logs_dir with "/" with log_file
+    check if file size of log_path is greater than 10000000:
+        display "Large log found: " with log_path
         // Archive or delete
     end check
 end for
@@ -297,14 +329,20 @@ end for
 Process files, transform data, generate reports.
 
 ```wfl
-open file at "data.csv" for reading as file
-store lines as read content from file
-close file
+open file at "data.csv" for writing as writer
+wait for write content "temp: 20\nERROR: sensor fault\ntemp: 21" into writer
+close file writer
 
-for each line in lines:
+open file at "data.csv" for reading as data_file
+wait for store file_content as read content from data_file
+close file data_file
+
+store data_lines as split file_content by "\n"
+
+for each data_line in data_lines:
     // Process data
-    check if contains of line and "ERROR":
-        display "Found error: " with line
+    check if data_line contains "ERROR":
+        display "Found error: " with data_line
     end check
 end for
 ```
@@ -426,9 +464,25 @@ display "Hello, World!"
 You shouldn't waste time deciphering what code does:
 ```wfl
 // Six months later, you'll still understand this:
-for each customer in high value customers:
-    check if customer subscription expires within 7 days:
-        send renewal reminder to customer
+create container Customer:
+    property name: Text
+    property days_until_renewal: Number
+end
+
+create new Customer as ada:
+    name is "Ada"
+    days_until_renewal is 3
+end
+create new Customer as grace:
+    name is "Grace"
+    days_until_renewal is 30
+end
+
+store high_value_customers as [ada, grace]
+
+for each customer in high_value_customers:
+    check if customer.days_until_renewal is less than or equal to 7:
+        display "Send renewal reminder to " with customer.name
     end check
 end for
 ```
@@ -437,15 +491,18 @@ end for
 
 Your team shouldn't need a decoder ring to review code:
 ```wfl
-define action called process_payment with parameters amount and customer:
-    check if customer balance is greater than or equal to amount:
-        subtract amount from customer balance
-        create receipt for customer
-        return success
+define action called process_payment with parameters amount and balance:
+    check if balance is greater than or equal to amount:
+        store remaining as balance minus amount
+        display "Payment processed. Remaining balance: " with remaining
+        return "success"
     otherwise:
-        return insufficient funds
+        return "insufficient funds"
     end check
 end action
+
+display process_payment of 50 and 100
+display process_payment of 150 and 100
 ```
 
 ## The Investment
@@ -531,8 +588,10 @@ Programming languages are for **humans to read**, not just computers to execute.
 
 ```wfl
 // This is WFL:
-for each idea in great ideas:
-    turn idea into reality
+store great_ideas as ["a natural language", "readable code", "happy developers"]
+
+for each idea in great_ideas:
+    display "Turning idea into reality: " with idea
 end for
 ```
 

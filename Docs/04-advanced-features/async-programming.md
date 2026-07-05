@@ -13,9 +13,15 @@ WFL supports asynchronous operations using natural language syntax. Handle multi
 WFL uses `wait for` for async operations:
 
 ```wfl
-wait for file operation completes
-wait for store content as read content from file
-wait for write content "data" into file
+// Wait for an async write to finish
+open file at "notes.txt" for writing as notes_file
+wait for write content "data" into notes_file
+close file notes_file
+
+// Wait for an async read to finish
+open file at "notes.txt" for reading as notes_reader
+wait for store file_content as read content from notes_reader
+close file notes_reader
 ```
 
 **Syntax:**
@@ -30,6 +36,14 @@ This tells WFL: "This operation might take time, handle it asynchronously."
 ### Without Async (Blocking)
 
 ```wfl
+// Prepare two sample files
+open file at "file1.txt" for writing as setup1
+wait for write content "first file" into setup1
+close file setup1
+open file at "file2.txt" for writing as setup2
+wait for write content "second file" into setup2
+close file setup2
+
 // Each operation waits for the previous one
 open file at "file1.txt" for reading as file1
 store content1 as read content from file1  // Blocks here
@@ -45,12 +59,22 @@ close file file2
 ### With Async (Non-Blocking)
 
 ```wfl
+// Prepare two sample files
+open file at "file1.txt" for writing as setup1
+wait for write content "first file" into setup1
+close file setup1
+open file at "file2.txt" for writing as setup2
+wait for write content "second file" into setup2
+close file setup2
+
 // Operations can overlap
 open file at "file1.txt" for reading as file1
 wait for store content1 as read content from file1  // Doesn't block
+close file file1
 
 open file at "file2.txt" for reading as file2
 wait for store content2 as read content from file2  // Can run concurrently
+close file file2
 
 // Total time: ~max(Time1, Time2)
 ```
@@ -60,25 +84,28 @@ wait for store content2 as read content from file2  // Can run concurrently
 ### File I/O
 
 ```wfl
-// Async file read
-open file at "data.txt" for reading as file
-wait for store content as read content from file
-close file file
-display "File read complete"
-
 // Async file write
-open file at "output.txt" for writing as file
-wait for write content "async data" into file
-close file file
+open file at "output.txt" for writing as out_file
+wait for write content "async data" into out_file
+close file out_file
 display "File write complete"
+
+// Async file read
+open file at "output.txt" for reading as in_file
+wait for store file_content as read content from in_file
+close file in_file
+display "File read complete"
 ```
 
 ### Web Requests
 
 ```wfl
-// Async HTTP request
-wait for request comes in on server as req
-respond to req with "Response"
+listen on port 8080 as web_server
+
+// Async request handling: wait for a request without blocking other work
+wait for request comes in on web_server as incoming
+
+respond to incoming with "Response" and content_type "text/plain"
 ```
 
 ### Directory Listing
@@ -93,10 +120,15 @@ display "File listing complete"
 Store results from async operations:
 
 ```wfl
+// Prepare a data file
+open file at "data.txt" for writing as writer
+wait for write content "important data" into writer
+close file writer
+
 // Read file asynchronously
-open file at "data.txt" for reading as file
-wait for store file_content as read content from file
-close file file
+open file at "data.txt" for reading as reader
+wait for store file_content as read content from reader
+close file reader
 
 // Use the result
 display "Content: " with file_content
@@ -107,14 +139,21 @@ display "Content: " with file_content
 Always use try-catch with async operations:
 
 ```wfl
+store file_handle as nothing
 try:
-    open file at "data.txt" for reading as file
-    wait for store content as read content from file
-    close file file
-    display "Success: " with content
-catch:
-    display "Error reading file"
+    open file at "data.txt" for reading as data_file
+    change file_handle to data_file
+    wait for store file_content as read content from data_file
+    display "Success: " with file_content
+when error:
+    display "Error reading file: " with error_message
 end try
+
+// Cleanup runs even if the read failed. A variable defined inside `try`
+// is not visible after `end try`, so we track the handle in an outer variable.
+check if file_handle is not nothing:
+    close file file_handle
+end check
 ```
 
 ## Async in Web Servers
@@ -122,19 +161,19 @@ end try
 Web servers naturally use async operations:
 
 ```wfl
-listen on port 8080 as server
+listen on port 8081 as web_server
 
 // This waits asynchronously for requests
-wait for request comes in on server as req
+wait for request comes in on web_server as incoming
 
 // Handle request (potentially with more async operations)
 try:
-    open file at "data.txt" for reading as file
-    wait for store content as read content from file
-    close file file
-    respond to req with content
+    open file at "data.txt" for reading as data_file
+    wait for store file_content as read content from data_file
+    close file data_file
+    respond to incoming with file_content and content_type "text/plain"
 catch:
-    respond to req with "Error" and status 500
+    respond to incoming with "Error" and status 500 and content_type "text/plain"
 end try
 ```
 
@@ -146,13 +185,17 @@ Operations run one after another:
 
 ```wfl
 // Operation 1
-wait for store result1 as async_operation1()
+open file at "step1.txt" for writing as step_file
+wait for write content "first result" into step_file
+close file step_file
 
 // Operation 2 (waits for 1 to finish)
-wait for store result2 as async_operation2()
+open file at "step1.txt" for reading as step_read
+wait for store result1 as read content from step_read
+close file step_read
 
 // Operation 3 (waits for 2 to finish)
-wait for store result3 as async_operation3()
+wait for store result2 as list files in "."
 
 display "All operations complete"
 ```
@@ -172,47 +215,70 @@ wait for all operations complete as results
 ### Async File Processing
 
 ```wfl
-define action called process file with parameters filename:
+define action called handle_file with parameters filename:
+    // Track handles in outer variables so cleanup can run after `end try`
+    // (a variable defined inside `try` is not visible after it).
+    store in_handle as nothing
+    store out_handle as nothing
+    store result as no
     try:
-        open file at filename for reading as file
-        wait for store content as read content from file
-        close file file
+        open file at filename for reading as in_file
+        change in_handle to in_file
+        wait for store file_content as read content from in_file
 
         // Process content
-        store processed as touppercase of content
+        store processed as touppercase of file_content
 
         store output_name as filename with ".processed"
-        open file at output_name for writing as outfile
-        wait for write content processed into outfile
-        close file outfile
+        open file at output_name for writing as out_file
+        change out_handle to out_file
+        wait for write content processed into out_file
 
         display "Processed: " with filename
-        return yes
-    catch:
-        display "Error processing: " with filename
-        return no
+        change result to yes
+    when error:
+        display "Error processing: " with filename with ": " with error_message
+        change result to no
     end try
+
+    // Always close whatever we managed to open, even on failure
+    check if in_handle is not nothing:
+        close file in_handle
+    end check
+    check if out_handle is not nothing:
+        close file out_handle
+    end check
+    return result
 end action
 
-wait for store files as list files in "input"
-for each filename in files:
-    call process file with filename
+// Prepare an input directory with a sample file
+makedirs "input"
+open file at "input/sample.txt" for writing as seed_file
+wait for write content "hello" into seed_file
+close file seed_file
+
+wait for store input_files as list files in "input"
+for each name in input_files:
+    store file_path as "input/" with name
+    call handle_file with file_path
 end for
 ```
 
 ### Async Request Handler
 
 ```wfl
-listen on port 8080 as server
+listen on port 8082 as web_server
 
-wait for request comes in on server as req
+wait for request comes in on web_server as incoming
 
-// Async database query (conceptual)
-wait for store data as query database with "SELECT * FROM users"
+// Async data lookup (here: read the users from a data file)
+open file at "users.txt" for reading as data_file
+wait for store user_data as read content from data_file
+close file data_file
 
-// Build response with data
-store response as "Users: " with data
-respond to req with response
+// Build response with the data
+store reply as "Users: " with user_data
+respond to incoming with reply and content_type "text/plain"
 ```
 
 ## Best Practices

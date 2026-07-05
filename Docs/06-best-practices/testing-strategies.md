@@ -17,10 +17,15 @@ Testing ensures your WFL code works correctly. This guide covers testing approac
 
 ### Example
 
-**1. Write test (test_calculator.wfl):**
+**1. Write a failing test (test_calculator.wfl):**
 ```wfl
+// The implementation is just a stub for now — it returns the wrong value
+define action called add_numbers with parameters x and y:
+    return 0
+end action
+
 define action called test_addition:
-    store result as add with 2 and 3
+    store result as add_numbers of 2 and 3
     check if result is equal to 5:
         display "✓ Addition test passed"
     otherwise:
@@ -31,11 +36,11 @@ end action
 call test_addition
 ```
 
-**2. Run (fails because `add` doesn't exist)**
+**2. Run (fails — the stub returns 0, not 5)**
 
-**3. Implement:**
+**3. Implement `add_numbers` correctly:**
 ```wfl
-define action called add with parameters x and y:
+define action called add_numbers with parameters x and y:
     return x plus y
 end action
 ```
@@ -79,9 +84,20 @@ define action called assert_equals with parameters actual and expected and messa
     end check
 end action
 
-// Use it
-call assert_equals with add(2, 3) and 5 and "Addition works"
-call assert_equals with multiply(4, 5) and 20 and "Multiplication works"
+// Define the actions we want to test
+define action called add_numbers with parameters x and y:
+    return x plus y
+end action
+
+define action called multiply_numbers with parameters x and y:
+    return x times y
+end action
+
+// Use it (compute the value first, then assert on it)
+store sum_result as add_numbers of 2 and 3
+call assert_equals with sum_result and 5 and "Addition works"
+store product_result as multiply_numbers of 4 and 5
+call assert_equals with product_result and 20 and "Multiplication works"
 ```
 
 ### Pattern 2: Error Testing
@@ -96,7 +112,7 @@ store error_caught as no
 try:
     store result as 10 divided by 0
     display "✗ Should have thrown error"
-catch:
+when error:
     change error_caught to yes
 end try
 
@@ -112,11 +128,33 @@ end check
 **Test boundaries:**
 
 ```wfl
+define action called assert_equals with parameters actual and expected and message:
+    check if actual is equal to expected:
+        display "✓ " with message
+        return yes
+    otherwise:
+        display "✗ " with message
+        return no
+    end check
+end action
+
+define action called validate_age with parameters age:
+    check if age is greater than or equal to 0 and age is less than or equal to 120:
+        return yes
+    otherwise:
+        return no
+    end check
+end action
+
 // Test edge cases for age validation
-call assert_equals with validate_age(-1) and no and "Negative age rejected"
-call assert_equals with validate_age(0) and yes and "Zero age accepted"
-call assert_equals with validate_age(120) and yes and "Maximum age accepted"
-call assert_equals with validate_age(121) and no and "Over maximum rejected"
+store age_neg as validate_age of -1
+call assert_equals with age_neg and no and "Negative age rejected"
+store age_zero as validate_age of 0
+call assert_equals with age_zero and yes and "Zero age accepted"
+store age_max as validate_age of 120
+call assert_equals with age_max and yes and "Maximum age accepted"
+store age_over as validate_age of 121
+call assert_equals with age_over and no and "Over maximum rejected"
 ```
 
 ### Pattern 4: Integration Testing
@@ -124,27 +162,55 @@ call assert_equals with validate_age(121) and no and "Over maximum rejected"
 **Test multiple components together:**
 
 ```wfl
+// The components under test (defined here so the example runs standalone)
+define action called create_user with parameters email and password:
+    return email
+end action
+
+define action called validate_user with parameters user:
+    check if user is not nothing:
+        return yes
+    otherwise:
+        return no
+    end check
+end action
+
+define action called save_user_to_file with parameters user and filename:
+    open file at filename for writing as f
+    wait for write content user into f
+    close file f
+    return yes
+end action
+
+define action called load_user_from_file with parameters filename:
+    open file at filename for reading as f
+    wait for store user_data as read content from f
+    close file f
+    return user_data
+end action
+
 display "=== Integration Test: User Registration ==="
 
 // Create user
-store user as create_user with "alice@example.com" and "password123"
+store user as create_user of "alice@example.com" and "password123"
 check if user is not nothing:
     display "✓ User created"
 end check
 
 // Validate user
-check if validate_user with user:
+store is_valid as validate_user of user
+check if is_valid is yes:
     display "✓ User validated"
 end check
 
 // Save user
-store saved as save_user_to_file with user and "users.txt"
+store saved as save_user_to_file of user and "users.txt"
 check if saved is yes:
     display "✓ User saved"
 end check
 
 // Load user
-store loaded as load_user_from_file with "users.txt"
+store loaded as load_user_from_file of "users.txt"
 check if loaded is not nothing:
     display "✓ User loaded"
 end check
@@ -163,22 +229,22 @@ try:
     wait for write content "test data" into testfile
     close file testfile
     display "✓ File write works"
-catch:
+when error:
     display "✗ File write failed"
 end try
 
 // Test read
 try:
     open file at "test_file.txt" for reading as testfile
-    wait for store content as read content from testfile
+    wait for store file_content as read content from testfile
     close file testfile
 
-    check if content is equal to "test data":
+    check if file_content is equal to "test data":
         display "✓ File read works"
     otherwise:
         display "✗ File content mismatch"
     end check
-catch:
+when error:
     display "✗ File read failed"
 end try
 
@@ -189,17 +255,31 @@ remove_file at "test_file.txt"
 ## Testing Actions
 
 ```wfl
-define action called add with parameters x and y:
+define action called assert_equals with parameters actual and expected and message:
+    check if actual is equal to expected:
+        display "✓ " with message
+        return yes
+    otherwise:
+        display "✗ " with message
+        return no
+    end check
+end action
+
+define action called add_numbers with parameters x and y:
     return x plus y
 end action
 
 // Test suite
-display "Testing add action..."
+display "Testing add_numbers action..."
 
-call assert_equals with add(2, 3) and 5 and "2 + 3 = 5"
-call assert_equals with add(0, 0) and 0 and "0 + 0 = 0"
-call assert_equals with add(-5, 5) and 0 and "-5 + 5 = 0"
-call assert_equals with add(100, 200) and 300 and "100 + 200 = 300"
+store t1 as add_numbers of 2 and 3
+call assert_equals with t1 and 5 and "2 + 3 = 5"
+store t2 as add_numbers of 0 and 0
+call assert_equals with t2 and 0 and "0 + 0 = 0"
+store t3 as add_numbers of -5 and 5
+call assert_equals with t3 and 0 and "-5 + 5 = 0"
+store t4 as add_numbers of 100 and 200
+call assert_equals with t4 and 300 and "100 + 200 = 300"
 
 display "Add action tests complete"
 ```

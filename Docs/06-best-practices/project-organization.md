@@ -47,9 +47,17 @@ app.wfl               # Everything in one file (thousands of lines)
 
 **Good:**
 ```wfl
-define action called validate_email
-define action called send_email
-define action called log_email_sent
+define action called validate_email with parameters email:
+    // validation logic only
+end action
+
+define action called send_email with parameters email:
+    // sending logic only
+end action
+
+define action called log_email_sent with parameters email:
+    // logging logic only
+end action
 ```
 
 **Poor:**
@@ -81,10 +89,17 @@ TIMEOUT=30
 
 **Load in code:**
 ```wfl
-open file at "config.txt" for reading as configfile
+// In a real project data/config.txt already exists; we create it here so the example runs.
+create directory at "data"
+open file at "data/config.txt" for writing as setupfile
+wait for write content "PORT=8080" into setupfile
+close file setupfile
+
+open file at "data/config.txt" for reading as configfile
 wait for store config_data as read content from configfile
 close file configfile
 // Parse config_data
+display config_data
 ```
 
 ## Modular Actions
@@ -94,9 +109,10 @@ close file configfile
 ```wfl
 // utils.wfl
 define action called log_message with parameters message:
+    create directory at "logs"
     open file at "logs/app.log" for appending as logfile
-    store timestamp as current time in milliseconds
-    wait for append content timestamp with ": " with message with "\n" into logfile
+    store log_time as current time in milliseconds
+    wait for append content "[" with log_time with "] " with message with "\n" into logfile
     close file logfile
 end action
 
@@ -106,7 +122,8 @@ end action
 
 // Use in main.wfl:
 call log_message with "Application started"
-store price_display as format_currency with 19.99
+store price_display as format_currency of 19.99
+display price_display
 ```
 
 ## Container Organization

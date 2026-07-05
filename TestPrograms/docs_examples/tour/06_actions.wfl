@@ -1,0 +1,11 @@
+// 06 - Actions (functions). Call value-returning actions with `of`.
+define action called area with parameters width and height:
+    return width times height
+end action
+
+define action called greet with parameters who:
+    display "Hello, " with who with "!"
+end action
+
+display "Area 4x5 = " with area of 4 and 5
+call greet with "world"

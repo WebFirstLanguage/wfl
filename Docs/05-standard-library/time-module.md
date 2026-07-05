@@ -55,8 +55,8 @@ datetime_now
 
 **Example:**
 ```wfl
-store current as datetime_now
-display "Current datetime: " with current
+store current_dt as datetime_now
+display "Current datetime: " with current_dt
 ```
 
 ---
@@ -182,8 +182,8 @@ dayofweek of <date>
 
 **Example:**
 ```wfl
-store date as create_date of 2026 and 1 and 9
-store dow as dayofweek of date
+store the_date as create_date of 2026 and 1 and 9
+store dow as dayofweek of the_date
 display "Day of week: " with dow
 ```
 
@@ -206,11 +206,11 @@ second of <time>
 
 **Example:**
 ```wfl
-store time as create_time of 14 and 45 and 30
+store the_time as create_time of 14 and 45 and 30
 
-display "Hour: " with hour of time        // 14
-display "Minute: " with minute of time    // 45
-display "Second: " with second of time    // 30
+display "Hour: " with hour of the_time        // 14
+display "Minute: " with minute of the_time    // 45
+display "Second: " with second of the_time    // 30
 ```
 
 ---
@@ -285,10 +285,10 @@ days_between of <date1> and <date2>
 
 **Example:**
 ```wfl
-store start as create_date of 2026 and 1 and 1
-store end as create_date of 2026 and 1 and 31
+store start_date as create_date of 2026 and 1 and 1
+store end_date as create_date of 2026 and 1 and 31
 
-store diff as days_between of start and end
+store diff as days_between of start_date and end_date
 display "Days in January: " with diff
 // Output: Days in January: 30
 ```
@@ -312,19 +312,19 @@ format_date of <date> and <format_string>
 
 **Returns:** Text - Formatted date string
 
-**Format patterns:**
-- `YYYY` - 4-digit year
-- `MM` - 2-digit month
-- `DD` - 2-digit day
+**Format patterns:** (strftime-style specifiers)
+- `%Y` - 4-digit year
+- `%m` - 2-digit month
+- `%d` - 2-digit day
 
 **Example:**
 ```wfl
-store date as create_date of 2026 and 1 and 9
+store the_date as create_date of 2026 and 1 and 9
 
-display format_date of date and "YYYY-MM-DD"
+display format_date of the_date and "%Y-%m-%d"
 // Output: 2026-01-09
 
-display format_date of date and "MM/DD/YYYY"
+display format_date of the_date and "%m/%d/%Y"
 // Output: 01/09/2026
 ```
 
@@ -345,19 +345,19 @@ format_time of <time> and <format_string>
 
 **Returns:** Text - Formatted time string
 
-**Format patterns:**
-- `HH` - 2-digit hour (24-hour)
-- `mm` - 2-digit minute
-- `ss` - 2-digit second
+**Format patterns:** (strftime-style specifiers)
+- `%H` - 2-digit hour (24-hour)
+- `%M` - 2-digit minute
+- `%S` - 2-digit second
 
 **Example:**
 ```wfl
-store time as create_time of 14 and 30 and 45
+store the_time as create_time of 14 and 30 and 45
 
-display format_time of time and "HH:mm:ss"
+display format_time of the_time and "%H:%M:%S"
 // Output: 14:30:45
 
-display format_time of time and "HH:mm"
+display format_time of the_time and "%H:%M"
 // Output: 14:30
 ```
 
@@ -382,7 +382,7 @@ format_datetime of <datetime> and <format_string>
 ```wfl
 store dt as create_datetime of 2026 and 1 and 9 and 14 and 30 and 0
 
-display format_datetime of dt and "YYYY-MM-DD HH:mm:ss"
+display format_datetime of dt and "%Y-%m-%d %H:%M:%S"
 // Output: 2026-01-09 14:30:00
 ```
 
@@ -446,7 +446,7 @@ define action called calculate age with parameters birth_year:
     return age
 end action
 
-store age as calculate age with 1995
+store age as calculate age of 1995
 display "Age: " with age
 ```
 
@@ -463,13 +463,13 @@ display "Days until Christmas: " with days_until
 ### Timestamp Logging
 
 ```wfl
-define action called log with timestamp with parameters message:
+define action called log timestamped with parameters message:
     store ts as current time in milliseconds
     display ts with ": " with message
 end action
 
-call log with timestamp with "Application started"
-call log with timestamp with "Processing complete"
+call log timestamped with "Application started"
+call log timestamped with "Processing complete"
 ```
 
 ## Best Practices

@@ -7,7 +7,11 @@
   "patternProperties": {
     "^[a-zA-Z0-9_/-]+\\.wfl$": {
       "type": "object",
-      "required": ["doc_section", "type", "validate_layers"],
+      "required": [
+        "doc_section",
+        "type",
+        "validate_layers"
+      ],
       "properties": {
         "doc_section": {
           "type": "string",
@@ -16,13 +20,20 @@
         "doc_line_range": {
           "type": "array",
           "description": "Optional line range in the documentation where this example appears [start_line, end_line]",
-          "items": {"type": "integer"},
+          "items": {
+            "type": "integer"
+          },
           "minItems": 2,
           "maxItems": 2
         },
         "type": {
           "type": "string",
-          "enum": ["executable", "snippet", "error_example", "interactive"],
+          "enum": [
+            "executable",
+            "snippet",
+            "error_example",
+            "interactive"
+          ],
           "description": "Type of example: executable (full program), snippet (partial code), error_example (intentional error), interactive (requires user interaction)"
         },
         "validate_layers": {
@@ -65,7 +76,9 @@
         "tags": {
           "type": "array",
           "description": "Categorization tags (e.g., 'beginner', 'variables', 'web-server')",
-          "items": {"type": "string"}
+          "items": {
+            "type": "string"
+          }
         },
         "content_hash": {
           "type": "string",
@@ -79,7 +92,12 @@
         },
         "validation_result": {
           "type": "string",
-          "enum": ["pass", "fail", "skip", "pending"],
+          "enum": [
+            "pass",
+            "fail",
+            "skip",
+            "pending"
+          ],
           "description": "Result of last validation run"
         },
         "doc_purpose": {
@@ -94,10 +112,17 @@
       "allOf": [
         {
           "if": {
-            "properties": {"type": {"const": "error_example"}}
+            "properties": {
+              "type": {
+                "const": "error_example"
+              }
+            }
           },
           "then": {
-            "required": ["expected_failure_layer", "expected_error_pattern"]
+            "required": [
+              "expected_failure_layer",
+              "expected_error_pattern"
+            ]
           }
         }
       ]
@@ -107,49 +132,255 @@
   "docs_examples/basic_syntax/hello_world.wfl": {
     "doc_section": "Docs/02-getting-started/hello-world.md",
     "type": "executable",
-    "validate_layers": [1, 2, 3, 4, 5],
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
     "expected_exit_code": 0,
-    "tags": ["beginner", "getting-started", "hello-world"],
+    "tags": [
+      "beginner",
+      "getting-started",
+      "hello-world"
+    ],
     "doc_purpose": "Demonstrates the simplest WFL program"
   },
   "docs_examples/basic_syntax/variables_01.wfl": {
     "doc_section": "Docs/03-language-basics/variables-and-types.md",
     "type": "executable",
-    "validate_layers": [1, 2, 3, 4, 5],
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
     "expected_exit_code": 0,
-    "tags": ["beginner", "variables", "types", "typeof"],
+    "tags": [
+      "beginner",
+      "variables",
+      "types",
+      "typeof"
+    ],
     "doc_purpose": "Demonstrates variable declaration and type inference"
   },
   "docs_examples/basic_syntax/operators_01.wfl": {
     "doc_section": "Docs/03-language-basics/operators-and-expressions.md",
     "type": "executable",
-    "validate_layers": [1, 2, 3, 4, 5],
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
     "expected_exit_code": 0,
-    "tags": ["beginner", "operators", "arithmetic"],
+    "tags": [
+      "beginner",
+      "operators",
+      "arithmetic"
+    ],
     "doc_purpose": "Demonstrates arithmetic operators"
   },
   "docs_examples/basic_syntax/control_flow_01.wfl": {
     "doc_section": "Docs/03-language-basics/control-flow.md",
     "type": "executable",
-    "validate_layers": [1, 2, 3, 4, 5],
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
     "expected_exit_code": 0,
-    "tags": ["beginner", "conditionals", "control-flow"],
+    "tags": [
+      "beginner",
+      "conditionals",
+      "control-flow"
+    ],
     "doc_purpose": "Demonstrates conditional statements"
   },
   "docs_examples/basic_syntax/loops_01.wfl": {
     "doc_section": "Docs/03-language-basics/loops-and-iteration.md",
     "type": "executable",
-    "validate_layers": [1, 2, 3, 4, 5],
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
     "expected_exit_code": 0,
-    "tags": ["beginner", "loops", "count"],
+    "tags": [
+      "beginner",
+      "loops",
+      "count"
+    ],
     "doc_purpose": "Demonstrates count loops"
   },
   "docs_examples/basic_syntax/for_each_01.wfl": {
     "doc_section": "Docs/03-language-basics/loops-and-iteration.md",
     "type": "executable",
-    "validate_layers": [1, 2, 3, 4, 5],
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
     "expected_exit_code": 0,
-    "tags": ["beginner", "loops", "for-each", "lists"],
+    "tags": [
+      "beginner",
+      "loops",
+      "for-each",
+      "lists"
+    ],
     "doc_purpose": "Demonstrates for each loops"
+  },
+  "docs_examples/tour/01_hello.wfl": {
+    "doc_section": "TestPrograms/docs_examples/tour/README.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "beginner",
+      "tour",
+      "hello-world"
+    ],
+    "doc_purpose": "Docs README tour: simplest program"
+  },
+  "docs_examples/tour/02_variables.wfl": {
+    "doc_section": "TestPrograms/docs_examples/tour/README.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "beginner",
+      "tour",
+      "variables"
+    ],
+    "doc_purpose": "Docs README tour: variables, types, change"
+  },
+  "docs_examples/tour/03_conditionals.wfl": {
+    "doc_section": "TestPrograms/docs_examples/tour/README.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "beginner",
+      "tour",
+      "control-flow"
+    ],
+    "doc_purpose": "Docs README tour: nested conditionals"
+  },
+  "docs_examples/tour/04_loops.wfl": {
+    "doc_section": "TestPrograms/docs_examples/tour/README.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "beginner",
+      "tour",
+      "loops"
+    ],
+    "doc_purpose": "Docs README tour: count/for-each/while loops"
+  },
+  "docs_examples/tour/05_lists.wfl": {
+    "doc_section": "TestPrograms/docs_examples/tour/README.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "beginner",
+      "tour",
+      "lists"
+    ],
+    "doc_purpose": "Docs README tour: lists and filtering"
+  },
+  "docs_examples/tour/06_actions.wfl": {
+    "doc_section": "TestPrograms/docs_examples/tour/README.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "beginner",
+      "tour",
+      "actions"
+    ],
+    "doc_purpose": "Docs README tour: actions and calls"
+  },
+  "docs_examples/tour/07_errors.wfl": {
+    "doc_section": "TestPrograms/docs_examples/tour/README.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "beginner",
+      "tour",
+      "error-handling"
+    ],
+    "doc_purpose": "Docs README tour: try/when error handling"
+  },
+  "docs_examples/tour/08_containers.wfl": {
+    "doc_section": "TestPrograms/docs_examples/tour/README.md",
+    "type": "executable",
+    "validate_layers": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_exit_code": 0,
+    "tags": [
+      "beginner",
+      "tour",
+      "containers"
+    ],
+    "doc_purpose": "Docs README tour: containers/objects"
   }
 }

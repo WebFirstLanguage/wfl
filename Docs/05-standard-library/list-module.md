@@ -23,8 +23,8 @@ length of <list>
 store numbers as [1, 2, 3, 4, 5]
 display length of numbers                // Output: 5
 
-store empty as []
-display length of empty                  // Output: 0
+store empty_list as []
+display length of empty_list             // Output: 0
 
 create list fruits:
     add "apple"
@@ -86,11 +86,12 @@ display items                            // Output: [first, second, third, 42]
 
 **Example: Building a List**
 ```wfl
-create list even_numbers
+create list even_numbers:
 end list
 
 count from 1 to 10:
-    check if count % 2 is equal to 0:
+    store remainder as count % 2
+    check if remainder is equal to 0:
         push with even_numbers and count
     end check
 end count
@@ -107,12 +108,12 @@ display "Even numbers: " with even_numbers
 
 **Signature:**
 ```wfl
-pop from <list>
+pop of <list>
 ```
 
 **Alternative:**
 ```wfl
-<variable> as pop from <list>
+<variable> as pop of <list>
 ```
 
 **Parameters:**
@@ -126,11 +127,11 @@ pop from <list>
 ```wfl
 store stack as [1, 2, 3, 4, 5]
 
-store last as pop from stack
-display "Popped: " with last             // Output: Popped: 5
+store last_item as pop of stack
+display "Popped: " with last_item        // Output: Popped: 5
 display "Remaining: " with stack         // Output: Remaining: [1, 2, 3, 4]
 
-store another as pop from stack
+store another as pop of stack
 display "Popped: " with another          // Output: Popped: 4
 display "Remaining: " with stack         // Output: Remaining: [1, 2, 3]
 ```
@@ -142,9 +143,9 @@ display "Remaining: " with stack         // Output: Remaining: [1, 2, 3]
 
 **Example: Safe Pop**
 ```wfl
-define action called safe pop with parameters list:
-    check if length of list is greater than 0:
-        return pop from list
+define action called safe pop with parameters the_list:
+    check if length of the_list is greater than 0:
+        return pop of the_list
     otherwise:
         display "Warning: Cannot pop from empty list"
         return nothing
@@ -152,9 +153,9 @@ define action called safe pop with parameters list:
 end action
 
 store items as [1, 2]
-store item1 as safe pop with items       // Returns: 2
-store item2 as safe pop with items       // Returns: 1
-store item3 as safe pop with items       // Returns: nothing (with warning)
+store item1 as safe pop of items         // Returns: 2
+store item2 as safe pop of items         // Returns: 1
+store item3 as safe pop of items         // Returns: nothing (with warning)
 ```
 
 ---
@@ -245,13 +246,12 @@ display "Lion is at index: " with lion_pos
 
 **Example: Find and Remove**
 ```wfl
-define action called remove item with parameters list and value:
-    store index as indexof of list and value
+define action called remove_item with parameters the_list and value:
+    store index as indexof of the_list and value
 
     check if index is greater than or equal to 0:
-        display "Found " with value with " at index " with index
-        // Note: No built-in remove_at yet
-        // Would need manual implementation
+        remove_at of the_list and index
+        display "Removed " with value with " from index " with index
         return yes
     otherwise:
         display value with " not found in list"
@@ -299,7 +299,7 @@ display "Test code is at index: " with test_index
 display ""
 
 // Remove item
-store removed as pop from tasks
+store removed as pop of tasks
 display "Removed: " with removed
 display "After pop: " with tasks
 display "Final count: " with length of tasks
@@ -336,11 +336,12 @@ Final count: 3
 ```wfl
 store numbers as [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-create list even_numbers
+create list even_numbers:
 end list
 
 for each num in numbers:
-    check if num % 2 is equal to 0:
+    store remainder as num % 2
+    check if remainder is equal to 0:
         push with even_numbers and num
     end check
 end for
@@ -371,17 +372,17 @@ display "Maximum: " with max
 ```wfl
 store items as ["apple", "banana", "apple", "cherry", "banana"]
 
-create list unique
+create list unique_items:
 end list
 
 for each item in items:
-    store index as indexof of unique and item
+    store index as indexof of unique_items and item
     check if index is equal to -1:
-        push with unique and item
+        push with unique_items and item
     end check
 end for
 
-display "Unique items: " with unique
+display "Unique items: " with unique_items
 // Output: Unique items: [apple, banana, cherry]
 ```
 
@@ -390,18 +391,18 @@ display "Unique items: " with unique
 ```wfl
 store original as [1, 2, 3, 4, 5]
 
-create list reversed
+create list reversed_list:
 end list
 
-store count as length of original
+store total as length of original
 
-count from 1 to count:
-    store index as count minus count
+count from 1 to total:
+    store index as total minus count
     store item as original[index]
-    push with reversed and item
+    push with reversed_list and item
 end count
 
-display "Reversed: " with reversed
+display "Reversed: " with reversed_list
 // Output: Reversed: [5, 4, 3, 2, 1]
 ```
 

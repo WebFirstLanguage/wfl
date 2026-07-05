@@ -97,23 +97,27 @@ display typeof of value           // Output: Null
 
 **Example: Type-Based Behavior**
 ```wfl
-define action called process value with parameters val:
+define action called categorize value with parameters val:
     store val_type as typeof of val
 
     check if val_type is "Number":
         display "Processing number: " with val times 2
-    check if val_type is "Text":
-        display "Processing text: " with touppercase of val
-    check if val_type is "List":
-        display "Processing list of length: " with length of val
     otherwise:
-        display "Unknown type: " with val_type
+        check if val_type is "Text":
+            display "Processing text: " with touppercase of val
+        otherwise:
+            check if val_type is "List":
+                display "Processing list of length: " with length of val
+            otherwise:
+                display "Unknown type: " with val_type
+            end check
+        end check
     end check
 end action
 
-call process value with 42
-call process value with "hello"
-call process value with [1, 2, 3]
+call categorize value with 42
+call categorize value with "hello"
+call categorize value with [1, 2, 3]
 ```
 
 **Output:**
@@ -160,7 +164,7 @@ display isnothing of value3       // Output: no
 
 **Example: Safe Value Access**
 ```wfl
-define action called safe display with parameters value:
+define action called show value with parameters value:
     check if isnothing of value:
         display "Value is nothing - cannot display"
     otherwise:
@@ -168,8 +172,8 @@ define action called safe display with parameters value:
     end check
 end action
 
-call safe display with nothing
-call safe display with 42
+call show value with nothing
+call show value with 42
 ```
 
 **Output:**
@@ -180,7 +184,7 @@ Value: 42
 
 **Example: Optional Return Handling**
 ```wfl
-define action called find user with parameters id:
+define action called lookup user with parameters id:
     // Simulate database lookup
     check if id is equal to 1:
         return "Alice"
@@ -189,7 +193,7 @@ define action called find user with parameters id:
     end check
 end action
 
-store user as find user with 1
+store user as lookup user of 1
 check if isnothing of user:
     display "User not found"
 otherwise:
@@ -232,7 +236,7 @@ display "Is result nothing? " with isnothing of result
 display ""
 
 // Conditional based on type
-define action called describe value with parameters val:
+define action called classify value with parameters val:
     store val_type as typeof of val
 
     check if isnothing of val:
@@ -240,20 +244,24 @@ define action called describe value with parameters val:
     otherwise:
         check if val_type is "Number":
             display "Number: " with val
-        check if val_type is "Text":
-            display "Text: " with val
-        check if val_type is "Boolean":
-            display "Boolean: " with val
         otherwise:
-            display "Other type: " with val_type
+            check if val_type is "Text":
+                display "Text: " with val
+            otherwise:
+                check if val_type is "Boolean":
+                    display "Boolean: " with val
+                otherwise:
+                    display "Other type: " with val_type
+                end check
+            end check
         end check
     end check
 end action
 
-call describe value with 42
-call describe value with "hello"
-call describe value with yes
-call describe value with nothing
+call classify value with 42
+call classify value with "hello"
+call classify value with yes
+call classify value with nothing
 
 display ""
 display "=== Demo Complete ==="

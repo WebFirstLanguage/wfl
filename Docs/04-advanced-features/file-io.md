@@ -35,18 +35,24 @@ close file <variable>
 ### Reading a File
 
 ```wfl
+// Set up a file to read
+open file at "data.txt" for writing as writer
+wait for write content "Hello, WFL!" into writer
+close file writer
+
+// Read it back
 open file at "data.txt" for reading as myfile
-wait for store content as read content from myfile
+wait for store file_content as read content from myfile
 close file myfile
 
-display "File content: " with content
+display "File content: " with file_content
 ```
 
 **Syntax:**
 ```wfl
-open file at "<path>" for reading as <variable>
-wait for store <variable> as read content from <variable>
-close file <variable>
+open file at "<path>" for reading as <handle>
+wait for store <result> as read content from <handle>
+close file <handle>
 ```
 
 ### Appending to a File
@@ -79,14 +85,14 @@ Three modes for opening files:
 **Writing (Overwrites):**
 ```wfl
 // First write
-open file at "data.txt" for writing as file
-wait for write content "First content" into file
-close file file
+open file at "data.txt" for writing as first_writer
+wait for write content "First content" into first_writer
+close file first_writer
 
 // Second write (overwrites!)
-open file at "data.txt" for writing as file
-wait for write content "New content" into file
-close file file
+open file at "data.txt" for writing as second_writer
+wait for write content "New content" into second_writer
+close file second_writer
 
 // File now contains only "New content"
 ```
@@ -94,14 +100,14 @@ close file file
 **Appending (Adds):**
 ```wfl
 // First write
-open file at "log.txt" for appending as file
-wait for append content "Line 1\n" into file
-close file file
+open file at "log.txt" for appending as first_writer
+wait for append content "Line 1\n" into first_writer
+close file first_writer
 
 // Second write (appends!)
-open file at "log.txt" for appending as file
-wait for append content "Line 2\n" into file
-close file file
+open file at "log.txt" for appending as second_writer
+wait for append content "Line 2\n" into second_writer
+close file second_writer
 
 // File now contains "Line 1\nLine 2\n"
 ```
@@ -114,29 +120,29 @@ close file file
 display "=== File Operations Demo ==="
 
 // 1. Create and write
-open file at "example.txt" for writing as file
-wait for write content "This is WFL\n" into file
-wait for append content "File I/O is easy!\n" into file
-close file file
+open file at "example.txt" for writing as writer
+wait for write content "This is WFL\n" into writer
+wait for append content "File I/O is easy!\n" into writer
+close file writer
 display "✓ File created and written"
 
 // 2. Read
-open file at "example.txt" for reading as file
-wait for store content as read content from file
-close file file
+open file at "example.txt" for reading as reader
+wait for store file_content as read content from reader
+close file reader
 display "✓ File read:"
-display content
+display file_content
 
 // 3. Append
-open file at "example.txt" for appending as file
-wait for append content "Added more content\n" into file
-close file file
+open file at "example.txt" for appending as appender
+wait for append content "Added more content\n" into appender
+close file appender
 display "✓ Content appended"
 
 // 4. Read again
-open file at "example.txt" for reading as file
-wait for store updated as read content from file
-close file file
+open file at "example.txt" for reading as reader2
+wait for store updated as read content from reader2
+close file reader2
 display "✓ Updated content:"
 display updated
 
@@ -153,10 +159,10 @@ use WFL's **binary** file operations, which preserve every byte exactly.
 
 ```wfl
 open file at "logo.png" for reading binary as image
-store bytes as read binary from image
+store payload as read binary from image
 close file image
 
-display "Read " with length of bytes with " bytes"
+display "Read " with length of payload with " bytes"
 ```
 
 **Syntax:**
@@ -170,7 +176,7 @@ Read only the first N bytes (for example, to sniff a file header):
 
 ```wfl
 open file at "logo.png" for reading binary as image
-store header as read 8 bytes from image
+store head_bytes as read 8 bytes from image
 close file image
 ```
 
@@ -180,7 +186,7 @@ close file image
 byte numbers (each 0–255):
 
 ```wfl
-create list bytes:
+create list signature_bytes:
     add 137
     add 80
     add 78
@@ -188,7 +194,7 @@ create list bytes:
 end list
 
 open file at "signature.bin" for writing binary as out_file
-write binary bytes into out_file
+write binary signature_bytes into out_file
 close file out_file
 ```
 
@@ -199,8 +205,13 @@ write binary <binary-or-byte-list> into <handle>
 close file <handle>
 ```
 
-> **Note:** `data` is a reserved keyword, so choose another variable name
-> (e.g. `bytes`, `payload`, `content_bytes`) when storing binary content.
+> **Note:** `data` and `header` are **always-reserved** keywords and can never
+> be used as a variable or list name. `bytes` is **contextual** — it works as a
+> plain `store` variable but is rejected as a `create list` name. The simplest
+> way to avoid all of these is to append a descriptive suffix with an underscore:
+> `file_data`, `header_bytes`, `content_bytes`, `signature_bytes`. See
+> [`reserved-keywords.md`](../reference/reserved-keywords.md) for the full list
+> and the always-reserved vs. contextual distinction.
 
 Binary reads and writes are capped at 50 MB per operation as a safety limit.
 
@@ -250,9 +261,14 @@ end check
 ### Check If File Exists
 
 ```wfl
-store exists as file exists at "data.txt"
+// Create the file so the check succeeds
+open file at "data.txt" for writing as writer
+wait for write content "hi" into writer
+close file writer
 
-check if exists is yes:
+store file_found as file exists at "data.txt"
+
+check if file_found is yes:
     display "File exists"
 otherwise:
     display "File not found"
@@ -262,8 +278,13 @@ end check
 ### Get File Size
 
 ```wfl
-store size as file size at "data.txt"
-display "File size: " with size with " bytes"
+// Create the file so it has a measurable size
+open file at "data.txt" for writing as writer
+wait for write content "Hello, WFL!" into writer
+close file writer
+
+store file_bytes as file size of "data.txt"
+display "File size: " with file_bytes with " bytes"
 ```
 
 ### Path Operations
@@ -271,13 +292,13 @@ display "File size: " with size with " bytes"
 ```wfl
 store filepath as "documents/report.pdf"
 
-store extension as path extension of filepath
+store extension as path_extension of filepath
 display "Extension: " with extension          // "pdf"
 
-store basename as path basename of filepath
+store basename as path_basename of filepath
 display "Filename: " with basename             // "report.pdf"
 
-store dirname as path dirname of filepath
+store dirname as path_dirname of filepath
 display "Directory: " with dirname             // "documents"
 ```
 
@@ -289,11 +310,11 @@ Always use error handling for file operations:
 
 ```wfl
 try:
-    open file at "missing.txt" for reading as file
-    wait for store content as read content from file
-    close file file
-    display content
-catch:
+    open file at "missing.txt" for reading as myfile
+    wait for store file_content as read content from myfile
+    close file myfile
+    display file_content
+when error:
     display "Error: File not found"
 end try
 ```
@@ -302,10 +323,10 @@ end try
 
 ```wfl
 try:
-    open file at "/root/protected.txt" for reading as file
-    wait for store content as read content from file
-    close file file
-catch:
+    open file at "/root/protected.txt" for reading as myfile
+    wait for store file_content as read content from myfile
+    close file myfile
+when error:
     display "Error: Cannot access file (permission denied?)"
 end try
 ```
@@ -313,12 +334,14 @@ end try
 ### Disk Full
 
 ```wfl
+store huge_data as "a very large amount of data..."
+
 try:
-    open file at "large_file.dat" for writing as file
+    open file at "large_file.dat" for writing as myfile
     // Write large amount of data
-    wait for write content huge_data into file
-    close file file
-catch:
+    wait for write content huge_data into myfile
+    close file myfile
+when error:
     display "Error: Could not write file (disk full?)"
 end try
 ```
@@ -328,19 +351,19 @@ end try
 ### Configuration File Loader
 
 ```wfl
-define action called load config with parameters filename:
+define action called load_config with parameters filename:
     try:
-        open file at filename for reading as file
-        wait for store config as read content from file
-        close file file
-        return config
-    catch:
+        open file at filename for reading as myfile
+        wait for store config_text as read content from myfile
+        close file myfile
+        return config_text
+    when error:
         display "Warning: Config file not found, using defaults"
         return "default configuration"
     end try
 end action
 
-store app_config as load config with "app.config"
+store app_config as load_config of "app.config"
 display "Configuration: " with app_config
 ```
 
@@ -366,32 +389,50 @@ call log message with "Application finished"
 ### File Processor
 
 ```wfl
+// Prepare input and output directories with a sample file
+create directory at "input"
+create directory at "output"
+open file at "input/report.txt" for writing as setupfile
+wait for write content "hello from wfl" into setupfile
+close file setupfile
+
 // Process all .txt files in a directory
-wait for store text_files as list files in "input" with pattern "*.txt"
+wait for store text_files as list files in "input"
 
 store processed as 0
 
 for each filename in text_files:
+    // Track handles in outer variables so we can close them AFTER end try —
+    // WFL has no `finally`, and closing inside the try would leak a handle if a
+    // later read or write throws.
+    store in_handle as nothing
+    store out_handle as nothing
     try:
         // Read input file
-        open file at filename for reading as infile
-        wait for store content as read content from infile
-        close file infile
+        open file at "input/" with filename for reading as infile
+        change in_handle to infile
+        wait for store file_content as read content from infile
 
         // Process content (example: uppercase)
-        store processed_content as touppercase of content
+        store processed_content as touppercase of file_content
 
         // Write output file
         store outfile_name as "output/" with filename
         open file at outfile_name for writing as outfile
+        change out_handle to outfile
         wait for write content processed_content into outfile
-        close file outfile
 
         add 1 to processed
         display "Processed: " with filename
-    catch:
+    when error:
         display "Error processing: " with filename
     end try
+    check if in_handle is not nothing:
+        close file in_handle
+    end check
+    check if out_handle is not nothing:
+        close file out_handle
+    end check
 end for
 
 display ""
@@ -422,27 +463,48 @@ display "CSV export complete"
 ### File Backup
 
 ```wfl
-define action called backup file with parameters source:
+// Create a file to back up
+open file at "important.txt" for writing as setupfile
+wait for write content "critical data" into setupfile
+close file setupfile
+
+define action called backup_file with parameters source:
     store backup_name as source with ".backup"
 
+    // Keep both handles in outer variables so we can close them after end try,
+    // and use a `succeeded` flag so the returns happen after cleanup — returning
+    // inside the try would skip the close on the success path.
+    store src_handle as nothing
+    store dest_handle as nothing
+    store succeeded as no
     try:
         open file at source for reading as src
-        wait for store content as read content from src
-        close file src
+        change src_handle to src
+        wait for store file_content as read content from src
 
         open file at backup_name for writing as dest
-        wait for write content content into dest
-        close file dest
+        change dest_handle to dest
+        wait for write content file_content into dest
 
+        change succeeded to yes
+    when error:
+        display "Backup failed for " with source
+    end try
+    check if src_handle is not nothing:
+        close file src_handle
+    end check
+    check if dest_handle is not nothing:
+        close file dest_handle
+    end check
+    check if succeeded is yes:
         display "Backed up " with source with " to " with backup_name
         return yes
-    catch:
-        display "Backup failed for " with source
+    otherwise:
         return no
-    end try
+    end check
 end action
 
-call backup file with "important.txt"
+call backup_file with "important.txt"
 ```
 
 ## Advanced Operations
@@ -450,11 +512,16 @@ call backup file with "important.txt"
 ### Counting Lines
 
 ```wfl
-open file at "code.wfl" for reading as file
-wait for store content as read content from file
-close file file
+// Create a file with several lines
+open file at "code.wfl" for writing as writer
+wait for write content "line 1\nline 2\nline 3" into writer
+close file writer
 
-store lines as split of content by "\n"
+open file at "code.wfl" for reading as myfile
+wait for store file_content as read content from myfile
+close file myfile
+
+store lines as split file_content by "\n"
 store line_count as length of lines
 
 display "File has " with line_count with " lines"
@@ -468,17 +535,18 @@ wait for store all_files as list files in "."
 store matching_files as []
 
 for each filename in all_files:
-    check if filename ends with ".wfl":
+    check if ends_with of filename and ".wfl":
         try:
-            open file at filename for reading as file
-            wait for store content as read content from file
-            close file file
+            open file at filename for reading as myfile
+            wait for store file_content as read content from myfile
+            close file myfile
 
-            check if contains "display" in content:
+            check if file_content contains "display":
                 push with matching_files and filename
             end check
-        catch:
+        when error:
             // Skip files we can't read
+            display "Skipping " with filename
         end try
     end check
 end for
@@ -492,18 +560,19 @@ end for
 ### File Statistics
 
 ```wfl
-wait for store files as list files in "."
+wait for store all_files as list files in "."
 
 store total_size as 0
 store file_count as 0
 
-for each filename in files:
+for each filename in all_files:
     try:
-        store size as file size at filename
-        change total_size to total_size plus size
+        store file_bytes as file size of filename
+        change total_size to total_size plus file_bytes
         add 1 to file_count
-    catch:
+    when error:
         // Skip directories or inaccessible files
+        display "Skipping " with filename
     end try
 end for
 
@@ -517,7 +586,7 @@ display "Total size: " with total_size with " bytes"
 
 ✅ **Use try-catch** - File operations can fail
 
-✅ **Use finally for cleanup** - Ensure files are closed even with errors
+✅ **Clean up after `end try`** - WFL has no `finally`; place cleanup after the try block to ensure files are closed even with errors
 
 ✅ **Validate paths** - Check if files exist before opening
 
@@ -537,25 +606,29 @@ display "Total size: " with total_size with " bytes"
 
 ## File I/O with Error Handling
 
-**Pattern: Try-Catch-Finally**
+**Pattern: Try, then Clean Up**
+
+WFL has no `finally` clause. Put cleanup code *after* `end try` so it runs
+whether the block succeeded or the error was handled.
 
 ```wfl
 store file_handle as nothing
 
 try:
-    open file at "data.txt" for writing as file
-    change file_handle to file
+    open file at "data.txt" for writing as myfile
+    change file_handle to myfile
 
-    wait for write content "Important data" into file
+    wait for write content "Important data" into myfile
     display "File written successfully"
-catch:
+when error:
     display "Error writing to file"
-finally:
-    check if file_handle is not nothing:
-        close file file_handle
-        display "File closed"
-    end check
 end try
+
+// Cleanup runs after the try block (WFL has no `finally`)
+check if file_handle is not nothing:
+    close file file_handle
+    display "File closed"
+end check
 ```
 
 ## Common Mistakes
@@ -564,33 +637,33 @@ end try
 
 **Wrong:**
 ```wfl
-open file at "data.txt" for writing as file
-wait for write content "data" into file
+open file at "data.txt" for writing as myfile
+wait for write content "data" into myfile
 // Forgot to close file!
 ```
 
 **Right:**
 ```wfl
-open file at "data.txt" for writing as file
-wait for write content "data" into file
-close file file  // Always close!
+open file at "data.txt" for writing as myfile
+wait for write content "data" into myfile
+close file myfile  // Always close!
 ```
 
 ### Reading Non-Existent Files
 
 **Wrong:**
 ```wfl
-open file at "missing.txt" for reading as file
+open file at "missing.txt" for reading as myfile
 // CRASH if file doesn't exist!
 ```
 
 **Right:**
 ```wfl
 try:
-    open file at "missing.txt" for reading as file
-    wait for store content as read content from file
-    close file file
-catch:
+    open file at "missing.txt" for reading as myfile
+    wait for store file_content as read content from myfile
+    close file myfile
+when error:
     display "File not found"
 end try
 ```
@@ -599,16 +672,16 @@ end try
 
 **Wrong:**
 ```wfl
-open file at "data.txt" for writing as file
-write content "data" into file  // Missing 'wait for'
-close file file
+open file at "data.txt" for writing as myfile
+write content "data" into myfile  // Missing 'wait for'
+close file myfile
 ```
 
 **Right:**
 ```wfl
-open file at "data.txt" for writing as file
-wait for write content "data" into file  // Use 'wait for'
-close file file
+open file at "data.txt" for writing as myfile
+wait for write content "data" into myfile  // Use 'wait for'
+close file myfile
 ```
 
 ## What You've Learned

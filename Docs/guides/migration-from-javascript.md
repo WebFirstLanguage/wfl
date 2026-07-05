@@ -26,7 +26,7 @@ var status = true;
 ```wfl
 store name as "Alice"
 store age as 28
-store status as yes
+store active_status as yes
 ```
 
 **Key differences:**
@@ -54,12 +54,12 @@ define action called greet with parameters name:
     display "Hello, " with name
 end action
 
-define action called add with parameters a and b:
+define action called add_numbers with parameters a and b:
     return a plus b
 end action
 
 call greet with "World"
-store sum as add with 2 and 3
+store sum as add_numbers of 2 and 3
 ```
 
 ## Conditionals
@@ -77,6 +77,7 @@ if (age >= 18) {
 
 **WFL:**
 ```wfl
+store age as 20
 check if age is greater than or equal to 18:
     display "Adult"
 otherwise:
@@ -112,6 +113,9 @@ while (condition) {
 
 **WFL:**
 ```wfl
+store items as [1, 2, 3]
+store condition as no
+
 // Count loop
 count from 1 to 10:
     display count
@@ -143,7 +147,7 @@ const idx = arr.indexOf(3);
 ```wfl
 store arr as [1, 2, 3]
 push with arr and 4
-store last as pop from arr
+store last as pop of arr
 store len as length of arr
 store idx as indexof of arr and 3
 ```
@@ -200,11 +204,16 @@ await readFile();
 
 **WFL:**
 ```wfl
+// Write a file first so there is something to read
+open file at "data.txt" for writing as setup_file
+wait for write content "file contents" into setup_file
+close file setup_file
+
 define action called read_file:
     open file at "data.txt" for reading as myfile
-    wait for store content as read content from myfile
+    wait for store file_content as read content from myfile
     close file myfile
-    return content
+    return file_content
 end action
 
 // Call automatically handles async
@@ -228,13 +237,22 @@ try {
 
 **WFL:**
 ```wfl
+define action called risky_operation:
+    display "doing something risky"
+end action
+
+define action called cleanup:
+    display "cleaning up"
+end action
+
 try:
-    risky_operation()
-catch:
+    call risky_operation
+when error:
     display "Error occurred"
-finally:
-    cleanup()
 end try
+
+// WFL has no finally; run cleanup after end try
+call cleanup
 ```
 
 ## What WFL Doesn't Have
@@ -255,7 +273,8 @@ end try
 
 **WFL:**
 ```wfl
-create list doubled
+store arr as [1, 2, 3]
+create list doubled:
 end list
 
 for each num in arr:
@@ -269,7 +288,8 @@ end for
 
 **WFL:**
 ```wfl
-create list filtered
+store arr as [1, 2, 3, 8]
+create list filtered:
 end list
 
 for each num in arr:
@@ -285,12 +305,13 @@ end for
 
 **WFL:**
 ```wfl
-store found as nothing
+store arr as [1, 2, 3, 8]
+store result as nothing
 
 for each num in arr:
     check if num is greater than 5:
-        change found to num
-        break  // If supported
+        change result to num
+        break
     end check
 end for
 ```

@@ -103,15 +103,17 @@ define action called validate username with parameters username:
     check if len is less than 3:
         display "Username too short (minimum 3 characters)"
         return no
-    check if len is greater than 16:
-        display "Username too long (maximum 16 characters)"
-        return no
     otherwise:
-        return yes
+        check if len is greater than 16:
+            display "Username too long (maximum 16 characters)"
+            return no
+        otherwise:
+            return yes
+        end check
     end check
 end action
 
-check if validate username with "alice":
+check if validate username of "alice":
     display "Valid username"
 end check
 ```
@@ -186,11 +188,11 @@ substring of <text> and <start> and <length>
 
 **Example:**
 ```wfl
-store text as "Hello, World!"
+store phrase as "Hello, World!"
 
-display substring of text from 0 length 5    // Output: Hello
-display substring of text from 7 length 5    // Output: World
-display substring of text and 0 and 7        // Output: Hello,
+display substring of phrase from 0 length 5    // Output: Hello
+display substring of phrase from 7 length 5    // Output: World
+display substring of phrase and 0 and 6        // Output: Hello, (start 0, length 6)
 ```
 
 **Notes:**
@@ -286,15 +288,15 @@ display starts_with of filename and "Report"    // Output: no (case-sensitive)
 
 **Example: File Type Check**
 ```wfl
-define action called is image with parameters filename:
-    check if starts_with of filename and "image":
-        return yes
+define action called is_image with parameters filename:
     check if ends_with of filename and ".png":
         return yes
-    check if ends_with of filename and ".jpg":
-        return yes
     otherwise:
-        return no
+        check if ends_with of filename and ".jpg":
+            return yes
+        otherwise:
+            return no
+        end check
     end check
 end action
 ```
@@ -380,8 +382,8 @@ store words as split of sentence by " "
 display "Word count: " with length of words
 // Output: Word count: 4
 
-store path as "home/user/documents"
-store directories as split of path by "/"
+store filepath as "home/user/documents"
+store directories as split of filepath by "/"
 // directories = ["home", "user", "documents"]
 ```
 
@@ -512,7 +514,7 @@ define action called equals ignore case with parameters text1 and text2:
     return lower1 is equal to lower2
 end action
 
-check if equals ignore case with "Hello" and "HELLO":
+check if equals ignore case of "Hello" and "HELLO":
     display "Match (case-insensitive)"
 end check
 ```
@@ -520,7 +522,7 @@ end check
 ### Extract File Extension
 
 ```wfl
-define action called get extension with parameters filename:
+define action called get_extension with parameters filename:
     store parts as split of filename by "."
     store part_count as length of parts
 
@@ -532,7 +534,7 @@ define action called get extension with parameters filename:
     end check
 end action
 
-store ext as get extension with "document.pdf"
+store ext as get_extension of "document.pdf"
 display "Extension: " with ext
 // Output: Extension: pdf
 ```
@@ -549,7 +551,7 @@ define action called looks like email with parameters email:
     return no
 end action
 
-check if looks like email with "user@example.com":
+check if looks like email of "user@example.com":
     display "Valid email format"
 end check
 ```
@@ -557,16 +559,17 @@ end check
 ### Title Case
 
 ```wfl
-define action called title case with parameters text:
-    store words as split of text by " "
-    create list titled_words
+define action called title case with parameters source:
+    store words as split of source by " "
+    create list titled_words:
     end list
 
     for each word in words:
         store len as length of word
         check if len is greater than 0:
-            store first_char as substring of word from 0 length 1
-            store rest as substring of word from 1 length len minus 1
+            store first_char as substring of word and 0 and 1
+            store rest_len as len minus 1                      // substring takes a LENGTH, not an end index
+            store rest as substring of word and 1 and rest_len
             store titled as touppercase of first_char with tolowercase of rest
             push with titled_words and titled
         end check
@@ -584,21 +587,21 @@ define action called title case with parameters text:
     return result
 end action
 
-display title case with "hello world from wfl"
+display title case of "hello world from wfl"
 // Output: Hello World From Wfl
 ```
 
 ### Word Count
 
 ```wfl
-define action called word count with parameters text:
-    store trimmed as trim of text
+define action called word_count with parameters source:
+    store trimmed as trim of source
     store words as split of trimmed by " "
     return length of words
 end action
 
-store count as word count with "The quick brown fox"
-display "Words: " with count
+store total as word_count of "The quick brown fox"
+display "Words: " with total
 // Output: Words: 4
 ```
 

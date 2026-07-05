@@ -9,6 +9,8 @@ Control flow lets your programs make decisions based on conditions. WFL uses nat
 The `check if` statement executes code only when a condition is true:
 
 ```wfl
+store age as 20
+
 check if age is greater than or equal to 18:
     display "You are an adult"
 end check
@@ -35,6 +37,8 @@ end check
 Use `otherwise` to execute code when the condition is false:
 
 ```wfl
+store age as 20
+
 check if age is greater than or equal to 18:
     display "You are an adult"
 otherwise:
@@ -53,9 +57,9 @@ end check
 
 **Example:**
 ```wfl
-store is raining as yes
+store is_raining as yes
 
-check if is raining is yes:
+check if is_raining is yes:
     display "Take an umbrella!"
 otherwise:
     display "Enjoy the sunshine!"
@@ -67,6 +71,8 @@ end check
 You can chain multiple conditions by nesting `check if` blocks inside `otherwise` clauses:
 
 ```wfl
+store score as 85
+
 check if score is greater than or equal to 90:
     display "Grade: A"
 otherwise:
@@ -108,6 +114,11 @@ end check
 ### Comparison Conditions
 
 ```wfl
+store name as "Alice"
+store age as 25
+store score as 85
+store temperature as 20
+
 // Equality
 check if name is "Alice":
     display "Hello, Alice!"
@@ -143,28 +154,40 @@ end check
 
 **AND - Both conditions must be true:**
 ```wfl
-check if age is greater than or equal to 18 and has license is yes:
+store age as 20
+store has_license as yes
+
+check if age is greater than or equal to 18 and has_license is yes:
     display "Can drive"
 end check
 ```
 
 **OR - At least one condition must be true:**
 ```wfl
-check if is weekend is yes or is holiday is yes:
+store is_weekend as yes
+store is_holiday as no
+
+check if is_weekend is yes or is_holiday is yes:
     display "No work today!"
 end check
 ```
 
 **NOT - Negates a condition:**
 ```wfl
-check if not is logged in:
+store is_logged_in as no
+
+check if not is_logged_in:
     display "Please log in"
 end check
 ```
 
 **Combined:**
 ```wfl
-check if age is greater than or equal to 18 and is citizen is yes or has permit is yes:
+store age as 20
+store is_citizen as yes
+store has_permit as no
+
+check if age is greater than or equal to 18 and is_citizen is yes or has_permit is yes:
     display "Can vote"
 end check
 ```
@@ -172,14 +195,14 @@ end check
 ### Boolean Variables
 
 ```wfl
-store is active as yes
-store is verified as no
+store is_active as yes
+store is_verified as no
 
-check if is active is yes:
+check if is_active is yes:
     display "Account is active"
 end check
 
-check if is verified is yes:
+check if is_verified is yes:
     display "Account is verified"
 otherwise:
     display "Please verify your account"
@@ -191,8 +214,11 @@ end check
 You can nest conditionals inside other conditionals:
 
 ```wfl
-check if has account is yes:
-    check if is logged in is yes:
+store has_account as yes
+store is_logged_in as yes
+
+check if has_account is yes:
+    check if is_logged_in is yes:
         display "Welcome back!"
     otherwise:
         display "Please log in"
@@ -204,9 +230,13 @@ end check
 
 **Another example:**
 ```wfl
+store age as 20
+store has_license as yes
+store has_insurance as yes
+
 check if age is greater than or equal to 18:
-    check if has license is yes:
-        check if has insurance is yes:
+    check if has_license is yes:
+        check if has_insurance is yes:
             display "Ready to drive!"
         otherwise:
             display "Need insurance"
@@ -289,13 +319,13 @@ end check
 ```wfl
 store temperature as 25
 
-check if temperature is above 30:
+check if temperature is greater than 30:
     display "Hot"
 otherwise:
-    check if temperature is above 20:
+    check if temperature is greater than 20:
         display "Warm"
     otherwise:
-        check if temperature is above 10:
+        check if temperature is greater than 10:
             display "Cool"
         otherwise:
             display "Cold"
@@ -373,18 +403,18 @@ end check
 
 ```wfl
 store total as 75.00
-store is member as yes
+store is_member as yes
 store shipping as 0
 
 check if total is greater than or equal to 100:
-    store shipping as 0
+    change shipping to 0
     display "Free shipping!"
 otherwise:
-    check if is member is yes:
-        store shipping as 5.00
+    check if is_member is yes:
+        change shipping to 5.00
         display "Member shipping: $" with shipping
     otherwise:
-        store shipping as 10.00
+        change shipping to 10.00
         display "Standard shipping: $" with shipping
     end check
 end check
@@ -439,13 +469,13 @@ end check
 
 ```wfl
 store role as "admin"
-store is active as yes
-store is verified as yes
+store is_active as yes
+store is_verified as yes
 
-check if is active is no:
+check if is_active is no:
     display "Account is disabled"
 otherwise:
-    check if is verified is no:
+    check if is_verified is no:
         display "Please verify your account"
     otherwise:
         check if role is "admin":
@@ -471,16 +501,22 @@ WFL evaluates conditions from left to right and stops as soon as the result is d
 
 **AND (stops on first false):**
 ```wfl
-check if expensive operation() and another check():
-    // another check() only runs if expensive operation() is true
+store first_check as yes
+store second_check as yes
+
+check if first_check is yes and second_check is yes:
+    // second_check is only evaluated when first_check is yes
     display "Both true"
 end check
 ```
 
 **OR (stops on first true):**
 ```wfl
-check if quick check() or expensive operation():
-    // expensive operation() only runs if quick check() is false
+store quick_check as yes
+store expensive_check as no
+
+check if quick_check is yes or expensive_check is yes:
+    // expensive_check is only evaluated when quick_check is no
     display "At least one true"
 end check
 ```
@@ -500,6 +536,8 @@ check if age is 18:
 
 **Right:**
 ```wfl
+store age as 18
+
 check if age is 18:
     display "You're 18"
 end check
@@ -516,6 +554,8 @@ end check
 
 **Right:**
 ```wfl
+store age as 18
+
 check if age is 18:  // Correct! This is comparison
     display "Age is 18"
 end check
@@ -531,6 +571,8 @@ check if name is "Alice" or "Bob":  // This won't work!
 
 **Right:**
 ```wfl
+store name as "Alice"
+
 check if name is "Alice" or name is "Bob":
     display "Hello, Alice or Bob!"
 end check
@@ -540,6 +582,8 @@ end check
 
 **Wrong:**
 ```wfl
+store score as 75
+
 check if score is greater than 70:
     display "Pass"
 otherwise:
@@ -555,6 +599,8 @@ end check
 
 **Right (order from highest to lowest):**
 ```wfl
+store score as 85
+
 check if score is greater than or equal to 80:
     display "Great"
 otherwise:
@@ -572,6 +618,12 @@ end check
 
 **Problematic:**
 ```wfl
+store a as yes
+store b as yes
+store c as yes
+store d as yes
+store e as yes
+
 check if a is yes:
     check if b is yes:
         check if c is yes:
@@ -587,6 +639,12 @@ end check
 
 **Better:**
 ```wfl
+store a as yes
+store b as yes
+store c as yes
+store d as yes
+store e as yes
+
 check if a is yes and b is yes and c is yes and d is yes and e is yes:
     display "All conditions met!"
 end check
@@ -639,17 +697,22 @@ end try
 Main loops are commonly used for web servers:
 
 ```wfl
-listen on port 8080 as server
+listen on port 8080 as web_server
 display "Server running on http://localhost:8080"
+
+store request_count as 0
 
 try:
     main loop:
-        wait for request comes in on server as req
+        wait for request comes in on web_server as incoming_request
+        add 1 to request_count
 
-        check if path is equal to "/":
-            respond to req with "Hello, World!" and content_type "text/plain"
+        store request_path as path of incoming_request
+
+        check if request_path is equal to "/":
+            respond to incoming_request with "Hello, World!" and content_type "text/plain"
         otherwise:
-            respond to req with "Not found" and status 404
+            respond to incoming_request with "Not found" and status 404
         end check
 
         // Optional: limit to specific number of requests
