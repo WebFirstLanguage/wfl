@@ -4034,12 +4034,13 @@ impl Interpreter {
                 body,
                 when_clauses,
                 otherwise_block,
+                finally_block,
                 line: _line,
                 column: _column,
             } => {
                 let child_env = Environment::new_child_env(&env);
 
-                match self.execute_block(body, Rc::clone(&child_env)).await {
+                let primary_result = match self.execute_block(body, Rc::clone(&child_env)).await {
                     Ok(val) => Ok(val), // Success path: just bubble result
                     Err(err) => {
                         // Find matching when clause based on error kind
@@ -4094,12 +4095,28 @@ impl Interpreter {
                         // If no when clause matched and there's an otherwise block
                         if !executed && otherwise_block.is_some() {
                             result = self
-                                .execute_block(otherwise_block.as_ref().unwrap(), child_env)
+                                .execute_block(
+                                    otherwise_block.as_ref().unwrap(),
+                                    Rc::clone(&child_env),
+                                )
                                 .await;
                         }
 
                         result
                     }
+                };
+
+                // A `finally:` block runs on both the success and error paths,
+                // after any matching when/otherwise clause. If it raises its own
+                // error, that error wins; otherwise the primary result (the
+                // success value or the still-unhandled error) propagates.
+                if let Some(finally_stmts) = finally_block {
+                    match self.execute_block(finally_stmts, child_env).await {
+                        Ok(_) => primary_result,
+                        Err(finally_err) => Err(finally_err),
+                    }
+                } else {
+                    primary_result
                 }
             }
             Statement::HttpGetStatement {

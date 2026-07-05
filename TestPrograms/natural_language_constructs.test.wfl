@@ -1,0 +1,129 @@
+// Regression tests for issue #571: natural-language constructs that read like
+// valid WFL but previously failed on the release interpreter.
+//   #1 arithmetic binds tighter than comparison
+//   #2 of-call arguments absorb arithmetic
+//   #3 `/` division operator
+//   #5 `is between A and B` range check
+//   #7 `is above` / `is below`
+//   #8 `modulo` word form of `%`
+//   #9 caught-error binding `when error as <name>`
+//   #4 `finally` cleanup clause
+
+// Helper actions used by the tests below.
+define action called identity with parameters n:
+    return n
+end action
+
+define action called fib with parameters n:
+    check if n is less than 2:
+        return n
+    end check
+    return (fib of (n minus 1)) plus (fib of (n minus 2))
+end action
+
+describe "Issue 571 precedence":
+
+    test "arithmetic binds tighter than equality":
+        store y as 3
+        store result as no
+        check if y plus 1 is equal to 4:
+            change result to yes
+        end check
+        expect result to equal yes
+    end test
+
+    test "arithmetic binds tighter than greater-than":
+        store a as 5
+        store b as 10
+        store result as no
+        check if a plus b is greater than 14:
+            change result to yes
+        end check
+        expect result to equal yes
+    end test
+
+end describe
+
+describe "Issue 571 of-call precedence":
+
+    test "call argument absorbs subtraction without parens":
+        store value as identity of 10 minus 1
+        expect value to equal 9
+    end test
+
+    test "recursion decreases its argument":
+        expect fib of 10 to equal 55
+    end test
+
+end describe
+
+describe "Issue 571 operators":
+
+    test "slash division":
+        store quotient as 10 / 4
+        expect quotient to equal 2.5
+    end test
+
+    test "modulo word form":
+        store remainder as 12 modulo 5
+        expect remainder to equal 2
+    end test
+
+end describe
+
+describe "Issue 571 comparisons":
+
+    test "is between is inclusive and true inside range":
+        store x as 5
+        store inside as x is between 1 and 10
+        expect inside to equal yes
+    end test
+
+    test "is between is false outside range":
+        store x as 15
+        store inside as x is between 1 and 10
+        expect inside to equal no
+    end test
+
+    test "is above":
+        store temperature as 35
+        store hot as temperature is above 30
+        expect hot to equal yes
+    end test
+
+    test "is below":
+        store temperature as 35
+        store boiling as temperature is below 30
+        expect boiling to equal no
+    end test
+
+end describe
+
+describe "Issue 571 error handling":
+
+    test "finally runs on the success path":
+        store log as ""
+        try:
+            change log to log with "body;"
+        when error:
+            change log to log with "caught;"
+        finally:
+            change log to log with "finally;"
+        end try
+        expect log to equal "body;finally;"
+    end test
+
+    test "finally runs after a caught error and binds the error":
+        store log as ""
+        try:
+            change log to log with "body;"
+            open file at "/nonexistent/issue571.txt" for reading as f
+        when error as e:
+            change log to log with "caught;"
+        finally:
+            change log to log with "finally;"
+        end try
+        expect log to equal "body;caught;finally;"
+    end test
+
+end describe

@@ -15,12 +15,12 @@ Formal specification of the WebFirst Language (WFL). Technical reference for imp
 
 ### Keywords
 
-178 reserved keywords organized by purpose and type.
+180 reserved keywords organized by purpose and type.
 
 **Keyword Types:**
-- 52 Structural Keywords (core language constructs)
+- 53 Structural Keywords (core language constructs)
 - 29 Contextual Keywords (context-dependent usage)
-- 95 Other Reserved Keywords (feature-specific)
+- 96 Other Reserved Keywords (feature-specific)
 - 7 Boolean & Null Literals
 
 **See:** [Quick Reference](keyword-reference.md) | [Complete Reference](reserved-keywords.md)

@@ -616,3 +616,46 @@ fn test_boolean_literal_values() {
         }
     }
 }
+
+// --- Issue #571 regression tests: new operator/keyword tokens ---
+
+#[test]
+fn test_slash_lexes_as_division() {
+    // A lone `/` is the division operator...
+    let tokens = lex_wfl("10 / 2");
+    assert_eq!(
+        tokens,
+        vec![Token::IntLiteral(10), Token::Slash, Token::IntLiteral(2)]
+    );
+}
+
+#[test]
+fn test_double_slash_still_starts_a_comment() {
+    // ...but `//` must still start a line comment (longest-match wins). The
+    // comment content is skipped entirely, leaving only the end-of-line token
+    // between the two numbers.
+    let tokens = lex_wfl("10 // this is a comment\n2");
+    assert_eq!(
+        tokens,
+        vec![Token::IntLiteral(10), Token::Eol, Token::IntLiteral(2)]
+    );
+}
+
+#[test]
+fn test_modulo_word_operator_token() {
+    let tokens = lex_wfl("12 modulo 5");
+    assert_eq!(
+        tokens,
+        vec![
+            Token::IntLiteral(12),
+            Token::KeywordModulo,
+            Token::IntLiteral(5)
+        ]
+    );
+}
+
+#[test]
+fn test_finally_keyword_token() {
+    let tokens = lex_wfl("finally");
+    assert_eq!(tokens, vec![Token::KeywordFinally]);
+}
