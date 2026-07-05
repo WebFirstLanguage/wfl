@@ -488,6 +488,37 @@ impl Analyzer {
         }
     }
 
+    /// Include-aware relaxation for a callee that is not in scope and not a
+    /// builtin. When the program uses `include from`, the callee may be an
+    /// action exposed by an included file at runtime (which the analyzer cannot
+    /// see), so a fatal error would abort before the include runs — instead a
+    /// non-fatal `Undefined action` warning is emitted and `true` is returned.
+    /// When there are no includes, nothing is emitted and `false` is returned,
+    /// signalling the caller to apply its own fatal handling.
+    ///
+    /// Both the `of` form (`FunctionCall` with a bare-`Variable` callee) and the
+    /// `call ... with` form (`ActionCall`) route through this single method so
+    /// the relaxation cannot drift apart between the two paths again — the exact
+    /// divergence that was issue #580 (the `of` form never received #548's
+    /// `ActionCall`-only relaxation).
+    fn warn_undefined_callee_if_includes(
+        &mut self,
+        name: &str,
+        line: usize,
+        column: usize,
+    ) -> bool {
+        if self.has_includes {
+            self.warnings.push(SemanticError::new(
+                format!("Undefined action '{name}'"),
+                line,
+                column,
+            ));
+            true
+        } else {
+            false
+        }
+    }
+
     fn analyze_statement(&mut self, statement: &Statement) {
         match statement {
             Statement::VariableDeclaration {
@@ -2259,7 +2290,17 @@ impl Analyzer {
                 line,
                 column,
             } => {
-                self.analyze_expression(function);
+                // A bare-`Variable` callee is the idiomatic `of` call form
+                // (e.g. `greet of "bob"`, parsed as FunctionCall { function:
+                // Variable("greet"), .. }). It is resolved explicitly in the
+                // block below — including the include-aware relaxation — so
+                // analyzing it here would recurse into the Variable arm and
+                // report it as a *fatal* undefined variable before the block
+                // can relax it (issue #580). Only analyze the callee directly
+                // when it is a more complex expression.
+                if !matches!(&**function, Expression::Variable(_, _, _)) {
+                    self.analyze_expression(function);
+                }
 
                 if let Expression::Variable(name, _, _) = &**function {
                     if let Some(symbol) = self.current_scope.resolve(name) {
@@ -2320,9 +2361,32 @@ impl Analyzer {
                                 }
                             }
                         }
-                    } else if Self::is_builtin_function(name) {
-                        // A known builtin that isn't present as a scope symbol is
+                    } else if Self::is_builtin_function(name)
+                        || self.action_parameters.contains(name)
+                        || name == "count"
+                    {
+                        // A known builtin, an action parameter, or the count
+                        // loop variable isn't present as a scope symbol but is
                         // still callable (its arguments are still analyzed).
+                        for arg in arguments {
+                            self.analyze_expression(&arg.value);
+                        }
+                    } else {
+                        // Callee not in scope and not a builtin. Under `include
+                        // from` this is the `of`-form counterpart of the
+                        // ActionCall relaxation (issues #580 / #548): a non-fatal
+                        // warning, since the callee may be include-exposed at
+                        // runtime. Otherwise preserve the pre-existing fatal
+                        // behavior (and the try_depth > 0 warning downgrade) that
+                        // the unconditional `analyze_expression(function)` above
+                        // used to produce for a bare-Variable callee.
+                        if !self.warn_undefined_callee_if_includes(name, *line, *column) {
+                            self.report_undefined_name(
+                                format!("Variable '{name}' is not defined"),
+                                *line,
+                                *column,
+                            );
+                        }
                         for arg in arguments {
                             self.analyze_expression(&arg.value);
                         }
@@ -2545,21 +2609,11 @@ impl Analyzer {
                             ));
                         }
                     }
-                } else if self.has_includes {
-                    // Action not found in scope and not a builtin, but the program
-                    // uses `include from`. The action may be exposed by an
-                    // included file at runtime (which the analyzer cannot see), so
-                    // treating this as a fatal error would abort the program
-                    // before the include runs (see issue #548). It may also be a
-                    // genuine typo, so it is reported as a non-fatal warning rather
-                    // than being fully suppressed.
-                    self.warnings.push(SemanticError::new(
-                        format!("Undefined action '{}'", name),
-                        *line,
-                        *column,
-                    ));
-                } else {
-                    // Action not found in scope and not a builtin.
+                } else if !self.warn_undefined_callee_if_includes(name, *line, *column) {
+                    // Action not found in scope and not a builtin, and the program
+                    // does not use `include from`, so it cannot be include-exposed
+                    // at runtime — a genuine fatal error (see issues #548 / #580
+                    // for the include-aware relaxation applied above).
                     self.errors.push(SemanticError::new(
                         format!("Undefined action '{}'", name),
                         *line,
