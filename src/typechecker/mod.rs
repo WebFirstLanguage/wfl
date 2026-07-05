@@ -3694,6 +3694,12 @@ impl TypeChecker {
                     } else {
                         out.push(Type::Nothing);
                     }
+                    // A bare `return` unconditionally exits the action, so any
+                    // sibling statements after it in this block are unreachable.
+                    // Stop here: collecting their returns would let dead code
+                    // widen a precise type (e.g. `Text`) to `Any` and mask a
+                    // genuine mismatch at the call site.
+                    break;
                 }
                 Statement::IfStatement {
                     then_block,
@@ -3718,6 +3724,7 @@ impl TypeChecker {
                 Statement::ForEachLoop { body, .. }
                 | Statement::CountLoop { body, .. }
                 | Statement::WhileLoop { body, .. }
+                | Statement::RepeatWhileLoop { body, .. }
                 | Statement::RepeatUntilLoop { body, .. }
                 | Statement::ForeverLoop { body, .. }
                 | Statement::MainLoop { body, .. } => {
@@ -3807,6 +3814,7 @@ impl TypeChecker {
                 Statement::ForEachLoop { body, .. }
                 | Statement::CountLoop { body, .. }
                 | Statement::WhileLoop { body, .. }
+                | Statement::RepeatWhileLoop { body, .. }
                 | Statement::RepeatUntilLoop { body, .. }
                 | Statement::ForeverLoop { body, .. }
                 | Statement::MainLoop { body, .. } => {
@@ -4708,6 +4716,128 @@ mod tests {
         assert!(
             errors.iter().any(|e| e.found == Some(Type::Number)),
             "Mismatch should report the inferred Number type, got: {errors:?}"
+        );
+    }
+
+    /// Issue #569 (review follow-up): a `return` inside a `repeat while` body
+    /// must contribute to return-type inference, otherwise such actions still
+    /// infer `Nothing`.
+    #[test]
+    fn test_action_return_type_inferred_from_repeat_while_body() {
+        let program = Program {
+            statements: vec![
+                Statement::ActionDefinition {
+                    name: "loop_ret".to_string(),
+                    parameters: vec![],
+                    body: vec![Statement::RepeatWhileLoop {
+                        condition: Expression::Literal(Literal::Boolean(true), 2, 1),
+                        body: vec![Statement::ReturnStatement {
+                            value: Some(Expression::Literal(Literal::String(Arc::from("x")), 3, 5)),
+                            line: 3,
+                            column: 5,
+                        }],
+                        line: 2,
+                        column: 1,
+                    }],
+                    return_type: None,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::VariableDeclaration {
+                    name: "r".to_string(),
+                    value: Expression::ActionCall {
+                        name: "loop_ret".to_string(),
+                        arguments: vec![],
+                        line: 6,
+                        column: 1,
+                    },
+                    is_constant: false,
+                    line: 6,
+                    column: 1,
+                },
+                Statement::OpenFileStatement {
+                    path: Expression::Variable("r".to_string(), 7, 1),
+                    variable_name: "f".to_string(),
+                    mode: crate::parser::ast::FileOpenMode::Read,
+                    line: 7,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&program);
+        assert!(
+            result.is_ok(),
+            "Text returned from a repeat-while body should satisfy a Text position, got: {:?}",
+            result.err()
+        );
+    }
+
+    /// Issue #569 (review follow-up): statements after an unconditional `return`
+    /// are unreachable and must not contribute to inference. Here the reachable
+    /// return is `Number`; a dead sibling returning `Text` must not widen the
+    /// inferred type to `Any` and hide the genuine mismatch at the call site.
+    #[test]
+    fn test_unreachable_return_does_not_widen_inferred_type() {
+        let program = Program {
+            statements: vec![
+                Statement::ActionDefinition {
+                    name: "dead".to_string(),
+                    parameters: vec![],
+                    body: vec![
+                        Statement::ReturnStatement {
+                            value: Some(Expression::Literal(Literal::Integer(42), 2, 5)),
+                            line: 2,
+                            column: 5,
+                        },
+                        // Unreachable: must be ignored by inference.
+                        Statement::ReturnStatement {
+                            value: Some(Expression::Literal(
+                                Literal::String(Arc::from("text")),
+                                3,
+                                5,
+                            )),
+                            line: 3,
+                            column: 5,
+                        },
+                    ],
+                    return_type: None,
+                    line: 1,
+                    column: 1,
+                },
+                Statement::VariableDeclaration {
+                    name: "n".to_string(),
+                    value: Expression::ActionCall {
+                        name: "dead".to_string(),
+                        arguments: vec![],
+                        line: 6,
+                        column: 1,
+                    },
+                    is_constant: false,
+                    line: 6,
+                    column: 1,
+                },
+                Statement::OpenFileStatement {
+                    path: Expression::Variable("n".to_string(), 7, 1),
+                    variable_name: "f".to_string(),
+                    mode: crate::parser::ast::FileOpenMode::Read,
+                    line: 7,
+                    column: 1,
+                },
+            ],
+        };
+
+        let mut type_checker = TypeChecker::new();
+        let result = type_checker.check_types(&program);
+        assert!(
+            result.is_err(),
+            "Reachable Number return used as a file path must still be flagged"
+        );
+        let errors = result.err().unwrap();
+        assert!(
+            errors.iter().any(|e| e.found == Some(Type::Number)),
+            "Inferred type should be precisely Number (not widened to Any), got: {errors:?}"
         );
     }
 }
