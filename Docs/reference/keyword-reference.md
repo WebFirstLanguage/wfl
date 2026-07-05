@@ -4,7 +4,7 @@ Quick lookup for all WFL reserved keywords.
 
 **→ For complete technical details:** [Reserved Keywords (Complete) →](reserved-keywords.md)
 
-**Total:** 180 keywords and literals
+**Total:** 181 keywords and literals
 
 ---
 
@@ -17,7 +17,7 @@ Quick lookup for all WFL reserved keywords.
 
 ---
 
-## Control Flow Keywords (23)
+## Control Flow Keywords (24)
 
 | Keyword | Description | As Var? |
 |---------|-------------|---------|
@@ -36,9 +36,10 @@ Quick lookup for all WFL reserved keywords.
 | `if` | Conditional | ✗ |
 | `in` | For each collection | ✗ |
 | `loop` | Loop reference | ✗ |
-| `otherwise` | Else clause | ✗ |
+| `otherwise` | Else / default clause | ✗ |
 | `repeat` | Loop construct | ✗ |
 | `reversed` | Reverse iteration | ✓ |
+| `route` | Dispatch on a value (match/switch) | ✗ |
 | `skip` | Continue (alias) | ✗ |
 | `then` | Conditional separator | ✗ |
 | `to` | Count loop end | ✗ |
@@ -246,7 +247,7 @@ Quick lookup for all WFL reserved keywords.
 | `error` | Error reference | ✗ |
 | `finally` | Always-run cleanup clause | ✗ |
 | `try` | Error handling block | ✗ |
-| `when` | Specific error type | ✗ |
+| `when` | Specific error type; also a `route` arm head | ✗ |
 
 ---
 

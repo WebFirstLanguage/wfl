@@ -199,6 +199,8 @@ pub enum Token {
     KeywordTry,
     #[token("when")]
     KeywordWhen,
+    #[token("route")]
+    KeywordRoute,
     #[token("catch")]
     KeywordCatch,
     #[token("finally")]
@@ -594,6 +596,7 @@ impl Token {
                 | Token::KeywordExport
                 | Token::KeywordTry
                 | Token::KeywordWhen
+                | Token::KeywordRoute
                 | Token::KeywordCatch
                 | Token::KeywordFinally
                 | Token::KeywordSkip

@@ -1,0 +1,146 @@
+// route_comprehensive.wfl
+// End-to-end demonstration of the `route` construct: WFL's natural-language
+// "dispatch on a value" form. `route` lowers in the parser to the same
+// `check if / otherwise check if / otherwise` chain you would write by hand,
+// so everything here is ordinary WFL behavior with a cleaner surface.
+//
+// Run:  wfl TestPrograms/route_comprehensive.wfl
+// This program exits 0 and prints a deterministic transcript.
+
+display "=== route construct comprehensive test ==="
+display ""
+
+// ---------------------------------------------------------------------------
+// 1. Equality arms — the everyday case (subject is equal to the value).
+// ---------------------------------------------------------------------------
+display "-- equality --"
+store path as "/health"
+route path:
+    when "/":
+        display "home page"
+    when "/health":
+        display "health check ok"
+    otherwise:
+        display "not found"
+end route
+
+// ---------------------------------------------------------------------------
+// 2. Or-lists — one arm matches any of several values.
+// ---------------------------------------------------------------------------
+display ""
+display "-- or-list --"
+store status_code as 410
+route status_code:
+    when 200:
+        display "OK"
+    when 404 or 410:
+        display "Gone"
+    otherwise:
+        display "Unexpected status"
+end route
+
+// ---------------------------------------------------------------------------
+// 3. Text tests — contains / starts with / ends with.
+//    (These all run under the full pipeline, not just --analyze.)
+// ---------------------------------------------------------------------------
+display ""
+display "-- text tests --"
+store request_path as "/api/users"
+route request_path:
+    when starts with "/api/":
+        display "api route"
+    when ends with ".css":
+        display "stylesheet"
+    when contains "admin":
+        display "restricted area"
+    otherwise:
+        display "static page"
+end route
+
+store asset as "/theme/site.css"
+route asset:
+    when starts with "/api/":
+        display "api route"
+    when ends with ".css":
+        display "stylesheet"
+    otherwise:
+        display "static page"
+end route
+
+// ---------------------------------------------------------------------------
+// 4. Membership — subject is one of a list.
+// ---------------------------------------------------------------------------
+display ""
+display "-- membership --"
+store known_assets as ["/style.css", "/logo.svg", "/app.js"]
+store candidate as "/logo.svg"
+route candidate:
+    when one of known_assets:
+        display "serve known asset"
+    otherwise:
+        display "404 unknown asset"
+end route
+
+// ---------------------------------------------------------------------------
+// 5. First match wins — arm order is significant, exactly like check if.
+// ---------------------------------------------------------------------------
+display ""
+display "-- precedence --"
+store overlap as "/api/theme.css"
+route overlap:
+    when starts with "/api/":
+        display "matched api first"
+    when ends with ".css":
+        display "matched css"
+    otherwise:
+        display "no match"
+end route
+
+// ---------------------------------------------------------------------------
+// 6. Multi-statement arm bodies — an arm is ordinary WFL statements.
+// ---------------------------------------------------------------------------
+display ""
+display "-- multi-statement body --"
+store cmd as "deploy"
+route cmd:
+    when "deploy":
+        display "step 1: build"
+        display "step 2: upload"
+        display "step 3: restart"
+    otherwise:
+        display "unknown command"
+end route
+
+// ---------------------------------------------------------------------------
+// 7. No match, no otherwise — the route is a no-op (never errors).
+// ---------------------------------------------------------------------------
+display ""
+display "-- no-op (no match, no otherwise) --"
+store unmatched as 99
+display "before route"
+route unmatched:
+    when 1:
+        display "one"
+    when 2:
+        display "two"
+end route
+display "after route (route did nothing)"
+
+// ---------------------------------------------------------------------------
+// 8. Non-string subjects — route is a general match/switch, not web-only.
+// ---------------------------------------------------------------------------
+display ""
+display "-- general switch on a number --"
+count from 1 to 4:
+    route count:
+        when 1:
+            display "count is one"
+        when 2 or 3:
+            display "count is two or three"
+        otherwise:
+            display "count is something else"
+    end route
+end count
+
+display ""
+display "=== route construct comprehensive test complete ==="

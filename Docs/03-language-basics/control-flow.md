@@ -822,6 +822,7 @@ Or explore related topics:
 - [Operators and Expressions →](operators-and-expressions.md) - Review comparison operators
 - [Actions (Functions) →](actions-functions.md) - Use conditionals in functions
 - [Error Handling →](error-handling.md) - Handle errors with conditions
+- [Routing →](../04-advanced-features/routing.md) - Dispatch on a value with `route` instead of a long `otherwise check if` chain
 
 ---
 
