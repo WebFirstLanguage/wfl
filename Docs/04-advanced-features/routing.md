@@ -69,6 +69,21 @@ end route
 If nothing matches and there is no `otherwise`, the `route` simply does nothing —
 it is a no-op, never an error.
 
+> **Note — the subject is compared once per arm.** Because `route` lowers to a
+> `check if / otherwise check if` chain, the subject expression is compared against
+> each `when` arm in turn until one matches. For the usual case — a variable or a
+> plain value — this is exactly what you want. If your subject is an expression with
+> side effects or one that is expensive to compute, evaluate it into a variable
+> first and route on that variable:
+>
+> ```wfl
+> store roll as roll_dice
+> route roll:
+>     when 1: display "one"
+>     otherwise: display "something else"
+> end route
+> ```
+
 ## Patterns
 
 A `when` head accepts these pattern forms:
