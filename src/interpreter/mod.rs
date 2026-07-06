@@ -1560,6 +1560,16 @@ impl Interpreter {
         let env_borrowed = env.borrow();
 
         for (name, value) in &env_borrowed.values {
+            // Skip native builtins (e.g. `year`, `month`, `day`, `length`, ...).
+            // The analyzer already resolves these through `is_builtin_function`,
+            // so seeding them as parent *variables* only makes an included file
+            // stricter than the main file: an action-local `store year as ...`
+            // would fatally conflict with the builtin's outer-scope binding even
+            // though the same code runs fine in a main program (#557). Leaving
+            // them out lets locals shadow builtins consistently in both paths.
+            if matches!(value, Value::NativeFunction(_, _)) {
+                continue;
+            }
             let inferred_type = Self::infer_type_from_value(value);
             // Check if this variable is a constant (immutable)
             let is_mutable = !env_borrowed.constants.contains(name);
@@ -2264,13 +2274,7 @@ impl Interpreter {
                 line: _line,
                 column: _column,
             } => {
-                let mut evaluated_value = self.evaluate_expression(value, Rc::clone(&env)).await?;
-
-                if let Value::Text(text) = &evaluated_value
-                    && text.as_ref() == "[]"
-                {
-                    evaluated_value = Value::List(Rc::new(RefCell::new(Vec::new())));
-                }
+                let evaluated_value = self.evaluate_expression(value, Rc::clone(&env)).await?;
 
                 #[cfg(debug_assertions)]
                 exec_var_declare!(name, &evaluated_value);
@@ -4882,14 +4886,18 @@ impl Interpreter {
                     // Create a new environment for the handler
                     let handler_env = Environment::new_child_env(&env);
 
-                    // Bind arguments to parameters
+                    // Bind arguments to parameters. Use define_direct so a
+                    // parameter shadows any same-named global rather than being
+                    // rejected as already-defined-in-outer-scope (#582).
                     for (i, param_name) in event.params.iter().enumerate() {
                         if i < arg_values.len() {
                             let _ = handler_env
                                 .borrow_mut()
-                                .define(param_name, arg_values[i].clone());
+                                .define_direct(param_name, arg_values[i].clone());
                         } else {
-                            let _ = handler_env.borrow_mut().define(param_name, Value::Null);
+                            let _ = handler_env
+                                .borrow_mut()
+                                .define_direct(param_name, Value::Null);
                         }
                     }
 
@@ -8478,7 +8486,11 @@ impl Interpreter {
 
             #[cfg(debug_assertions)]
             exec_var_declare!(param, &arg);
-            let _ = call_env.borrow_mut().define(param, arg.clone());
+            // Bind parameters directly in the call scope so they shadow any
+            // same-named global/outer binding. `define` (which rejects names
+            // present in a parent scope) would otherwise leave the parameter
+            // unbound and let the body resolve to the global instead (#582).
+            let _ = call_env.borrow_mut().define_direct(param, arg.clone());
         }
 
         let frame = CallFrame::new(

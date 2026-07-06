@@ -257,12 +257,12 @@ impl<'a> Parser<'a> {
                 ))
             }
             // `when starts with V` → starts_with of subject and V
-            Token::Identifier(id)
-                if id == "starts"
-                    && self
-                        .cursor
-                        .peek_next()
-                        .is_some_and(|t| t.token == Token::KeywordWith) =>
+            // (`starts`/`ends` are now KeywordStarts/KeywordEnds tokens — #566.)
+            Token::KeywordStarts
+                if self
+                    .cursor
+                    .peek_next()
+                    .is_some_and(|t| t.token == Token::KeywordWith) =>
             {
                 self.bump_sync(); // Consume "starts"
                 self.bump_sync(); // Consume "with"
@@ -276,12 +276,11 @@ impl<'a> Parser<'a> {
                 ))
             }
             // `when ends with V` → ends_with of subject and V
-            Token::Identifier(id)
-                if id == "ends"
-                    && self
-                        .cursor
-                        .peek_next()
-                        .is_some_and(|t| t.token == Token::KeywordWith) =>
+            Token::KeywordEnds
+                if self
+                    .cursor
+                    .peek_next()
+                    .is_some_and(|t| t.token == Token::KeywordWith) =>
             {
                 self.bump_sync(); // Consume "ends"
                 self.bump_sync(); // Consume "with"
