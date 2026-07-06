@@ -162,7 +162,7 @@ create file at log_file with "Application started"
 
 ### What Modules Cannot Do
 
-❌ **Define variables visible to parent:**
+❌ **Define actions, containers, or variables visible to parent:**
 ```wfl
 # main.wfl
 load module from "setup.wfl"
@@ -172,6 +172,23 @@ display utility_function  # Error: not defined
 store utility_function as "some value"
 # This variable is local to the module
 ```
+
+Because these definitions never reach the caller, referencing one is an
+undefined-name error — reported by the analyzer *and* raised at runtime. WFL's
+diagnostics make this actionable: when a file uses `load module`, an
+"is not defined" / "Undefined action" error carries a note reminding you that
+`load module` is isolated and pointing you at `include from`, which *does*
+share definitions across files:
+
+```text
+error[ANALYZE-SEMANTIC]: Variable 'mod_double' is not defined
+  = `load module from "..."` runs a file in an isolated scope and does not
+    expose its actions, containers, or variables to the caller ... To share
+    definitions across files, use `include from "..."` instead.
+```
+
+If you meant to share the definition, switch that line to
+`include from "setup.wfl"`.
 
 ❌ **Modify parent variables:**
 ```wfl
