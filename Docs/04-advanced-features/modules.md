@@ -196,8 +196,9 @@ share definitions across files:
 
 ```text
 error[ANALYZE-SEMANTIC]: Variable 'mod_double' is not defined
-  = `load module from "..."` runs a file in an isolated scope and does not
-    expose its actions, containers, or variables to the caller ... To share
+  = If you expected this name to come from a file loaded with `load module`,
+    note that `load module from "..."` runs a file in an isolated scope and does
+    not expose its actions, containers, or variables to the caller. To share
     definitions across files, use `include from "..."` instead.
 ```
 

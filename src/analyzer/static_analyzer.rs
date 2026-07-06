@@ -183,12 +183,18 @@ impl StaticAnalyzer for Analyzer {
                 let is_undefined_symbol = error.message.starts_with("Undefined action '")
                     || (error.message.starts_with("Variable '")
                         && error.message.ends_with("' is not defined"));
+                // The note fires for any undefined symbol when the file uses
+                // `load module` — the analyzer does not parse the loaded file to
+                // check whether this specific name is one of its exports, so the
+                // wording is conditional ("if you expected ... from a loaded
+                // module"). That keeps it a correct fix for a real module symbol
+                // while not misleading a plain typo in a side-effect-only load.
                 let note = if has_load_module && is_undefined_symbol {
                     Some(
-                        "`load module from \"...\"` runs a file in an isolated scope and does not \
-                         expose its actions, containers, or variables to the caller, so this name \
-                         is not defined here even though the module loads successfully. To share \
-                         definitions across files, use `include from \"...\"` instead."
+                        "If you expected this name to come from a file loaded with `load module`, \
+                         note that `load module from \"...\"` runs a file in an isolated scope and \
+                         does not expose its actions, containers, or variables to the caller. To \
+                         share definitions across files, use `include from \"...\"` instead."
                             .to_string(),
                     )
                 } else {

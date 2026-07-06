@@ -140,6 +140,34 @@ fn include_from_shares_the_action_and_runs() {
 // Guard rails — the hint is specific to `load module` programs.
 // ---------------------------------------------------------------------------
 
+/// A file that uses `load module` for side effects but has an *unrelated*
+/// undefined reference still gets the hint. The analyzer does not parse the
+/// loaded file to check whether the missing name is one of its exports, so the
+/// trigger is deliberately coarse — but the note is conditionally worded
+/// ("if you expected this name to come from a file loaded with `load module`"),
+/// so it does not mislead when the real problem is a plain typo. This pins that
+/// intentional behavior (CodeRabbit review on PR #586).
+#[test]
+fn load_module_plus_unrelated_typo_is_hinted_but_not_misleading() {
+    let (out, code) = with_double_module(
+        "load module from \"lib_mod.wfl\"\ndisplay totally_unrelated_typo\n",
+        &[],
+    );
+    assert!(
+        out.contains("is not defined"),
+        "the unrelated typo must stay fatal: {out}"
+    );
+    assert!(
+        out.contains("include from"),
+        "the hint fires whenever `load module` is present (coarse but safe): {out}"
+    );
+    assert!(
+        out.to_lowercase().contains("if you expected"),
+        "the hint is conditionally framed so it does not mislead for a typo: {out}"
+    );
+    assert_eq!(code, Some(3), "should exit 3: {out}");
+}
+
 /// Without any `load module` (or `include`), an undefined `of` callee stays
 /// fatal but must NOT carry the `include from` hint (it would be misleading).
 #[test]
