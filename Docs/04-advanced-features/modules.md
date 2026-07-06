@@ -14,10 +14,24 @@ WFL's module system allows you to organize code across multiple files, enabling 
 
 ## Basic Module Loading
 
-WFL provides two ways to include code from other files:
+WFL provides two ways to pull in code from other files, and **choosing the right
+one is the single most important thing to get right:**
 
-1. **Load Module** - Isolated execution (existing behavior)
-2. **Include** - Parent scope execution (NEW in V2)
+| You want to… | Use | Why |
+| --- | --- | --- |
+| **Share a library** — call actions, use containers, or read constants defined in another file | **`include from "lib.wfl"`** | Runs the file *in your scope*, so its definitions become available to you |
+| **Run a file for its side effects** — initialization, setup, logging — *without* exposing its definitions | **`load module from "setup.wfl"`** | Runs the file in an *isolated* scope; its actions/containers/variables stay private to that file |
+
+> **⚠️ Common mistake.** `load module` does **not** share the loaded file's
+> actions, containers, or variables with the caller — that isolation is the
+> whole point of `load module`. If you `load module` a library and then try to
+> call one of its actions, you'll get an `is not defined` error (at analysis
+> *and* at runtime). **To build a multi-file program out of shared library
+> files, use `include from`.** WFL's diagnostics will remind you of this if you
+> reach for the wrong one (see [What Modules Cannot Do](#what-modules-cannot-do)).
+
+1. **Include** - Parent scope execution; **use this to share libraries**
+2. **Load Module** - Isolated execution; use this for side-effect-only files
 
 ## Load Module Statement
 
