@@ -1552,7 +1552,13 @@ impl TypeChecker {
                 if let Some(symbol) = self.analyzer.get_symbol(list_name) {
                     match &symbol.symbol_type {
                         Some(Type::List(element_type)) => {
+                            // A `List(Any)`/`List(Unknown)` is a list of statically
+                            // unknown element type (e.g. a `[1, 2]` literal or an
+                            // untyped-parameter list), so adding any concrete value
+                            // is valid — only flag a concrete element type that is
+                            // provably incompatible (gradual typing, issue #567).
                             if **element_type != Type::Unknown
+                                && **element_type != Type::Any
                                 && **element_type != value_type
                                 && value_type != Type::Unknown
                                 && value_type != Type::Any

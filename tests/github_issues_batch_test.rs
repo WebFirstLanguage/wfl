@@ -301,6 +301,26 @@ fn any_from_list_index_accepted_by_arithmetic() {
 }
 
 #[test]
+fn concrete_value_accepted_into_list_of_any() {
+    // A list literal is typed `List(Any)`; adding any concrete value must be
+    // accepted (a list of statically-unknown element type takes anything) —
+    // it must not raise `Cannot add Text to list of Any` (#567).
+    let (out, code) = run_src(
+        "store xs as [10 and 20]\nadd \"hello\" to xs\nadd 30 to xs\ndisplay length of xs\n",
+    );
+    assert!(out.contains("4"), "list should have 4 elements: {out}");
+    assert!(
+        !out.contains("Cannot add"),
+        "a concrete value must be accepted into a List(Any) (#567): {out}"
+    );
+    assert!(
+        !out.contains(TYPE_WARN_BANNER),
+        "no false type warnings expected: {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
 fn unknown_param_accepted_by_split() {
     let (out, code) = run_src(
         "define action called split_words with parameters p:\n    store parts as split p by \" \"\n    return parts\nend action\n\
