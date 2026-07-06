@@ -175,6 +175,21 @@ pub fn program_has_includes(program: &Program) -> bool {
         .any(|s| matches!(s, Statement::IncludeStatement { .. }))
 }
 
+/// True when the program contains a top-level `load module from` statement.
+///
+/// `load module` runs a file in an *isolated* child scope and does not expose
+/// its actions/containers/variables to the caller (unlike `include from`). When
+/// a caller references such a symbol it is genuinely undefined — fatal at
+/// analysis *and* at runtime — so this is used to attach an actionable
+/// "use `include from`" note to the undefined-name diagnostic rather than to
+/// relax it (see issue #584).
+pub fn program_has_load_module(program: &Program) -> bool {
+    program
+        .statements
+        .iter()
+        .any(|s| matches!(s, Statement::LoadModuleStatement { .. }))
+}
+
 pub struct Analyzer {
     current_scope: Scope,
     errors: Vec<SemanticError>,

@@ -155,6 +155,14 @@ impl StaticAnalyzer for Analyzer {
         }
 
         if let Err(errors) = analyze_result {
+            // `load module` runs a file in an isolated scope and does not expose
+            // its actions/containers/variables to the caller — so an undefined
+            // action/variable here (whose definition lives in a loaded module)
+            // fails at runtime too, not only in the analyzer. Keep the error
+            // fatal, but point the user at `include from`, which actually shares
+            // definitions across files (issue #584).
+            let has_load_module = crate::analyzer::program_has_load_module(program);
+
             for error in errors {
                 // Skip errors about undefined variables that are actually action parameters
                 if error.message.starts_with("Variable '")
@@ -172,10 +180,31 @@ impl StaticAnalyzer for Analyzer {
                     }
                 }
 
+                let is_undefined_symbol = error.message.starts_with("Undefined action '")
+                    || (error.message.starts_with("Variable '")
+                        && error.message.ends_with("' is not defined"));
+                // The note fires for any undefined symbol when the file uses
+                // `load module` — the analyzer does not parse the loaded file to
+                // check whether this specific name is one of its exports, so the
+                // wording is conditional ("if you expected ... from a loaded
+                // module"). That keeps it a correct fix for a real module symbol
+                // while not misleading a plain typo in a side-effect-only load.
+                let note = if has_load_module && is_undefined_symbol {
+                    Some(
+                        "If you expected this name to come from a file loaded with `load module`, \
+                         note that `load module from \"...\"` runs a file in an isolated scope and \
+                         does not expose its actions, containers, or variables to the caller. To \
+                         share definitions across files, use `include from \"...\"` instead."
+                            .to_string(),
+                    )
+                } else {
+                    None::<String>
+                };
+
                 diagnostics.push(WflDiagnostic::new(
                     Severity::Error,
                     error.message.clone(),
-                    None::<String>,
+                    note,
                     "ANALYZE-SEMANTIC".to_string(),
                     file_id,
                     error.line,
