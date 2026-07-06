@@ -19,12 +19,12 @@ use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
 
+/// Absolute path to the `wfl` binary built for this integration-test run.
+/// `CARGO_BIN_EXE_wfl` is injected by Cargo, so it always points at the
+/// freshly-built binary regardless of profile or working directory — no stale
+/// `target/release` build and no cwd assumption.
 fn wfl_exe() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "target/release/wfl.exe"
-    } else {
-        "target/release/wfl"
-    }
+    env!("CARGO_BIN_EXE_wfl")
 }
 
 /// Run inline WFL source in a fresh temp dir, returning (stdout+stderr, exit code).
