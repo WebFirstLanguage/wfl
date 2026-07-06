@@ -1555,6 +1555,7 @@ impl TypeChecker {
                             if **element_type != Type::Unknown
                                 && **element_type != value_type
                                 && value_type != Type::Unknown
+                                && value_type != Type::Any
                             {
                                 self.type_error(
                                     format!(
@@ -1568,8 +1569,13 @@ impl TypeChecker {
                             }
                         }
                         Some(Type::Number) => {
-                            // This is arithmetic add
-                            if value_type != Type::Number && value_type != Type::Unknown {
+                            // This is arithmetic add. Accept Unknown/Any operands
+                            // (statically unknown, verified at runtime) rather than
+                            // emitting a false ERROR — gradual typing, issue #567.
+                            if value_type != Type::Number
+                                && value_type != Type::Unknown
+                                && value_type != Type::Any
+                            {
                                 self.type_error(
                                     "Cannot add non-numeric value to number".to_string(),
                                     Some(Type::Number),
@@ -2360,13 +2366,12 @@ impl TypeChecker {
                     if let Some(var_type) = &symbol.symbol_type {
                         var_type.clone()
                     } else {
-                        self.type_error(
-                            format!("Cannot determine type of variable '{name}'"),
-                            None,
-                            None,
-                            *_line,
-                            *_column,
-                        );
+                        // A binding with no recorded type — most commonly an
+                        // untyped action parameter — is statically unknown, not
+                        // provably wrong. Treat it as Unknown (gradual typing)
+                        // instead of emitting a false ERROR at every reference
+                        // (issue #567). Genuine type mismatches are still caught
+                        // where a concrete type is required at runtime.
                         Type::Unknown
                     }
                 } else {
@@ -2434,10 +2439,15 @@ impl TypeChecker {
                     };
                 }
 
-                // Dynamically-typed (Any) operands are checked at runtime;
-                // comparisons on them still produce a Boolean.
+                // Dynamically-typed (Any) operands are checked at runtime, so the
+                // static result type can't be known. Degrade gracefully instead
+                // of raising a false ERROR — an `Any` (e.g. a list-index result)
+                // represents "statically unknown", not "known incompatible"
+                // (gradual typing — issue #567). This mirrors the `Unknown`
+                // handling above: comparisons still yield Boolean, arithmetic
+                // yields Any (or Text when the other Plus operand is Text).
                 if left_type == Type::Any || right_type == Type::Any {
-                    match operator {
+                    return match operator {
                         Operator::Equals
                         | Operator::NotEquals
                         | Operator::GreaterThan
@@ -2446,9 +2456,12 @@ impl TypeChecker {
                         | Operator::LessThanOrEqual
                         | Operator::And
                         | Operator::Or
-                        | Operator::Contains => return Type::Boolean,
-                        _ => {}
-                    }
+                        | Operator::Contains => Type::Boolean,
+                        Operator::Plus if left_type == Type::Text || right_type == Type::Text => {
+                            Type::Text
+                        }
+                        _ => Type::Any,
+                    };
                 }
 
                 match operator {
@@ -3016,7 +3029,10 @@ impl TypeChecker {
                 let text_type = self.infer_expression_type(text);
                 let delimiter_type = self.infer_expression_type(delimiter);
 
-                if text_type != Type::Text {
+                // Accept statically-unknown operands (Unknown from untyped params,
+                // Any from list-index/map results) without a false ERROR — they are
+                // verified at runtime (gradual typing, issue #567).
+                if text_type != Type::Text && text_type != Type::Unknown && text_type != Type::Any {
                     self.type_error(
                         format!("Expected Text for string splitting, got {text_type}"),
                         Some(Type::Text),
@@ -3026,7 +3042,10 @@ impl TypeChecker {
                     );
                 }
 
-                if delimiter_type != Type::Text {
+                if delimiter_type != Type::Text
+                    && delimiter_type != Type::Unknown
+                    && delimiter_type != Type::Any
+                {
                     self.type_error(
                         format!("Expected Text for delimiter, got {delimiter_type}"),
                         Some(Type::Text),

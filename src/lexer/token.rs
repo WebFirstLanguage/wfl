@@ -239,6 +239,10 @@ pub enum Token {
     KeywordModulo, // word form of the '%' operator
     #[token("contains")]
     KeywordContains,
+    #[token("starts")]
+    KeywordStarts, // e.g., "path starts with \"/api\""
+    #[token("ends")]
+    KeywordEnds, // e.g., "file ends with \".css\""
     #[token("pattern")]
     KeywordPattern,
     #[token("matches")]
@@ -643,6 +647,8 @@ impl Token {
                 | Token::KeywordExtension
                 | Token::KeywordExtensions
                 | Token::KeywordContains // Can be a function name
+                | Token::KeywordStarts   // Operator in 'X starts with Y'; else a name
+                | Token::KeywordEnds     // Operator in 'X ends with Y'; else a name
                 | Token::KeywordList    // Only reserved in type/create context
                 | Token::KeywordMap     // Only reserved in type/create context
                 | Token::KeywordText    // Only reserved in type context

@@ -588,6 +588,53 @@ impl<'a> BinaryExprParser<'a> for Parser<'a> {
                         ));
                     }
                 }
+                Token::KeywordStarts | Token::KeywordEnds => {
+                    // `X starts with Y` / `X ends with Y` are substring predicates
+                    // at comparison precedence (1). They desugar to the
+                    // `starts_with` / `ends_with` builtins so no new interpreter
+                    // or type-checker operator is needed (#566). Before this,
+                    // `starts`/`ends` had no token and the lexer's multi-word
+                    // identifier accumulator swallowed `path ends` into one name.
+                    if 1 < precedence {
+                        break;
+                    }
+                    let is_starts = matches!(token, Token::KeywordStarts);
+                    // Only an operator when directly followed by `with`; otherwise
+                    // it is a plain (contextual) identifier — leave it in place.
+                    if !self
+                        .cursor
+                        .peek_next()
+                        .is_some_and(|t| t.token == Token::KeywordWith)
+                    {
+                        break;
+                    }
+                    self.bump_sync(); // Consume "starts"/"ends"
+                    self.bump_sync(); // Consume "with"
+                    // RHS binds at precedence 2 (tighter than comparison), matching
+                    // how `contains`/`is` parse their right-hand side.
+                    let right = self.parse_binary_expression(2)?;
+                    let fn_name = if is_starts {
+                        "starts_with"
+                    } else {
+                        "ends_with"
+                    };
+                    left = Expression::FunctionCall {
+                        function: Box::new(Expression::Variable(fn_name.to_string(), line, column)),
+                        arguments: vec![
+                            Argument {
+                                name: None,
+                                value: left,
+                            },
+                            Argument {
+                                name: None,
+                                value: right,
+                            },
+                        ],
+                        line,
+                        column,
+                    };
+                    continue;
+                }
                 Token::KeywordContains => {
                     // 'contains' is a comparison operator at precedence 1.
                     if 1 < precedence {
