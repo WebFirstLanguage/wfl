@@ -253,22 +253,39 @@ end try
 
 ## Error Message Format
 
-WFL error messages include:
+WFL uses a single, uniform, Elm-inspired format for **every** error and warning —
+from the lexer, parser, analyzer, type checker, interpreter, pattern engine, and
+linter, in both the CLI and the REPL. A message reads like a helpful colleague:
 
 ```
-[ERROR_TYPE]: Description
-   ┌─ file.wfl:line:column
-   │
-line │ code
-   │   ^ Error occurred here
+✕ Type Error   line 5, column 8
+
+    Expected: Number
+    Found:    Text ("hello")
+
+The expression
+    age plus "hello"
+cannot add a Number and Text.
+
+💡 Try converting first:
+    age plus 5
+    — or —
+    string of age with "hello"
 ```
 
-**Components:**
-- **Error type** - Parse, semantic, type, runtime
-- **Description** - What went wrong
-- **Location** - Exact line and column
-- **Context** - Code snippet showing error
-- **Pointer** - Visual indicator
+**Components (each shown only when relevant):**
+- **Title line** — a glyph (`✕` for errors, `▲` for warnings), the error *kind*
+  (Syntax Error, Parse Error, Type Error, Name Error, Runtime Error, Pattern
+  Error, Lint Warning), and the exact `line` and `column`.
+- **Expected / Found** — for type mismatches, the type WFL expected versus what it
+  found.
+- **Source frame** — the offending line of your code.
+- **Explanation** — a plain-English description of what went wrong.
+- **💡 Suggestion** — an actionable fix, often with concrete example snippets.
+
+**Colors** are shown on an interactive terminal and disabled automatically when
+output is piped or redirected, when `NO_COLOR` is set, or with `--color never`
+(force with `--color always`).
 
 ---
 

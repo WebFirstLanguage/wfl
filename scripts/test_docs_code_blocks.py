@@ -318,7 +318,7 @@ def categorize(blk: Block) -> str:
     # cl == ERROR below
     if "..." in code:
         return "PLACEHOLDER"
-    if "Lexing error" in se and ("`>`" in se or "`<`" in se):
+    if ("Lexing error" in se or "Syntax Error" in se) and ("`>`" in se or "`<`" in se):
         return "PLACEHOLDER"
     if re.search(r"between\b", code) and "KeywordBetween" in se:
         return "LANG_GAP"
@@ -339,11 +339,11 @@ def categorize(blk: Block) -> str:
     if "blocked by security policy" in se:
         return "NEEDS_PERMISSION"
     if (re.search(r"is not defined|Undefined action|Undefined variable|Undefined function", se)
-            and "Parse errors" not in se):
+            and "Parse Error" not in se):
         return "FRAGMENT"
-    if "Parse errors" in se:
+    if "Parse Error" in se or "Syntax Error" in se:
         return "DOC_SYNTAX"
-    if "Runtime errors" in se:
+    if "Runtime Error" in se:
         return "RUNTIME"
     return "OTHER"
 
@@ -352,7 +352,8 @@ def first_error_line(blk: Block) -> str:
     s = ANSI_RE.sub("", blk.stderr or "")
     for line in s.splitlines():
         line = line.strip()
-        if re.search(r"error\[|Lexing error|expected|Unexpected", line, re.I):
+        if re.search(r"error\[|Lexing error|Syntax Error|Parse Error|Type Error|"
+                     r"Name Error|Runtime Error|Pattern Error|expected|Unexpected", line, re.I):
             return re.sub(r"\s+", " ", line)[:100]
     return (s.strip().splitlines() or [""])[0][:100]
 

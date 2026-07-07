@@ -1,4 +1,3 @@
-use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFiles;
 use codespan_reporting::term::termcolor::{Buffer, ColorChoice, StandardStream, WriteColor};
 // use std::fmt;
@@ -69,17 +68,6 @@ pub enum Severity {
     Warning,
     Note,
     Help,
-}
-
-impl From<Severity> for codespan_reporting::diagnostic::Severity {
-    fn from(severity: Severity) -> Self {
-        match severity {
-            Severity::Error => Self::Error,
-            Severity::Warning => Self::Warning,
-            Severity::Note => Self::Note,
-            Severity::Help => Self::Help,
-        }
-    }
 }
 
 impl Severity {
@@ -398,22 +386,6 @@ impl WflDiagnostic {
                 Severity::Help => "Help",
             },
         }
-    }
-
-    pub fn to_codespan_diagnostic(&self, file_id: usize) -> Diagnostic<usize> {
-        let mut diag = Diagnostic::new(self.severity.into()).with_message(self.message.clone());
-
-        for (span, message) in &self.labels {
-            diag = diag.with_labels(vec![
-                Label::primary(file_id, span.start..span.end).with_message(message.clone()),
-            ]);
-        }
-
-        for note in &self.notes {
-            diag = diag.with_notes(vec![note.clone()]);
-        }
-
-        diag
     }
 }
 
