@@ -43,6 +43,7 @@ fn print_help() {
     println!("        --output <file>    Specify an output file for the environment dump");
     println!("    --time             Measure and display execution time");
     println!("    --test             Run file in test mode");
+    println!("    --color <mode>     Colorize diagnostics: auto (default), always, never");
     println!();
     println!("TRANSPILATION:");
     println!("    --transpile        Transpile WFL code to JavaScript");
@@ -110,6 +111,30 @@ async fn main() -> io::Result<()> {
     let _profiler = dhat::Profiler::new_ad_hoc();
 
     let mut args: Vec<String> = env::args().collect();
+
+    // Extract the global `--color[=auto|always|never]` flag before the rest of arg
+    // parsing, so it can appear anywhere and is never treated as a file path.
+    {
+        let mut filtered: Vec<String> = Vec::with_capacity(args.len());
+        let mut idx = 0;
+        while idx < args.len() {
+            let arg = &args[idx];
+            if let Some(mode) = arg.strip_prefix("--color=") {
+                wfl::diagnostics::set_color_mode(mode);
+            } else if arg == "--color" {
+                if idx + 1 < args.len()
+                    && matches!(args[idx + 1].as_str(), "auto" | "always" | "never")
+                {
+                    wfl::diagnostics::set_color_mode(&args[idx + 1]);
+                    idx += 1; // consume the value token
+                }
+            } else {
+                filtered.push(arg.clone());
+            }
+            idx += 1;
+        }
+        args = filtered;
+    }
 
     if args.len() == 1 {
         if let Err(e) = repl::run_repl().await {
@@ -806,8 +831,6 @@ async fn main() -> io::Result<()> {
                     println!("AST output written to: {ast_output_path}");
                 }
                 Err(errors) => {
-                    eprintln!("Cannot generate AST dump due to parse errors:");
-
                     let mut reporter = DiagnosticReporter::new();
                     let file_id = reporter.add_file(&file_path, &input);
 
@@ -906,8 +929,6 @@ async fn main() -> io::Result<()> {
                 }
             }
             Err(errors) => {
-                eprintln!("Parse errors:");
-
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
 
@@ -950,8 +971,6 @@ async fn main() -> io::Result<()> {
                     }
                     process::exit(0);
                 } else if !diagnostics.is_empty() {
-                    eprintln!("Lint warnings:");
-
                     let mut reporter = DiagnosticReporter::new();
                     let file_id = reporter.add_file(&file_path, &input);
 
@@ -969,8 +988,6 @@ async fn main() -> io::Result<()> {
                 }
             }
             Err(errors) => {
-                eprintln!("Parse errors:");
-
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
 
@@ -996,8 +1013,6 @@ async fn main() -> io::Result<()> {
                 let diagnostics = analyzer.analyze_static(&program, file_id);
 
                 if !diagnostics.is_empty() {
-                    eprintln!("Static analysis warnings:");
-
                     let mut reporter = DiagnosticReporter::new();
                     let file_id = reporter.add_file(&file_path, &input);
 
@@ -1015,8 +1030,6 @@ async fn main() -> io::Result<()> {
                 }
             }
             Err(errors) => {
-                eprintln!("Parse errors:");
-
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
 
@@ -1062,8 +1075,6 @@ async fn main() -> io::Result<()> {
                 }
             }
             Err(errors) => {
-                eprintln!("Parse errors:");
-
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
 
@@ -1158,8 +1169,6 @@ async fn main() -> io::Result<()> {
                         .collect();
 
                     if !filtered_errors.is_empty() {
-                        eprintln!("Type checking warnings:");
-
                         let mut reporter = DiagnosticReporter::new();
                         let file_id = reporter.add_file(&file_path, &input);
 
@@ -1275,8 +1284,6 @@ async fn main() -> io::Result<()> {
                             error!("Runtime errors occurred");
                         }
 
-                        eprintln!("Runtime errors:");
-
                         let mut reporter = DiagnosticReporter::new();
                         let file_id = reporter.add_file(&file_path, &input);
 
@@ -1323,8 +1330,6 @@ async fn main() -> io::Result<()> {
                 }
             }
             Err(errors) => {
-                eprintln!("Parse errors:");
-
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file(&file_path, &input);
 

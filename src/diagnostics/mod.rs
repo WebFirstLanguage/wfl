@@ -1,15 +1,56 @@
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFiles;
-use codespan_reporting::term;
-use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
+use codespan_reporting::term::termcolor::{Buffer, ColorChoice, StandardStream, WriteColor};
 // use std::fmt;
 use std::collections::HashMap;
 use std::io;
+use std::io::IsTerminal as _;
+use std::io::Write as _;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 pub mod render;
 
+use render::{RenderOptions, render_diagnostic};
+
 #[cfg(test)]
 mod render_tests;
+
+/// Process-wide color override set from the CLI `--color` flag. 0 = auto,
+/// 1 = always, 2 = never. Defaults to auto (color only on a TTY, and never when
+/// `NO_COLOR` is set).
+static COLOR_OVERRIDE: AtomicU8 = AtomicU8::new(0);
+
+/// Set the terminal color mode from a CLI argument ("auto", "always", "never").
+/// Unrecognized values leave the mode at its current setting.
+pub fn set_color_mode(mode: &str) {
+    let value = match mode {
+        "always" => 1,
+        "never" => 2,
+        "auto" => 0,
+        _ => return,
+    };
+    COLOR_OVERRIDE.store(value, Ordering::Relaxed);
+}
+
+/// Resolve the [`ColorChoice`] for stderr, honoring the `--color` override, the
+/// `NO_COLOR` convention, and TTY detection.
+///
+/// Note: termcolor's `ColorChoice::Auto` only consults environment variables
+/// (`TERM`, `NO_COLOR`) — it does NOT check whether the stream is a terminal, so
+/// we must do that ourselves, otherwise color leaks into pipes and files.
+pub fn stderr_color_choice() -> ColorChoice {
+    match COLOR_OVERRIDE.load(Ordering::Relaxed) {
+        1 => ColorChoice::Always,
+        2 => ColorChoice::Never,
+        _ => {
+            if std::env::var_os("NO_COLOR").is_some() || !std::io::stderr().is_terminal() {
+                ColorChoice::Never
+            } else {
+                ColorChoice::Auto
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -403,29 +444,68 @@ impl DiagnosticReporter {
             .map(|s| s.to_string())
     }
 
-    pub fn report_diagnostic(&self, file_id: usize, diagnostic: &WflDiagnostic) -> io::Result<()> {
-        let mut diag =
-            Diagnostic::new(diagnostic.severity.into()).with_message(diagnostic.message.clone());
+    /// Render a single diagnostic to stderr in the Elm-style layout, followed by a
+    /// blank line so consecutive diagnostics stay visually separated.
+    pub fn report_diagnostic(
+        &mut self,
+        file_id: usize,
+        diagnostic: &WflDiagnostic,
+    ) -> io::Result<()> {
+        let mut stream = StandardStream::stderr(stderr_color_choice());
+        render_diagnostic(
+            &mut stream,
+            self,
+            file_id,
+            diagnostic,
+            &RenderOptions::default(),
+        )?;
+        writeln!(&mut stream)?;
+        Ok(())
+    }
 
-        if !diagnostic.code.is_empty() {
-            diag = diag.with_code(diagnostic.code.clone());
+    /// Render every diagnostic to an arbitrary [`WriteColor`] sink, separated by a
+    /// blank line. This is the single entry point behind the stderr and REPL paths.
+    pub fn report_all(
+        &mut self,
+        file_id: usize,
+        diagnostics: &[WflDiagnostic],
+        w: &mut dyn WriteColor,
+        opts: &RenderOptions,
+    ) -> io::Result<()> {
+        for (i, diagnostic) in diagnostics.iter().enumerate() {
+            if i > 0 {
+                writeln!(w)?;
+            }
+            render_diagnostic(w, self, file_id, diagnostic, opts)?;
         }
+        Ok(())
+    }
 
-        for (span, message) in &diagnostic.labels {
-            diag = diag.with_labels(vec![
-                Label::primary(file_id, span.start..span.end).with_message(message.clone()),
-            ]);
-        }
+    /// Render diagnostics to stderr, honoring the color choice.
+    pub fn report_to_stderr(
+        &mut self,
+        file_id: usize,
+        diagnostics: &[WflDiagnostic],
+    ) -> io::Result<()> {
+        let mut stream = StandardStream::stderr(stderr_color_choice());
+        self.report_all(file_id, diagnostics, &mut stream, &RenderOptions::default())
+    }
 
-        for note in &diagnostic.notes {
-            diag = diag.with_notes(vec![note.clone()]);
-        }
-
-        let writer = StandardStream::stderr(ColorChoice::Always);
-        let config = term::Config::default();
-
-        term::emit(&mut writer.lock(), &config, &self.files, &diag)
-            .map_err(|_| io::Error::other("Failed to emit diagnostic"))
+    /// Render diagnostics into a string (used by the REPL, which returns rather
+    /// than prints). `color` selects an ANSI buffer versus plain text.
+    pub fn render_to_string(
+        &mut self,
+        file_id: usize,
+        diagnostics: &[WflDiagnostic],
+        color: bool,
+    ) -> String {
+        let mut buffer = if color {
+            Buffer::ansi()
+        } else {
+            Buffer::no_color()
+        };
+        let _ = self.report_all(file_id, diagnostics, &mut buffer, &RenderOptions::default());
+        String::from_utf8_lossy(buffer.as_slice()).to_string()
     }
 
     /// Get or compute line start positions for a file, using cache when available.
@@ -555,8 +635,9 @@ impl DiagnosticReporter {
             }
         };
 
-        let mut diag =
-            WflDiagnostic::error(message.clone()).with_primary_label(span, "Error occurred here");
+        let mut diag = WflDiagnostic::error(message.clone())
+            .with_kind(DiagnosticKind::ParseError)
+            .with_primary_label(span, "Error occurred here");
 
         if message.contains("Expected 'as' after variable name") {
             diag = diag.with_note(
@@ -639,13 +720,15 @@ impl DiagnosticReporter {
             .unwrap_or(0);
         let end_offset = start_offset + 1;
 
-        let mut diag = WflDiagnostic::error(message_text.clone()).with_primary_label(
-            Span {
-                start: start_offset,
-                end: end_offset,
-            },
-            "Type error occurred here",
-        );
+        let mut diag = WflDiagnostic::error(message_text.clone())
+            .with_kind(DiagnosticKind::TypeError)
+            .with_primary_label(
+                Span {
+                    start: start_offset,
+                    end: end_offset,
+                },
+                "Type error occurred here",
+            );
 
         if message_text.contains("undefined") || message_text.contains("not defined") {
             diag = diag.with_note("Did you misspell the variable name or forget to declare it?");
@@ -785,6 +868,7 @@ impl DiagnosticReporter {
         };
 
         let mut diag = WflDiagnostic::error(message.clone())
+            .with_kind(DiagnosticKind::RuntimeError)
             .with_primary_label(span, "Runtime error occurred here");
 
         if error.message.contains("Pattern compilation error") {

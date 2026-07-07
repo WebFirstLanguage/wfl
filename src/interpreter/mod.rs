@@ -3658,19 +3658,15 @@ impl Interpreter {
 
                 let mut tc = TypeChecker::with_analyzer(analyzer);
                 if let Err(type_errors) = tc.check_types(&program) {
-                    eprintln!(
-                        "Type checking warnings in included file '{}':",
-                        resolved_path.display()
-                    );
                     let mut reporter = DiagnosticReporter::new();
                     let file_id =
                         reporter.add_file(resolved_path.display().to_string(), content.clone());
-                    for error in &type_errors {
-                        let diagnostic = reporter.convert_type_error(file_id, error);
-                        if reporter.report_diagnostic(file_id, &diagnostic).is_err() {
-                            eprintln!("{error}");
-                        }
-                    }
+                    eprintln!("In included file '{}':", resolved_path.display());
+                    let diags: Vec<_> = type_errors
+                        .iter()
+                        .map(|error| reporter.convert_type_error(file_id, error))
+                        .collect();
+                    let _ = reporter.report_to_stderr(file_id, &diags);
                 }
 
                 // 8. Create guard for context tracking
