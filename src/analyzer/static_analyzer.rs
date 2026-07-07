@@ -1,5 +1,5 @@
 use super::Analyzer;
-use crate::diagnostics::{Severity, WflDiagnostic};
+use crate::diagnostics::{DiagnosticKind, Severity, WflDiagnostic};
 use crate::parser::ast::{Expression, Program, Statement, Type};
 use std::collections::{HashMap, HashSet};
 
@@ -142,16 +142,19 @@ impl StaticAnalyzer for Analyzer {
             } else {
                 "This action is not defined in this file; it may be provided by an included module at runtime, otherwise this is likely a typo."
             };
-            diagnostics.push(WflDiagnostic::new(
-                Severity::Warning,
-                warning.message.clone(),
-                Some(note.to_string()),
-                "ANALYZE-SEMANTIC".to_string(),
-                file_id,
-                warning.line,
-                warning.column,
-                None,
-            ));
+            diagnostics.push(
+                WflDiagnostic::new(
+                    Severity::Warning,
+                    warning.message.clone(),
+                    Some(note.to_string()),
+                    "ANALYZE-SEMANTIC".to_string(),
+                    file_id,
+                    warning.line,
+                    warning.column,
+                    None,
+                )
+                .with_kind(DiagnosticKind::AnalysisWarning),
+            );
         }
 
         if let Err(errors) = analyze_result {
@@ -201,7 +204,7 @@ impl StaticAnalyzer for Analyzer {
                     None::<String>
                 };
 
-                diagnostics.push(WflDiagnostic::new(
+                let mut diag = WflDiagnostic::new(
                     Severity::Error,
                     error.message.clone(),
                     note,
@@ -210,7 +213,13 @@ impl StaticAnalyzer for Analyzer {
                     error.line,
                     error.column,
                     None,
-                ));
+                );
+                // Undefined names are the common case here — give them the more
+                // specific "Name Error" title.
+                if is_undefined_symbol {
+                    diag = diag.with_kind(DiagnosticKind::NameError);
+                }
+                diagnostics.push(diag);
             }
 
             return diagnostics;

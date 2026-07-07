@@ -1,6 +1,31 @@
-use crate::diagnostics::{DiagnosticReporter, Severity, WflDiagnostic};
+use crate::diagnostics::{DiagnosticKind, DiagnosticReporter, Severity, Suggestion, WflDiagnostic};
 use crate::parser::ast::{Program, Statement};
 use std::path::Path;
+
+/// Build a lint warning: a Warning-severity diagnostic tagged as a `LintWarning`
+/// (so it renders under the "Lint Warning" title) with its fix guidance carried
+/// as a structured [`Suggestion`] (rendered as "💡") rather than a plain note.
+fn lint_warning(
+    code: &str,
+    message: String,
+    suggestion: String,
+    file_id: usize,
+    line: usize,
+    column: usize,
+) -> WflDiagnostic {
+    WflDiagnostic::new(
+        Severity::Warning,
+        message,
+        None::<String>,
+        code.to_string(),
+        file_id,
+        line,
+        column,
+        None,
+    )
+    .with_kind(DiagnosticKind::LintWarning)
+    .with_suggestion(Suggestion::new(suggestion))
+}
 
 pub trait LintRule {
     fn code(&self) -> &'static str;
@@ -57,20 +82,16 @@ impl Linter {
         source: &str,
         file_path: &str,
     ) -> (Vec<WflDiagnostic>, bool) {
-        println!("Starting linting process...");
         let mut reporter = DiagnosticReporter::new();
         let file_id = reporter.add_file(file_path, source);
 
         let mut all_diagnostics = Vec::new();
 
         for rule in &self.rules {
-            println!("Applying rule: {}", rule.code());
             let diagnostics = rule.apply(program, &mut reporter, file_id);
-            println!("Rule {} found {} issues", rule.code(), diagnostics.len());
             all_diagnostics.extend(diagnostics);
         }
 
-        println!("Linting complete. Found {} issues", all_diagnostics.len());
         let is_empty = all_diagnostics.is_empty();
         (all_diagnostics, is_empty)
     }
@@ -99,7 +120,6 @@ impl LintRule for NamingConventionRule {
         _reporter: &mut DiagnosticReporter,
         file_id: usize,
     ) -> Vec<WflDiagnostic> {
-        println!("  NamingConventionRule: checking variable and action names");
         let mut diagnostics = Vec::new();
 
         for statement in &program.statements {
@@ -111,34 +131,28 @@ impl LintRule for NamingConventionRule {
                     name, line, column, ..
                 } if !is_snake_case(name) => {
                     let snake_case_name = to_snake_case(name);
-                    let diagnostic = WflDiagnostic::new(
-                        Severity::Warning,
+                    diagnostics.push(lint_warning(
+                        "LINT-NAME",
                         format!("Variable name '{name}' should be snake_case"),
-                        Some(format!("Rename to '{snake_case_name}'")),
-                        "LINT-NAME".to_string(),
+                        format!("Rename to '{snake_case_name}'"),
                         file_id,
                         *line,
                         *column,
-                        None,
-                    );
-                    diagnostics.push(diagnostic);
+                    ));
                 }
                 Statement::VariableDeclaration { .. } | Statement::Assignment { .. } => {}
                 Statement::ActionDefinition {
                     name, line, column, ..
                 } if !is_snake_case(name) => {
                     let snake_case_name = to_snake_case(name);
-                    let diagnostic = WflDiagnostic::new(
-                        Severity::Warning,
+                    diagnostics.push(lint_warning(
+                        "LINT-NAME",
                         format!("Action name '{name}' should be snake_case"),
-                        Some(format!("Rename to '{snake_case_name}'")),
-                        "LINT-NAME".to_string(),
+                        format!("Rename to '{snake_case_name}'"),
                         file_id,
                         *line,
                         *column,
-                        None,
-                    );
-                    diagnostics.push(diagnostic);
+                    ));
                 }
                 Statement::ActionDefinition { .. } => {}
                 _ => {}
@@ -193,17 +207,15 @@ impl LintRule for IndentationRule {
                 }
 
                 if indent_spaces != expected_indent {
-                    diagnostics.push(WflDiagnostic::new(
-                        Severity::Warning,
+                    diagnostics.push(lint_warning(
+                        "LINT-INDENT",
                         format!(
                             "Line should be indented with {expected_indent} spaces, found {indent_spaces}"
                         ),
-                        Some(format!("Adjust indentation to {expected_indent} spaces")),
-                        "LINT-INDENT".to_string(),
+                        format!("Adjust indentation to {expected_indent} spaces"),
                         file_id,
                         line_num,
                         1, // Column is always 1 for indentation issues
-                        None,
                     ));
                 }
 
@@ -284,29 +296,25 @@ impl LintRule for KeywordCasingRule {
 
                 if let Some(pos) = source.find(&uppercase_keyword) {
                     let line_col = line_col_from_pos(source, pos);
-                    diagnostics.push(WflDiagnostic::new(
-                        Severity::Warning,
+                    diagnostics.push(lint_warning(
+                        "LINT-KEYWORD",
                         format!("Keyword '{uppercase_keyword}' should be lowercase"),
-                        Some(format!("Change to '{keyword}'")),
-                        "LINT-KEYWORD".to_string(),
+                        format!("Change to '{keyword}'"),
                         file_id,
                         line_col.0,
                         line_col.1,
-                        None,
                     ));
                 }
 
                 if let Some(pos) = source.find(&mixed_case_keyword) {
                     let line_col = line_col_from_pos(source, pos);
-                    diagnostics.push(WflDiagnostic::new(
-                        Severity::Warning,
+                    diagnostics.push(lint_warning(
+                        "LINT-KEYWORD",
                         format!("Keyword '{mixed_case_keyword}' should be lowercase"),
-                        Some(format!("Change to '{keyword}'")),
-                        "LINT-KEYWORD".to_string(),
+                        format!("Change to '{keyword}'"),
                         file_id,
                         line_col.0,
                         line_col.1,
-                        None,
                     ));
                 }
             }
@@ -342,15 +350,13 @@ impl LintRule for TrailingWhitespaceRule {
                 let line_num = line_idx + 1;
 
                 if line.trim_end().len() < line.len() {
-                    diagnostics.push(WflDiagnostic::new(
-                        Severity::Warning,
+                    diagnostics.push(lint_warning(
+                        "LINT-WHITESPACE",
                         "Line has trailing whitespace".to_string(),
-                        Some("Remove trailing whitespace".to_string()),
-                        "LINT-WHITESPACE".to_string(),
+                        "Remove trailing whitespace".to_string(),
                         file_id,
                         line_num,
                         line.trim_end().len() + 1,
-                        None,
                     ));
                 }
             }
@@ -389,15 +395,13 @@ impl LintRule for LineLengthRule {
                 let line_num = line_idx + 1;
 
                 if line.len() > max_length {
-                    diagnostics.push(WflDiagnostic::new(
-                        Severity::Warning,
+                    diagnostics.push(lint_warning(
+                        "LINT-LENGTH",
                         format!("Line exceeds maximum length of {max_length} characters"),
-                        Some(format!("Shorten line to {max_length} characters or less")),
-                        "LINT-LENGTH".to_string(),
+                        format!("Shorten line to {max_length} characters or less"),
                         file_id,
                         line_num,
                         max_length + 1,
-                        None,
                     ));
                 }
             }
@@ -450,15 +454,13 @@ fn check_nesting_depth(
             | Statement::WhileLoop { line, column, .. }
             | Statement::ForEachLoop { line, column, .. }
             | Statement::CountLoop { line, column, .. } => {
-                diagnostics.push(WflDiagnostic::new(
-                    Severity::Warning,
+                diagnostics.push(lint_warning(
+                    "LINT-COMPLEX",
                     format!("Nesting depth exceeds maximum of {max_depth}"),
-                    Some("Refactor to reduce nesting".to_string()),
-                    "LINT-COMPLEX".to_string(),
+                    "Refactor to reduce nesting".to_string(),
                     file_id,
                     *line,
                     *column,
-                    None,
                 ));
             }
             _ => {}
