@@ -720,18 +720,12 @@ impl DiagnosticReporter {
         file_id: usize,
         error: &crate::typechecker::TypeError,
     ) -> WflDiagnostic {
-        let mut message_text = error.message.clone();
-
-        if let (Some(expected), Some(found)) = (&error.expected, &error.found) {
-            message_text = format!("{message_text} - Expected {expected} but found {found}");
-        }
-
         let start_offset = self
             .line_col_to_offset(file_id, error.line, error.column)
             .unwrap_or(0);
         let end_offset = start_offset + 1;
 
-        let mut diag = WflDiagnostic::error(message_text.clone())
+        let mut diag = WflDiagnostic::error(error.message.clone())
             .with_kind(DiagnosticKind::TypeError)
             .with_primary_label(
                 Span {
@@ -741,14 +735,29 @@ impl DiagnosticReporter {
                 "Type error occurred here",
             );
 
-        if message_text.contains("undefined") || message_text.contains("not defined") {
-            diag = diag.with_note("Did you misspell the variable name or forget to declare it?");
+        // The type checker carries expected/found as structured types, so render
+        // them in the aligned Expected/Found block rather than folded into the
+        // message text.
+        if let (Some(expected), Some(found)) = (&error.expected, &error.found) {
+            diag = diag.with_type_mismatch(expected.to_string(), found.to_string());
+        }
+
+        // Actionable suggestion, carried as structured data (rendered as "💡 Try")
+        // rather than a plain note.
+        if error.message.contains("undefined") || error.message.contains("not defined") {
+            diag = diag.with_suggestion(Suggestion::new(
+                "Did you misspell the variable name or forget to declare it?",
+            ));
         } else if let (Some(expected), Some(found)) = (&error.expected, &error.found) {
-            if expected.to_string() == "Number" && found.to_string() == "Text" {
-                diag =
-                    diag.with_note("Try converting the text to a number using 'convert to number'");
-            } else if expected.to_string() == "Text" && found.to_string() == "Number" {
-                diag = diag.with_note("Try converting the number to text using 'convert to text'");
+            let (expected, found) = (expected.to_string(), found.to_string());
+            if expected == "Number" && found == "Text" {
+                diag = diag.with_suggestion(Suggestion::new(
+                    "Try converting the text to a number using 'convert to number'",
+                ));
+            } else if expected == "Text" && found == "Number" {
+                diag = diag.with_suggestion(Suggestion::new(
+                    "Try converting the number to text using 'convert to text'",
+                ));
             }
         }
 

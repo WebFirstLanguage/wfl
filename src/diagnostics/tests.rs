@@ -39,7 +39,17 @@ fn test_type_error_conversion() {
     assert_eq!(diagnostic.severity, Severity::Error);
     assert!(diagnostic.message.contains("Cannot add number and text"));
     assert_eq!(diagnostic.labels.len(), 1);
-    assert!(!diagnostic.notes.is_empty());
+    assert_eq!(
+        diagnostic.kind,
+        Some(crate::diagnostics::DiagnosticKind::TypeError)
+    );
+    // Expected/Found is carried structurally, and the suggestion replaces the
+    // old free-text note.
+    let type_info = diagnostic.type_info.expect("expected/found block");
+    assert_eq!(type_info.expected, "Number");
+    assert_eq!(type_info.found, "Text");
+    let suggestion = diagnostic.suggestion.expect("conversion suggestion");
+    assert!(suggestion.message.contains("convert to number"));
 }
 
 #[test]
