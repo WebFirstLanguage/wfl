@@ -13,11 +13,31 @@ use wfl::lexer::lex_wfl_with_positions;
 use wfl::parser::Parser;
 use wfl::typechecker::TypeChecker;
 
-/// Issue #590: self-recursive call whose result is indexed inside the body must
-/// not raise a false "Cannot index into Nothing" diagnostic.
+/// Type-check `code` and assert it produces zero diagnostics. Asserting a fully
+/// clean result (rather than only the absence of one error substring) is a
+/// tighter regression guard: it catches both a re-introduced "Cannot index into
+/// Nothing" error and any new spurious diagnostic on the same recursive path.
+fn assert_typechecks_clean(code: &str) {
+    let tokens = lex_wfl_with_positions(code);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("Should parse");
+
+    let mut type_checker = TypeChecker::new();
+    let result = type_checker.check_types(&program);
+
+    assert!(
+        result.is_ok(),
+        "Self-recursive action should type-check clean; got: {:?}",
+        result.err()
+    );
+}
+
+/// Issue #590: a self-recursive call whose result is indexed directly inside the
+/// body must not raise a false "Cannot index into Nothing" diagnostic.
 #[test]
 fn test_self_recursive_action_result_not_typed_nothing() {
-    let code = r#"
+    assert_typechecks_clean(
+        r#"
 define action called other with parameters n:
     create map m:
         "val" is n
@@ -34,30 +54,16 @@ define action called p_unary with parameters n:
 end action
 
 display (p_unary of 3)["val"]
-"#;
-
-    let tokens = lex_wfl_with_positions(code);
-    let mut parser = Parser::new(&tokens);
-    let program = parser.parse().expect("Should parse");
-
-    let mut type_checker = TypeChecker::new();
-    let result = type_checker.check_types(&program);
-
-    if let Err(errors) = result {
-        assert!(
-            !errors
-                .iter()
-                .any(|e| e.message.contains("Cannot index into Nothing")),
-            "Self-recursive action result must not be typed Nothing; got: {errors:?}"
-        );
-    }
+"#,
+    );
 }
 
-/// A self-recursive action that negates its recursive result (the Scribe
-/// `scribe_p_unary` shape) must also type-check clean.
+/// A self-recursive action that negates its recursive result before indexing
+/// (the Scribe `scribe_p_unary` shape) must also type-check clean.
 #[test]
 fn test_self_recursive_action_negating_result_typechecks_clean() {
-    let code = r#"
+    assert_typechecks_clean(
+        r#"
 define action called other with parameters n:
     create map m:
         "val" is n
@@ -74,21 +80,6 @@ define action called p_unary with parameters n:
 end action
 
 display (p_unary of 3)["val"]
-"#;
-
-    let tokens = lex_wfl_with_positions(code);
-    let mut parser = Parser::new(&tokens);
-    let program = parser.parse().expect("Should parse");
-
-    let mut type_checker = TypeChecker::new();
-    let result = type_checker.check_types(&program);
-
-    if let Err(errors) = result {
-        assert!(
-            !errors
-                .iter()
-                .any(|e| e.message.contains("Cannot index into Nothing")),
-            "Self-recursive action negating its result must type-check clean; got: {errors:?}"
-        );
-    }
+"#,
+    );
 }
