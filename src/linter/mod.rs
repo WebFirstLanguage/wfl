@@ -149,15 +149,6 @@ impl LintRule for NamingConventionRule {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum RuleSeverity {
-    Allow, // Rule is disabled
-    Warn,  // Rule generates warnings but doesn't cause failure
-    #[default]
-    Deny, // Rule generates errors and causes failure
-    Forbid, // Rule generates errors and cannot be overridden
-}
-
 struct IndentationRule;
 
 impl LintRule for IndentationRule {
