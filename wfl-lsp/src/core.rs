@@ -172,30 +172,58 @@ impl WflLanguageCore {
             wfl::diagnostics::Severity::Help => Some(DiagnosticSeverity::HINT),
         };
 
-        let mut related_information = None;
-        if !wfl_diag.notes.is_empty() {
-            let related = wfl_diag
-                .notes
-                .iter()
-                .map(|note| DiagnosticRelatedInformation {
-                    location: Location {
-                        uri: Url::parse("file:///document.wfl").unwrap(),
-                        range: Range {
-                            start: Position {
-                                line: 0,
-                                character: 0,
-                            },
-                            end: Position {
-                                line: 0,
-                                character: 0,
+        // Fold the enriched fields (Expected/Found, explanation, actionable
+        // suggestion) and any legacy notes into the LSP related-information list so
+        // editors surface the same guidance the terminal renderer shows.
+        let mut related_messages: Vec<String> = Vec::new();
+        if let Some(type_info) = &wfl_diag.type_info {
+            related_messages.push(format!(
+                "Expected {}, found {}",
+                type_info.expected, type_info.found
+            ));
+        }
+        if let Some(explanation) = &wfl_diag.explanation {
+            related_messages.push(explanation.clone());
+        }
+        if let Some(suggestion) = &wfl_diag.suggestion {
+            let mut message = suggestion.message.clone();
+            if !suggestion.examples.is_empty() {
+                message.push_str(": ");
+                message.push_str(
+                    &suggestion
+                        .examples
+                        .join(&format!(" {} ", suggestion.joiner_str())),
+                );
+            }
+            related_messages.push(message);
+        }
+        related_messages.extend(wfl_diag.notes.iter().cloned());
+
+        let related_information = if related_messages.is_empty() {
+            None
+        } else {
+            Some(
+                related_messages
+                    .into_iter()
+                    .map(|message| DiagnosticRelatedInformation {
+                        location: Location {
+                            uri: Url::parse("file:///document.wfl").unwrap(),
+                            range: Range {
+                                start: Position {
+                                    line: 0,
+                                    character: 0,
+                                },
+                                end: Position {
+                                    line: 0,
+                                    character: 0,
+                                },
                             },
                         },
-                    },
-                    message: note.clone(),
-                })
-                .collect();
-            related_information = Some(related);
-        }
+                        message,
+                    })
+                    .collect(),
+            )
+        };
 
         let mut range = Range {
             start: Position {
