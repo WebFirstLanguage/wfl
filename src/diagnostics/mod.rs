@@ -6,6 +6,11 @@ use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 use std::collections::HashMap;
 use std::io;
 
+pub mod render;
+
+#[cfg(test)]
+mod render_tests;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Error,
@@ -271,6 +276,12 @@ impl WflDiagnostic {
         self
     }
 
+    pub fn with_location(mut self, line: usize, column: usize) -> Self {
+        self.line = line;
+        self.column = column;
+        self
+    }
+
     pub fn with_note(mut self, note: impl Into<String>) -> Self {
         self.notes.push(note.into());
         self
@@ -380,6 +391,16 @@ impl DiagnosticReporter {
         // Clear any cached line starts for this file since we're adding/updating it
         self.line_starts_cache.remove(&file_id);
         file_id
+    }
+
+    /// The text of a single (1-based) source line, without its trailing newline.
+    /// Used by the Elm-style renderer to draw the source frame.
+    pub fn line_text(&self, file_id: usize, line: usize) -> Option<String> {
+        let file = self.files.get(file_id).ok()?;
+        file.source()
+            .lines()
+            .nth(line.saturating_sub(1))
+            .map(|s| s.to_string())
     }
 
     pub fn report_diagnostic(&self, file_id: usize, diagnostic: &WflDiagnostic) -> io::Result<()> {
