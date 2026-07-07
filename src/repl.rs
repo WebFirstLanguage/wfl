@@ -9,8 +9,6 @@ use crate::parser::{
     ast::{Program, Statement},
 };
 use crate::typechecker::TypeChecker;
-use codespan_reporting::term;
-use codespan_reporting::term::termcolor::Buffer;
 use rustyline::error::ReadlineError;
 use rustyline::{DefaultEditor, Result as RustylineResult};
 use std::io::{self, Write};
@@ -138,33 +136,14 @@ impl ReplState {
         let program = match parser.parse() {
             Ok(prog) => prog,
             Err(errors) => {
-                let mut error_messages = Vec::new();
                 let mut reporter = DiagnosticReporter::new();
                 let file_id = reporter.add_file("repl", input);
-
-                for error in &errors {
-                    let diagnostic = reporter.convert_parse_error(file_id, error);
-
-                    let mut buffer = Buffer::ansi();
-                    let config = term::Config::default();
-                    if let Err(_e) = term::emit(
-                        &mut buffer,
-                        &config,
-                        &reporter.files,
-                        &diagnostic.to_codespan_diagnostic(file_id),
-                    ) {
-                        error_messages.push(format!(
-                            "Parse error at line {}, column {}: {}",
-                            error.line, error.column, error.message
-                        ));
-                        continue;
-                    }
-
-                    let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                    error_messages.push(output);
-                }
-
-                return Ok(Some(error_messages.join("\n")));
+                let diags: Vec<_> = errors
+                    .iter()
+                    .map(|error| reporter.convert_parse_error(file_id, error))
+                    .collect();
+                let color = crate::diagnostics::stdout_wants_color();
+                return Ok(Some(reporter.render_to_string(file_id, &diags, color)));
             }
         };
 
@@ -178,50 +157,18 @@ impl ReplState {
         let sema_diags = analyzer.analyze_static(&program, file_id);
 
         if !sema_diags.is_empty() {
-            let mut error_messages = Vec::new();
-            for diagnostic in &sema_diags {
-                let mut buffer = Buffer::ansi();
-                let config = term::Config::default();
-                if let Err(_e) = term::emit(
-                    &mut buffer,
-                    &config,
-                    &reporter.files,
-                    &diagnostic.to_codespan_diagnostic(file_id),
-                ) {
-                    error_messages.push(format!("Semantic error: {}", diagnostic.message));
-                    continue;
-                }
-
-                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                error_messages.push(output);
-            }
-
-            return Ok(Some(error_messages.join("\n")));
+            let color = crate::diagnostics::stdout_wants_color();
+            return Ok(Some(reporter.render_to_string(file_id, &sema_diags, color)));
         }
 
         let mut type_checker = TypeChecker::new();
         if let Err(errors) = type_checker.check_types(&program) {
-            let mut error_messages = Vec::new();
-            for error in &errors {
-                let diagnostic = reporter.convert_type_error(file_id, error);
-
-                let mut buffer = Buffer::ansi();
-                let config = term::Config::default();
-                if let Err(_e) = term::emit(
-                    &mut buffer,
-                    &config,
-                    &reporter.files,
-                    &diagnostic.to_codespan_diagnostic(file_id),
-                ) {
-                    error_messages.push(format!("Type error: {error}"));
-                    continue;
-                }
-
-                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                error_messages.push(output);
-            }
-
-            return Ok(Some(error_messages.join("\n")));
+            let diags: Vec<_> = errors
+                .iter()
+                .map(|error| reporter.convert_type_error(file_id, error))
+                .collect();
+            let color = crate::diagnostics::stdout_wants_color();
+            return Ok(Some(reporter.render_to_string(file_id, &diags, color)));
         }
 
         let mut result_output = None;
@@ -238,60 +185,28 @@ impl ReplState {
                             result_output = Some(format!("{value:?}"));
                         }
                         Err(errors) => {
-                            let mut error_messages = Vec::new();
                             let mut reporter = DiagnosticReporter::new();
                             let file_id = reporter.add_file("repl", input);
-
-                            for error in &errors {
-                                let diagnostic = reporter.convert_runtime_error(file_id, error);
-
-                                let mut buffer = Buffer::ansi();
-                                let config = term::Config::default();
-                                if let Err(_e) = term::emit(
-                                    &mut buffer,
-                                    &config,
-                                    &reporter.files,
-                                    &diagnostic.to_codespan_diagnostic(file_id),
-                                ) {
-                                    error_messages.push(format!("Runtime error: {error}"));
-                                    continue;
-                                }
-
-                                let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                                error_messages.push(output);
-                            }
-
-                            result_output = Some(error_messages.join("\n"));
+                            let diags: Vec<_> = errors
+                                .iter()
+                                .map(|error| reporter.convert_runtime_error(file_id, error))
+                                .collect();
+                            let color = crate::diagnostics::stdout_wants_color();
+                            result_output = Some(reporter.render_to_string(file_id, &diags, color));
                         }
                     }
                 }
                 _ => match self.interpreter.interpret(&program).await {
                     Ok(_) => {}
                     Err(errors) => {
-                        let mut error_messages = Vec::new();
                         let mut reporter = DiagnosticReporter::new();
                         let file_id = reporter.add_file("repl", input);
-
-                        for error in &errors {
-                            let diagnostic = reporter.convert_runtime_error(file_id, error);
-
-                            let mut buffer = Buffer::ansi();
-                            let config = term::Config::default();
-                            if let Err(_e) = term::emit(
-                                &mut buffer,
-                                &config,
-                                &reporter.files,
-                                &diagnostic.to_codespan_diagnostic(file_id),
-                            ) {
-                                error_messages.push(format!("Runtime error: {error}"));
-                                continue;
-                            }
-
-                            let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                            error_messages.push(output);
-                        }
-
-                        result_output = Some(error_messages.join("\n"));
+                        let diags: Vec<_> = errors
+                            .iter()
+                            .map(|error| reporter.convert_runtime_error(file_id, error))
+                            .collect();
+                        let color = crate::diagnostics::stdout_wants_color();
+                        result_output = Some(reporter.render_to_string(file_id, &diags, color));
                     }
                 },
             }
@@ -299,30 +214,14 @@ impl ReplState {
             match self.interpreter.interpret(&program).await {
                 Ok(_) => {}
                 Err(errors) => {
-                    let mut error_messages = Vec::new();
                     let mut reporter = DiagnosticReporter::new();
                     let file_id = reporter.add_file("repl", input);
-
-                    for error in &errors {
-                        let diagnostic = reporter.convert_runtime_error(file_id, error);
-
-                        let mut buffer = Buffer::ansi();
-                        let config = term::Config::default();
-                        if let Err(_e) = term::emit(
-                            &mut buffer,
-                            &config,
-                            &reporter.files,
-                            &diagnostic.to_codespan_diagnostic(file_id),
-                        ) {
-                            error_messages.push(format!("Runtime error: {error}"));
-                            continue;
-                        }
-
-                        let output = String::from_utf8_lossy(buffer.as_slice()).to_string();
-                        error_messages.push(output);
-                    }
-
-                    result_output = Some(error_messages.join("\n"));
+                    let diags: Vec<_> = errors
+                        .iter()
+                        .map(|error| reporter.convert_runtime_error(file_id, error))
+                        .collect();
+                    let color = crate::diagnostics::stdout_wants_color();
+                    result_output = Some(reporter.render_to_string(file_id, &diags, color));
                 }
             }
         }

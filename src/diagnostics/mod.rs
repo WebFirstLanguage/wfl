@@ -52,6 +52,17 @@ pub fn stderr_color_choice() -> ColorChoice {
     }
 }
 
+/// Whether diagnostics printed to stdout (e.g. the REPL, which returns a rendered
+/// string rather than writing to stderr) should be colorized. Honors the
+/// `--color` override, `NO_COLOR`, and stdout TTY status.
+pub fn stdout_wants_color() -> bool {
+    match COLOR_OVERRIDE.load(Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal(),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Error,
