@@ -719,14 +719,22 @@ impl TypeChecker {
                     .collect::<Vec<Type>>();
 
                 // WFL has no return-type annotation syntax, so `return_type` is
-                // effectively always `None`; default to `Nothing` provisionally
+                // effectively always `None`; seed a provisional return type
                 // (so recursive calls in the body resolve to a function type),
                 // then refine it below by inferring from the body's `return`
-                // expressions (issue #569). Without this, every action-call
-                // result is typed `Nothing`, producing spurious "Expected Text
-                // but found Nothing" errors when the result feeds a builtin
-                // position that requires Text (e.g. `respond to req with ...`).
-                let return_type_value = return_type.as_ref().cloned().unwrap_or(Type::Nothing);
+                // expressions (issue #569).
+                //
+                // Seed with `Unknown` rather than `Nothing`. The body is
+                // type-checked before the real return type is inferred (#575's
+                // ordering), so a self-recursive call in the body resolves
+                // against this provisional type. `Nothing` made such a call — and
+                // any indexing/use of its result — raise strict "found Nothing"
+                // errors (issue #590). After #588/#589 an `Unknown`-typed value
+                // degrades gracefully, so `Unknown` resolves self-references
+                // cleanly while still avoiding the spurious "Expected Text but
+                // found Nothing" errors that motivated seeding a concrete type
+                // in builtin positions (e.g. `respond to req with ...`, #569).
+                let return_type_value = return_type.as_ref().cloned().unwrap_or(Type::Unknown);
 
                 if let Some(symbol) = self.analyzer.get_symbol_mut(name) {
                     symbol.symbol_type = Some(Type::Function {
@@ -779,10 +787,12 @@ impl TypeChecker {
                 self.analyzer.pop_scope();
 
                 // Update the action's symbol so call sites see the real result
-                // type instead of the provisional `Nothing`. Skip pure `Nothing`
-                // results (void actions) to preserve existing behavior.
+                // type instead of the provisional `Unknown` seed. Pure `Nothing`
+                // results (void actions) are recorded as `Nothing` — the seed is
+                // only `Unknown` so self-references resolve gracefully during the
+                // body check (#590); external callers still see the same `Nothing`
+                // return type void actions had before.
                 if let Some(inferred) = inferred_return
-                    && inferred != Type::Nothing
                     && let Some(symbol) = self.analyzer.get_symbol_mut(name)
                 {
                     symbol.symbol_type = Some(Type::Function {
