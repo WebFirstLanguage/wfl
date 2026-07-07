@@ -25,6 +25,147 @@ impl From<Severity> for codespan_reporting::diagnostic::Severity {
     }
 }
 
+impl Severity {
+    /// The glyph shown before the title in the Elm-style renderer.
+    pub fn glyph(&self) -> &'static str {
+        match self {
+            Severity::Error => "✕",
+            Severity::Warning => "▲",
+            Severity::Note => "•",
+            Severity::Help => "💡",
+        }
+    }
+}
+
+/// The category of a diagnostic. It determines the title shown on the first line
+/// of the Elm-style output (e.g. "Type Error") and the default severity. Every
+/// diagnostic produced by any WFL stage should carry a kind so all errors and
+/// warnings read uniformly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticKind {
+    SyntaxError,     // lexer
+    ParseError,      // parser
+    TypeError,       // type checker
+    NameError,       // semantic: undefined / already-defined names
+    RuntimeError,    // interpreter
+    PatternError,    // pattern engine
+    LintWarning,     // linter
+    AnalysisWarning, // static analyzer warnings (unused, unreachable, ...)
+}
+
+impl DiagnosticKind {
+    /// Human-readable title shown on the diagnostic's first line, e.g. "Type Error".
+    pub fn title(&self) -> &'static str {
+        match self {
+            DiagnosticKind::SyntaxError => "Syntax Error",
+            DiagnosticKind::ParseError => "Parse Error",
+            DiagnosticKind::TypeError => "Type Error",
+            DiagnosticKind::NameError => "Name Error",
+            DiagnosticKind::RuntimeError => "Runtime Error",
+            DiagnosticKind::PatternError => "Pattern Error",
+            DiagnosticKind::LintWarning => "Lint Warning",
+            DiagnosticKind::AnalysisWarning => "Warning",
+        }
+    }
+
+    /// The severity this kind maps to when none is otherwise specified.
+    pub fn default_severity(&self) -> Severity {
+        match self {
+            DiagnosticKind::LintWarning | DiagnosticKind::AnalysisWarning => Severity::Warning,
+            _ => Severity::Error,
+        }
+    }
+}
+
+/// A structured "expected type vs. found type" pair, rendered as the aligned
+/// Expected/Found block. `found` may include the offending literal, e.g.
+/// `Text ("hello")`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeMismatch {
+    pub expected: String,
+    pub found: String,
+}
+
+/// An actionable suggestion ("💡 Try ..."). `examples` are concrete fix snippets
+/// rendered one per line, separated by `joiner` (default "— or —").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Suggestion {
+    pub message: String,
+    pub examples: Vec<String>,
+    pub joiner: Option<String>,
+}
+
+impl Suggestion {
+    pub fn new(message: impl Into<String>) -> Self {
+        Suggestion {
+            message: message.into(),
+            examples: Vec::new(),
+            joiner: None,
+        }
+    }
+
+    pub fn with_example(mut self, example: impl Into<String>) -> Self {
+        self.examples.push(example.into());
+        self
+    }
+
+    /// The separator rendered between examples.
+    pub fn joiner_str(&self) -> &str {
+        self.joiner.as_deref().unwrap_or("— or —")
+    }
+}
+
+/// Actionable guidance carried at the error's origin, so converters no longer
+/// need to guess suggestions by substring-matching the message. Fold into a
+/// diagnostic with [`WflDiagnostic::apply_hint`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DiagnosticHint {
+    pub explanation: Option<String>,
+    pub suggestion: Option<Suggestion>,
+    pub type_info: Option<TypeMismatch>,
+    pub kind: Option<DiagnosticKind>,
+}
+
+impl DiagnosticHint {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.explanation.is_none()
+            && self.suggestion.is_none()
+            && self.type_info.is_none()
+            && self.kind.is_none()
+    }
+
+    pub fn with_explanation(mut self, explanation: impl Into<String>) -> Self {
+        self.explanation = Some(explanation.into());
+        self
+    }
+
+    pub fn with_suggestion(mut self, suggestion: Suggestion) -> Self {
+        self.suggestion = Some(suggestion);
+        self
+    }
+
+    pub fn with_type_mismatch(
+        mut self,
+        expected: impl Into<String>,
+        found: impl Into<String>,
+    ) -> Self {
+        self.type_info = Some(TypeMismatch {
+            expected: expected.into(),
+            found: found.into(),
+        });
+        self
+    }
+
+    pub fn with_kind(mut self, kind: DiagnosticKind) -> Self {
+        self.kind = Some(kind);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
     pub start: usize,
@@ -42,6 +183,15 @@ pub struct WflDiagnostic {
     pub file_id: usize,
     pub line: usize,
     pub column: usize,
+    // --- Elm-style enrichment (all optional; default None) ---
+    /// The category, driving the rendered title and glyph.
+    pub kind: Option<DiagnosticKind>,
+    /// Structured Expected/Found block (type errors).
+    pub type_info: Option<TypeMismatch>,
+    /// Plain-English explanation paragraph shown below the source frame.
+    pub explanation: Option<String>,
+    /// Actionable "💡 Try ..." suggestion with example fixes.
+    pub suggestion: Option<Suggestion>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -65,6 +215,10 @@ impl WflDiagnostic {
             file_id,
             line,
             column,
+            kind: None,
+            type_info: None,
+            explanation: None,
+            suggestion: None,
         };
 
         if let Some(note) = note {
@@ -88,6 +242,10 @@ impl WflDiagnostic {
             file_id: 0,
             line: 0,
             column: 0,
+            kind: None,
+            type_info: None,
+            explanation: None,
+            suggestion: None,
         }
     }
 
@@ -101,6 +259,10 @@ impl WflDiagnostic {
             file_id: 0,
             line: 0,
             column: 0,
+            kind: None,
+            type_info: None,
+            explanation: None,
+            suggestion: None,
         }
     }
 
@@ -112,6 +274,67 @@ impl WflDiagnostic {
     pub fn with_note(mut self, note: impl Into<String>) -> Self {
         self.notes.push(note.into());
         self
+    }
+
+    pub fn with_kind(mut self, kind: DiagnosticKind) -> Self {
+        self.kind = Some(kind);
+        self
+    }
+
+    pub fn with_type_mismatch(
+        mut self,
+        expected: impl Into<String>,
+        found: impl Into<String>,
+    ) -> Self {
+        self.type_info = Some(TypeMismatch {
+            expected: expected.into(),
+            found: found.into(),
+        });
+        self
+    }
+
+    pub fn with_explanation(mut self, explanation: impl Into<String>) -> Self {
+        self.explanation = Some(explanation.into());
+        self
+    }
+
+    pub fn with_suggestion(mut self, suggestion: Suggestion) -> Self {
+        self.suggestion = Some(suggestion);
+        self
+    }
+
+    /// Fold an origin-carried [`DiagnosticHint`] into this diagnostic. Only fields
+    /// the hint actually sets are overwritten, so it composes with builder calls
+    /// and with the legacy substring-derived notes.
+    pub fn apply_hint(mut self, hint: DiagnosticHint) -> Self {
+        if let Some(kind) = hint.kind {
+            self.kind = Some(kind);
+        }
+        if let Some(type_info) = hint.type_info {
+            self.type_info = Some(type_info);
+        }
+        if let Some(explanation) = hint.explanation {
+            self.explanation = Some(explanation);
+        }
+        if let Some(suggestion) = hint.suggestion {
+            self.suggestion = Some(suggestion);
+        }
+        self
+    }
+
+    /// The title shown on the diagnostic's first line: the kind's title when set,
+    /// otherwise a generic severity-based fallback so unkinded (legacy)
+    /// diagnostics still render sensibly.
+    pub fn title(&self) -> &'static str {
+        match self.kind {
+            Some(kind) => kind.title(),
+            None => match self.severity {
+                Severity::Error => "Error",
+                Severity::Warning => "Warning",
+                Severity::Note => "Note",
+                Severity::Help => "Help",
+            },
+        }
     }
 
     pub fn to_codespan_diagnostic(&self, file_id: usize) -> Diagnostic<usize> {
