@@ -14,6 +14,9 @@
 //! * #567 — `Any`/`Unknown` values (list-index results, untyped parameters)
 //!   must be accepted by the `add`/`split`/arithmetic type-checker rules rather
 //!   than producing false ERROR-level diagnostics (gradual typing).
+//! * #588 — `store x as <call>` where the callee's return type is statically
+//!   `Unknown` must bind `x` as `Unknown` silently instead of raising a false
+//!   `Could not infer type for variable 'x'` ERROR (gradual typing).
 
 use std::fs;
 use std::process::Command;
@@ -330,6 +333,49 @@ fn unknown_param_accepted_by_split() {
     assert!(
         !out.contains("Expected Text for string splitting"),
         "Unknown param must be accepted by `split ... by` (#567): {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+// ---------------------------------------------------------------------------
+// #588 — `store x as <Unknown-returning call>` binds silently
+// ---------------------------------------------------------------------------
+
+#[test]
+fn store_unknown_call_result_binds_silently() {
+    // `add_one` returns `n plus 1`; `n` is an untyped parameter so the return
+    // type is statically `Unknown`. Binding that result with `store` must not
+    // raise `Could not infer type for variable 'x'` — it binds `x` as Unknown.
+    let (out, code) = run_src(
+        "define action called add_one with parameters n:\n    return n plus 1\nend action\n\
+         define action called use_it:\n    store x as add_one of 3\n    return x\nend action\n\
+         display use_it\n",
+    );
+    assert!(out.contains('4'), "program should print 4: {out}");
+    assert!(
+        !out.contains("Could not infer type for variable"),
+        "binding an Unknown-typed call result must not raise a type error (#588): {out}"
+    );
+    assert!(
+        !out.contains(TYPE_WARN_BANNER),
+        "no false type warnings expected (#588): {out}"
+    );
+    assert_eq!(code, Some(0), "program should exit 0: {out}");
+}
+
+#[test]
+fn store_unknown_call_result_chained_binds_silently() {
+    // Chained helpers (Scribe-style): each `store` binds an Unknown-typed
+    // result and feeds the next call. None of them should be flagged.
+    let (out, code) = run_src(
+        "define action called wrap with parameters s:\n    return \"[\" with s with \"]\"\nend action\n\
+         define action called go:\n    store a as wrap of \"x\"\n    store b as wrap of a\n    return b\nend action\n\
+         display go\n",
+    );
+    assert!(out.contains("[[x]]"), "program should print [[x]]: {out}");
+    assert!(
+        !out.contains("Could not infer type for variable"),
+        "chained Unknown-typed binds must not be flagged (#588): {out}"
     );
     assert_eq!(code, Some(0), "program should exit 0: {out}");
 }
