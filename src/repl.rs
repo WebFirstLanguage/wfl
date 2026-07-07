@@ -3,7 +3,9 @@ use crate::analyzer::static_analyzer::StaticAnalyzer;
 use crate::config::WflConfig;
 use crate::diagnostics::DiagnosticReporter;
 use crate::interpreter::Interpreter;
-use crate::lexer::{lex_wfl_with_positions, token::TokenWithPosition};
+use crate::lexer::{
+    lex_wfl_with_positions, lex_wfl_with_positions_reporting, token::TokenWithPosition,
+};
 use crate::parser::{
     Parser,
     ast::{Program, Statement},
@@ -130,7 +132,19 @@ impl ReplState {
     }
 
     async fn process_complete_input(&mut self, input: &str) -> Result<Option<String>, String> {
-        let tokens = lex_wfl_with_positions(input);
+        let (tokens, lex_errors) = lex_wfl_with_positions_reporting(input);
+
+        // Surface any lexing errors (rare) through the uniform renderer.
+        if !lex_errors.is_empty() {
+            let mut reporter = DiagnosticReporter::new();
+            let file_id = reporter.add_file("repl", input);
+            let diags: Vec<_> = lex_errors
+                .iter()
+                .map(|error| reporter.convert_lex_error(file_id, error))
+                .collect();
+            let color = crate::diagnostics::stdout_wants_color();
+            return Ok(Some(reporter.render_to_string(file_id, &diags, color)));
+        }
 
         let mut parser = Parser::new(&tokens);
         let program = match parser.parse() {

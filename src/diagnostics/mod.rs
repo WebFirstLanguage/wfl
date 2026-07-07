@@ -625,6 +625,18 @@ impl DiagnosticReporter {
         None
     }
 
+    pub fn convert_lex_error(
+        &mut self,
+        _file_id: usize,
+        error: &crate::lexer::LexError,
+    ) -> WflDiagnostic {
+        // No caption label: the location drives the source frame, and the message
+        // ("Unexpected input `@`") already states the problem.
+        WflDiagnostic::error(error.message.clone())
+            .with_kind(DiagnosticKind::SyntaxError)
+            .with_location(error.line, error.column)
+    }
+
     pub fn convert_parse_error(
         &mut self,
         file_id: usize,

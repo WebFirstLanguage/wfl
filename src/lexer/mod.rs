@@ -7,7 +7,10 @@ mod string_line_ending_tests;
 #[cfg(test)]
 mod tests;
 
+pub mod error;
 pub mod token;
+use crate::diagnostics::Span;
+pub use error::LexError;
 use logos::Logos;
 use token::{Token, TokenWithPosition};
 
@@ -26,11 +29,8 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
     while let Some(token_result) = lexer.next() {
         match token_result {
             Ok(Token::Error) => {
-                eprintln!(
-                    "Lexing error at position {}: unexpected input `{}`",
-                    lexer.span().start,
-                    lexer.slice()
-                );
+                // Non-fatal: drop the unexpected token. Position-aware callers use
+                // lex_wfl_with_positions_reporting to surface lexing errors.
             }
             Ok(Token::Identifier(word)) => {
                 if let Some(ref mut id) = current_id {
@@ -86,11 +86,7 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
                         id.push('_');
                     }
                 } else {
-                    eprintln!(
-                        "Lexing error at position {}: unexpected input `{}`",
-                        lexer.span().start,
-                        slice
-                    );
+                    // Non-fatal: drop unexpected input (see the reporting variant).
                 }
             }
         }
@@ -102,7 +98,16 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
     tokens
 }
 
+/// Tokenize with position info. The frozen public API (297 call sites); it drops
+/// any lexing errors. Use [`lex_wfl_with_positions_reporting`] to collect them.
 pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
+    lex_wfl_with_positions_reporting(input).0
+}
+
+/// Tokenize with position info, also collecting any [`LexError`]s so callers (the
+/// CLI and REPL) can render them through the uniform diagnostic system rather than
+/// silently dropping them.
+pub fn lex_wfl_with_positions_reporting(input: &str) -> (Vec<TokenWithPosition>, Vec<LexError>) {
     // Bolt: We no longer normalize line endings globally to avoid allocation.
     // Token::Newline now matches \r\n, \n, and \r.
     let mut lexer = Token::lexer(input);
@@ -112,6 +117,8 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
     // Ensure at least 1 capacity to handle very small inputs.
     let estimated_tokens = (input.len() / 10).max(1);
     let mut tokens = Vec::with_capacity(estimated_tokens);
+    // Lexing errors are rare, so this stays empty on the common path.
+    let mut errors: Vec<LexError> = Vec::new();
     let mut current_id: Option<String> = None;
     let mut current_id_start_line = 0;
     let mut current_id_start_column = 0;
@@ -215,11 +222,15 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
 
         match token_result {
             Ok(Token::Error) => {
-                eprintln!(
-                    "Lexing error at position {}: unexpected input `{}`",
-                    span.start,
-                    lexer.slice()
-                );
+                errors.push(LexError::new(
+                    format!("Unexpected input `{}`", lexer.slice()),
+                    token_line,
+                    token_column,
+                    Span {
+                        start: span.start,
+                        end: span.end,
+                    },
+                ));
             }
             Ok(Token::Identifier(word)) => {
                 if let Some(ref mut id) = current_id {
@@ -320,10 +331,15 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
                         current_id_byte_end = span.end;
                     }
                 } else {
-                    eprintln!(
-                        "Lexing error at position {}: unexpected input `{}`",
-                        span.start, slice
-                    );
+                    errors.push(LexError::new(
+                        format!("Unexpected input `{slice}`"),
+                        token_line,
+                        token_column,
+                        Span {
+                            start: span.start,
+                            end: span.end,
+                        },
+                    ));
                 }
             }
         }
@@ -339,5 +355,5 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
             current_id_byte_end,
         ));
     }
-    tokens
+    (tokens, errors)
 }

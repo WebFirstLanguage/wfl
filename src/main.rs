@@ -10,7 +10,7 @@ use wfl::config;
 use wfl::debug_report;
 use wfl::diagnostics::{DiagnosticReporter, Severity};
 use wfl::fixer::{CodeFixer, FixerOutputMode};
-use wfl::lexer::lex_wfl_with_positions;
+use wfl::lexer::{lex_wfl_with_positions, lex_wfl_with_positions_reporting};
 use wfl::linter::Linter;
 use wfl::parser::Parser;
 use wfl::repl;
@@ -1090,7 +1090,19 @@ async fn main() -> io::Result<()> {
             }
         }
     } else {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let (tokens_with_pos, lex_errors) = lex_wfl_with_positions_reporting(&input);
+
+        // Lexing errors are non-fatal (the offending input is dropped); surface
+        // them through the uniform diagnostic system, then continue to parse.
+        if !lex_errors.is_empty() {
+            let mut reporter = DiagnosticReporter::new();
+            let file_id = reporter.add_file(&file_path, &input);
+            let diags: Vec<_> = lex_errors
+                .iter()
+                .map(|e| reporter.convert_lex_error(file_id, e))
+                .collect();
+            let _ = reporter.report_to_stderr(file_id, &diags);
+        }
 
         // Initialize both regular and execution logging first so debug output goes to log
         let log_path = script_dir.join("wfl.log");
