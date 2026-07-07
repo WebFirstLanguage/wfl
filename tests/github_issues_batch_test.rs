@@ -367,8 +367,15 @@ fn store_unknown_call_result_binds_silently() {
 fn store_unknown_call_result_chained_binds_silently() {
     // Chained helpers (Scribe-style): each `store` binds an Unknown-typed
     // result and feeds the next call. None of them should be flagged.
+    //
+    // `wrap` must genuinely return `Unknown` for this to exercise the bind
+    // path: its `otherwise` branch returns the untyped parameter `s`
+    // (statically `Unknown`), which widens the action's inferred return type
+    // to `Unknown` even though the taken branch produces `Text`. A plain
+    // `return "[" with s with "]"` would infer `Text` (concatenation is always
+    // `Text`) and would NOT reproduce the regression.
     let (out, code) = run_src(
-        "define action called wrap with parameters s:\n    return \"[\" with s with \"]\"\nend action\n\
+        "define action called wrap with parameters s:\n    check if length of s is greater than 0:\n        return \"[\" with s with \"]\"\n    otherwise:\n        return s\n    end check\nend action\n\
          define action called go:\n    store a as wrap of \"x\"\n    store b as wrap of a\n    return b\nend action\n\
          display go\n",
     );
