@@ -927,6 +927,27 @@ impl Analyzer {
             | Statement::CloseServerStatement { server, .. } => {
                 self.mark_used_in_expression(server, usages);
             }
+            Statement::ListenWebSocketStatement { port, .. } => {
+                self.mark_used_in_expression(port, usages);
+            }
+            Statement::WebSocketHandlerStatement { server, body, .. } => {
+                self.mark_used_in_expression(server, usages);
+                for stmt in body {
+                    self.mark_used_variables(stmt, usages);
+                }
+            }
+            Statement::SendWebSocketMessageStatement {
+                message, target, ..
+            } => {
+                self.mark_used_in_expression(message, usages);
+                self.mark_used_in_expression(target, usages);
+            }
+            Statement::BroadcastWebSocketMessageStatement {
+                message, server, ..
+            } => {
+                self.mark_used_in_expression(message, usages);
+                self.mark_used_in_expression(server, usages);
+            }
             Statement::WriteToStatement { content, file, .. } => {
                 self.mark_used_in_expression(content, usages);
                 self.mark_used_in_expression(file, usages);

@@ -100,6 +100,24 @@ pub struct TlsListenConfig {
     pub key_path: Option<Expression>,
 }
 
+/// Which WebSocket lifecycle event an `on websocket ... end on` block handles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WsHandlerEvent {
+    Connect,
+    Message,
+    Disconnect,
+}
+
+impl WsHandlerEvent {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WsHandlerEvent::Connect => "connect",
+            WsHandlerEvent::Message => "message",
+            WsHandlerEvent::Disconnect => "disconnect",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     VariableDeclaration {
@@ -523,6 +541,39 @@ pub enum Statement {
         /// Optional map of extra response headers, e.g. `Accept-Query` /
         /// `Content-Location` / `Location` for RFC 10008 (HTTP QUERY).
         headers: Option<Expression>,
+        line: usize,
+        column: usize,
+    },
+    // WebSocket statements. WebSockets mirror the HTTP server's design: warp
+    // runs the socket in background tasks and the interpreter reacts to events
+    // through registered handler blocks (dispatched while the program is inside
+    // a `wait for <duration>`), keeping everything single-threaded.
+    ListenWebSocketStatement {
+        port: Expression,
+        server_name: String,
+        line: usize,
+        column: usize,
+    },
+    /// `on websocket connect|message|disconnect to|from <server> as <binding>: ... end on`
+    WebSocketHandlerStatement {
+        event: WsHandlerEvent,
+        server: Expression,
+        binding: String,
+        body: Vec<Statement>,
+        line: usize,
+        column: usize,
+    },
+    /// `send websocket message <message> to <target>` — send to one connection.
+    SendWebSocketMessageStatement {
+        message: Expression,
+        target: Expression,
+        line: usize,
+        column: usize,
+    },
+    /// `broadcast websocket message <message> to <server>` — send to all clients.
+    BroadcastWebSocketMessageStatement {
+        message: Expression,
+        server: Expression,
         line: usize,
         column: usize,
     },

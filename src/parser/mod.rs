@@ -457,7 +457,18 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                 Token::KeywordPush => self.parse_push_statement(),
                 Token::KeywordEvent => self.parse_event_definition(),
                 Token::KeywordTrigger => self.parse_event_trigger(),
-                Token::KeywordOn => self.parse_event_handler(),
+                Token::KeywordOn => {
+                    // `on websocket connect|message|disconnect ...` is a WebSocket
+                    // handler; anything else is a container event handler. The
+                    // event phrase after `on` lexes as one merged identifier.
+                    if self.cursor.peek_next().is_some_and(|t| {
+                        matches!(&t.token, Token::Identifier(id) if id.starts_with("websocket"))
+                    }) {
+                        self.parse_websocket_handler()
+                    } else {
+                        self.parse_event_handler()
+                    }
+                }
                 Token::KeywordParent => self.parse_parent_method_call(),
                 Token::KeywordBreak => {
                     let token_pos = self.bump_sync().unwrap();
@@ -534,6 +545,15 @@ impl<'a> StmtParser<'a> for Parser<'a> {
                 Token::KeywordRegister => self.parse_register_signal_handler_statement(),
                 Token::KeywordStop => self.parse_stop_accepting_connections_statement(),
                 Token::KeywordGive | Token::KeywordReturn => self.parse_return_statement(),
+                // `send websocket message <msg> to <conn>` and
+                // `broadcast websocket message <msg> to <server>`. The command
+                // words (and a bare identifier message) lex as one merged token.
+                Token::Identifier(id) if id.starts_with("send websocket message") => {
+                    self.parse_send_websocket_message()
+                }
+                Token::Identifier(id) if id.starts_with("broadcast websocket message") => {
+                    self.parse_broadcast_websocket_message()
+                }
                 Token::Identifier(id)
                     if id == "connect"
                         && self

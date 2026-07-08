@@ -1,8 +1,9 @@
 //! Web server statement parsing
 
 use super::super::{Expression, ParseError, Parser, Statement};
+use super::StmtParser;
 use crate::lexer::token::Token;
-use crate::parser::ast::TlsListenConfig;
+use crate::parser::ast::{Argument, TlsListenConfig, WsHandlerEvent};
 use crate::parser::expr::{ExprParser, PrimaryExprParser};
 
 pub(crate) trait WebParser<'a>: ExprParser<'a> + PrimaryExprParser<'a> {
@@ -12,11 +13,68 @@ pub(crate) trait WebParser<'a>: ExprParser<'a> + PrimaryExprParser<'a> {
     fn parse_register_signal_handler_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_stop_accepting_connections_statement(&mut self) -> Result<Statement, ParseError>;
     fn parse_close_server_statement(&mut self) -> Result<Statement, ParseError>;
+    fn parse_websocket_handler(&mut self) -> Result<Statement, ParseError>;
+    fn parse_send_websocket_message(&mut self) -> Result<Statement, ParseError>;
+    fn parse_broadcast_websocket_message(&mut self) -> Result<Statement, ParseError>;
+    fn parse_ws_message_operand(
+        &mut self,
+        rest: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<Expression, ParseError>;
 }
 
 impl<'a> WebParser<'a> for Parser<'a> {
     fn parse_listen_statement(&mut self) -> Result<Statement, ParseError> {
         let listen_token = self.bump_sync().unwrap(); // Consume "listen"
+
+        // `listen for websockets on port <expr> as <name>` — WebSocket listener.
+        // The `websockets` marker lexes as a plain identifier (keywords `on`/`port`
+        // flush it), so detect it before the HTTP `listen on port` path.
+        if let Some(token) = self.cursor.peek()
+            && token.token == Token::KeywordFor
+        {
+            self.bump_sync(); // Consume "for"
+
+            match self.cursor.peek() {
+                Some(t) => match &t.token {
+                    Token::Identifier(id) if id == "websockets" || id == "websocket" => {
+                        self.bump_sync(); // Consume "websockets"
+                    }
+                    _ => {
+                        return Err(ParseError::from_token(
+                            "Expected 'websockets' after 'listen for'".to_string(),
+                            t,
+                        ));
+                    }
+                },
+                None => {
+                    return Err(ParseError::from_token(
+                        "Expected 'websockets' after 'listen for'".to_string(),
+                        listen_token,
+                    ));
+                }
+            }
+
+            self.expect_token(
+                Token::KeywordOn,
+                "Expected 'on' after 'listen for websockets'",
+            )?;
+            self.expect_token(
+                Token::KeywordPort,
+                "Expected 'port' after 'listen for websockets on'",
+            )?;
+            let port = self.parse_expression()?;
+            self.expect_token(Token::KeywordAs, "Expected 'as' after websocket port")?;
+            let server_name = self.parse_variable_name_simple()?;
+
+            return Ok(Statement::ListenWebSocketStatement {
+                port,
+                server_name,
+                line: listen_token.line,
+                column: listen_token.column,
+            });
+        }
 
         // Expect "on"
         self.expect_token(Token::KeywordOn, "Expected 'on' after 'listen'")?;
@@ -388,5 +446,240 @@ impl<'a> WebParser<'a> for Parser<'a> {
             line: close_token.line,
             column: close_token.column,
         })
+    }
+
+    /// Parses a WebSocket event handler block:
+    /// `on websocket connect|message|disconnect to|from <server> as <binding>: ... end on`.
+    ///
+    /// The lexer merges the two identifiers after `on` into a single token
+    /// (`websocket connect`), so the event kind is read off that merged phrase.
+    /// `connect` reads naturally with `to`; `message`/`disconnect` with `from` —
+    /// both connective words are accepted for any event so phrasing stays free.
+    fn parse_websocket_handler(&mut self) -> Result<Statement, ParseError> {
+        let on_token = self.bump_sync().unwrap(); // Consume "on"
+
+        let phrase = match self.cursor.peek() {
+            Some(t) => match &t.token {
+                Token::Identifier(id) => id.clone(),
+                _ => {
+                    return Err(ParseError::from_token(
+                        "Expected 'websocket <event>' after 'on'".to_string(),
+                        t,
+                    ));
+                }
+            },
+            None => {
+                return Err(ParseError::from_token(
+                    "Expected 'websocket <event>' after 'on'".to_string(),
+                    on_token,
+                ));
+            }
+        };
+
+        let event = match phrase.as_str() {
+            "websocket connect" => WsHandlerEvent::Connect,
+            "websocket message" => WsHandlerEvent::Message,
+            "websocket disconnect" => WsHandlerEvent::Disconnect,
+            other => {
+                let t = self.cursor.peek().unwrap();
+                return Err(ParseError::from_token(
+                    format!(
+                        "Unknown websocket event '{other}'. Expected 'websocket connect', 'websocket message', or 'websocket disconnect'"
+                    ),
+                    t,
+                ));
+            }
+        };
+        self.bump_sync(); // Consume the event phrase identifier
+
+        // Accept `to` or `from` interchangeably as the connective word.
+        match self.cursor.peek() {
+            Some(t) if t.token == Token::KeywordTo || t.token == Token::KeywordFrom => {
+                self.bump_sync();
+            }
+            Some(t) => {
+                return Err(ParseError::from_token(
+                    "Expected 'to' or 'from' after the websocket event".to_string(),
+                    t,
+                ));
+            }
+            None => {
+                return Err(ParseError::from_token(
+                    "Expected 'to' or 'from' after the websocket event".to_string(),
+                    on_token,
+                ));
+            }
+        }
+
+        // Primary expression only, so the following `as` stays available.
+        let server = self.parse_primary_expression()?;
+
+        self.expect_token(
+            Token::KeywordAs,
+            "Expected 'as <name>' after the websocket server",
+        )?;
+        let binding = self.parse_variable_name_simple()?;
+        self.expect_token(
+            Token::Colon,
+            "Expected ':' after the websocket handler binding",
+        )?;
+
+        // Parse the handler body until `end on`.
+        self.skip_eol();
+        let mut body = Vec::new();
+        loop {
+            self.skip_eol();
+            match self.cursor.peek() {
+                Some(t) if t.token == Token::KeywordEnd => break,
+                None => {
+                    return Err(ParseError::from_token(
+                        "Expected 'end on' to close the websocket handler".to_string(),
+                        on_token,
+                    ));
+                }
+                _ => body.push(self.parse_statement()?),
+            }
+        }
+        self.expect_token(
+            Token::KeywordEnd,
+            "Expected 'end' to close the websocket handler",
+        )?;
+        self.expect_token(
+            Token::KeywordOn,
+            "Expected 'on' after 'end' in the websocket handler",
+        )?;
+
+        Ok(Statement::WebSocketHandlerStatement {
+            event,
+            server,
+            binding,
+            body,
+            line: on_token.line,
+            column: on_token.column,
+        })
+    }
+
+    /// Parses `send websocket message <message> to <connection>`.
+    ///
+    /// The lexer glues the command words — and a bare identifier message — into
+    /// one token (`send websocket message reply`), so the message is split off
+    /// the phrase prefix; a literal message follows as its own token instead.
+    fn parse_send_websocket_message(&mut self) -> Result<Statement, ParseError> {
+        let token = self.bump_sync().unwrap(); // Consume the merged command phrase
+        let (line, column) = (token.line, token.column);
+        let phrase = match &token.token {
+            Token::Identifier(id) => id.clone(),
+            _ => {
+                return Err(ParseError::from_token(
+                    "Expected 'send websocket message ...'".to_string(),
+                    token,
+                ));
+            }
+        };
+
+        let rest = phrase
+            .strip_prefix("send websocket message")
+            .map(str::trim_start)
+            .unwrap_or("");
+        let message = self.parse_ws_message_operand(rest, line, column)?;
+
+        self.expect_token(
+            Token::KeywordTo,
+            "Expected 'to <connection>' after the websocket message",
+        )?;
+        let target = self.parse_expression()?;
+
+        Ok(Statement::SendWebSocketMessageStatement {
+            message,
+            target,
+            line,
+            column,
+        })
+    }
+
+    /// Parses `broadcast websocket message <message> to <server>`.
+    fn parse_broadcast_websocket_message(&mut self) -> Result<Statement, ParseError> {
+        let token = self.bump_sync().unwrap(); // Consume the merged command phrase
+        let (line, column) = (token.line, token.column);
+        let phrase = match &token.token {
+            Token::Identifier(id) => id.clone(),
+            _ => {
+                return Err(ParseError::from_token(
+                    "Expected 'broadcast websocket message ...'".to_string(),
+                    token,
+                ));
+            }
+        };
+
+        let rest = phrase
+            .strip_prefix("broadcast websocket message")
+            .map(str::trim_start)
+            .unwrap_or("");
+        let message = self.parse_ws_message_operand(rest, line, column)?;
+
+        self.expect_token(
+            Token::KeywordTo,
+            "Expected 'to <server>' after the websocket message",
+        )?;
+        let server = self.parse_expression()?;
+
+        Ok(Statement::BroadcastWebSocketMessageStatement {
+            message,
+            server,
+            line,
+            column,
+        })
+    }
+
+    /// Parses the message operand of a `send`/`broadcast websocket message`
+    /// statement. The lexer glues the command words — and a leading identifier
+    /// message — into one token, so `rest` is whatever trailed the command
+    /// prefix. Handles the natural forms:
+    ///
+    ///   - empty `rest`: a literal/number-led expression (`"Echo: " with body of msg`)
+    ///   - `<name> of <object>`: a property read (`body of msg`)
+    ///   - a bare (possibly multi-word) variable (`reply`, `my reply`)
+    ///
+    /// A more complex inline expression starting with an identifier must be
+    /// stored in a variable first, which the error message explains.
+    fn parse_ws_message_operand(
+        &mut self,
+        rest: &str,
+        line: usize,
+        column: usize,
+    ) -> Result<Expression, ParseError> {
+        if rest.is_empty() {
+            // The message begins with a non-identifier token (string/number), so
+            // the whole expression — including any `with`-concatenation — parses
+            // cleanly from here.
+            return self.parse_expression();
+        }
+
+        let left = Expression::Variable(rest.to_string(), line, column);
+        match self.cursor.peek().map(|t| &t.token) {
+            // `<field> of <object>`, e.g. `body of msg`. Built as an `of`-call so
+            // it resolves through the interpreter's property-of-object access.
+            Some(Token::KeywordOf) => {
+                self.bump_sync(); // Consume "of"
+                let object = self.parse_primary_expression()?;
+                Ok(Expression::FunctionCall {
+                    function: Box::new(left),
+                    arguments: vec![Argument {
+                        name: None,
+                        value: object,
+                    }],
+                    line,
+                    column,
+                })
+            }
+            // A bare variable message: the next token starts the `to ...` clause.
+            Some(Token::KeywordTo) => Ok(left),
+            _ => Err(ParseError::from_span(
+                "A computed websocket message must be stored in a variable first, e.g. `store reply as \"Echo: \" with body of msg` then `send websocket message reply to ...`.".to_string(),
+                self.cursor.current_span(),
+                self.cursor.current_line(),
+                column,
+            )),
+        }
     }
 }

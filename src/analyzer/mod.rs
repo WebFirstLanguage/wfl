@@ -1681,6 +1681,92 @@ impl Analyzer {
                 }
             }
 
+            Statement::ListenWebSocketStatement {
+                port,
+                server_name,
+                line,
+                column,
+            } => {
+                self.analyze_expression(port);
+
+                let server_symbol = Symbol {
+                    name: server_name.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: Some(Type::Text), // Server is represented as text
+                    line: *line,
+                    column: *column,
+                };
+                if let Err(error) = self.current_scope.define(server_symbol) {
+                    self.errors.push(error);
+                }
+            }
+
+            Statement::WebSocketHandlerStatement {
+                server,
+                binding,
+                body,
+                line,
+                column,
+                ..
+            } => {
+                self.analyze_expression(server);
+
+                // The handler body runs in its own scope with the event binding
+                // (a connection/message object) defined, mirroring loop-variable
+                // scoping so the body can reference it without a false
+                // "undefined variable" error.
+                let outer_scope = std::mem::take(&mut self.current_scope);
+                self.current_scope = Scope::with_parent(outer_scope);
+
+                let binding_symbol = Symbol {
+                    name: binding.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: None,
+                    line: *line,
+                    column: *column,
+                };
+                self.current_scope.define_or_replace(binding_symbol);
+                self.action_parameters.insert(binding.clone());
+
+                // The event object's property names are accessed as `id of conn`
+                // / `body of msg`, which parse as `of`-form calls. Registering
+                // them as action parameters (rather than scope symbols) lets the
+                // callee resolve without a "not a function" error, the same
+                // relaxation used for action parameters and the `count` variable.
+                let ws_properties = ["id", "ip", "body", "sender"];
+                for prop in ws_properties {
+                    self.action_parameters.insert(prop.to_string());
+                }
+
+                for stmt in body {
+                    self.analyze_statement(stmt);
+                }
+
+                for prop in ws_properties {
+                    self.action_parameters.remove(prop);
+                }
+                self.action_parameters.remove(binding);
+
+                let handler_scope = std::mem::take(&mut self.current_scope);
+                if let Some(parent) = handler_scope.parent {
+                    self.current_scope = *parent;
+                }
+            }
+
+            Statement::SendWebSocketMessageStatement {
+                message, target, ..
+            } => {
+                self.analyze_expression(message);
+                self.analyze_expression(target);
+            }
+
+            Statement::BroadcastWebSocketMessageStatement {
+                message, server, ..
+            } => {
+                self.analyze_expression(message);
+                self.analyze_expression(server);
+            }
+
             Statement::RegisterSignalHandlerStatement {
                 handler_name,
                 line,

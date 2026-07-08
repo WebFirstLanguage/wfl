@@ -47,6 +47,7 @@ use crate::exec_var_declare;
 use crate::logging::IndentGuard;
 use crate::parser::ast::{
     Assertion, Expression, FileOpenMode, Literal, Operator, Program, Statement, UnaryOperator,
+    WsHandlerEvent,
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
@@ -96,6 +97,207 @@ pub struct WflWebServer {
     pub request_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflHttpRequest>>>,
     pub request_sender: mpsc::UnboundedSender<WflHttpRequest>,
     pub server_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket support
+//
+// WebSockets reuse the HTTP server's single-threaded design: warp runs each
+// socket in background tokio tasks, which push lifecycle events to the
+// interpreter over an unbounded channel and receive outbound frames back over a
+// per-connection channel. The interpreter drains those events and runs the
+// matching `on websocket ...` handler block while the program sits inside a
+// `wait for <duration>`, so all WFL code still executes on one thread.
+// ---------------------------------------------------------------------------
+
+/// An outbound frame queued for a single connection's writer task.
+#[derive(Debug)]
+enum WsOutbound {
+    Text(String),
+    Close,
+}
+
+/// Which lifecycle event a `WflWsEvent` represents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WsEventKind {
+    Connect,
+    Message,
+    Disconnect,
+}
+
+/// A lifecycle event pushed from a warp WebSocket task to the interpreter.
+#[derive(Debug)]
+struct WflWsEvent {
+    kind: WsEventKind,
+    connection_id: String,
+    client_ip: String,
+    /// Text payload for `Message` events; `None` for connect/disconnect.
+    content: Option<String>,
+}
+
+/// Outbound-sender registry keyed by connection id, shared with warp tasks.
+type WsConnectionRegistry =
+    Arc<std::sync::Mutex<HashMap<String, mpsc::UnboundedSender<WsOutbound>>>>;
+
+/// A registered `on websocket ...` handler block plus its captured environment.
+struct WsRegisteredHandler {
+    binding: String,
+    body: Vec<Statement>,
+    env: Rc<RefCell<Environment>>,
+}
+
+/// The connect/message/disconnect handlers registered for one server.
+#[derive(Default)]
+struct WsHandlerSet {
+    connect: Option<WsRegisteredHandler>,
+    message: Option<WsRegisteredHandler>,
+    disconnect: Option<WsRegisteredHandler>,
+}
+
+/// A running WebSocket server: an event stream in, the set of live connection
+/// ids (for broadcast), the registered handler blocks, and the server task.
+struct WflWebSocketServer {
+    event_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflWsEvent>>>,
+    connection_ids: Arc<std::sync::Mutex<Vec<String>>>,
+    handlers: RefCell<WsHandlerSet>,
+    server_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// Drives one upgraded WebSocket connection: registers its outbound channel,
+/// emits connect/message/disconnect events, and forwards queued frames to the
+/// socket. Runs as an independent tokio task per connection.
+async fn handle_ws_connection(
+    socket: warp::ws::WebSocket,
+    remote_addr: Option<std::net::SocketAddr>,
+    events: mpsc::UnboundedSender<WflWsEvent>,
+    connections: WsConnectionRegistry,
+    connection_ids: Arc<std::sync::Mutex<Vec<String>>>,
+) {
+    use futures_util::{SinkExt, StreamExt};
+
+    let conn_id = uuid::Uuid::new_v4().to_string();
+    let client_ip = remote_addr
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let (mut ws_tx, mut ws_rx) = socket.split();
+    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<WsOutbound>();
+
+    if let Ok(mut map) = connections.lock() {
+        map.insert(conn_id.clone(), out_tx);
+    }
+    if let Ok(mut ids) = connection_ids.lock() {
+        ids.push(conn_id.clone());
+    }
+
+    let _ = events.send(WflWsEvent {
+        kind: WsEventKind::Connect,
+        connection_id: conn_id.clone(),
+        client_ip: client_ip.clone(),
+        content: None,
+    });
+
+    // Writer task: drains queued frames to the socket until the channel closes
+    // or the peer goes away.
+    let writer = tokio::spawn(async move {
+        while let Some(out) = out_rx.recv().await {
+            match out {
+                WsOutbound::Text(text) => {
+                    if ws_tx.send(warp::ws::Message::text(text)).await.is_err() {
+                        break;
+                    }
+                }
+                WsOutbound::Close => {
+                    let _ = ws_tx.send(warp::ws::Message::close()).await;
+                    let _ = ws_tx.flush().await;
+                    break;
+                }
+            }
+        }
+    });
+
+    // Reader loop: forward inbound text frames as Message events; stop on close.
+    while let Some(result) = ws_rx.next().await {
+        match result {
+            Ok(msg) => {
+                if msg.is_text() {
+                    if let Ok(text) = msg.to_str() {
+                        let _ = events.send(WflWsEvent {
+                            kind: WsEventKind::Message,
+                            connection_id: conn_id.clone(),
+                            client_ip: client_ip.clone(),
+                            content: Some(text.to_string()),
+                        });
+                    }
+                } else if msg.is_close() {
+                    break;
+                }
+                // Binary/ping/pong frames are ignored in this MVP.
+            }
+            Err(_) => break,
+        }
+    }
+
+    if let Ok(mut map) = connections.lock() {
+        map.remove(&conn_id);
+    }
+    if let Ok(mut ids) = connection_ids.lock() {
+        ids.retain(|c| c != &conn_id);
+    }
+    let _ = events.send(WflWsEvent {
+        kind: WsEventKind::Disconnect,
+        connection_id: conn_id.clone(),
+        client_ip,
+        content: None,
+    });
+    writer.abort();
+}
+
+impl WsEventKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            WsEventKind::Connect => "connect",
+            WsEventKind::Message => "message",
+            WsEventKind::Disconnect => "disconnect",
+        }
+    }
+}
+
+/// Builds the WFL object a handler binds to for a connection (`id`, `ip`). The
+/// same shape is used for the connect/disconnect binding and for a message's
+/// `sender`, so `id of conn` / `ip of conn` and `send ... to conn` all work.
+fn build_ws_connection_object(id: &str, ip: &str) -> Value {
+    let mut map = HashMap::new();
+    map.insert("id".to_string(), Value::Text(Arc::from(id)));
+    map.insert("ip".to_string(), Value::Text(Arc::from(ip)));
+    Value::Object(Rc::new(RefCell::new(map)))
+}
+
+/// Builds the WFL object bound by a websocket handler for one event. Connect and
+/// disconnect bindings expose `id`/`ip`; message bindings additionally expose
+/// `body` (the text payload) and a `sender` connection object. The payload uses
+/// `body` — mirroring `body of request` on the HTTP server — because `content`
+/// is a reserved keyword and cannot appear before `of`. The message object's own
+/// `id`/`ip` are its sender's, so `send ... to msg` replies to the sender.
+fn build_ws_event_object(event: &WflWsEvent) -> Value {
+    let mut map = HashMap::new();
+    map.insert(
+        "id".to_string(),
+        Value::Text(Arc::from(event.connection_id.as_str())),
+    );
+    map.insert(
+        "ip".to_string(),
+        Value::Text(Arc::from(event.client_ip.as_str())),
+    );
+    if event.kind == WsEventKind::Message {
+        let body = event.content.clone().unwrap_or_default();
+        map.insert("body".to_string(), Value::Text(Arc::from(body.as_str())));
+        map.insert(
+            "sender".to_string(),
+            build_ws_connection_object(&event.connection_id, &event.client_ip),
+        );
+    }
+    Value::Object(Rc::new(RefCell::new(map)))
 }
 
 // Custom error type for warp rejections
@@ -356,6 +558,18 @@ fn stmt_type(stmt: &Statement) -> String {
             "StopAcceptingConnectionsStatement".to_string()
         }
         Statement::CloseServerStatement { .. } => "CloseServerStatement".to_string(),
+        Statement::ListenWebSocketStatement { server_name, .. } => {
+            format!("ListenWebSocketStatement '{server_name}'")
+        }
+        Statement::WebSocketHandlerStatement { event, .. } => {
+            format!("WebSocketHandlerStatement '{}'", event.as_str())
+        }
+        Statement::SendWebSocketMessageStatement { .. } => {
+            "SendWebSocketMessageStatement".to_string()
+        }
+        Statement::BroadcastWebSocketMessageStatement { .. } => {
+            "BroadcastWebSocketMessageStatement".to_string()
+        }
         // Test framework statements
         Statement::DescribeBlock { description, .. } => {
             format!("DescribeBlock '{description}'")
@@ -448,6 +662,8 @@ pub struct Interpreter {
     step_mode: bool,          // Controls single-step execution mode
     script_args: Vec<String>, // Command-line arguments passed to the script
     web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
+    web_socket_servers: RefCell<HashMap<String, WflWebSocketServer>>, // WebSocket servers keyed by address
+    ws_connections: WsConnectionRegistry, // Outbound senders for all live WebSocket connections
     pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
@@ -1508,6 +1724,8 @@ impl Interpreter {
             step_mode: false,                          // Default to non-step mode
             script_args: Vec::new(),                   // Initialize empty, will be set later
             web_servers: RefCell::new(HashMap::new()), // Initialize empty web servers map
+            web_socket_servers: RefCell::new(HashMap::new()), // Initialize empty WebSocket servers map
+            ws_connections: Arc::new(std::sync::Mutex::new(HashMap::new())), // Live WebSocket connections
             pending_responses: RefCell::new(HashMap::new()), // Initialize empty pending responses map
             config,
             current_source_file: RefCell::new(None), // No source file initially
@@ -2254,6 +2472,10 @@ impl Interpreter {
             Statement::RegisterSignalHandlerStatement { line, column, .. } => (*line, *column),
             Statement::StopAcceptingConnectionsStatement { line, column, .. } => (*line, *column),
             Statement::CloseServerStatement { line, column, .. } => (*line, *column),
+            Statement::ListenWebSocketStatement { line, column, .. } => (*line, *column),
+            Statement::WebSocketHandlerStatement { line, column, .. } => (*line, *column),
+            Statement::SendWebSocketMessageStatement { line, column, .. } => (*line, *column),
+            Statement::BroadcastWebSocketMessageStatement { line, column, .. } => (*line, *column),
             Statement::ExecuteCommandStatement { line, column, .. } => (*line, *column),
             Statement::ExecuteFileStatement { line, column, .. } => (*line, *column),
             Statement::SpawnProcessStatement { line, column, .. } => (*line, *column),
@@ -4031,7 +4253,12 @@ impl Interpreter {
                     }
                 };
 
-                tokio::time::sleep(std::time::Duration::from_millis(duration_ms)).await;
+                // While WebSocket servers are running, spend the wait window
+                // dispatching their events to the registered handler blocks.
+                // With no WebSocket servers this is an ordinary sleep, so the
+                // statement's timing semantics are unchanged.
+                self.pump_websocket_events(std::time::Duration::from_millis(duration_ms))
+                    .await?;
                 Ok((Value::Null, ControlFlow::None))
             }
             Statement::TryStatement {
@@ -5983,6 +6210,41 @@ impl Interpreter {
                 column,
             } => {
                 let server_val = self.evaluate_expression(server, Rc::clone(&env)).await?;
+
+                // A WebSocket server closes by asking each connection's writer to
+                // send a close frame, then aborting the accept task.
+                if let Value::Text(name) = &server_val
+                    && name.starts_with("WebSocketServer::")
+                {
+                    let key = name.to_string();
+                    if let Some(ws_server) = self.web_socket_servers.borrow_mut().remove(&key) {
+                        let ids = ws_server
+                            .connection_ids
+                            .lock()
+                            .map(|g| g.clone())
+                            .unwrap_or_default();
+                        if let Ok(mut map) = self.ws_connections.lock() {
+                            for id in ids {
+                                if let Some(tx) = map.remove(&id) {
+                                    let _ = tx.send(WsOutbound::Close);
+                                }
+                            }
+                        }
+                        if let Some(handle) = ws_server.server_handle {
+                            // Give queued close frames a moment to flush before
+                            // the accept task is torn down.
+                            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                            handle.abort();
+                        }
+                        return Ok((Value::Null, ControlFlow::None));
+                    }
+                    return Err(RuntimeError::new(
+                        format!("WebSocket server '{key}' not found"),
+                        *line,
+                        *column,
+                    ));
+                }
+
                 let server_name = match &server_val {
                     Value::Text(name) => {
                         let name_str = name.as_ref();
@@ -6046,6 +6308,195 @@ impl Interpreter {
                         *line,
                         *column,
                     ));
+                }
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::ListenWebSocketStatement {
+                port,
+                server_name,
+                line,
+                column,
+            } => {
+                let port_val = self.evaluate_expression(port, Rc::clone(&env)).await?;
+                let port_num = match &port_val {
+                    Value::Number(n) if n.fract() == 0.0 && *n >= 0.0 && *n <= 65535.0 => *n as u16,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Expected a whole number between 0 and 65535 for the websocket port, got {port_val:?}"
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                let (event_sender, event_receiver) = mpsc::unbounded_channel::<WflWsEvent>();
+                let event_receiver = Arc::new(tokio::sync::Mutex::new(event_receiver));
+                let connection_ids = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+                // Clones handed to warp's per-connection tasks.
+                let ws_connections = Arc::clone(&self.ws_connections);
+                let connection_ids_task = Arc::clone(&connection_ids);
+                let event_sender_task = event_sender.clone();
+
+                let route = warp::ws().and(warp::addr::remote()).map(
+                    move |ws: warp::ws::Ws, remote: Option<std::net::SocketAddr>| {
+                        let events = event_sender_task.clone();
+                        let connections = Arc::clone(&ws_connections);
+                        let ids = Arc::clone(&connection_ids_task);
+                        ws.on_upgrade(move |socket| {
+                            handle_ws_connection(socket, remote, events, connections, ids)
+                        })
+                    },
+                );
+
+                let bind_addr: IpAddr = match self.config.web_server_bind_address.parse() {
+                    Ok(addr) => addr,
+                    Err(_) => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Invalid web_server_bind_address in config: '{}'. Expected a valid IP address (e.g., '127.0.0.1' or '0.0.0.0')",
+                                self.config.web_server_bind_address
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
+                match warp::serve(route).try_bind_ephemeral((bind_addr, port_num)) {
+                    Ok((addr, server)) => {
+                        let server_handle = tokio::spawn(server);
+                        let key = format!("WebSocketServer::{}:{}", addr.ip(), addr.port());
+
+                        let wfl_ws = WflWebSocketServer {
+                            event_receiver,
+                            connection_ids,
+                            handlers: RefCell::new(WsHandlerSet::default()),
+                            server_handle: Some(server_handle),
+                        };
+                        self.web_socket_servers
+                            .borrow_mut()
+                            .insert(key.clone(), wfl_ws);
+
+                        let server_value = Value::Text(Arc::from(key));
+                        println!("WebSocket server is listening on port {}", addr.port());
+
+                        match env.borrow_mut().define(server_name, server_value) {
+                            Ok(_) => Ok((Value::Null, ControlFlow::None)),
+                            Err(msg) => Err(RuntimeError::new(msg, *line, *column)),
+                        }
+                    }
+                    Err(e) => Err(RuntimeError::new(
+                        format!("Failed to start websocket server on port {port_num}: {e}"),
+                        *line,
+                        *column,
+                    )),
+                }
+            }
+            Statement::WebSocketHandlerStatement {
+                event,
+                server,
+                binding,
+                body,
+                line,
+                column,
+            } => {
+                let server_key = self
+                    .resolve_ws_server_key(server, Rc::clone(&env), *line, *column)
+                    .await?;
+
+                let handler = WsRegisteredHandler {
+                    binding: binding.clone(),
+                    body: body.clone(),
+                    env: Rc::clone(&env),
+                };
+
+                let servers = self.web_socket_servers.borrow();
+                let ws_server = servers.get(&server_key).ok_or_else(|| {
+                    RuntimeError::new(
+                        format!(
+                            "WebSocket server '{server_key}' is not running. Start it with 'listen for websockets ...' first."
+                        ),
+                        *line,
+                        *column,
+                    )
+                })?;
+
+                let mut handlers = ws_server.handlers.borrow_mut();
+                match event {
+                    WsHandlerEvent::Connect => handlers.connect = Some(handler),
+                    WsHandlerEvent::Message => handlers.message = Some(handler),
+                    WsHandlerEvent::Disconnect => handlers.disconnect = Some(handler),
+                }
+
+                Ok((Value::Null, ControlFlow::None))
+            }
+            Statement::SendWebSocketMessageStatement {
+                message,
+                target,
+                line,
+                column,
+            } => {
+                let message_val = self.evaluate_expression(message, Rc::clone(&env)).await?;
+                let text = Self::ws_message_text(&message_val, *line, *column)?;
+
+                let target_val = self.evaluate_expression(target, Rc::clone(&env)).await?;
+                let conn_id = Self::ws_connection_id(&target_val, *line, *column)?;
+
+                let sender = self
+                    .ws_connections
+                    .lock()
+                    .ok()
+                    .and_then(|map| map.get(&conn_id).cloned());
+
+                match sender {
+                    Some(tx) => {
+                        // A closed writer task is indistinguishable from a live
+                        // one here; a dropped frame simply means the peer left.
+                        let _ = tx.send(WsOutbound::Text(text));
+                        Ok((Value::Null, ControlFlow::None))
+                    }
+                    None => Err(RuntimeError::new(
+                        "That websocket connection is closed or unknown".to_string(),
+                        *line,
+                        *column,
+                    )),
+                }
+            }
+            Statement::BroadcastWebSocketMessageStatement {
+                message,
+                server,
+                line,
+                column,
+            } => {
+                let message_val = self.evaluate_expression(message, Rc::clone(&env)).await?;
+                let text = Self::ws_message_text(&message_val, *line, *column)?;
+
+                let server_key = self
+                    .resolve_ws_server_key(server, Rc::clone(&env), *line, *column)
+                    .await?;
+
+                let ids: Vec<String> = {
+                    let servers = self.web_socket_servers.borrow();
+                    match servers.get(&server_key) {
+                        Some(ws_server) => ws_server
+                            .connection_ids
+                            .lock()
+                            .map(|g| g.clone())
+                            .unwrap_or_default(),
+                        None => Vec::new(),
+                    }
+                };
+
+                if let Ok(map) = self.ws_connections.lock() {
+                    for id in ids {
+                        if let Some(tx) = map.get(&id) {
+                            let _ = tx.send(WsOutbound::Text(text.clone()));
+                        }
+                    }
                 }
 
                 Ok((Value::Null, ControlFlow::None))
@@ -6761,6 +7212,173 @@ impl Interpreter {
         }
 
         result
+    }
+
+    /// Resolves a server expression to the key of a running WebSocket server.
+    async fn resolve_ws_server_key(
+        &self,
+        server: &Expression,
+        env: Rc<RefCell<Environment>>,
+        line: usize,
+        column: usize,
+    ) -> Result<String, RuntimeError> {
+        let value = self.evaluate_expression(server, env).await?;
+        match &value {
+            Value::Text(t) => {
+                let key = t.to_string();
+                if self.web_socket_servers.borrow().contains_key(&key) {
+                    Ok(key)
+                } else {
+                    Err(RuntimeError::new(
+                        format!("'{key}' is not a running websocket server"),
+                        line,
+                        column,
+                    ))
+                }
+            }
+            _ => Err(RuntimeError::new(
+                "Expected a websocket server (the name bound by 'listen for websockets')"
+                    .to_string(),
+                line,
+                column,
+            )),
+        }
+    }
+
+    /// Coerces a WFL value into the text payload of a websocket frame.
+    fn ws_message_text(value: &Value, line: usize, column: usize) -> Result<String, RuntimeError> {
+        match value {
+            Value::Text(t) => Ok(t.to_string()),
+            Value::Number(n) => Ok(format!("{n}")),
+            Value::Bool(b) => Ok(if *b { "yes" } else { "no" }.to_string()),
+            Value::Null | Value::Nothing => Err(RuntimeError::new(
+                "Cannot send an empty websocket message".to_string(),
+                line,
+                column,
+            )),
+            other => Err(RuntimeError::new(
+                format!(
+                    "Cannot send a {} as a websocket message; expected text",
+                    other.type_name()
+                ),
+                line,
+                column,
+            )),
+        }
+    }
+
+    /// Extracts a connection id from a `send ... to <target>` target. Accepts the
+    /// connection object bound by a connect/message handler (reads its `id`).
+    fn ws_connection_id(value: &Value, line: usize, column: usize) -> Result<String, RuntimeError> {
+        if let Value::Object(map) = value
+            && let Some(Value::Text(id)) = map.borrow().get("id")
+        {
+            return Ok(id.to_string());
+        }
+        Err(RuntimeError::new(
+            "Expected a websocket connection (the value bound by 'on websocket connect/message')"
+                .to_string(),
+            line,
+            column,
+        ))
+    }
+
+    /// Drains and dispatches queued websocket events for up to `budget`, running
+    /// the matching handler block for each. With no websocket servers active it
+    /// is a plain sleep, preserving `wait for <duration>` semantics.
+    async fn pump_websocket_events(&self, budget: Duration) -> Result<(), RuntimeError> {
+        let deadline = tokio::time::Instant::now() + budget;
+        loop {
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                break;
+            }
+            let remaining = deadline - now;
+
+            // Snapshot the receivers with a short borrow; dispatch below must not
+            // hold a borrow of web_socket_servers across handler execution.
+            let receivers: Vec<(
+                String,
+                Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflWsEvent>>>,
+            )> = self
+                .web_socket_servers
+                .borrow()
+                .iter()
+                .map(|(key, srv)| (key.clone(), Arc::clone(&srv.event_receiver)))
+                .collect();
+
+            if receivers.is_empty() {
+                tokio::time::sleep(remaining).await;
+                break;
+            }
+
+            let mut recv_futs = Vec::with_capacity(receivers.len());
+            for (key, rx) in receivers {
+                recv_futs.push(Box::pin(async move {
+                    let mut guard = rx.lock().await;
+                    let event = guard.recv().await;
+                    (key, event)
+                }));
+            }
+
+            let sleep_fut = tokio::time::sleep(remaining);
+            tokio::pin!(sleep_fut);
+
+            tokio::select! {
+                _ = &mut sleep_fut => break,
+                ((key, event), _idx, _rest) = futures_util::future::select_all(recv_futs) => {
+                    if let Some(event) = event {
+                        self.dispatch_ws_event(&key, event).await?;
+                    }
+                    // A `None` means that server's channel closed; the next loop
+                    // iteration rebuilds the receiver set.
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Runs the registered handler block for one websocket event. Handler errors
+    /// are reported but do not tear down the server, matching event-driven norms.
+    async fn dispatch_ws_event(
+        &self,
+        server_key: &str,
+        event: WflWsEvent,
+    ) -> Result<(), RuntimeError> {
+        // Clone the selected handler out before executing: the body may itself
+        // register handlers or send frames, which re-borrow web_socket_servers.
+        let handler = {
+            let servers = self.web_socket_servers.borrow();
+            let Some(server) = servers.get(server_key) else {
+                return Ok(());
+            };
+            let handlers = server.handlers.borrow();
+            let selected = match event.kind {
+                WsEventKind::Connect => handlers.connect.as_ref(),
+                WsEventKind::Message => handlers.message.as_ref(),
+                WsEventKind::Disconnect => handlers.disconnect.as_ref(),
+            };
+            selected.map(|h| (h.binding.clone(), h.body.clone(), Rc::clone(&h.env)))
+        };
+
+        let Some((binding, body, handler_env)) = handler else {
+            return Ok(());
+        };
+
+        let event_obj = build_ws_event_object(&event);
+        let child_env = Environment::new_child_env(&handler_env);
+        if let Err(msg) = child_env.borrow_mut().define(&binding, event_obj) {
+            return Err(RuntimeError::new(msg, 0, 0));
+        }
+
+        if let Err(err) = self.execute_block(&body, child_env).await {
+            eprintln!(
+                "WebSocket {} handler error: {}",
+                event.kind.as_str(),
+                err.message
+            );
+        }
+        Ok(())
     }
 
     async fn execute_block(
@@ -7551,8 +8169,6 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                let function_val = self.evaluate_expression(function, Rc::clone(&env)).await?;
-
                 let mut arg_values = Vec::new();
                 for arg in arguments {
                     arg_values.push(
@@ -7560,6 +8176,30 @@ impl Interpreter {
                             .await?,
                     );
                 }
+
+                // Natural-language member access: `property of object`. WFL parses
+                // `body of msg` as a call `body(msg)`; when the callee is a bare
+                // name that is not a real function and the single argument is an
+                // object carrying that key, resolve it as a property read. This is
+                // how websocket handlers read `body of msg` / `id of conn` and how
+                // HTTP handlers read `method of request` / `body of request`.
+                if let Expression::Variable(name, _, _) = function.as_ref()
+                    && arg_values.len() == 1
+                    && let Value::Object(obj) = &arg_values[0]
+                {
+                    let field = obj.borrow().get(name.as_str()).cloned();
+                    if let Some(value) = field {
+                        let callee_is_function = matches!(
+                            env.borrow().get(name),
+                            Some(Value::Function(_)) | Some(Value::NativeFunction(_, _))
+                        ) || crate::builtins::is_builtin_function(name);
+                        if !callee_is_function {
+                            return Ok(value);
+                        }
+                    }
+                }
+
+                let function_val = self.evaluate_expression(function, Rc::clone(&env)).await?;
 
                 #[cfg(debug_assertions)]
                 let func_name = match &function_val {
