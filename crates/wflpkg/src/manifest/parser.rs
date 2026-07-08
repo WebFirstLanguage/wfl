@@ -1,198 +1,59 @@
+//! Manifest reading — the single shared parser path.
+//!
+//! `project.wfl` is parsed by the frozen data-literal grammar
+//! ([`crate::datalit`]) over WFL's one shared lexer, then mapped onto a
+//! [`ProjectManifest`] by the schema layer. The old hand-rolled prose parser is
+//! gone: there is exactly one parser, byte-identical to the compiler's
+//! (ADR-001, condition 5).
+
+use crate::datalit::{self, GrammarError};
 use crate::error::PackageError;
-use crate::manifest::version::VersionConstraint;
-use crate::manifest::{Dependency, ProjectManifest};
+use crate::manifest::{ProjectManifest, schema};
 
 /// Parse a `project.wfl` manifest from its text content.
 pub fn parse_manifest(content: &str) -> Result<ProjectManifest, PackageError> {
-    let mut manifest = ProjectManifest::default();
-    let mut line_num = 0;
-
-    for raw_line in content.lines() {
-        line_num += 1;
-        let line = raw_line.trim();
-
-        // Skip empty lines and comments
-        if line.is_empty() || line.starts_with("//") {
-            continue;
-        }
-
-        // Try to parse "requires ..." dependency lines
-        if let Some(rest) = line.strip_prefix("requires ") {
-            let dep = parse_dependency(rest, line_num)?;
-            manifest.dependencies.push(dep);
-            continue;
-        }
-
-        // Try to parse "needs ..." permission lines
-        if let Some(rest) = line.strip_prefix("needs ") {
-            let perm = rest.trim().to_string();
-            manifest.permissions.push(perm);
-            continue;
-        }
-
-        // Try to parse "authors are ..." (multi-author)
-        if let Some(authors_str) = line.strip_prefix("authors are ") {
-            let authors: Vec<String> = authors_str
-                .split(" and ")
-                .flat_map(|part| part.split(','))
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            manifest.authors = authors;
-            continue;
-        }
-
-        // Parse "key is value" lines
-        if let Some(pos) = line.find(" is ") {
-            let key = line[..pos].trim();
-            let value = line[pos + 4..].trim();
-
-            match key {
-                "name" => manifest.name = value.to_string(),
-                "version" => manifest.version_string = value.to_string(),
-                "description" => manifest.description = value.to_string(),
-                "author" => manifest.authors = vec![value.to_string()],
-                "license" => manifest.license = Some(value.to_string()),
-                "entry" => manifest.entry = Some(value.to_string()),
-                "repository" => manifest.repository = Some(value.to_string()),
-                "registry" => manifest.registry = Some(value.to_string()),
-                _ => {
-                    return Err(PackageError::ManifestParseError {
-                        line: line_num,
-                        message: format!(
-                            "I do not recognize the field \"{}\".\n\
-                             Valid fields are: name, version, description, author, authors, \
-                             license, entry, repository, registry, requires, needs",
-                            key
-                        ),
-                    });
-                }
-            }
-        } else {
-            return Err(PackageError::ManifestParseError {
-                line: line_num,
-                message: format!(
-                    "I could not understand this line:\n  {}\n\n\
-                     Each line in project.wfl should use the format:\n\
-                     \x20 field is value\n\
-                     \x20 requires package-name version-constraint\n\
-                     \x20 needs permission-name",
-                    line
-                ),
-            });
-        }
-    }
-
-    // Validate required fields
-    if manifest.name.is_empty() {
-        return Err(PackageError::ManifestParseError {
-            line: 0,
-            message: "The project.wfl file is missing a required field: name\n\
-                     Add a line like: name is my-project"
-                .to_string(),
-        });
-    }
-
-    if manifest.version_string.is_empty() {
-        return Err(PackageError::ManifestParseError {
-            line: 0,
-            message: "The project.wfl file is missing a required field: version\n\
-                     Add a line like: version is 26.1.1"
-                .to_string(),
-        });
-    }
-
-    if manifest.description.is_empty() {
-        return Err(PackageError::ManifestParseError {
-            line: 0,
-            message: "The project.wfl file is missing a required field: description\n\
-                     Add a line like: description is A brief description of your project"
-                .to_string(),
-        });
-    }
-
-    // Validate package name
-    validate_package_name(&manifest.name)?;
-
-    Ok(manifest)
+    let doc = datalit::parse(content.as_bytes()).map_err(|e| grammar_to_pkg_err(content, e))?;
+    schema::manifest_from_document(&doc)
 }
 
-/// Parse a dependency line after the "requires " prefix.
-/// Examples:
-///   "http-client 26.1 or newer"
-///   "test-runner 26.1 or newer for development"
-///   "text-utils any version"
-fn parse_dependency(s: &str, line_num: usize) -> Result<Dependency, PackageError> {
-    let s = s.trim();
-
-    // Check for "for development" suffix
-    let (rest, dev_only) = if let Some(stripped) = s.strip_suffix(" for development") {
-        (stripped, true)
-    } else {
-        (s, false)
-    };
-
-    // Split into package name and version constraint
-    // The name is the first word, everything after is the constraint
-    let first_space = rest
-        .find(' ')
-        .ok_or_else(|| PackageError::ManifestParseError {
-            line: line_num,
-            message: format!(
-                "I expected a version constraint after the package name in:\n  requires {}\n\n\
-             For example:\n\
-             \x20 requires {} any version\n\
-             \x20 requires {} 26.1 or newer",
-                s, rest, rest
-            ),
-        })?;
-
-    let name = rest[..first_space].trim().to_string();
-    let constraint_str = rest[first_space + 1..].trim();
-
-    validate_package_name(&name)?;
-    let constraint = VersionConstraint::parse(constraint_str)?;
-
-    Ok(Dependency {
-        name,
-        constraint,
-        dev_only,
-    })
+/// Map a frozen-grammar [`GrammarError`] to a user-facing [`PackageError`],
+/// converting the byte offset into a 1-based line number and surfacing the
+/// stable `MG-*` code.
+pub(crate) fn grammar_to_pkg_err(content: &str, e: GrammarError) -> PackageError {
+    PackageError::ManifestParseError {
+        line: line_of(content, e.offset),
+        message: format!("[{}] {}", e.code, e.message),
+    }
 }
 
-/// Validate a package name.
-fn validate_package_name(name: &str) -> Result<(), PackageError> {
-    if name.is_empty() || name.len() > 64 {
-        return Err(PackageError::InvalidPackageName(name.to_string()));
-    }
-
-    let first = name.chars().next().unwrap();
-    if !first.is_ascii_lowercase() {
-        return Err(PackageError::InvalidPackageName(name.to_string()));
-    }
-
-    for c in name.chars() {
-        if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '-' {
-            return Err(PackageError::InvalidPackageName(name.to_string()));
-        }
-    }
-
-    Ok(())
+/// 1-based line number of a byte offset.
+pub(crate) fn line_of(content: &str, offset: usize) -> usize {
+    let capped = offset.min(content.len());
+    1 + content.as_bytes()[..capped]
+        .iter()
+        .filter(|&&b| b == b'\n')
+        .count()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const MINIMAL: &str = "\
+create map wflpkg:
+    grammar is \"1.0.0\"
+end map
+
+create map package:
+    name is \"my-app\"
+    version is \"26.1.1\"
+    description is \"A test application\"
+end map
+";
+
     #[test]
     fn test_parse_minimal_manifest() {
-        let content = "\
-// project.wfl
-name is my-app
-version is 26.1.1
-description is A test application
-";
-        let manifest = parse_manifest(content).unwrap();
+        let manifest = parse_manifest(MINIMAL).unwrap();
         assert_eq!(manifest.name, "my-app");
         assert_eq!(manifest.version_string, "26.1.1");
         assert_eq!(manifest.description, "A test application");
@@ -201,21 +62,39 @@ description is A test application
     #[test]
     fn test_parse_full_manifest() {
         let content = "\
-// project.wfl - Package manifest
+create map wflpkg:
+    grammar is \"1.0.0\"
+end map
 
-name is greeting
-version is 26.2.1
-description is A web application that greets visitors
-author is Alice Smith
-license is MIT
+create map package:
+    name is \"greeting\"
+    version is \"26.2.1\"
+    description is \"A web application that greets visitors\"
+    authors is [\"Alice Smith\"]
+    license is \"MIT\"
+    entry is \"src/main.wfl\"
+end map
 
-entry is src/main.wfl
+create map dependency:
+    name is \"http-client\"
+    version is \"26.1 or newer\"
+end map
 
-requires http-client 26.1 or newer
-requires json-parser 25.12 or newer
-requires text-utils any version
+create map dependency:
+    name is \"json-parser\"
+    version is \"25.12 or newer\"
+end map
 
-requires test-runner 26.1 or newer for development
+create map dependency:
+    name is \"text-utils\"
+    version is \"any version\"
+end map
+
+create map dependency:
+    name is \"test-runner\"
+    version is \"26.1 or newer\"
+    scope is \"dev\"
+end map
 ";
         let manifest = parse_manifest(content).unwrap();
         assert_eq!(manifest.name, "greeting");
@@ -229,44 +108,53 @@ requires test-runner 26.1 or newer for development
     }
 
     #[test]
-    fn test_parse_multiple_authors() {
+    fn test_parse_multiple_authors_and_permissions() {
         let content = "\
-name is my-app
-version is 26.1.1
-description is Test
-authors are Alice Smith and Bob Jones
+create map wflpkg:
+    grammar is \"1.0.0\"
+end map
+
+create map package:
+    name is \"my-app\"
+    version is \"26.1.1\"
+    description is \"Test\"
+    authors is [\"Alice Smith\", \"Bob Jones\"]
+    permissions is [\"file-access\", \"network-access\"]
+end map
 ";
         let manifest = parse_manifest(content).unwrap();
         assert_eq!(manifest.authors, vec!["Alice Smith", "Bob Jones"]);
-    }
-
-    #[test]
-    fn test_parse_permissions() {
-        let content = "\
-name is my-app
-version is 26.1.1
-description is Test
-needs file-access
-needs network-access
-";
-        let manifest = parse_manifest(content).unwrap();
         assert_eq!(manifest.permissions, vec!["file-access", "network-access"]);
     }
 
     #[test]
     fn test_missing_name_error() {
-        let content = "version is 26.1.1\ndescription is Test";
+        let content = "\
+create map wflpkg:
+    grammar is \"1.0.0\"
+end map
+
+create map package:
+    version is \"26.1.1\"
+end map
+";
         let err = parse_manifest(content).unwrap_err();
-        assert!(err.to_string().contains("missing a required field: name"));
+        assert!(err.to_string().contains("missing a required `name`"));
     }
 
     #[test]
-    fn test_invalid_package_name() {
-        assert!(validate_package_name("my-app").is_ok());
-        assert!(validate_package_name("http-client").is_ok());
-        assert!(validate_package_name("a123").is_ok());
-        assert!(validate_package_name("MyApp").is_err());
-        assert!(validate_package_name("123abc").is_err());
-        assert!(validate_package_name("").is_err());
+    fn test_missing_envelope_error() {
+        let content =
+            "create map package:\n    name is \"x\"\n    version is \"26.1.1\"\nend map\n";
+        let err = parse_manifest(content).unwrap_err();
+        assert!(err.to_string().contains("must begin with a version block"));
+    }
+
+    #[test]
+    fn test_line_of() {
+        let text = "a\nbb\nccc";
+        assert_eq!(line_of(text, 0), 1);
+        assert_eq!(line_of(text, 2), 2);
+        assert_eq!(line_of(text, 5), 3);
     }
 }

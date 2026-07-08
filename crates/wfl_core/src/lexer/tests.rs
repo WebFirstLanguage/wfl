@@ -675,3 +675,20 @@ fn test_finally_keyword_token() {
     let tokens = lex_wfl("finally");
     assert_eq!(tokens, vec![Token::KeywordFinally]);
 }
+
+#[test]
+fn test_integer_within_i64_range_still_lexes() {
+    use logos::Logos;
+    let mut lexer = Token::lexer("9223372036854775807"); // i64::MAX
+    assert_eq!(lexer.next(), Some(Ok(Token::IntLiteral(i64::MAX))));
+}
+
+#[test]
+fn test_integer_overflow_is_an_error_not_a_panic() {
+    use logos::Logos;
+    // 20-digit integer overflows i64. It must lex as an error, not panic — the
+    // "reject, don't panic" normative bug-fix (manifest grammar §5). Reaching
+    // this assertion at all proves the callback did not abort the process.
+    let mut lexer = Token::lexer("99999999999999999999");
+    assert_eq!(lexer.next(), Some(Err(())));
+}

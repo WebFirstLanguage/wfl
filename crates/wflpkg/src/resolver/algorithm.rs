@@ -146,6 +146,7 @@ mod tests {
 
         let deps = vec![Dependency {
             name: "http-client".to_string(),
+            scope: None,
             constraint: VersionConstraint::OrNewer(Version::new(26, 1, None)),
             dev_only: false,
         }];
@@ -167,6 +168,7 @@ mod tests {
 
         let deps = vec![Dependency {
             name: "json-parser".to_string(),
+            scope: None,
             constraint: VersionConstraint::Exactly(Version::new(25, 12, Some(5))),
             dev_only: false,
         }];
@@ -183,6 +185,7 @@ mod tests {
         let resolver = DependencyResolver::new();
         let deps = vec![Dependency {
             name: "nonexistent".to_string(),
+            scope: None,
             constraint: VersionConstraint::AnyVersion,
             dev_only: false,
         }];
@@ -196,6 +199,7 @@ mod tests {
 
         let deps = vec![Dependency {
             name: "old-pkg".to_string(),
+            scope: None,
             constraint: VersionConstraint::OrNewer(Version::new(26, 1, None)),
             dev_only: false,
         }];

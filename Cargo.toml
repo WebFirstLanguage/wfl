@@ -22,6 +22,7 @@ executable = "wfl"
 members = [
     ".",
     "wfl-lsp",
+    "crates/wfl_core",
     "crates/wflpkg"
 ]
 
@@ -40,6 +41,7 @@ maintainer-scripts = "debian/"
 conf-files = ["/etc/wfl/wfl.cfg"]
 
 [dependencies]
+wfl_core = { path = "crates/wfl_core" }
 wflpkg = { path = "crates/wflpkg" }
 logos = "0.15.0"
 rand = "0.9.3"

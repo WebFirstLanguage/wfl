@@ -1,80 +1,16 @@
-use crate::manifest::ProjectManifest;
+//! Manifest writing — served from the same library path as reading.
+//!
+//! `write_manifest` builds the canonical [`crate::datalit::Document`] for a
+//! [`ProjectManifest`] and renders it with `wfl fmt`, so on-disk output is
+//! always byte-deterministic and round-trips through the parser.
 
-/// Serialize a `ProjectManifest` back to the `project.wfl` format.
+use crate::datalit::fmt;
+use crate::manifest::{ProjectManifest, schema};
+
+/// Serialize a `ProjectManifest` to the canonical `project.wfl` byte form.
 pub fn write_manifest(manifest: &ProjectManifest) -> String {
-    let mut lines = Vec::new();
-
-    lines.push("// project.wfl".to_string());
-    lines.push(String::new());
-
-    lines.push(format!("name is {}", manifest.name));
-    lines.push(format!("version is {}", manifest.version_string));
-    lines.push(format!("description is {}", manifest.description));
-
-    if manifest.authors.len() == 1 {
-        lines.push(format!("author is {}", manifest.authors[0]));
-    } else if manifest.authors.len() > 1 {
-        lines.push(format!("authors are {}", manifest.authors.join(" and ")));
-    }
-
-    if let Some(license) = &manifest.license {
-        lines.push(format!("license is {}", license));
-    }
-
-    if let Some(entry) = &manifest.entry {
-        lines.push(String::new());
-        lines.push(format!("entry is {}", entry));
-    }
-
-    if let Some(repository) = &manifest.repository {
-        lines.push(format!("repository is {}", repository));
-    }
-
-    if let Some(registry) = &manifest.registry {
-        lines.push(format!("registry is {}", registry));
-    }
-
-    // Dependencies
-    let regular_deps: Vec<_> = manifest
-        .dependencies
-        .iter()
-        .filter(|d| !d.dev_only)
-        .collect();
-    let dev_deps: Vec<_> = manifest
-        .dependencies
-        .iter()
-        .filter(|d| d.dev_only)
-        .collect();
-
-    if !regular_deps.is_empty() || !dev_deps.is_empty() {
-        lines.push(String::new());
-    }
-
-    for dep in &regular_deps {
-        lines.push(format!("requires {} {}", dep.name, dep.constraint));
-    }
-
-    if !dev_deps.is_empty() && !regular_deps.is_empty() {
-        lines.push(String::new());
-    }
-
-    for dep in &dev_deps {
-        lines.push(format!(
-            "requires {} {} for development",
-            dep.name, dep.constraint
-        ));
-    }
-
-    // Permissions
-    if !manifest.permissions.is_empty() {
-        lines.push(String::new());
-        for perm in &manifest.permissions {
-            lines.push(format!("needs {}", perm));
-        }
-    }
-
-    lines.push(String::new());
-    lines.join("\n")
+    let doc = schema::manifest_to_document(manifest);
+    fmt::to_canonical(&doc)
 }
 
 #[cfg(test)]
@@ -92,9 +28,11 @@ mod tests {
             ..Default::default()
         };
         let output = write_manifest(&manifest);
-        assert!(output.contains("name is my-app"));
-        assert!(output.contains("version is 26.1.1"));
-        assert!(output.contains("description is A test app"));
+        assert!(output.contains("create map wflpkg:"));
+        assert!(output.contains("grammar is \"1.0.0\""));
+        assert!(output.contains("name is \"my-app\""));
+        assert!(output.contains("version is \"26.1.1\""));
+        assert!(output.contains("description is \"A test app\""));
     }
 
     #[test]
@@ -109,11 +47,13 @@ mod tests {
             dependencies: vec![
                 Dependency {
                     name: "http-client".to_string(),
+                    scope: None,
                     constraint: VersionConstraint::OrNewer(Version::new(26, 1, None)),
                     dev_only: false,
                 },
                 Dependency {
                     name: "test-runner".to_string(),
+                    scope: None,
                     constraint: VersionConstraint::OrNewer(Version::new(26, 1, None)),
                     dev_only: true,
                 },
@@ -124,7 +64,7 @@ mod tests {
 
         let output = write_manifest(&manifest);
 
-        // Re-parse
+        // Re-parse and confirm the fields survive the round trip.
         let parsed = crate::manifest::parser::parse_manifest(&output).unwrap();
         assert_eq!(parsed.name, manifest.name);
         assert_eq!(parsed.version_string, manifest.version_string);
@@ -134,5 +74,26 @@ mod tests {
         assert_eq!(parsed.entry, manifest.entry);
         assert_eq!(parsed.dependencies.len(), 2);
         assert_eq!(parsed.permissions, manifest.permissions);
+        let dev = parsed
+            .dependencies
+            .iter()
+            .find(|d| d.name == "test-runner")
+            .unwrap();
+        assert!(dev.dev_only);
+    }
+
+    #[test]
+    fn test_output_is_canonical_and_reparses() {
+        let manifest = ProjectManifest {
+            name: "greeting".to_string(),
+            version_string: "26.2.1".to_string(),
+            description: "hi".to_string(),
+            ..Default::default()
+        };
+        let output = write_manifest(&manifest);
+        // Byte-deterministic: writing again yields identical bytes.
+        assert_eq!(output, write_manifest(&manifest));
+        // And the output is itself a valid manifest.
+        assert!(crate::manifest::parser::parse_manifest(&output).is_ok());
     }
 }

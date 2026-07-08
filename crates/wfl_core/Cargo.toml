@@ -1,0 +1,9 @@
+[package]
+name = "wfl_core"
+version = "0.1.0"
+edition = "2024"
+description = "Core, dependency-light building blocks shared by the WFL compiler and wflpkg (the single shared lexer, version constants)."
+license = "Apache-2.0"
+
+[dependencies]
+logos = "0.15.0"

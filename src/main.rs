@@ -275,6 +275,43 @@ async fn main() -> io::Result<()> {
                     }
                 }
             }
+            "fmt" => {
+                // `wfl fmt [file] [--check]` — canonicalize a manifest/lockfile.
+                let check = sub_args.iter().any(|a| a == "--check");
+                let file = sub_args
+                    .iter()
+                    .find(|a| !a.starts_with("--"))
+                    .cloned()
+                    .unwrap_or_else(|| "project.wfl".to_string());
+                match wflpkg::commands::tooling::fmt_file(&cwd.join(&file), check) {
+                    Ok(()) => return Ok(()),
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        process::exit(1);
+                    }
+                }
+            }
+            "manifest" => {
+                // `wfl manifest [file] [--json|--hash]` — deterministic exports.
+                let file = sub_args
+                    .iter()
+                    .find(|a| !a.starts_with("--"))
+                    .cloned()
+                    .unwrap_or_else(|| "project.wfl".to_string());
+                let path = cwd.join(&file);
+                let result = if sub_args.iter().any(|a| a == "--hash") {
+                    wflpkg::commands::tooling::manifest_hash(&path)
+                } else {
+                    wflpkg::commands::tooling::manifest_json(&path)
+                };
+                match result {
+                    Ok(()) => return Ok(()),
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        process::exit(1);
+                    }
+                }
+            }
             "test" => {
                 if sub_args.iter().any(|a| a.ends_with(".wfl")) {
                     // "wfl test file.wfl" — strip "test" and inject "--test" for normal handling

@@ -2,6 +2,7 @@ pub mod archive;
 pub mod cache;
 pub mod checksum;
 pub mod commands;
+pub mod datalit;
 pub mod error;
 pub mod lockfile;
 pub mod manifest;

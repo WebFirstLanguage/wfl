@@ -3413,6 +3413,7 @@ dependencies = [
  "tokio",
  "uuid",
  "warp",
+ "wfl_core",
  "wflpkg",
  "zeroize",
 ]
@@ -3432,11 +3433,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wfl_core"
+version = "0.1.0"
+dependencies = [
+ "logos",
+]
+
+[[package]]
 name = "wflpkg"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "flate2",
+ "logos",
  "reqwest",
  "rpassword",
  "rustyline",
@@ -3446,6 +3455,8 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "unicode-normalization",
+ "wfl_core",
  "zeroize",
 ]
 

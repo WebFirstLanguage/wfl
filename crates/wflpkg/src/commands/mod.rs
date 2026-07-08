@@ -8,4 +8,5 @@ pub mod remove;
 pub mod run;
 pub mod search;
 pub mod share;
+pub mod tooling;
 pub mod update;

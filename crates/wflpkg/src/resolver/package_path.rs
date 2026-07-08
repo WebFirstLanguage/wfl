@@ -133,7 +133,9 @@ mod tests {
         std::fs::create_dir_all(pkg_dir.join("src")).unwrap();
         std::fs::write(
             pkg_dir.join("project.wfl"),
-            "name is my-lib\nversion is 26.1.1\ndescription is Test\nentry is src/main.wfl",
+            "create map wflpkg:\n    grammar is \"1.0.0\"\nend map\n\n\
+             create map package:\n    name is \"my-lib\"\n    version is \"26.1.1\"\n    \
+             description is \"Test\"\n    entry is \"src/main.wfl\"\nend map\n",
         )
         .unwrap();
         std::fs::write(pkg_dir.join("src").join("main.wfl"), "// entry").unwrap();

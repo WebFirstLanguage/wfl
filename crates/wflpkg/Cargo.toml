@@ -6,6 +6,10 @@ description = "Package manager for the WebFirst Language (WFL)"
 license = "Apache-2.0"
 
 [dependencies]
+# The single shared lexer lives here; wflpkg reads manifests with the exact
+# same tokenizer the compiler uses (ADR-001 condition 5).
+wfl_core = { path = "../wfl_core" }
+logos = "0.15.0"
 tokio = { version = "1.35.1", features = ["full"] }
 reqwest = { version = "0.11.24", features = ["json", "multipart"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -17,6 +21,9 @@ sha2 = "0.10"
 zeroize = "1.7"
 flate2 = "1.0"
 tar = "0.4"
+# NFC normalization check for the manifest byte gate (MG-B05). Pinned so the
+# embedded Unicode data is a conscious, reviewed choice (grammar spec §8).
+unicode-normalization = "0.1.24"
 
 [dev-dependencies]
 tempfile = "3.19.1"

@@ -78,6 +78,7 @@ fn parse_add_args(args: &[String]) -> Result<(Dependency, bool), PackageError> {
     Ok((
         Dependency {
             name,
+            scope: None,
             constraint,
             dev_only,
         },

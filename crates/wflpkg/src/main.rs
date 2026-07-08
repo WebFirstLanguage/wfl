@@ -82,6 +82,28 @@ async fn run_command(args: &[String], cwd: &Path) -> Result<(), wflpkg::PackageE
             }
             wflpkg::commands::info::show_package_info(&args[1], DEFAULT_REGISTRY).await?;
         }
+        "fmt" => {
+            let check = args[1..].iter().any(|a| a == "--check");
+            let file = args[1..]
+                .iter()
+                .find(|a| !a.starts_with("--"))
+                .cloned()
+                .unwrap_or_else(|| "project.wfl".to_string());
+            wflpkg::commands::tooling::fmt_file(&cwd.join(&file), check)?;
+        }
+        "manifest" => {
+            let file = args[1..]
+                .iter()
+                .find(|a| !a.starts_with("--"))
+                .cloned()
+                .unwrap_or_else(|| "project.wfl".to_string());
+            let path = cwd.join(&file);
+            if args[1..].iter().any(|a| a == "--hash") {
+                wflpkg::commands::tooling::manifest_hash(&path)?;
+            } else {
+                wflpkg::commands::tooling::manifest_json(&path)?;
+            }
+        }
         "login" => {
             wflpkg::commands::login::login(DEFAULT_REGISTRY)?;
         }
@@ -157,6 +179,8 @@ fn print_help() {
     println!("    update [package]                    Update dependencies");
     println!("    build                               Build the project");
     println!("    run                                 Run the project");
+    println!("    fmt [file] [--check]                Canonicalize project.wfl / .lock");
+    println!("    manifest [file] [--json|--hash]     Print the JSON projection or hashes");
     println!("    share                               Share (publish) to the registry");
     println!("    search <query>                      Search for packages");
     println!("    info <package>                      Show package details");
@@ -173,6 +197,34 @@ mod tests {
 
     fn s(val: &str) -> String {
         val.to_string()
+    }
+
+    /// ADR-001 §2.4/§5.4: the standalone `wflpkg` binary is a **thin alias**,
+    /// never a fork. It must carry no parsing or verification logic of its own —
+    /// the moment it grows any, the "one shared parser" guarantee is violated.
+    /// This asserts the alias's source only delegates into `wflpkg::commands`.
+    #[test]
+    fn alias_carries_no_parsing_or_verification_logic() {
+        let src = include_str!("main.rs");
+        // Built by concatenation so the forbidden tokens do not appear literally
+        // in this file and trip the check on themselves.
+        let forbidden = [
+            concat!("datalit", "::", "parse"),
+            concat!("Token", "::", "lexer"),
+            concat!("Sha", "256"),
+            concat!("fn ", "parse_manifest"),
+            concat!("fn ", "parse_lock"),
+            concat!("to_", "canonical"),
+        ];
+        for token in forbidden {
+            assert!(
+                !src.contains(token),
+                "the wflpkg alias must not contain `{token}`: it is an alias, not a fork \
+                 (ADR-001 §5.4). Route through wflpkg::commands instead."
+            );
+        }
+        // Every package action must route through the shared library.
+        assert!(src.contains("wflpkg::commands::"));
     }
 
     // --- parse_create_args tests ---

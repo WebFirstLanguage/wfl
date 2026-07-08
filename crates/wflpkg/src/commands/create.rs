@@ -145,22 +145,13 @@ fn run_wizard() -> Result<(String, String, String, String), PackageError> {
 
 /// Validate a project name (same rules as package names).
 fn validate_project_name(name: &str) -> Result<(), PackageError> {
-    if name.is_empty() || name.len() > 64 {
-        return Err(PackageError::InvalidPackageName(name.to_string()));
+    // The single source of truth for a valid name is the manifest grammar's
+    // identity allowlist, so a project we create always re-parses (grammar §8).
+    if crate::datalit::identity::is_valid_identity(name) {
+        Ok(())
+    } else {
+        Err(PackageError::InvalidPackageName(name.to_string()))
     }
-
-    let first = name.chars().next().unwrap();
-    if !first.is_ascii_lowercase() {
-        return Err(PackageError::InvalidPackageName(name.to_string()));
-    }
-
-    for c in name.chars() {
-        if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '-' {
-            return Err(PackageError::InvalidPackageName(name.to_string()));
-        }
-    }
-
-    Ok(())
 }
 
 /// Get the default version based on current date.

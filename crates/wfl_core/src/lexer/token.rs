@@ -460,7 +460,13 @@ pub enum Token {
     #[regex("[0-9]+\\.[0-9]+", |lex| lex.slice().parse::<f64>().unwrap())]
     FloatLiteral(f64),
 
-    #[regex("[0-9]+", |lex| lex.slice().parse::<i64>().unwrap())]
+    // An integer literal that overflows `i64` produces a lexer error rather
+    // than panicking. This is the normative bug-fix required by
+    // `wflpkg-manifest-grammar-1.0.md` §5 ("reject, don't panic"): a conforming
+    // manifest ingest must not be crashable by an over-long integer. It is safe
+    // for the language at large because an over-`i64` literal has no valid
+    // meaning today — it already aborts the process.
+    #[regex("[0-9]+", |lex| lex.slice().parse::<i64>().ok())]
     IntLiteral(i64),
 
     #[regex("[A-Za-z][A-Za-z0-9_]*", |lex| lex.slice().to_string())]

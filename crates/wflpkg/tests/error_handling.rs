@@ -243,7 +243,17 @@ fn test_manifest_empty_content() {
 
 #[test]
 fn test_manifest_missing_version() {
-    let content = "name is foo\ndescription is bar";
+    // A well-formed manifest whose `package` block omits the required `version`.
+    let content = "\
+create map wflpkg:
+    grammar is \"1.0.0\"
+end map
+
+create map package:
+    name is \"foo\"
+    description is \"bar\"
+end map
+";
     let result = wflpkg::manifest::parser::parse_manifest(content);
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
@@ -254,15 +264,23 @@ fn test_manifest_missing_version() {
 }
 
 #[test]
-fn test_manifest_missing_description() {
-    let content = "name is foo\nversion is 26.1.1";
+fn test_manifest_missing_name() {
+    // `description` is optional in the frozen grammar, but `name` is required —
+    // a `package` block without it is rejected.
+    let content = "\
+create map wflpkg:
+    grammar is \"1.0.0\"
+end map
+
+create map package:
+    version is \"26.1.1\"
+    description is \"bar\"
+end map
+";
     let result = wflpkg::manifest::parser::parse_manifest(content);
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
-    assert!(
-        msg.contains("description"),
-        "error should mention description: {msg}"
-    );
+    assert!(msg.contains("name"), "error should mention name: {msg}");
 }
 
 // ---------------------------------------------------------------------------
