@@ -1681,6 +1681,101 @@ impl Analyzer {
                 }
             }
 
+            Statement::ListenWebSocketStatement {
+                port,
+                server_name,
+                line,
+                column,
+            } => {
+                self.analyze_expression(port);
+
+                let server_symbol = Symbol {
+                    name: server_name.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: Some(Type::Text), // Server is represented as text
+                    line: *line,
+                    column: *column,
+                };
+                if let Err(error) = self.current_scope.define(server_symbol) {
+                    self.errors.push(error);
+                }
+            }
+
+            Statement::WebSocketHandlerStatement {
+                server,
+                binding,
+                body,
+                line,
+                column,
+                ..
+            } => {
+                self.analyze_expression(server);
+
+                // The handler body runs in its own scope with the event binding
+                // (a connection/message object) defined, mirroring loop-variable
+                // scoping so the body can reference it without a false
+                // "undefined variable" error.
+                let outer_scope = std::mem::take(&mut self.current_scope);
+                self.current_scope = Scope::with_parent(outer_scope);
+
+                let binding_symbol = Symbol {
+                    name: binding.clone(),
+                    kind: SymbolKind::Variable { mutable: false },
+                    symbol_type: None,
+                    line: *line,
+                    column: *column,
+                };
+                self.current_scope.define_or_replace(binding_symbol);
+                // `action_parameters` is a flat set shared by the whole run, so
+                // only remove names this handler actually added — otherwise a
+                // same-named enclosing action parameter would be dropped for the
+                // rest of that action.
+                let binding_was_present = !self.action_parameters.insert(binding.clone());
+
+                // The event object's property names are accessed as `id of conn`
+                // / `body of msg`, which parse as `of`-form calls. Registering
+                // them as action parameters (rather than scope symbols) lets the
+                // callee resolve without a "not a function" error, the same
+                // relaxation used for action parameters and the `count` variable.
+                let ws_properties = ["id", "ip", "body", "sender"];
+                let mut newly_added: Vec<&str> = Vec::new();
+                for prop in ws_properties {
+                    if self.action_parameters.insert(prop.to_string()) {
+                        newly_added.push(prop);
+                    }
+                }
+
+                for stmt in body {
+                    self.analyze_statement(stmt);
+                }
+
+                for prop in newly_added {
+                    self.action_parameters.remove(prop);
+                }
+                if !binding_was_present {
+                    self.action_parameters.remove(binding);
+                }
+
+                let handler_scope = std::mem::take(&mut self.current_scope);
+                if let Some(parent) = handler_scope.parent {
+                    self.current_scope = *parent;
+                }
+            }
+
+            Statement::SendWebSocketMessageStatement {
+                message, target, ..
+            } => {
+                self.analyze_expression(message);
+                self.analyze_expression(target);
+            }
+
+            Statement::BroadcastWebSocketMessageStatement {
+                message, server, ..
+            } => {
+                self.analyze_expression(message);
+                self.analyze_expression(server);
+            }
+
             Statement::RegisterSignalHandlerStatement {
                 handler_name,
                 line,
@@ -2363,7 +2458,12 @@ impl Analyzer {
                                 let is_injected_builtin = Self::is_builtin_function(name)
                                     && symbol.line == 0
                                     && symbol.column == 0;
-                                if is_injected_builtin {
+                                // An action parameter or handler-property name
+                                // (e.g. `body of msg` inside a websocket handler)
+                                // is a relaxed `of`-form access even when an outer
+                                // scope also defines a non-function symbol of the
+                                // same name; the property read must win over it.
+                                if is_injected_builtin || self.action_parameters.contains(name) {
                                     for arg in arguments {
                                         self.analyze_expression(&arg.value);
                                     }

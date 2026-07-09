@@ -1389,6 +1389,17 @@ impl JavaScriptTranspiler {
                 ))
             }
 
+            Statement::ListenWebSocketStatement { line, column, .. }
+            | Statement::WebSocketHandlerStatement { line, column, .. }
+            | Statement::SendWebSocketMessageStatement { line, column, .. }
+            | Statement::BroadcastWebSocketMessageStatement { line, column, .. } => {
+                Err(TranspileError {
+                    message: "WebSocket statements are not supported in JavaScript transpilation. They require the WFL interpreter.".to_string(),
+                    line: *line,
+                    column: *column,
+                })
+            }
+
             Statement::RegisterSignalHandlerStatement {
                 signal_type,
                 handler_name,

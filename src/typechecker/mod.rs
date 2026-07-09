@@ -2031,6 +2031,54 @@ impl TypeChecker {
             } => {
                 self.check_server_expression_type(server, *line, *column);
             }
+            // WebSocket statements
+            Statement::ListenWebSocketStatement {
+                port, line, column, ..
+            } => {
+                let port_type = self.infer_expression_type(port);
+                if port_type != Type::Number
+                    && port_type != Type::Unknown
+                    && port_type != Type::Error
+                {
+                    self.type_error(
+                        "WebSocket port must be a number".to_string(),
+                        Some(Type::Number),
+                        Some(port_type),
+                        *line,
+                        *column,
+                    );
+                }
+            }
+            Statement::WebSocketHandlerStatement {
+                server,
+                body,
+                line,
+                column,
+                ..
+            } => {
+                // The server operand and handler body are checked; the handler's
+                // bound variable resolves as an object at runtime (gradual typing
+                // keeps member access like `body of msg` permissive).
+                self.check_server_expression_type(server, *line, *column);
+                for stmt in body {
+                    self.check_statement_types(stmt);
+                }
+            }
+            Statement::SendWebSocketMessageStatement {
+                message, target, ..
+            } => {
+                self.infer_expression_type(message);
+                self.infer_expression_type(target);
+            }
+            Statement::BroadcastWebSocketMessageStatement {
+                message,
+                server,
+                line,
+                column,
+            } => {
+                self.infer_expression_type(message);
+                self.check_server_expression_type(server, *line, *column);
+            }
             // Test framework statements
             Statement::DescribeBlock {
                 description: _description,

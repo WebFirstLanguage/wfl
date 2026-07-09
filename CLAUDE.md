@@ -145,6 +145,12 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
   - `cargo test --all --verbose`
 
 ## Documentation Development
+- **Docs Are Part of the Feature (MANDATORY)**: Every change that adds, removes, or alters user-facing behavior — new/changed language syntax, keywords, statements, stdlib functions, CLI flags, or config options — MUST update or add the corresponding documentation in the **same change**. A feature is not complete until its docs are written. This includes:
+  - The relevant guide under `Docs/` (e.g. a new statement → its section in the matching `Docs/04-advanced-features/*` or `Docs/05-standard-library/*` page).
+  - Both keyword references (`Docs/reference/keyword-reference.md` and `Docs/reference/reserved-keywords.md`) when keywords are added or reclassified — update them together.
+  - A working example (in `TestPrograms/`, validated with MCP) demonstrating the feature.
+  - A Dev Diary entry in `Dev diary/` for any non-trivial feature or behavior change.
+  - When a feature is removed or its syntax changes, remove or fix the now-stale docs and examples — don't leave contradictions.
 - **Location**: `Docs/` organized in 6 sections (Introduction, Getting Started, Language Basics, Advanced Features, Standard Library, Best Practices).
 - **Structure**: Follow `Docs/wfl-documentation-policy.md` and 19 principles in `Docs/wfl-foundation.md`.
 - **Reference Documentation**: Two-tiered system for keywords
@@ -173,7 +179,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 ## Agent‑Specific Policies (Critical Rules)
 - **Backward Compatibility**: Sacred. Never break existing WFL programs. Run all `TestPrograms/`.
 - **Integration Tests**: Require `cargo build --release` and provided scripts.
-- **Documentation**: Keep `Docs/` current. Validate ALL code examples with MCP before adding. Major changes warrant Dev Diary note.
+- **Documentation**: MANDATORY — any added or changed feature MUST ship its docs in the same change (see "Documentation Development"). Keep `Docs/` current, validate ALL code examples with MCP before adding, and add a Dev Diary note for non-trivial changes.
 - **Security**: Review `SECURITY.md`. Avoid logging secrets. Use zeroization.
 - **Rules**: Refer to `.cursor/rules/wfl-rules.mdc`.
 

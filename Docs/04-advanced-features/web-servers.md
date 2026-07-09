@@ -957,6 +957,121 @@ main loop:
 end loop
 ```
 
+## WebSockets
+
+WebSockets add real-time, two-way communication on top of the same server model.
+Where an HTTP handler *pulls* one request with `wait for request`, a WebSocket
+server *reacts* to events: you register `on websocket ...` handler blocks, and
+the runtime runs them as clients connect, send messages, and disconnect.
+
+### Starting a WebSocket server
+
+```wfl
+listen for websockets on port 8080 as chat_server
+```
+
+This reads like `listen on port`, but upgrades incoming connections to
+WebSockets. The bind address comes from `.wflcfg` (`web_server_bind_address`),
+exactly like the HTTP server. Use port `0` to let the operating system pick a
+free port (handy for tests); the actual port is printed on startup.
+
+### Handling events
+
+Register one handler block per lifecycle event. Each block binds a variable you
+can read with `property of value`:
+
+```wfl
+on websocket connect to chat_server as connection:
+    display "Client connected: " with id of connection
+    send websocket message "Welcome!" to connection
+end on
+
+on websocket message from chat_server as incoming:
+    // `body of incoming` is the text the client sent.
+    store reply as "Echo: " with body of incoming
+    send websocket message reply to incoming
+end on
+
+on websocket disconnect from chat_server as connection:
+    display "Client left: " with id of connection
+end on
+```
+
+The bound values expose these properties:
+
+| Event                  | Binding is…       | Properties                          |
+|------------------------|-------------------|-------------------------------------|
+| `connect` / `disconnect` | the connection   | `id`, `ip`                          |
+| `message`              | the message       | `body`, `sender`, `id`, `ip`        |
+
+For a `message`, `sender of incoming` is the connection object, and the message
+itself carries the sender's `id`/`ip` — so `send ... to incoming` replies to
+whoever sent it. (The payload is `body`, mirroring `body of request`, because
+`content` is a reserved keyword.)
+
+### Sending and broadcasting
+
+```wfl
+// Send to one connection:
+send websocket message "hello" to connection
+
+// Send to every connected client (including the sender):
+broadcast websocket message "a new user joined" to chat_server
+```
+
+The message can be a string, a number, or a variable holding one. To send a
+computed value, store it first:
+
+```wfl
+store reply as "Echo: " with body of incoming
+send websocket message reply to incoming
+```
+
+### Keeping the server alive
+
+Handlers are dispatched **while the program is inside a `wait`**. A real server
+therefore keeps itself alive with a long wait or a loop:
+
+```wfl
+listen for websockets on port 8080 as chat_server
+
+on websocket message from chat_server as incoming:
+    broadcast websocket message body of incoming to chat_server
+end on
+
+// Serve for an hour (or use a main loop with signal handling to run forever).
+wait for 3600 seconds
+```
+
+Close the server — and every open connection — with the same statement as an
+HTTP server:
+
+```wfl
+close server chat_server
+```
+
+### Full example: a broadcast chat server
+
+```wfl
+display "Starting chat server..."
+listen for websockets on port 8080 as chat_server
+
+on websocket connect to chat_server as connection:
+    send websocket message "Welcome to WFL chat!" to connection
+end on
+
+on websocket message from chat_server as incoming:
+    broadcast websocket message body of incoming to chat_server
+end on
+
+on websocket disconnect from chat_server as connection:
+    display "A client disconnected."
+end on
+
+wait for 3600 seconds
+close server chat_server
+```
+
 ## Security Considerations
 
 ⚠️ **Important:** Web servers expose your application to the internet. Always:
@@ -985,6 +1100,7 @@ In this section, you learned:
 ✅ **Static files** - Serving files from disk
 ✅ **Error handling** - Try-catch for robust servers
 ✅ **Request logging** - Tracking requests
+✅ **WebSockets** - `listen for websockets`, `on websocket connect/message/disconnect`, `send`/`broadcast websocket message`
 
 ## Next Steps
 

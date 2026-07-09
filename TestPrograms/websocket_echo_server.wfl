@@ -1,0 +1,39 @@
+// WebSocket echo + broadcast server (issue #555).
+//
+// Demonstrates WFL's event-handler WebSocket support. The server upgrades
+// incoming connections, then the runtime dispatches to the registered
+// `on websocket ...` handler blocks while the program waits. Handlers can reply
+// to a single connection with `send websocket message ... to <connection>` or
+// fan out to every client with `broadcast websocket message ... to <server>`.
+//
+// This program is self-contained (no external client) so it runs in CI: it
+// starts the server, registers handlers, waits briefly, then exits cleanly.
+// End-to-end behaviour with a real client is covered by tests/websocket_test.rs.
+
+display "=== WebSocket Echo Server ==="
+
+listen for websockets on port 0 as chat_server
+
+on websocket connect to chat_server as connection:
+    display "Client connected: " with id of connection
+    send websocket message "Welcome to the WFL chat server!" to connection
+end on
+
+on websocket message from chat_server as incoming:
+    // Echo the message back to just the sender...
+    store reply as "Echo: " with body of incoming
+    send websocket message reply to incoming
+
+    // ...and announce it to everyone who is connected.
+    broadcast websocket message body of incoming to chat_server
+end on
+
+on websocket disconnect from chat_server as connection:
+    display "Client disconnected: " with id of connection
+end on
+
+display "Handlers registered; serving briefly..."
+wait for 200 milliseconds
+
+close server chat_server
+display "=== Server stopped ==="

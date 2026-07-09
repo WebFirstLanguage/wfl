@@ -54,6 +54,7 @@ warp = { version = "0.3.7", features = ["tls"] }
 rustls-pemfile = "2"
 uuid = { version = "1.6.1", features = ["v4"] }
 bytes = "1.11.1"
+futures-util = "0.3"
 codespan-reporting = "0.11.1"
 simplelog = "0.12.1"
 chrono = "0.4.31"
@@ -79,6 +80,7 @@ tempfile = "3.19.1"
 rcgen = "0.13"
 libc = "0.2.152"
 criterion = "0.4"
+tokio-tungstenite = "0.21"
 
 [[bench]]
 name = "parser_bench"

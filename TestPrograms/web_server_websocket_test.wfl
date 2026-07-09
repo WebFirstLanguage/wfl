@@ -1,4 +1,8 @@
-// CI-SKIP: exercises unimplemented websocket features (tracked in issue #555)
+// CI-SKIP: aspirational — core websockets now work (see websocket_echo_server.wfl
+// and tests/websocket_test.rs), but this file additionally needs comma-separated
+// `create list with a, b, c`, `content of ...` (a reserved keyword), websocket
+// stats, connection limits, and server-as-its-own-client simulation, each tracked
+// separately under issue #555.
 // TDD Test: Web Server WebSocket Support
 // This test MUST FAIL initially because WebSocket functionality is not implemented
 // Following TDD approach - write failing test first
