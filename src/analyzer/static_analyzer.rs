@@ -107,6 +107,13 @@ pub trait StaticAnalyzer {
 /// Builtins whose presence marks a file as an auth/session/crypto module. If any
 /// of these is called, seeding the RNG with `random_seed` makes the CSPRNG
 /// predictable and is flagged as an error.
+///
+/// Deliberately limited to builtins whose *purpose* is authentication, secrets,
+/// or message authentication. General-purpose hashes (`sha256`, the WFLHASH
+/// family) are excluded: their documented use is checksums, deduplication, and
+/// data integrity, so a program that hashes a file and separately seeds the RNG
+/// for a reproducible simulation should not be flagged. MACs (`hmac_sha256`,
+/// `wflmac256`) stay in the list because they authenticate, not just hash.
 const SECURITY_SENSITIVE_BUILTINS: &[&str] = &[
     "hash_password",
     "verify_password",
@@ -122,11 +129,7 @@ const SECURITY_SENSITIVE_BUILTINS: &[&str] = &[
     "constant_time_equals",
     "secure_random_bytes",
     "generate_csrf_token",
-    "sha256",
     "hmac_sha256",
-    "wflhash256",
-    "wflhash512",
-    "wflhash256_with_salt",
     "wflmac256",
 ];
 
@@ -265,6 +268,26 @@ fn collect_calls_in_statement(stmt: &Statement, out: &mut Vec<CallSite>) {
         }
         Statement::EventHandler { handler_body, .. } => {
             collect_calls_in_statements(handler_body, out);
+        }
+        Statement::RespondStatement {
+            request,
+            content,
+            status,
+            content_type,
+            headers,
+            ..
+        } => {
+            collect_calls_in_expression(request, out);
+            collect_calls_in_expression(content, out);
+            if let Some(status) = status {
+                collect_calls_in_expression(status, out);
+            }
+            if let Some(content_type) = content_type {
+                collect_calls_in_expression(content_type, out);
+            }
+            if let Some(headers) = headers {
+                collect_calls_in_expression(headers, out);
+            }
         }
         Statement::ContainerDefinition {
             methods,
@@ -2416,5 +2439,42 @@ mod tests {
         let diagnostics = analyzer.check_insecure_rng_seeding(&program, 0);
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_sha256_checksum_does_not_trigger_lint() {
+        // sha256 is a general-purpose hash (checksums/content-addressing), not an
+        // auth signal, so hashing + seeding for a reproducible run must not fire.
+        let program =
+            parse_program("store c as sha256 of \"data\"\nstore s as random_seed of 1\ndisplay c");
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_insecure_rng_seeding(&program, 0);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_wflhash_checksum_does_not_trigger_lint() {
+        let program = parse_program(
+            "store c as wflhash256 of \"data\"\nstore s as random_seed of 1\ndisplay c",
+        );
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_insecure_rng_seeding(&program, 0);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_random_seed_flagged_inside_respond_statement() {
+        // A web handler that responds with a freshly generated token and also
+        // seeds the RNG must be flagged: the walker has to descend into `respond`.
+        let program = parse_program(
+            "store s as random_seed of 1\nrespond to req with secure_random_bytes of 16",
+        );
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_insecure_rng_seeding(&program, 0);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, "ANALYZE-SECURITY");
     }
 }
