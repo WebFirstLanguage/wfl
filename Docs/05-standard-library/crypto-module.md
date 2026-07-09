@@ -1,6 +1,12 @@
 # Crypto Module
 
-The Crypto module provides cryptographic hashing functions: standard SHA-256 and HMAC-SHA256 for interoperating with external services (webhook verification, API signing), plus WFLHASH, a custom hash algorithm for data integrity, checksums, and non-critical security applications.
+The Crypto module provides cryptographic functions in three groups:
+
+- **Password hashing** — `hash_password`/`verify_password` and the algorithm-specific Argon2id, bcrypt, scrypt and PBKDF2 functions. Use these to store user passwords safely.
+- **Standard hashing/MAC** — `sha256` and `hmac_sha256` for interoperating with external services (webhook verification, API signing).
+- **WFLHASH** — a custom hash algorithm for data integrity, checksums, and non-critical security applications.
+
+> **Hashing a password? Use `hash_password`, never `sha256` or `wflhash256`.** Fast hashes are built to be quick, which is exactly what makes them a poor way to store passwords — an attacker can try billions of guesses per second. The password hashing functions below are deliberately slow and salted to prevent that.
 
 ## ⚠️ Important Security Disclaimer
 
@@ -16,9 +22,63 @@ The Crypto module provides cryptographic hashing functions: standard SHA-256 and
 - Applications requiring FIPS validation
 - High-security environments requiring proven algorithms
 - Regulatory compliance requiring validated cryptography
-- Password hashing in production systems
+- Password hashing in production systems (use the [password hashing functions](#password-hashing) instead)
 
 **For production security applications, use standard algorithms.** WFL provides standard `sha256` and `hmac_sha256` builtins (below) for exactly this: they are required when interoperating with external services (e.g. verifying Stripe or GitHub webhook signatures), where a custom algorithm cannot be used.
+
+## Password Hashing
+
+These functions store passwords the right way: they are **slow by design**, add a **random salt** automatically, and return a **self-describing string** that records the algorithm and its cost parameters. You store that one string and pass it straight back to the matching verify function later — nothing else needs to be saved.
+
+**The two you'll usually want:**
+
+| Function | Signature | Returns |
+| --- | --- | --- |
+| `hash_password` | `hash_password of <password>` | Text — a hash string to store |
+| `verify_password` | `verify_password of <password> and <stored_hash>` | Boolean — `yes` if the password matches |
+
+`hash_password` uses **Argon2id**, the current best-practice default. `verify_password` looks at the stored hash and automatically uses whichever algorithm produced it, so it verifies hashes made by any of the functions below.
+
+**Choosing a specific algorithm.** If you need a particular algorithm (for interoperability, policy, or migration), use the matching pair. Every `*_hash` function takes just the password and applies secure defaults; every `*_verify` function takes the password and the stored hash.
+
+| Algorithm | Hash | Verify | Output format |
+| --- | --- | --- | --- |
+| Argon2id | `argon2_hash of <password>` | `argon2_verify of <password> and <hash>` | `$argon2id$...` |
+| bcrypt | `bcrypt_hash of <password>` | `bcrypt_verify of <password> and <hash>` | `$2b$...` |
+| scrypt | `scrypt_hash of <password>` | `scrypt_verify of <password> and <hash>` | `$scrypt$...` |
+| PBKDF2 | `pbkdf2_hash of <password>` | `pbkdf2_verify of <password> and <hash>` | `$pbkdf2-sha256$...` |
+
+**Registration and login example:**
+
+```wfl
+// When a user signs up, hash their password and store the result.
+store password_hash as hash_password of "correct horse battery staple"
+display "Store this in your database: " with password_hash
+
+// When they log in later, verify the password they typed against the stored hash.
+store attempt as "correct horse battery staple"
+store login_ok as verify_password of attempt and password_hash
+
+check if login_ok is yes:
+    display "Welcome back!"
+otherwise:
+    display "Incorrect password."
+end check
+```
+
+**Properties:**
+- **Salted automatically** — hashing the same password twice gives two different strings, so identical passwords never share a hash and precomputed (rainbow-table) attacks don't work.
+- **Slow on purpose** — each hash takes meaningful CPU/memory, which barely matters for a single login but makes mass cracking impractical.
+- **Self-describing** — the salt and cost parameters live inside the returned string, so `verify_password` needs nothing but the password and that string.
+- **Constant-time verification** — comparisons don't leak information through timing.
+
+**Notes and limits:**
+- The maximum password length is 4096 bytes.
+- bcrypt only considers the first 72 bytes of a password (a property of the algorithm itself).
+- Defaults follow current OWASP guidance (e.g. PBKDF2 uses 600,000 iterations; Argon2id uses memory-hard parameters). Prefer `hash_password` unless you have a specific reason to pick another algorithm.
+- A malformed or unrecognized stored hash simply makes `verify_password` return `no` — it never errors, so a corrupted record can't crash a login.
+
+---
 
 ## Functions
 
@@ -412,7 +472,7 @@ display "Unique items: " with unique_items
 
 ✅ **Limit input size:** Hash function has 100MB limit
 
-❌ **Don't use for passwords in production:** Use bcrypt, argon2, or scrypt
+❌ **Don't use fast hashes (sha256/wflhash) for passwords:** Use `hash_password`/`verify_password` (Argon2id, bcrypt, scrypt, PBKDF2)
 
 ❌ **Don't use without understanding limitations:** Not externally audited
 
@@ -451,13 +511,15 @@ display "Unique items: " with unique_items
 
 In this module, you learned:
 
-✅ **wflhash256** - 256-bit hashing
-✅ **wflhash512** - 512-bit hashing
+✅ **hash_password / verify_password** - Safe password storage with Argon2id by default
+✅ **argon2 / bcrypt / scrypt / pbkdf2** - Algorithm-specific password hashing
+✅ **sha256 / hmac_sha256** - Standard hashing and MAC for interoperability
+✅ **wflhash256 / wflhash512** - 256-bit and 512-bit hashing
 ✅ **wflhash256_with_salt** - Salted hashing
 ✅ **wflmac256** - Message authentication codes
-✅ **Use cases** - Checksums, integrity, deduplication, signing
-✅ **Limitations** - Not audited, use alternatives for production security
-✅ **Best practices** - Salting, key management, appropriate use cases
+✅ **Use cases** - Password storage, checksums, integrity, deduplication, signing
+✅ **Limitations** - WFLHASH is not audited; use standard algorithms for production security
+✅ **Best practices** - Never store passwords with fast hashes, salting, key management
 
 ## Next Steps
 

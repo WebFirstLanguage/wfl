@@ -201,6 +201,13 @@ impl TypeChecker {
             | "generate_uuid"
             | "generate_csrf_token" => Type::Text,
 
+            // Password hashing: *_hash produce a string, *_verify produce a boolean
+            "hash_password" | "argon2_hash" | "bcrypt_hash" | "scrypt_hash" | "pbkdf2_hash" => {
+                Type::Text
+            }
+            "verify_password" | "argon2_verify" | "bcrypt_verify" | "scrypt_verify"
+            | "pbkdf2_verify" => Type::Boolean,
+
             // JSON functions
             "parse_json" => Type::Any, // object/list/scalar depending on the JSON
             "stringify_json" | "stringify_json_pretty" => Type::Text,

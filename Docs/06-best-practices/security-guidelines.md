@@ -77,6 +77,25 @@ define action called safe_read_file with parameters filename:
 end action
 ```
 
+## Password Hashing
+
+**Never store passwords with a fast hash (`sha256`, `wflhash256`).** Fast hashes let attackers try billions of guesses per second against a stolen database. Use the dedicated password hashing functions, which are slow, salted, and self-describing.
+
+```wfl
+// Sign-up: hash and store
+store stored_hash as hash_password of user_password
+
+// Login: verify
+store login_ok as verify_password of attempt and stored_hash
+check if login_ok is yes:
+    display "Login successful"
+otherwise:
+    display "Invalid credentials"
+end check
+```
+
+`hash_password` uses Argon2id by default and `verify_password` auto-detects the algorithm from the stored hash. If you need a specific algorithm, use `argon2_hash`/`bcrypt_hash`/`scrypt_hash`/`pbkdf2_hash` with their matching `*_verify` functions. See the [Crypto Module → Password Hashing](../05-standard-library/crypto-module.md#password-hashing).
+
 ## WFLHASH Usage
 
 **WFLHASH is NOT externally audited.**
@@ -90,7 +109,7 @@ end action
 
 ### Inappropriate Uses
 
-❌ **Password hashing** - Use bcrypt, argon2, scrypt
+❌ **Password hashing** - Use `hash_password`/`verify_password` (Argon2id, bcrypt, scrypt, PBKDF2)
 ❌ **FIPS compliance** - Use SHA-256, SHA-3, BLAKE3
 ❌ **High security** - Use proven algorithms
 ❌ **Production auth** - Use established standards
