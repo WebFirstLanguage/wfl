@@ -154,9 +154,9 @@ store upper as touppercase of "text"
 - Seeding: `random_seed`
 
 ### Security (Crypto)
-- Hashing: `wflhash256`, `wflhash512`
-- Salting: `wflhash256_with_salt`
-- MAC: `wflmac256`
+- Password hashing: `hash_password`, `verify_password` (Argon2id/bcrypt/scrypt/PBKDF2)
+- Standard hashing/MAC: `sha256`, `hmac_sha256`
+- WFLHASH: `wflhash256`, `wflhash512`, `wflhash256_with_salt`, `wflmac256`
 
 ### Validation (Pattern)
 - Matching: pattern matching, finding, replacing

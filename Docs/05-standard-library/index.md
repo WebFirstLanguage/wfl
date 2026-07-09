@@ -13,7 +13,7 @@ WFL's standard library provides:
 - **[Filesystem Module](filesystem-module.md)** - File and directory operations
 - **[Time Module](time-module.md)** - Date and time handling
 - **[Random Module](random-module.md)** - Random number generation
-- **[Crypto Module](crypto-module.md)** - Cryptographic hashing (WFLHASH)
+- **[Crypto Module](crypto-module.md)** - Password hashing, standard hashing/MAC, and WFLHASH
 - **[Pattern Module](pattern-module.md)** - Pattern matching utilities
 - **[Typechecker Module](typechecker-module.md)** - Type checking utilities
 
@@ -68,6 +68,9 @@ WFL's standard library provides:
 - `random_from` - Pick from list
 
 ### Crypto Functions
+- `hash_password` / `verify_password` - Safe password storage (Argon2id by default)
+- `argon2_hash`, `bcrypt_hash`, `scrypt_hash`, `pbkdf2_hash` (+ matching `*_verify`) - Password hashing
+- `sha256` / `hmac_sha256` - Standard hash and MAC
 - `wflhash256` - 256-bit hash
 - `wflhash512` - 512-bit hash
 - `wflhash256_with_salt` - Salted hash
@@ -213,8 +216,10 @@ Try every function interactively!
 ### Random Module (6 functions)
 - random, random_between, random_int, random_boolean, random_from, random_seed
 
-### Crypto Module (4 functions)
-- wflhash256, wflhash512, wflhash256_with_salt, wflmac256
+### Crypto Module
+- Password hashing: hash_password, verify_password, argon2/bcrypt/scrypt/pbkdf2 (_hash and _verify)
+- Standard: sha256, hmac_sha256
+- WFLHASH: wflhash256, wflhash512, wflhash256_with_salt, wflmac256, generate_csrf_token
 
 ### Pattern Module (3 functions)
 - Pattern creation, matching, extraction

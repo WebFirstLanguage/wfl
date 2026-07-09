@@ -38,6 +38,17 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "sha256",
     "hmac_sha256",
     "generate_csrf_token",
+    // Password hashing (implemented in stdlib/crypto.rs)
+    "hash_password",
+    "verify_password",
+    "argon2_hash",
+    "argon2_verify",
+    "bcrypt_hash",
+    "bcrypt_verify",
+    "scrypt_hash",
+    "scrypt_verify",
+    "pbkdf2_hash",
+    "pbkdf2_verify",
     // JSON functions (implemented in stdlib/json.rs)
     "parse_json",
     "stringify_json",
@@ -274,6 +285,13 @@ pub fn get_function_arity(name: &str) -> usize {
         "wflhash256" | "wflhash512" | "sha256" => 1,
         // Two argument functions
         "wflhash256_with_salt" | "wflmac256" | "hmac_sha256" => 2,
+
+        // === PASSWORD HASHING FUNCTIONS ===
+        // Single argument functions (the password)
+        "hash_password" | "argon2_hash" | "bcrypt_hash" | "scrypt_hash" | "pbkdf2_hash" => 1,
+        // Two argument functions (password and stored hash)
+        "verify_password" | "argon2_verify" | "bcrypt_verify" | "scrypt_verify"
+        | "pbkdf2_verify" => 2,
 
         // === JSON FUNCTIONS ===
         // Single argument functions

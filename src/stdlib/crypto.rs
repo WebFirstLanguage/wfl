@@ -2,8 +2,14 @@ use super::helpers::{check_arg_count, expect_text};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
+use argon2::Argon2;
+// argon2, scrypt and pbkdf2 all depend on the same `password-hash` crate, so the
+// traits and types re-exported here apply to `Scrypt` and `Pbkdf2` as well.
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
+use pbkdf2::Pbkdf2;
+use scrypt::Scrypt;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
@@ -561,6 +567,230 @@ pub fn native_generate_csrf_token(args: Vec<Value>) -> Result<Value, RuntimeErro
     Ok(Value::Text(Arc::from(token)))
 }
 
+// ============================================================================
+// Password hashing (Argon2id, bcrypt, scrypt, PBKDF2)
+//
+// Unlike the fast hashes above (sha256/wflhash), these are deliberately *slow*,
+// salted, and memory/CPU-hard so that a stolen database of hashes is expensive
+// to crack. Each `*_hash` function generates a fresh random salt and returns a
+// self-describing string (PHC format, or the bcrypt MCF `$2b$` format) that
+// embeds the algorithm, cost parameters, salt, and digest. The matching
+// `*_verify` function reads those parameters back out of the stored string, so
+// nothing extra needs to be stored alongside the hash.
+// ============================================================================
+
+/// Maximum accepted password length in bytes.
+///
+/// Argon2/scrypt cost is dominated by their memory parameters, not input length,
+/// but this bounds worst-case work and mirrors the input limits used elsewhere in
+/// this module.
+pub const MAX_PASSWORD_LENGTH: usize = 4096;
+
+/// PBKDF2-HMAC-SHA256 iteration count. The RustCrypto default (4096) is far below
+/// current guidance, so we pin OWASP's recommended 600,000 iterations instead.
+const PBKDF2_ROUNDS: u32 = 600_000;
+
+/// Reject passwords that are unreasonably long before doing expensive hashing work.
+fn check_password_len(func: &str, password: &str) -> Result<(), RuntimeError> {
+    if password.len() > MAX_PASSWORD_LENGTH {
+        return Err(RuntimeError::new(
+            format!("{func}: password exceeds maximum length ({MAX_PASSWORD_LENGTH} bytes)"),
+            0,
+            0,
+        ));
+    }
+    Ok(())
+}
+
+/// Generate a cryptographically random 16-byte salt encoded for PHC output.
+fn random_salt() -> Result<SaltString, RuntimeError> {
+    use rand::RngCore;
+
+    let mut bytes = [0u8; 16];
+    rand::rng().fill_bytes(&mut bytes);
+    let salt = SaltString::encode_b64(&bytes)
+        .map_err(|e| RuntimeError::new(format!("Failed to generate password salt: {e}"), 0, 0));
+    bytes.zeroize();
+    salt
+}
+
+fn argon2_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
+    check_password_len(func, password)?;
+    let salt = random_salt()?;
+    Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map(|h| h.to_string())
+        .map_err(|e| RuntimeError::new(format!("{func} failed: {e}"), 0, 0))
+}
+
+/// Argon2id password hash (recommended default). Returns a PHC string.
+/// Usage: argon2_hash of "my password"
+pub fn native_argon2_hash(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("argon2_hash", &args, 1)?;
+    let password = expect_text(&args[0])?;
+    Ok(Value::Text(Arc::from(argon2_hash_str(
+        "argon2_hash",
+        &password,
+    )?)))
+}
+
+/// Verify a password against a stored Argon2 PHC string. Returns a boolean.
+/// Usage: argon2_verify of "my password" and stored_hash
+pub fn native_argon2_verify(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("argon2_verify", &args, 2)?;
+    let password = expect_text(&args[0])?;
+    let stored = expect_text(&args[1])?;
+    let ok = match PasswordHash::new(&stored) {
+        Ok(parsed) => Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok(),
+        Err(_) => false,
+    };
+    Ok(Value::Bool(ok))
+}
+
+fn scrypt_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
+    check_password_len(func, password)?;
+    let salt = random_salt()?;
+    Scrypt
+        .hash_password(password.as_bytes(), &salt)
+        .map(|h| h.to_string())
+        .map_err(|e| RuntimeError::new(format!("{func} failed: {e}"), 0, 0))
+}
+
+/// scrypt password hash. Returns a PHC string.
+/// Usage: scrypt_hash of "my password"
+pub fn native_scrypt_hash(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("scrypt_hash", &args, 1)?;
+    let password = expect_text(&args[0])?;
+    Ok(Value::Text(Arc::from(scrypt_hash_str(
+        "scrypt_hash",
+        &password,
+    )?)))
+}
+
+/// Verify a password against a stored scrypt PHC string. Returns a boolean.
+/// Usage: scrypt_verify of "my password" and stored_hash
+pub fn native_scrypt_verify(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("scrypt_verify", &args, 2)?;
+    let password = expect_text(&args[0])?;
+    let stored = expect_text(&args[1])?;
+    let ok = match PasswordHash::new(&stored) {
+        Ok(parsed) => Scrypt.verify_password(password.as_bytes(), &parsed).is_ok(),
+        Err(_) => false,
+    };
+    Ok(Value::Bool(ok))
+}
+
+fn pbkdf2_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
+    check_password_len(func, password)?;
+    let salt = random_salt()?;
+    // Override the weak default iteration count with OWASP's recommendation.
+    let params = pbkdf2::Params {
+        rounds: PBKDF2_ROUNDS,
+        output_length: 32,
+    };
+    Pbkdf2
+        .hash_password_customized(password.as_bytes(), None, None, params, &salt)
+        .map(|h| h.to_string())
+        .map_err(|e| RuntimeError::new(format!("{func} failed: {e}"), 0, 0))
+}
+
+/// PBKDF2-HMAC-SHA256 password hash. Returns a PHC string.
+/// Usage: pbkdf2_hash of "my password"
+pub fn native_pbkdf2_hash(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("pbkdf2_hash", &args, 1)?;
+    let password = expect_text(&args[0])?;
+    Ok(Value::Text(Arc::from(pbkdf2_hash_str(
+        "pbkdf2_hash",
+        &password,
+    )?)))
+}
+
+/// Verify a password against a stored PBKDF2 PHC string. Returns a boolean.
+/// Usage: pbkdf2_verify of "my password" and stored_hash
+pub fn native_pbkdf2_verify(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("pbkdf2_verify", &args, 2)?;
+    let password = expect_text(&args[0])?;
+    let stored = expect_text(&args[1])?;
+    let ok = match PasswordHash::new(&stored) {
+        Ok(parsed) => Pbkdf2.verify_password(password.as_bytes(), &parsed).is_ok(),
+        Err(_) => false,
+    };
+    Ok(Value::Bool(ok))
+}
+
+fn bcrypt_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
+    check_password_len(func, password)?;
+    // bcrypt manages its own salt internally and returns an MCF `$2b$` string.
+    bcrypt::hash(password.as_bytes(), bcrypt::DEFAULT_COST)
+        .map_err(|e| RuntimeError::new(format!("{func} failed: {e}"), 0, 0))
+}
+
+/// bcrypt password hash. Returns a bcrypt MCF string (`$2b$...`).
+/// Usage: bcrypt_hash of "my password"
+///
+/// Note: bcrypt only considers the first 72 bytes of the password.
+pub fn native_bcrypt_hash(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("bcrypt_hash", &args, 1)?;
+    let password = expect_text(&args[0])?;
+    Ok(Value::Text(Arc::from(bcrypt_hash_str(
+        "bcrypt_hash",
+        &password,
+    )?)))
+}
+
+/// Verify a password against a stored bcrypt hash. Returns a boolean.
+/// Usage: bcrypt_verify of "my password" and stored_hash
+pub fn native_bcrypt_verify(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("bcrypt_verify", &args, 2)?;
+    let password = expect_text(&args[0])?;
+    let stored = expect_text(&args[1])?;
+    // A malformed stored hash simply fails verification rather than erroring.
+    let ok = bcrypt::verify(password.as_bytes(), stored.as_ref()).unwrap_or(false);
+    Ok(Value::Bool(ok))
+}
+
+/// Verify a password against any supported stored hash, auto-detecting the
+/// algorithm from the stored string. Returns a boolean.
+fn verify_any_password(password: &str, stored: &str) -> bool {
+    // bcrypt MCF strings are not PHC format; detect them by their version prefix.
+    if stored.starts_with("$2a$") || stored.starts_with("$2b$") || stored.starts_with("$2y$") {
+        return bcrypt::verify(password.as_bytes(), stored).unwrap_or(false);
+    }
+
+    // Otherwise treat it as a PHC string; each hasher matches on its own algorithm
+    // identifier, so passing all three lets the correct one handle it.
+    match PasswordHash::new(stored) {
+        Ok(parsed) => parsed
+            .verify_password(&[&Argon2::default(), &Scrypt, &Pbkdf2], password.as_bytes())
+            .is_ok(),
+        Err(_) => false,
+    }
+}
+
+/// Hash a password using the recommended default algorithm (Argon2id).
+/// Prefer this unless you have a specific reason to pick an algorithm.
+/// Usage: hash_password of "my password"
+pub fn native_hash_password(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("hash_password", &args, 1)?;
+    let password = expect_text(&args[0])?;
+    Ok(Value::Text(Arc::from(argon2_hash_str(
+        "hash_password",
+        &password,
+    )?)))
+}
+
+/// Verify a password against a stored hash produced by any of the password
+/// hashing functions (Argon2, bcrypt, scrypt, PBKDF2). Returns a boolean.
+/// Usage: verify_password of "my password" and stored_hash
+pub fn native_verify_password(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("verify_password", &args, 2)?;
+    let password = expect_text(&args[0])?;
+    let stored = expect_text(&args[1])?;
+    Ok(Value::Bool(verify_any_password(&password, &stored)))
+}
+
 /// Register all crypto functions in the environment
 pub fn register_crypto(env: &mut Environment) {
     env.define_native("wflhash256", native_wflhash256);
@@ -570,6 +800,17 @@ pub fn register_crypto(env: &mut Environment) {
     env.define_native("sha256", native_sha256);
     env.define_native("hmac_sha256", native_hmac_sha256);
     env.define_native("generate_csrf_token", native_generate_csrf_token);
+    // Password hashing
+    env.define_native("hash_password", native_hash_password);
+    env.define_native("verify_password", native_verify_password);
+    env.define_native("argon2_hash", native_argon2_hash);
+    env.define_native("argon2_verify", native_argon2_verify);
+    env.define_native("bcrypt_hash", native_bcrypt_hash);
+    env.define_native("bcrypt_verify", native_bcrypt_verify);
+    env.define_native("scrypt_hash", native_scrypt_hash);
+    env.define_native("scrypt_verify", native_scrypt_verify);
+    env.define_native("pbkdf2_hash", native_pbkdf2_hash);
+    env.define_native("pbkdf2_verify", native_pbkdf2_verify);
 }
 
 #[cfg(test)]

@@ -111,18 +111,40 @@ Complete alphabetical list of all 181+ WFL built-in functions.
 
 **[Random Module Details →](../05-standard-library/random-module.md)**
 
-## Crypto Module (4 functions)
+## Crypto Module
+
+### Password hashing (10 functions)
+
+Store user passwords with these — never with fast hashes like `sha256` or `wflhash256`.
 
 | Function | Signature | Returns | Description |
 |----------|-----------|---------|-------------|
+| `hash_password` | `hash_password of <password>` | Text | Hash a password (Argon2id default) |
+| `verify_password` | `verify_password of <password> and <hash>` | Boolean | Verify against any supported hash |
+| `argon2_hash` | `argon2_hash of <password>` | Text | Argon2id hash |
+| `argon2_verify` | `argon2_verify of <password> and <hash>` | Boolean | Verify Argon2 hash |
+| `bcrypt_hash` | `bcrypt_hash of <password>` | Text | bcrypt hash |
+| `bcrypt_verify` | `bcrypt_verify of <password> and <hash>` | Boolean | Verify bcrypt hash |
+| `scrypt_hash` | `scrypt_hash of <password>` | Text | scrypt hash |
+| `scrypt_verify` | `scrypt_verify of <password> and <hash>` | Boolean | Verify scrypt hash |
+| `pbkdf2_hash` | `pbkdf2_hash of <password>` | Text | PBKDF2-HMAC-SHA256 hash |
+| `pbkdf2_verify` | `pbkdf2_verify of <password> and <hash>` | Boolean | Verify PBKDF2 hash |
+
+### Hashing & MAC (7 functions)
+
+| Function | Signature | Returns | Description |
+|----------|-----------|---------|-------------|
+| `sha256` | `sha256 of <text>` | Text | Standard SHA-256 (FIPS 180-4) |
+| `hmac_sha256` | `hmac_sha256 of <message> and <key>` | Text | Standard HMAC-SHA256 (RFC 2104) |
 | `wflhash256` | `wflhash256 of <text>` | Text | 256-bit hash |
 | `wflhash256_with_salt` | `wflhash256_with_salt of <text> and <salt>` | Text | Salted 256-bit hash |
 | `wflhash512` | `wflhash512 of <text>` | Text | 512-bit hash |
 | `wflmac256` | `wflmac256 of <message> and <key>` | Text | Message auth code |
+| `generate_csrf_token` | `generate_csrf_token` | Text | Random 256-bit token |
 
 **[Crypto Module Details →](../05-standard-library/crypto-module.md)**
 
-**Security:** WFLHASH not externally audited. Use SHA-256/SHA-3 for production.
+**Security:** For passwords use `hash_password`/`verify_password`. WFLHASH is not externally audited; use SHA-256/SHA-3 for production integrity hashing.
 
 ## Pattern Module (3 functions)
 

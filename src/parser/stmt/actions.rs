@@ -264,10 +264,8 @@ impl<'a> ActionParser<'a> for Parser<'a> {
                 continue;
             }
 
-            match self.parse_statement() {
-                Ok(stmt) => body.push(stmt),
-                Err(e) => return Err(e),
-            }
+            let stmt = self.parse_statement()?;
+            body.push(stmt);
         }
 
         let start_pos = self.cursor.pos();
