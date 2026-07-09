@@ -74,7 +74,11 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     needs: fmt
-    timeout-minutes: 15
+    # The password-hashing tests exercise deliberately slow, memory/CPU-hard
+    # KDFs (Argon2/scrypt/PBKDF2). Built unoptimized by `cargo test`, they take
+    # meaningful time on the slower Windows runner, which combined with the cold
+    # release build was exceeding the previous 15-minute limit.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
