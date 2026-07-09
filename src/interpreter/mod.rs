@@ -1643,7 +1643,7 @@ impl Drop for IoClient {
 
             // Optionally kill all running processes on shutdown
             if self.config.subprocess_config.kill_on_shutdown {
-                for (_id, handle) in handles.iter_mut() {
+                for handle in handles.values_mut() {
                     let _ = handle.child.start_kill();
                 }
             }
@@ -5762,7 +5762,7 @@ impl Interpreter {
 
                             // Search through all servers to find which one has this exact value
                             let mut found_server = None;
-                            for (server_name, _) in web_servers.iter() {
+                            for server_name in web_servers.keys() {
                                 // Get the stored value for this server name
                                 if let Some(Value::Text(stored_text)) =
                                     env.borrow().get(server_name)
@@ -6254,7 +6254,7 @@ impl Interpreter {
 
                             // Search through all servers to find which one has this exact value
                             let mut found_server = None;
-                            for (server_name, _) in web_servers.iter() {
+                            for server_name in web_servers.keys() {
                                 // Check if this server name's variable has the matching value
                                 if let Some(Value::Text(stored_text)) =
                                     env.borrow().get(server_name)

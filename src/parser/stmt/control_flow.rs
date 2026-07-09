@@ -67,10 +67,10 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                     self.bump_sync(); // Skip Eol between statements
                     continue;
                 }
-                _ => match self.parse_statement() {
-                    Ok(stmt) => then_block.push(stmt),
-                    Err(e) => return Err(e),
-                },
+                _ => {
+                    let stmt = self.parse_statement()?;
+                    then_block.push(stmt)
+                }
             }
         }
 
@@ -110,10 +110,8 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                             continue;
                         }
 
-                        match self.parse_statement() {
-                            Ok(stmt) => else_stmts.push(stmt),
-                            Err(e) => return Err(e),
-                        }
+                        let stmt = self.parse_statement()?;
+                        else_stmts.push(stmt);
                     }
 
                     Some(else_stmts)
@@ -200,10 +198,10 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                     self.bump_sync(); // Skip Eol between statements
                     continue;
                 }
-                _ => match self.parse_statement() {
-                    Ok(stmt) => then_block.push(stmt),
-                    Err(e) => return Err(e),
-                },
+                _ => {
+                    let stmt = self.parse_statement()?;
+                    then_block.push(stmt)
+                }
             }
         }
 
@@ -241,10 +239,8 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                             continue;
                         }
 
-                        match self.parse_statement() {
-                            Ok(stmt) => else_stmts.push(stmt),
-                            Err(e) => return Err(e),
-                        }
+                        let stmt = self.parse_statement()?;
+                        else_stmts.push(stmt);
                     }
 
                     Some(else_stmts)
@@ -443,10 +439,8 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                 continue;
             }
 
-            match self.parse_statement() {
-                Ok(stmt) => body.push(stmt),
-                Err(e) => return Err(e),
-            }
+            let stmt = self.parse_statement()?;
+            body.push(stmt);
         }
 
         self.expect_token(Token::KeywordEnd, "Expected 'end' after for-each loop body")?;
@@ -580,10 +574,8 @@ impl<'a> ControlFlowParser<'a> for Parser<'a> {
                 continue;
             }
 
-            match self.parse_statement() {
-                Ok(stmt) => body.push(stmt),
-                Err(e) => return Err(e),
-            }
+            let stmt = self.parse_statement()?;
+            body.push(stmt);
         }
 
         self.expect_token(Token::KeywordEnd, "Expected 'end' after count loop body")?;
