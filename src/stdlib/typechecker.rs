@@ -51,6 +51,7 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_wflmac256(analyzer);
     register_sha256(analyzer);
     register_hmac_sha256(analyzer);
+    register_auth_primitives(analyzer);
     register_password_hashing(analyzer);
     register_count_lines(analyzer);
     register_path_extension(analyzer);
@@ -287,6 +288,23 @@ fn register_hmac_sha256(analyzer: &mut Analyzer) {
     let param_types = vec![Type::Text, Type::Text];
 
     analyzer.register_builtin_function("hmac_sha256", param_types, return_type);
+}
+
+fn register_auth_primitives(analyzer: &mut Analyzer) {
+    // pbkdf2_hmac_sha256 of password and salt and iterations and length -> Text
+    analyzer.register_builtin_function(
+        "pbkdf2_hmac_sha256",
+        vec![Type::Text, Type::Text, Type::Number, Type::Number],
+        Type::Text,
+    );
+    // constant_time_equals of a and b -> Boolean
+    analyzer.register_builtin_function(
+        "constant_time_equals",
+        vec![Type::Text, Type::Text],
+        Type::Boolean,
+    );
+    // secure_random_bytes of n -> Text (hex)
+    analyzer.register_builtin_function("secure_random_bytes", vec![Type::Number], Type::Text);
 }
 
 fn register_password_hashing(analyzer: &mut Analyzer) {

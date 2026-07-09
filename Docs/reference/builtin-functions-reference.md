@@ -130,6 +130,14 @@ Store user passwords with these — never with fast hashes like `sha256` or `wfl
 | `pbkdf2_hash` | `pbkdf2_hash of <password>` | Text | PBKDF2-HMAC-SHA256 hash |
 | `pbkdf2_verify` | `pbkdf2_verify of <password> and <hash>` | Boolean | Verify PBKDF2 hash |
 
+### Auth & session primitives (3 functions)
+
+| Function | Signature | Returns | Description |
+|----------|-----------|---------|-------------|
+| `pbkdf2_hmac_sha256` | `pbkdf2_hmac_sha256 of <password> and <salt> and <iterations> and <length>` | Text | Raw PBKDF2-HMAC-SHA256 key derivation (hex) |
+| `constant_time_equals` | `constant_time_equals of <a> and <b>` | Boolean | Timing-safe string comparison |
+| `secure_random_bytes` | `secure_random_bytes of <n>` | Text | `n` CSPRNG bytes as hex (for salts, tokens, session IDs) |
+
 ### Hashing & MAC (7 functions)
 
 | Function | Signature | Returns | Description |

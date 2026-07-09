@@ -1,0 +1,133 @@
+// Launch-blocking auth/session crypto primitives (section 13.1)
+// Verifies pbkdf2_hmac_sha256, constant_time_equals, and secure_random_bytes.
+// These give auth/session code a correct, native primitive instead of
+// hand-rolling a KDF, a timing-safe compare, or token generation in WFL.
+
+display "=== Auth Primitives Test ==="
+display ""
+
+store pass_count as 0
+store fail_count as 0
+
+// === PBKDF2-HMAC-SHA256 (standard vectors alongside RFC 6070) ===
+display "1. pbkdf2_hmac_sha256 Tests"
+
+store dk1 as pbkdf2_hmac_sha256 of "password" and "salt" and 1 and 32
+check if dk1 is "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b":
+    display "PASS: pbkdf2 c=1 dkLen=32"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: pbkdf2 c=1 gave " with dk1
+    change fail_count to fail_count plus 1
+end check
+
+store dk2 as pbkdf2_hmac_sha256 of "password" and "salt" and 4096 and 32
+check if dk2 is "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a":
+    display "PASS: pbkdf2 c=4096 dkLen=32"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: pbkdf2 c=4096 gave " with dk2
+    change fail_count to fail_count plus 1
+end check
+
+// A different salt must produce a different derived key.
+store dk3 as pbkdf2_hmac_sha256 of "password" and "pepper" and 4096 and 32
+check if dk2 is dk3:
+    display "FAIL: different salt should change the key"
+    change fail_count to fail_count plus 1
+otherwise:
+    display "PASS: different salt changes the key"
+    change pass_count to pass_count plus 1
+end check
+display ""
+
+// === constant_time_equals ===
+display "2. constant_time_equals Tests"
+
+store eq as constant_time_equals of "s3cr3t-token" and "s3cr3t-token"
+check if eq is yes:
+    display "PASS: equal strings compare equal"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: equal strings should compare equal"
+    change fail_count to fail_count plus 1
+end check
+
+store neq as constant_time_equals of "s3cr3t-token" and "s3cr3t-toKen"
+check if neq is no:
+    display "PASS: different strings compare unequal"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: different strings should compare unequal"
+    change fail_count to fail_count plus 1
+end check
+
+// Timing-safe MAC verification: the correct way to check a signature.
+store expected as hmac_sha256 of "payload" and "secret"
+store received as hmac_sha256 of "payload" and "secret"
+store mac_ok as constant_time_equals of expected and received
+check if mac_ok is yes:
+    display "PASS: HMAC verified with constant_time_equals"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: HMAC should verify"
+    change fail_count to fail_count plus 1
+end check
+display ""
+
+// === secure_random_bytes ===
+display "3. secure_random_bytes Tests"
+
+store token1 as secure_random_bytes of 16
+check if length of token1 is 32:
+    display "PASS: 16 bytes -> 32 hex chars"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: expected 32 hex chars, got " with length of token1
+    change fail_count to fail_count plus 1
+end check
+
+store token2 as secure_random_bytes of 16
+check if constant_time_equals of token1 and token2 is no:
+    display "PASS: two tokens differ"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: two random tokens should differ"
+    change fail_count to fail_count plus 1
+end check
+display ""
+
+// === End-to-end: password storage with a caller-supplied salt ===
+display "4. Password storage round-trip (raw KDF)"
+
+store user_salt as secure_random_bytes of 16
+store stored_key as pbkdf2_hmac_sha256 of "correct horse battery staple" and user_salt and 600000 and 32
+
+// Login: re-derive with the same salt and compare in constant time.
+store login_key as pbkdf2_hmac_sha256 of "correct horse battery staple" and user_salt and 600000 and 32
+store login_ok as constant_time_equals of stored_key and login_key
+check if login_ok is yes:
+    display "PASS: correct password verifies"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: correct password should verify"
+    change fail_count to fail_count plus 1
+end check
+
+store wrong_key as pbkdf2_hmac_sha256 of "wrong password" and user_salt and 600000 and 32
+store wrong_ok as constant_time_equals of stored_key and wrong_key
+check if wrong_ok is no:
+    display "PASS: wrong password rejected"
+    change pass_count to pass_count plus 1
+otherwise:
+    display "FAIL: wrong password should be rejected"
+    change fail_count to fail_count plus 1
+end check
+display ""
+
+display "=== Results: " with pass_count with " passed, " with fail_count with " failed ==="
+check if fail_count is 0:
+    display "All auth primitive tests passed!"
+otherwise:
+    display "SOME TESTS FAILED"
+end check
