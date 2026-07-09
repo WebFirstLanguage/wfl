@@ -2049,11 +2049,17 @@ impl TypeChecker {
                     );
                 }
             }
-            Statement::WebSocketHandlerStatement { server, body, .. } => {
+            Statement::WebSocketHandlerStatement {
+                server,
+                body,
+                line,
+                column,
+                ..
+            } => {
                 // The server operand and handler body are checked; the handler's
                 // bound variable resolves as an object at runtime (gradual typing
-                // keeps member access like `content of msg` permissive).
-                self.infer_expression_type(server);
+                // keeps member access like `body of msg` permissive).
+                self.check_server_expression_type(server, *line, *column);
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
@@ -2065,10 +2071,13 @@ impl TypeChecker {
                 self.infer_expression_type(target);
             }
             Statement::BroadcastWebSocketMessageStatement {
-                message, server, ..
+                message,
+                server,
+                line,
+                column,
             } => {
                 self.infer_expression_type(message);
-                self.infer_expression_type(server);
+                self.check_server_expression_type(server, *line, *column);
             }
             // Test framework statements
             Statement::DescribeBlock {

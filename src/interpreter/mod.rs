@@ -7367,7 +7367,10 @@ impl Interpreter {
 
         let event_obj = build_ws_event_object(&event);
         let child_env = Environment::new_child_env(&handler_env);
-        if let Err(msg) = child_env.borrow_mut().define(&binding, event_obj) {
+        // `define_direct` shadows in the fresh handler scope without consulting
+        // parents, so a same-named outer variable (`store conn as ...` before an
+        // `on websocket connect ... as conn`) does not abort the handler.
+        if let Err(msg) = child_env.borrow_mut().define_direct(&binding, event_obj) {
             return Err(RuntimeError::new(msg, 0, 0));
         }
 

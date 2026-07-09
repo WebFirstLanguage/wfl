@@ -1726,7 +1726,11 @@ impl Analyzer {
                     column: *column,
                 };
                 self.current_scope.define_or_replace(binding_symbol);
-                self.action_parameters.insert(binding.clone());
+                // `action_parameters` is a flat set shared by the whole run, so
+                // only remove names this handler actually added — otherwise a
+                // same-named enclosing action parameter would be dropped for the
+                // rest of that action.
+                let binding_was_present = !self.action_parameters.insert(binding.clone());
 
                 // The event object's property names are accessed as `id of conn`
                 // / `body of msg`, which parse as `of`-form calls. Registering
@@ -1734,18 +1738,23 @@ impl Analyzer {
                 // callee resolve without a "not a function" error, the same
                 // relaxation used for action parameters and the `count` variable.
                 let ws_properties = ["id", "ip", "body", "sender"];
+                let mut newly_added: Vec<&str> = Vec::new();
                 for prop in ws_properties {
-                    self.action_parameters.insert(prop.to_string());
+                    if self.action_parameters.insert(prop.to_string()) {
+                        newly_added.push(prop);
+                    }
                 }
 
                 for stmt in body {
                     self.analyze_statement(stmt);
                 }
 
-                for prop in ws_properties {
+                for prop in newly_added {
                     self.action_parameters.remove(prop);
                 }
-                self.action_parameters.remove(binding);
+                if !binding_was_present {
+                    self.action_parameters.remove(binding);
+                }
 
                 let handler_scope = std::mem::take(&mut self.current_scope);
                 if let Some(parent) = handler_scope.parent {
@@ -2449,7 +2458,12 @@ impl Analyzer {
                                 let is_injected_builtin = Self::is_builtin_function(name)
                                     && symbol.line == 0
                                     && symbol.column == 0;
-                                if is_injected_builtin {
+                                // An action parameter or handler-property name
+                                // (e.g. `body of msg` inside a websocket handler)
+                                // is a relaxed `of`-form access even when an outer
+                                // scope also defines a non-function symbol of the
+                                // same name; the property read must win over it.
+                                if is_injected_builtin || self.action_parameters.contains(name) {
                                     for arg in arguments {
                                         self.analyze_expression(&arg.value);
                                     }
