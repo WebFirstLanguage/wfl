@@ -22,8 +22,8 @@ Standard Library (181+ functions)
 │   └── Date and time handling
 ├── Random Module (6 functions)
 │   └── Random number generation
-├── Crypto Module (4 functions)
-│   └── Cryptographic hashing
+├── Crypto Module (20 functions)
+│   └── Password hashing, auth/session primitives, hashing & MAC
 ├── Pattern Module (3 functions)
 │   └── Pattern matching utilities
 └── Typechecker Module

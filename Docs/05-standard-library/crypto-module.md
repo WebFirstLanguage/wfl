@@ -1,8 +1,9 @@
 # Crypto Module
 
-The Crypto module provides cryptographic functions in three groups:
+The Crypto module provides cryptographic functions in four groups:
 
 - **Password hashing** — `hash_password`/`verify_password` and the algorithm-specific Argon2id, bcrypt, scrypt and PBKDF2 functions. Use these to store user passwords safely.
+- **Auth & session primitives** — `pbkdf2_hmac_sha256` (raw key derivation), `constant_time_equals` (timing-safe comparison), and `secure_random_bytes` (CSPRNG bytes for salts, tokens, and session IDs).
 - **Standard hashing/MAC** — `sha256` and `hmac_sha256` for interoperating with external services (webhook verification, API signing).
 - **WFLHASH** — a custom hash algorithm for data integrity, checksums, and non-critical security applications.
 
@@ -314,7 +315,8 @@ store expected_signature as hmac_sha256 of signed_payload and webhook_secret
 // In a real webhook handler this comes from the Stripe-Signature header
 store received_signature as hmac_sha256 of signed_payload and webhook_secret
 
-check if expected_signature is received_signature:
+// Compare signatures with constant_time_equals, never `is` — see the note below.
+check if constant_time_equals of expected_signature and received_signature is yes:
     display "Webhook is authentic"
 otherwise:
     display "Webhook signature mismatch - reject it!"
@@ -327,6 +329,117 @@ end check
 - Any integration that specifies HMAC-SHA256
 
 **Note:** For WFL-internal message authentication where interoperability is not required, `wflmac256` also works; `hmac_sha256` is the standard everyone else speaks.
+
+> **Always compare signatures and tokens with [`constant_time_equals`](#constant_time_equals), not `is`.** A normal `is` comparison stops at the first differing byte, and the time it takes leaks how much of a secret an attacker guessed correctly. `constant_time_equals` takes the same time regardless, closing that side channel.
+
+---
+
+### pbkdf2_hmac_sha256
+
+**Purpose:** Derive a key from a password using PBKDF2-HMAC-SHA256 with a caller-supplied salt, iteration count, and output length. Runs the iteration loop in native code, so the per-call cost is bounded and predictable.
+
+**Signature:**
+```wfl
+pbkdf2_hmac_sha256 of <password> and <salt> and <iterations> and <length>
+```
+
+**Parameters:**
+- `password` (Text): The password or passphrase.
+- `salt` (Text): A unique salt. Use [`secure_random_bytes`](#secure_random_bytes) to generate one and store it alongside the derived key.
+- `iterations` (Number): Iteration count. Follow current guidance (OWASP recommends **600,000** for PBKDF2-HMAC-SHA256). Must be at least 1.
+- `length` (Number): Derived-key length in bytes (1–1024). The result is `2 × length` hex characters.
+
+**Returns:** Text — the derived key as a lowercase hexadecimal string.
+
+**When to use which PBKDF2 function:**
+- **Storing a user's password?** Prefer [`hash_password`](#password-hashing) (or `pbkdf2_hash`). Those generate a random salt, pin a safe iteration count, and return a self-describing string you store as-is.
+- **Deriving a key, or matching a PBKDF2 hash created by another system?** Use `pbkdf2_hmac_sha256`, which gives you full control over salt, iterations, and length.
+
+**Example:**
+```wfl
+// Generate and store a salt once, then derive the key.
+store salt as secure_random_bytes of 16
+store derived_key as pbkdf2_hmac_sha256 of "correct horse battery staple" and salt and 600000 and 32
+display "Store the salt and this key: " with derived_key
+
+// To verify a login, re-derive with the SAME salt and compare in constant time.
+store attempt_key as pbkdf2_hmac_sha256 of "correct horse battery staple" and salt and 600000 and 32
+store login_ok as constant_time_equals of derived_key and attempt_key
+// login_ok is yes
+```
+
+**Notes:**
+- Deterministic — the same password, salt, iterations, and length always produce the same key.
+- Store the salt with the derived key; you need it to re-derive on the next login.
+- More iterations means more work for both you and an attacker. Do not lower the count to speed up logins.
+
+---
+
+### constant_time_equals
+
+**Purpose:** Compare two strings in constant time. Use this whenever you compare a secret against attacker-supplied input — MACs, CSRF tokens, session IDs, password-reset codes.
+
+**Signature:**
+```wfl
+constant_time_equals of <a> and <b>
+```
+
+**Parameters:**
+- `a` (Text): First value.
+- `b` (Text): Second value.
+
+**Returns:** Boolean — `yes` if the two strings are byte-for-byte equal, otherwise `no`.
+
+**Why not just use `is`?** A normal comparison returns as soon as it finds a difference, so it finishes faster the earlier the mismatch is. An attacker who can measure that timing can recover a secret one byte at a time. `constant_time_equals` always examines the full input, so the time it takes reveals nothing about *where* the values differ. (String length is not secret, so inputs of different lengths return `no` immediately.)
+
+**Example:**
+```wfl
+store expected as hmac_sha256 of signed_payload and webhook_secret
+store received as hmac_sha256 of signed_payload and webhook_secret
+
+check if constant_time_equals of expected and received is yes:
+    display "Signature valid"
+otherwise:
+    display "Signature invalid - reject"
+end check
+```
+
+**Use Cases:**
+- Verifying HMAC / webhook signatures
+- Checking CSRF tokens and session identifiers
+- Comparing password-reset or email-verification codes
+
+---
+
+### secure_random_bytes
+
+**Purpose:** Generate cryptographically secure random bytes from the operating system's CSPRNG, returned as a hex string. Use this for salts, session identifiers, CSRF tokens, and password-reset tokens.
+
+**Signature:**
+```wfl
+secure_random_bytes of <n>
+```
+
+**Parameters:**
+- `n` (Number): Number of random bytes to generate (1–4096). The result is `2 × n` hexadecimal characters.
+
+**Returns:** Text — `n` random bytes encoded as a lowercase hexadecimal string.
+
+**Example:**
+```wfl
+store salt as secure_random_bytes of 16      // 32 hex chars, for a password salt
+store session_id as secure_random_bytes of 32 // 64 hex chars, for a session cookie
+display "New session id: " with session_id
+```
+
+**Why not build tokens from `random_int`?** Composing a token out of numeric random values risks *modulo bias* (some values become more likely than others) and *under-entropy* (fewer truly random bits than the length suggests). `secure_random_bytes` draws uniform bytes straight from the OS CSPRNG, avoiding both.
+
+> **Never call `random_seed` in authentication, session, or cryptographic code.** Seeding the general-purpose random generator makes its output predictable, which would compromise anything built on it. WFL's static analyzer (`wfl --analyze`) reports this as an error, so CI can block it. `secure_random_bytes` is unaffected by `random_seed`, but seeding signals a dangerous pattern in security code.
+
+**Use Cases:**
+- Password salts (pair with [`pbkdf2_hmac_sha256`](#pbkdf2_hmac_sha256))
+- Session identifiers and cookies
+- CSRF tokens, password-reset tokens, API keys
 
 ---
 

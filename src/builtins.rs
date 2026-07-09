@@ -38,6 +38,10 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "sha256",
     "hmac_sha256",
     "generate_csrf_token",
+    // Low-level auth/session primitives (implemented in stdlib/crypto.rs)
+    "pbkdf2_hmac_sha256",
+    "constant_time_equals",
+    "secure_random_bytes",
     // Password hashing (implemented in stdlib/crypto.rs)
     "hash_password",
     "verify_password",
@@ -282,9 +286,11 @@ pub fn get_function_arity(name: &str) -> usize {
         // Zero argument functions
         "generate_csrf_token" => 0,
         // Single argument functions
-        "wflhash256" | "wflhash512" | "sha256" => 1,
+        "wflhash256" | "wflhash512" | "sha256" | "secure_random_bytes" => 1,
         // Two argument functions
-        "wflhash256_with_salt" | "wflmac256" | "hmac_sha256" => 2,
+        "wflhash256_with_salt" | "wflmac256" | "hmac_sha256" | "constant_time_equals" => 2,
+        // Four argument functions: (password, salt, iterations, length)
+        "pbkdf2_hmac_sha256" => 4,
 
         // === PASSWORD HASHING FUNCTIONS ===
         // Single argument functions (the password)

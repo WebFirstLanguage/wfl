@@ -1,4 +1,4 @@
-use super::helpers::{check_arg_count, expect_text};
+use super::helpers::{check_arg_count, expect_number, expect_text};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
@@ -8,7 +8,7 @@ use argon2::Argon2;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use pbkdf2::Pbkdf2;
+use pbkdf2::{Pbkdf2, pbkdf2_hmac};
 use scrypt::Scrypt;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -568,6 +568,169 @@ pub fn native_generate_csrf_token(args: Vec<Value>) -> Result<Value, RuntimeErro
 }
 
 // ============================================================================
+// Low-level auth/session primitives
+//
+// These are the native building blocks that auth and session code should reach
+// for instead of hand-rolling them in interpreted WFL:
+//   - `pbkdf2_hmac_sha256` runs the 600k-iteration KDF loop in Rust so a login
+//     handler can't turn a password check into a whole-site DoS.
+//   - `constant_time_equals` gives a timing-safe comparison so verifying a MAC,
+//     token, or reset code doesn't leak a byte-by-byte oracle through timing.
+//   - `secure_random_bytes` exposes the OS CSPRNG for salts, session IDs, CSRF
+//     tokens, and reset tokens without composing them from biased numeric RNG.
+// ============================================================================
+
+/// Upper bound on PBKDF2 iterations. High enough for any realistic KDF setting
+/// (OWASP recommends 600k), but bounded so a runaway value can't hang the process.
+const MAX_PBKDF2_ITERATIONS: u32 = 100_000_000;
+
+/// Upper bound on the derived-key length in bytes. Any symmetric key or token
+/// fits comfortably; this bounds the output allocation.
+const MAX_PBKDF2_KEY_LENGTH: usize = 1024;
+
+/// Upper bound on `secure_random_bytes` output. Salts, session IDs and tokens are
+/// tens of bytes; this cap prevents an accidental huge allocation.
+const MAX_SECURE_RANDOM_BYTES: usize = 4096;
+
+/// Convert a WFL number argument into a non-negative integer count, rejecting
+/// non-finite, negative, or fractional values with a clear message.
+fn expect_count(func: &str, name: &str, value: &Value) -> Result<u64, RuntimeError> {
+    let n = expect_number(value)?;
+    if !n.is_finite() || n < 0.0 || n.fract() != 0.0 {
+        return Err(RuntimeError::new(
+            format!("{func}: {name} must be a non-negative whole number, got {n}"),
+            0,
+            0,
+        ));
+    }
+    Ok(n as u64)
+}
+
+/// PBKDF2-HMAC-SHA256 key derivation with caller-supplied salt, iteration count,
+/// and output length. Returns the derived key as a lowercase hex string.
+///
+/// Unlike `pbkdf2_hash` (which generates its own salt, pins OWASP's iteration
+/// count, and returns a self-describing PHC string), this is the raw KDF: use it
+/// to derive keys or to interoperate with a stored PBKDF2 hash produced elsewhere.
+/// The iteration loop runs in native Rust, bounding per-call cost.
+///
+/// Usage: pbkdf2_hmac_sha256 of password and salt and iterations and length
+pub fn native_pbkdf2_hmac_sha256(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("pbkdf2_hmac_sha256", &args, 4)?;
+
+    let password = expect_text(&args[0])?;
+    let salt = expect_text(&args[1])?;
+    let iterations = expect_count("pbkdf2_hmac_sha256", "iterations", &args[2])?;
+    let length = expect_count("pbkdf2_hmac_sha256", "length", &args[3])? as usize;
+
+    if password.len() > MAX_INPUT_SIZE || salt.len() > MAX_INPUT_SIZE {
+        return Err(RuntimeError::new(
+            format!(
+                "pbkdf2_hmac_sha256: input exceeds maximum allowed size ({MAX_INPUT_SIZE} bytes)"
+            ),
+            0,
+            0,
+        ));
+    }
+    if iterations < 1 {
+        return Err(RuntimeError::new(
+            "pbkdf2_hmac_sha256: iterations must be at least 1".to_string(),
+            0,
+            0,
+        ));
+    }
+    if iterations > MAX_PBKDF2_ITERATIONS as u64 {
+        return Err(RuntimeError::new(
+            format!("pbkdf2_hmac_sha256: iterations exceeds maximum ({MAX_PBKDF2_ITERATIONS})"),
+            0,
+            0,
+        ));
+    }
+    if length < 1 {
+        return Err(RuntimeError::new(
+            "pbkdf2_hmac_sha256: length must be at least 1 byte".to_string(),
+            0,
+            0,
+        ));
+    }
+    if length > MAX_PBKDF2_KEY_LENGTH {
+        return Err(RuntimeError::new(
+            format!("pbkdf2_hmac_sha256: length exceeds maximum ({MAX_PBKDF2_KEY_LENGTH} bytes)"),
+            0,
+            0,
+        ));
+    }
+
+    let mut derived = vec![0u8; length];
+    pbkdf2_hmac::<Sha256>(
+        password.as_bytes(),
+        salt.as_bytes(),
+        iterations as u32,
+        &mut derived,
+    );
+    let hex = bytes_to_hex(&derived);
+    derived.zeroize();
+    Ok(Value::Text(Arc::from(hex)))
+}
+
+/// Compare two strings in constant time, returning a boolean.
+///
+/// The comparison takes the same amount of time whether the strings match or
+/// differ at the first byte or the last, so it does not leak how much of a secret
+/// a caller guessed correctly. Use it whenever comparing a secret to attacker-
+/// supplied input: MACs, CSRF tokens, session IDs, password-reset codes. Length
+/// is not secret, so unequal-length inputs short-circuit to `no`.
+///
+/// Usage: constant_time_equals of a and b
+pub fn native_constant_time_equals(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("constant_time_equals", &args, 2)?;
+
+    let a = expect_text(&args[0])?;
+    let b = expect_text(&args[1])?;
+
+    // `ct_eq` on byte slices compares in constant time for equal-length inputs and
+    // returns `0` immediately when the lengths differ (length is not a secret).
+    let equal: bool = a.as_bytes().ct_eq(b.as_bytes()).into();
+    Ok(Value::Bool(equal))
+}
+
+/// Generate `n` cryptographically secure random bytes from the OS CSPRNG,
+/// returned as a lowercase hex string (so the result is `2 * n` characters).
+///
+/// Use this for salts, session identifiers, CSRF tokens, and password-reset
+/// tokens. Building such values out of `random_int` risks modulo bias and
+/// under-entropy; this draws uniform bytes directly from the operating system.
+///
+/// Usage: secure_random_bytes of n
+pub fn native_secure_random_bytes(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("secure_random_bytes", &args, 1)?;
+
+    use rand::RngCore;
+
+    let n = expect_count("secure_random_bytes", "n", &args[0])? as usize;
+    if n < 1 {
+        return Err(RuntimeError::new(
+            "secure_random_bytes: n must be at least 1".to_string(),
+            0,
+            0,
+        ));
+    }
+    if n > MAX_SECURE_RANDOM_BYTES {
+        return Err(RuntimeError::new(
+            format!("secure_random_bytes: n exceeds maximum ({MAX_SECURE_RANDOM_BYTES} bytes)"),
+            0,
+            0,
+        ));
+    }
+
+    let mut buf = vec![0u8; n];
+    rand::rng().fill_bytes(&mut buf);
+    let hex = bytes_to_hex(&buf);
+    buf.zeroize();
+    Ok(Value::Text(Arc::from(hex)))
+}
+
+// ============================================================================
 // Password hashing (Argon2id, bcrypt, scrypt, PBKDF2)
 //
 // Unlike the fast hashes above (sha256/wflhash), these are deliberately *slow*,
@@ -800,6 +963,10 @@ pub fn register_crypto(env: &mut Environment) {
     env.define_native("sha256", native_sha256);
     env.define_native("hmac_sha256", native_hmac_sha256);
     env.define_native("generate_csrf_token", native_generate_csrf_token);
+    // Low-level auth/session primitives
+    env.define_native("pbkdf2_hmac_sha256", native_pbkdf2_hmac_sha256);
+    env.define_native("constant_time_equals", native_constant_time_equals);
+    env.define_native("secure_random_bytes", native_secure_random_bytes);
     // Password hashing
     env.define_native("hash_password", native_hash_password);
     env.define_native("verify_password", native_verify_password);

@@ -100,6 +100,290 @@ pub trait StaticAnalyzer {
     fn check_shadowing(&self, program: &Program, file_id: usize) -> Vec<WflDiagnostic>;
 
     fn check_inconsistent_returns(&self, program: &Program, file_id: usize) -> Vec<WflDiagnostic>;
+
+    fn check_insecure_rng_seeding(&self, program: &Program, file_id: usize) -> Vec<WflDiagnostic>;
+}
+
+/// Builtins whose presence marks a file as an auth/session/crypto module. If any
+/// of these is called, seeding the RNG with `random_seed` makes the CSPRNG
+/// predictable and is flagged as an error.
+///
+/// Deliberately limited to builtins whose *purpose* is authentication, secrets,
+/// or message authentication. General-purpose hashes (`sha256`, the WFLHASH
+/// family) are excluded: their documented use is checksums, deduplication, and
+/// data integrity, so a program that hashes a file and separately seeds the RNG
+/// for a reproducible simulation should not be flagged. MACs (`hmac_sha256`,
+/// `wflmac256`) stay in the list because they authenticate, not just hash.
+const SECURITY_SENSITIVE_BUILTINS: &[&str] = &[
+    "hash_password",
+    "verify_password",
+    "argon2_hash",
+    "argon2_verify",
+    "bcrypt_hash",
+    "bcrypt_verify",
+    "scrypt_hash",
+    "scrypt_verify",
+    "pbkdf2_hash",
+    "pbkdf2_verify",
+    "pbkdf2_hmac_sha256",
+    "constant_time_equals",
+    "secure_random_bytes",
+    "generate_csrf_token",
+    "hmac_sha256",
+    "wflmac256",
+];
+
+/// Record of a builtin call site discovered while walking the AST.
+struct CallSite {
+    name: String,
+    line: usize,
+    column: usize,
+}
+
+/// Collect every builtin/function call name (with position) in a list of statements.
+fn collect_calls_in_statements(statements: &[Statement], out: &mut Vec<CallSite>) {
+    for stmt in statements {
+        collect_calls_in_statement(stmt, out);
+    }
+}
+
+fn collect_calls_in_statement(stmt: &Statement, out: &mut Vec<CallSite>) {
+    match stmt {
+        Statement::VariableDeclaration { value, .. }
+        | Statement::Assignment { value, .. }
+        | Statement::DisplayStatement { value, .. } => {
+            collect_calls_in_expression(value, out);
+        }
+        Statement::ExpressionStatement { expression, .. } => {
+            collect_calls_in_expression(expression, out);
+        }
+        Statement::ReturnStatement {
+            value: Some(value), ..
+        } => {
+            collect_calls_in_expression(value, out);
+        }
+        Statement::PushStatement { list, value, .. } => {
+            collect_calls_in_expression(list, out);
+            collect_calls_in_expression(value, out);
+        }
+        Statement::IfStatement {
+            condition,
+            then_block,
+            else_block,
+            ..
+        } => {
+            collect_calls_in_expression(condition, out);
+            collect_calls_in_statements(then_block, out);
+            if let Some(else_block) = else_block {
+                collect_calls_in_statements(else_block, out);
+            }
+        }
+        Statement::SingleLineIf {
+            condition,
+            then_stmt,
+            else_stmt,
+            ..
+        } => {
+            collect_calls_in_expression(condition, out);
+            collect_calls_in_statement(then_stmt, out);
+            if let Some(else_stmt) = else_stmt {
+                collect_calls_in_statement(else_stmt, out);
+            }
+        }
+        Statement::ForEachLoop {
+            collection, body, ..
+        } => {
+            collect_calls_in_expression(collection, out);
+            collect_calls_in_statements(body, out);
+        }
+        Statement::CountLoop {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            collect_calls_in_expression(start, out);
+            collect_calls_in_expression(end, out);
+            if let Some(step) = step {
+                collect_calls_in_expression(step, out);
+            }
+            collect_calls_in_statements(body, out);
+        }
+        Statement::WhileLoop {
+            condition, body, ..
+        }
+        | Statement::RepeatWhileLoop {
+            condition, body, ..
+        }
+        | Statement::RepeatUntilLoop {
+            condition, body, ..
+        } => {
+            collect_calls_in_expression(condition, out);
+            collect_calls_in_statements(body, out);
+        }
+        Statement::ForeverLoop { body, .. } | Statement::MainLoop { body, .. } => {
+            collect_calls_in_statements(body, out);
+        }
+        Statement::ActionDefinition { body, .. } => {
+            collect_calls_in_statements(body, out);
+        }
+        Statement::TryStatement {
+            body,
+            when_clauses,
+            otherwise_block,
+            finally_block,
+            ..
+        } => {
+            collect_calls_in_statements(body, out);
+            for clause in when_clauses {
+                collect_calls_in_statements(&clause.body, out);
+            }
+            if let Some(otherwise_block) = otherwise_block {
+                collect_calls_in_statements(otherwise_block, out);
+            }
+            if let Some(finally_block) = finally_block {
+                collect_calls_in_statements(finally_block, out);
+            }
+        }
+        Statement::TestBlock { body, .. } => {
+            collect_calls_in_statements(body, out);
+        }
+        Statement::DescribeBlock {
+            setup,
+            teardown,
+            tests,
+            ..
+        } => {
+            if let Some(setup) = setup {
+                collect_calls_in_statements(setup, out);
+            }
+            if let Some(teardown) = teardown {
+                collect_calls_in_statements(teardown, out);
+            }
+            collect_calls_in_statements(tests, out);
+        }
+        Statement::WebSocketHandlerStatement { body, .. } => {
+            collect_calls_in_statements(body, out);
+        }
+        Statement::EventHandler { handler_body, .. } => {
+            collect_calls_in_statements(handler_body, out);
+        }
+        Statement::RespondStatement {
+            request,
+            content,
+            status,
+            content_type,
+            headers,
+            ..
+        } => {
+            collect_calls_in_expression(request, out);
+            collect_calls_in_expression(content, out);
+            if let Some(status) = status {
+                collect_calls_in_expression(status, out);
+            }
+            if let Some(content_type) = content_type {
+                collect_calls_in_expression(content_type, out);
+            }
+            if let Some(headers) = headers {
+                collect_calls_in_expression(headers, out);
+            }
+        }
+        Statement::ContainerDefinition {
+            methods,
+            static_methods,
+            ..
+        } => {
+            for method in methods.iter().chain(static_methods.iter()) {
+                collect_calls_in_statement(method, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_calls_in_expression(expr: &Expression, out: &mut Vec<CallSite>) {
+    match expr {
+        Expression::FunctionCall {
+            function,
+            arguments,
+            line,
+            column,
+        } => {
+            if let Expression::Variable(name, ..) = function.as_ref() {
+                out.push(CallSite {
+                    name: name.clone(),
+                    line: *line,
+                    column: *column,
+                });
+            }
+            collect_calls_in_expression(function, out);
+            for arg in arguments {
+                collect_calls_in_expression(&arg.value, out);
+            }
+        }
+        Expression::ActionCall {
+            name,
+            arguments,
+            line,
+            column,
+        } => {
+            out.push(CallSite {
+                name: name.clone(),
+                line: *line,
+                column: *column,
+            });
+            for arg in arguments {
+                collect_calls_in_expression(&arg.value, out);
+            }
+        }
+        Expression::BinaryOperation { left, right, .. }
+        | Expression::Concatenation { left, right, .. } => {
+            collect_calls_in_expression(left, out);
+            collect_calls_in_expression(right, out);
+        }
+        Expression::UnaryOperation { expression, .. }
+        | Expression::AwaitExpression { expression, .. } => {
+            collect_calls_in_expression(expression, out);
+        }
+        Expression::MemberAccess { object, .. } => {
+            collect_calls_in_expression(object, out);
+        }
+        Expression::IndexAccess {
+            collection, index, ..
+        } => {
+            collect_calls_in_expression(collection, out);
+            collect_calls_in_expression(index, out);
+        }
+        Expression::PatternMatch { text, pattern, .. }
+        | Expression::PatternFind { text, pattern, .. }
+        | Expression::PatternSplit { text, pattern, .. } => {
+            collect_calls_in_expression(text, out);
+            collect_calls_in_expression(pattern, out);
+        }
+        Expression::PatternReplace {
+            text,
+            pattern,
+            replacement,
+            ..
+        } => {
+            collect_calls_in_expression(text, out);
+            collect_calls_in_expression(pattern, out);
+            collect_calls_in_expression(replacement, out);
+        }
+        Expression::StringSplit {
+            text, delimiter, ..
+        } => {
+            collect_calls_in_expression(text, out);
+            collect_calls_in_expression(delimiter, out);
+        }
+        Expression::Literal(crate::parser::ast::Literal::List(elements), ..) => {
+            for element in elements {
+                collect_calls_in_expression(element, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 impl StaticAnalyzer for Analyzer {
@@ -220,6 +504,7 @@ impl StaticAnalyzer for Analyzer {
         diagnostics.extend(self.check_unreachable_code(program, file_id));
         diagnostics.extend(self.check_shadowing(program, file_id));
         diagnostics.extend(self.check_inconsistent_returns(program, file_id));
+        diagnostics.extend(self.check_insecure_rng_seeding(program, file_id));
 
         diagnostics
     }
@@ -414,6 +699,48 @@ impl StaticAnalyzer for Analyzer {
         }
 
         diagnostics
+    }
+
+    /// Flag `random_seed` usage in a file that also performs cryptographic,
+    /// authentication, or session operations. Seeding the RNG makes its output
+    /// deterministic; in security-sensitive code that means predictable salts,
+    /// session identifiers, and tokens. This is the analyzer half of the CI rule
+    /// that keeps `random_seed` out of auth/session/crypto modules.
+    fn check_insecure_rng_seeding(&self, program: &Program, file_id: usize) -> Vec<WflDiagnostic> {
+        let mut calls = Vec::new();
+        collect_calls_in_statements(&program.statements, &mut calls);
+
+        // Only flag seeding when the same file also does security-sensitive work.
+        let uses_security_builtin = calls
+            .iter()
+            .any(|call| SECURITY_SENSITIVE_BUILTINS.contains(&call.name.as_str()));
+        if !uses_security_builtin {
+            return Vec::new();
+        }
+
+        calls
+            .iter()
+            .filter(|call| call.name == "random_seed")
+            .map(|call| {
+                WflDiagnostic::new(
+                    Severity::Error,
+                    "random_seed must not be used in authentication, session, or cryptographic code"
+                        .to_string(),
+                    Some(
+                        "Seeding the random number generator makes its output predictable, which \
+                         undermines salts, session IDs, and tokens. Remove the random_seed call; \
+                         use secure_random_bytes for cryptographic randomness. Seeding is only for \
+                         reproducible non-security code such as simulations or tests."
+                            .to_string(),
+                    ),
+                    "ANALYZE-SECURITY".to_string(),
+                    file_id,
+                    call.line,
+                    call.column,
+                    None,
+                )
+            })
+            .collect()
     }
 }
 
@@ -2058,5 +2385,96 @@ mod tests {
             !diagnostics.iter().any(|d| d.message.contains("last_index")),
             "last_index should not be reported as unused when used in array access"
         );
+    }
+
+    // ===== random_seed-in-crypto-context lint (ANALYZE-SECURITY) =====
+
+    fn parse_program(input: &str) -> Program {
+        let tokens = crate::lexer::lex_wfl_with_positions(input);
+        crate::parser::Parser::new(&tokens).parse().unwrap()
+    }
+
+    #[test]
+    fn test_random_seed_flagged_in_crypto_context() {
+        // random_seed next to a crypto builtin is an error: it makes the CSPRNG predictable.
+        let program = parse_program(
+            "store x as random_seed of 42\nstore h as hash_password of \"pw\"\ndisplay h",
+        );
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_insecure_rng_seeding(&program, 0);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, "ANALYZE-SECURITY");
+        assert_eq!(diagnostics[0].severity, Severity::Error);
+        assert!(diagnostics[0].message.contains("random_seed"));
+    }
+
+    #[test]
+    fn test_random_seed_flagged_inside_action_body() {
+        // The walker must reach into action bodies, not only top-level statements.
+        let program = parse_program(
+            "define action called make_token:\n  store s as random_seed of 1\n  store t as secure_random_bytes of 16\n  give back t\nend action",
+        );
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_insecure_rng_seeding(&program, 0);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, "ANALYZE-SECURITY");
+    }
+
+    #[test]
+    fn test_random_seed_allowed_without_crypto() {
+        // Seeding is legitimate in ordinary non-security code (simulations, reproducible demos).
+        let program = parse_program("store s as random_seed of 42\nstore r as random\ndisplay r");
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_insecure_rng_seeding(&program, 0);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_crypto_without_random_seed_is_clean() {
+        let program = parse_program("store h as hash_password of \"pw\"\ndisplay h");
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_insecure_rng_seeding(&program, 0);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_sha256_checksum_does_not_trigger_lint() {
+        // sha256 is a general-purpose hash (checksums/content-addressing), not an
+        // auth signal, so hashing + seeding for a reproducible run must not fire.
+        let program =
+            parse_program("store c as sha256 of \"data\"\nstore s as random_seed of 1\ndisplay c");
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_insecure_rng_seeding(&program, 0);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_wflhash_checksum_does_not_trigger_lint() {
+        let program = parse_program(
+            "store c as wflhash256 of \"data\"\nstore s as random_seed of 1\ndisplay c",
+        );
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_insecure_rng_seeding(&program, 0);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_random_seed_flagged_inside_respond_statement() {
+        // A web handler that responds with a freshly generated token and also
+        // seeds the RNG must be flagged: the walker has to descend into `respond`.
+        let program = parse_program(
+            "store s as random_seed of 1\nrespond to req with secure_random_bytes of 16",
+        );
+        let analyzer = Analyzer::new();
+        let diagnostics = analyzer.check_insecure_rng_seeding(&program, 0);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, "ANALYZE-SECURITY");
     }
 }

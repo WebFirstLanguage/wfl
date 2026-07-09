@@ -199,7 +199,12 @@ impl TypeChecker {
             | "sha256"
             | "hmac_sha256"
             | "generate_uuid"
-            | "generate_csrf_token" => Type::Text,
+            | "generate_csrf_token"
+            | "pbkdf2_hmac_sha256"
+            | "secure_random_bytes" => Type::Text,
+
+            // Timing-safe comparison returns a boolean
+            "constant_time_equals" => Type::Boolean,
 
             // Password hashing: *_hash produce a string, *_verify produce a boolean
             "hash_password" | "argon2_hash" | "bcrypt_hash" | "scrypt_hash" | "pbkdf2_hash" => {
