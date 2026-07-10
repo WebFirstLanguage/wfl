@@ -1646,6 +1646,7 @@ impl Analyzer {
                 let request_properties = [
                     ("method", Type::Text),
                     ("path", Type::Text),
+                    ("query", Type::Text),
                     ("client_ip", Type::Text),
                     ("body", Type::Text),
                     ("body_bytes", Type::Binary),

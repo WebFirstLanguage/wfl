@@ -224,6 +224,7 @@ impl TypeChecker {
             "path_params" => Type::Map(Box::new(Type::Text), Box::new(Type::Text)),
             "path_matches" => Type::Boolean,
             "mime_type" => Type::Text,
+            "parse_multipart" => Type::List(Box::new(Type::Any)),
 
             // Text functions registered under stdlib-specific names
             "string_split" => Type::List(Box::new(Type::Text)),

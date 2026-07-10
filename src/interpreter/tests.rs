@@ -510,3 +510,76 @@ async fn test_finally_runs_after_caught_error_with_binding() {
         other => panic!("expected text, got {other:?}"),
     }
 }
+
+/// End-to-end unit regression for case-insensitive `header "Name" of req`
+/// without spinning up an HTTP server. Builds a synthetic request object
+/// whose headers map uses warp-style lowercase keys — the same shape
+/// `wait for request` produces — and asserts canonical names still resolve.
+#[tokio::test]
+async fn test_header_access_case_insensitive_via_request_object() {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    let interpreter = Interpreter::new();
+    let env = Environment::new_global();
+
+    // Mimic warp: header names stored lowercase on the request object.
+    let mut headers_map = HashMap::new();
+    headers_map.insert(
+        "user-agent".to_string(),
+        Value::Text(Arc::from("wfl-header-test")),
+    );
+    headers_map.insert(
+        "content-type".to_string(),
+        Value::Text(Arc::from("text/plain")),
+    );
+    let headers_object = Value::Object(Rc::new(RefCell::new(headers_map)));
+
+    let mut request_props = HashMap::new();
+    request_props.insert("headers".to_string(), headers_object);
+    let request_object = Value::Object(Rc::new(RefCell::new(request_props)));
+    env.borrow_mut()
+        .define("req", request_object)
+        .expect("define req");
+
+    let tokens = lex_wfl_with_positions(r#"header "User-Agent" of req"#);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("parse header access");
+    let expr = match program.statements.first() {
+        Some(crate::parser::ast::Statement::ExpressionStatement { expression, .. }) => expression,
+        other => panic!("expected expression statement, got {other:?}"),
+    };
+
+    let result = interpreter
+        .evaluate_expression(expr, Rc::clone(&env))
+        .await
+        .expect("header access should succeed");
+
+    match result {
+        Value::Text(s) => assert_eq!(
+            s.as_ref(),
+            "wfl-header-test",
+            "header \"User-Agent\" of req must find lowercase 'user-agent'"
+        ),
+        other => panic!("expected text, got {other:?}"),
+    }
+
+    // Missing header → nothing (Value::Null)
+    let tokens = lex_wfl_with_positions(r#"header "X-Missing" of req"#);
+    let mut parser = Parser::new(&tokens);
+    let program = parser.parse().expect("parse missing header access");
+    let expr = match program.statements.first() {
+        Some(crate::parser::ast::Statement::ExpressionStatement { expression, .. }) => expression,
+        other => panic!("expected expression statement, got {other:?}"),
+    };
+    let result = interpreter
+        .evaluate_expression(expr, env)
+        .await
+        .expect("missing header should not error");
+    assert!(
+        matches!(result, Value::Null),
+        "absent header should be nothing, got {result:?}"
+    );
+}

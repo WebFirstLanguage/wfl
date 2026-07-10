@@ -488,6 +488,19 @@ impl ConfigChecker {
             },
         );
 
+        expected_settings.insert(
+            "web_server_max_body_size".to_string(),
+            ExpectedSetting {
+                name: "web_server_max_body_size".to_string(),
+                config_type: ConfigType::Integer,
+                required: false,
+                default_value: Some("1048576".to_string()),
+                description: "Maximum HTTP request body size in bytes (default 1 MiB)".to_string(),
+                valid_values: None,
+                category: "Web Server".to_string(),
+            },
+        );
+
         Self { expected_settings }
     }
 
