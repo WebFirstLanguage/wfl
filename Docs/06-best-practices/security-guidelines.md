@@ -77,16 +77,34 @@ define action called safe_read_file with parameters filename:
 end action
 ```
 
+## Multi-hash for sensitive data
+
+**Recommendation: for sensitive things — passwords especially — always hash with more than one algorithm.** Do not put full trust in a single hash primitive.
+
+| Case | Do this |
+| --- | --- |
+| Passwords | Multi-hash pre-mix (e.g. WFLHASH then `sha256`), then **always** `hash_password` |
+| High-stakes integrity | At least two hashes in series (e.g. WFLHASH then `sha256`) |
+| External protocols | Use exactly the algorithm the protocol requires |
+
+Multi-hash is defense in depth. Fast multi-hashes alone are **not** enough for passwords — the final step must be a slow, salted password KDF.
+
+See [Crypto Module → Multi-hash for sensitive data](../05-standard-library/crypto-module.md#multi-hash-for-sensitive-data-recommended).
+
 ## Password Hashing
 
-**Never store passwords with a fast hash (`sha256`, `wflhash256`).** Fast hashes let attackers try billions of guesses per second against a stolen database. Use the dedicated password hashing functions, which are slow, salted, and self-describing.
+**Never store passwords with only a fast hash (`sha256`, `wflhash256`).** Fast hashes let attackers try billions of guesses per second against a stolen database. Use dedicated password hashing functions (slow, salted, self-describing), and for sensitive accounts prefer a **multi-hash pre-mix** first.
 
 ```wfl
-// Sign-up: hash and store
-store stored_hash as hash_password of user_password
+// Sign-up: more than one general hash, then password KDF
+store step1 as wflhash256 of user_password
+store step2 as sha256 of step1
+store stored_hash as hash_password of step2
 
-// Login: verify
-store login_ok as verify_password of attempt and stored_hash
+// Login: same pre-mix order, then verify
+store attempt_step1 as wflhash256 of attempt
+store attempt_step2 as sha256 of attempt_step1
+store login_ok as verify_password of attempt_step2 and stored_hash
 check if login_ok is yes:
     display "Login successful"
 otherwise:
@@ -96,33 +114,44 @@ end check
 
 `hash_password` uses Argon2id by default and `verify_password` auto-detects the algorithm from the stored hash. If you need a specific algorithm, use `argon2_hash`/`bcrypt_hash`/`scrypt_hash`/`pbkdf2_hash` with their matching `*_verify` functions. See the [Crypto Module → Password Hashing](../05-standard-library/crypto-module.md#password-hashing).
 
-## WFLHASH Usage
+## WFLHASH Usage (experimental)
 
-**WFLHASH is NOT externally audited.**
+**WFLHASH is experimental and not externally audited.** We want you to try it — the more real-world testing, the better. When integrity matters in production, **pair it with a known-good hash** so a battle-tested algorithm always backs you up.
+
+### Dual-hash (strong friend) for production
+
+```wfl
+// Experimental first pass — exercise WFLHASH
+store wfl_digest as wflhash256 of file_content
+
+// Known-good backup (sha256 today; any proven hash works the same way)
+store integrity_tag as sha256 of wfl_digest
+```
+
+If WFLHASH were ever weaker than expected, the outer standard hash still provides that algorithm's security properties. You get production strength *and* help harden WFLHASH.
 
 ### Appropriate Uses
 
-✅ **Internal apps** - Controlled security requirements
-✅ **Checksums** - File integrity verification
-✅ **Caching keys** - Non-sensitive data
-✅ **Development** - Testing environments
+✅ **Testing and feedback** — please use it and report results  
+✅ **Production integrity** — when dual-hashed with `sha256` (or another known-good hash)  
+✅ **Checksums / cache keys** — dual-hash for production; WFLHASH alone is fine for demos  
+✅ **Domain separation** — `wflhash256_with_salt` for different contexts (still dual-hash when stakes are high)
 
 ### Inappropriate Uses
 
-❌ **Password hashing** - Use `hash_password`/`verify_password` (Argon2id, bcrypt, scrypt, PBKDF2)
-❌ **FIPS compliance** - Use SHA-256, SHA-3, BLAKE3
-❌ **High security** - Use proven algorithms
-❌ **Production auth** - Use established standards
+❌ **WFLHASH alone as the only integrity guarantee** for high-stakes data  
+❌ **Password hashing** — Use `hash_password`/`verify_password` (Argon2id, bcrypt, scrypt, PBKDF2)  
+❌ **External protocols** that require a specific standard (`hmac_sha256` for Stripe/GitHub, etc.)  
+❌ **FIPS-only / formally validated crypto paths** — use the standard algorithm alone  
 
 **[Complete crypto guidelines →](../05-standard-library/crypto-module.md)**
 
-### Use Salts
-
-**Always salt user-specific data:**
+### Domain separation (with strong friend)
 
 ```wfl
 define action called hash_user_data with parameters user_data and user_id:
-    return wflhash256_with_salt of user_data and user_id
+    store wfl_digest as wflhash256_with_salt of user_data and user_id
+    return sha256 of wfl_digest
 end action
 ```
 
@@ -226,8 +255,9 @@ WFL (built on Rust) uses zeroization in crypto module. When handling sensitive d
 ✅ **Use whitelists** - Allow only known-good values
 ✅ **Sanitize file paths** - Prevent directory traversal
 ✅ **Limit request sizes** - Prevent DoS
-✅ **Use appropriate crypto** - WFLHASH for non-critical only
-✅ **Salt user data** - Prevent rainbow tables
+✅ **Use appropriate crypto** - Multi-hash sensitive data; dual-hash experimental WFLHASH for production integrity; standards for interop
+✅ **Multi-hash passwords** - Pre-mix with 2+ algorithms, then always `hash_password`
+✅ **Salt / domain-separate** when hashing per-user or per-context data
 ✅ **Never log secrets** - API keys, passwords, tokens
 ✅ **Use proper status codes** - Don't leak internal details
 ✅ **Close resources** - Files, connections
@@ -236,7 +266,9 @@ WFL (built on Rust) uses zeroization in crypto module. When handling sensitive d
 ❌ **Don't trust user input** - Ever
 ❌ **Don't hardcode secrets** - Use config files or env vars
 ❌ **Don't execute arbitrary commands** - Whitelist only
-❌ **Don't use WFLHASH for passwords** - Use proper algorithms
+❌ **Don't store passwords with only fast hashes** - Multi-hash pre-mix is fine; final step must be a password KDF
+❌ **Don't rely on a single hash alone** for sensitive data
+❌ **Don't rely on experimental WFLHASH alone** for high-stakes integrity
 ❌ **Don't reveal internal errors** - Generic messages for users
 
 ## What You've Learned
@@ -244,7 +276,8 @@ WFL (built on Rust) uses zeroization in crypto module. When handling sensitive d
 ✅ Input validation is critical
 ✅ Subprocess security (command injection)
 ✅ File path validation (directory traversal)
-✅ WFLHASH appropriate usage
+✅ Multi-hash sensitive data (passwords, high-stakes digests)
+✅ WFLHASH is experimental; dual-hash with a known-good algorithm for production
 ✅ Secrets management
 ✅ Web server security
 ✅ Memory security

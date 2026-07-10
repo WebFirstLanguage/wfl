@@ -46,7 +46,7 @@ Best practices help you write good code consistently.
 - Validate all input
 - Sanitize subprocess commands
 - Check file paths
-- Use WFLHASH appropriately
+- Multi-hash sensitive data (passwords especially); treat WFLHASH as experimental
 
 **Performance:**
 - Use async for I/O operations

@@ -115,7 +115,7 @@ Complete alphabetical list of all 181+ WFL built-in functions.
 
 ### Password hashing (10 functions)
 
-Store user passwords with these — never with fast hashes like `sha256` or `wflhash256`.
+Store user passwords with these — never with fast hashes like `sha256` or `wflhash256` alone. For sensitive credentials, prefer a multi-hash pre-mix (e.g. WFLHASH then `sha256`) **then** `hash_password`.
 
 | Function | Signature | Returns | Description |
 |----------|-----------|---------|-------------|
@@ -144,15 +144,15 @@ Store user passwords with these — never with fast hashes like `sha256` or `wfl
 |----------|-----------|---------|-------------|
 | `sha256` | `sha256 of <text>` | Text | Standard SHA-256 (FIPS 180-4) |
 | `hmac_sha256` | `hmac_sha256 of <message> and <key>` | Text | Standard HMAC-SHA256 (RFC 2104) |
-| `wflhash256` | `wflhash256 of <text>` | Text | 256-bit hash |
-| `wflhash256_with_salt` | `wflhash256_with_salt of <text> and <salt>` | Text | Salted 256-bit hash |
-| `wflhash512` | `wflhash512 of <text>` | Text | 512-bit hash |
-| `wflmac256` | `wflmac256 of <message> and <key>` | Text | Message auth code |
+| `wflhash256` | `wflhash256 of <text>` | Text | Experimental 256-bit WFLHASH |
+| `wflhash256_with_salt` | `wflhash256_with_salt of <text> and <salt>` | Text | Experimental salted WFLHASH |
+| `wflhash512` | `wflhash512 of <text>` | Text | Experimental 512-bit WFLHASH |
+| `wflmac256` | `wflmac256 of <message> and <key>` | Text | Experimental WFL MAC |
 | `generate_csrf_token` | `generate_csrf_token` | Text | Random 256-bit token |
 
 **[Crypto Module Details →](../05-standard-library/crypto-module.md)**
 
-**Security:** For passwords use `hash_password`/`verify_password`. WFLHASH is not externally audited; use SHA-256/SHA-3 for production integrity hashing.
+**Security:** For sensitive data (especially passwords), use **more than one hash**. Passwords: multi-hash pre-mix then `hash_password`/`verify_password`. WFLHASH is **experimental** — please test it. For production integrity, dual-hash: WFLHASH then a known-good algorithm (`sha256 of wflhash256 of data`). Use `sha256` / `hmac_sha256` alone when interoperating with external services.
 
 ## Pattern Module (3 functions)
 

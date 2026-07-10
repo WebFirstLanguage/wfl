@@ -156,7 +156,7 @@ store upper as touppercase of "text"
 ### Security (Crypto)
 - Password hashing: `hash_password`, `verify_password` (Argon2id/bcrypt/scrypt/PBKDF2)
 - Standard hashing/MAC: `sha256`, `hmac_sha256`
-- WFLHASH: `wflhash256`, `wflhash512`, `wflhash256_with_salt`, `wflmac256`
+- WFLHASH (experimental): `wflhash256`, `wflhash512`, `wflhash256_with_salt`, `wflmac256` — dual-hash with `sha256` for production
 
 ### Validation (Pattern)
 - Matching: pattern matching, finding, replacing

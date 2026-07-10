@@ -370,13 +370,17 @@ display "Timestamp: " with timestamp
 
 ### Recipe: Hash Data
 
-**Problem:** Generate checksum.
+**Problem:** Generate a checksum. WFLHASH is experimental — dual-hash with a known-good algorithm for production integrity.
 
 **Solution:**
 ```wfl
 store payload as "Important data"
-store hash as wflhash256 of payload
-display "Hash: " with hash
+// Experimental WFLHASH — please test it
+store wfl_digest as wflhash256 of payload
+// Strong friend for production integrity
+store integrity_tag as sha256 of wfl_digest
+display "WFLHASH: " with wfl_digest
+display "Integrity tag: " with integrity_tag
 ```
 
 ---

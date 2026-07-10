@@ -5,31 +5,113 @@ The Crypto module provides cryptographic functions in four groups:
 - **Password hashing** — `hash_password`/`verify_password` and the algorithm-specific Argon2id, bcrypt, scrypt and PBKDF2 functions. Use these to store user passwords safely.
 - **Auth & session primitives** — `pbkdf2_hmac_sha256` (raw key derivation), `constant_time_equals` (timing-safe comparison), and `secure_random_bytes` (CSPRNG bytes for salts, tokens, and session IDs).
 - **Standard hashing/MAC** — `sha256` and `hmac_sha256` for interoperating with external services (webhook verification, API signing).
-- **WFLHASH** — a custom hash algorithm for data integrity, checksums, and non-critical security applications.
+- **WFLHASH (experimental)** — WFL's own hash family. Please try it, report results, and help us harden it. For production integrity, **pair it with a known-good hash** so a battle-tested algorithm always has your back.
 
-> **Hashing a password? Use `hash_password`, never `sha256` or `wflhash256`.** Fast hashes are built to be quick, which is exactly what makes them a poor way to store passwords — an attacker can try billions of guesses per second. The password hashing functions below are deliberately slow and salted to prevent that.
+> **Hashing a password? Use `hash_password`, never `sha256` or `wflhash256` alone.** Fast hashes are built to be quick, which is exactly what makes them a poor way to store passwords — an attacker can try billions of guesses per second. The password hashing functions below are deliberately slow and salted to prevent that. For sensitive material, also prefer **more than one hash** (see below).
 
-## ⚠️ Important Security Disclaimer
+## Multi-hash for sensitive data (recommended)
 
-**WFLHASH is NOT externally audited.** While it implements cryptographically sound design principles:
+**Recommendation: for sensitive things, always hash with more than one algorithm.** Do not put full trust in a single hash primitive — especially for passwords, session secrets, recovery tokens, or high-stakes integrity tags.
 
-✅ **Suitable for:**
-- Internal applications with controlled security requirements
-- Non-critical data integrity verification
-- Development and testing environments
-- Checksums and data deduplication
+Composing hashes is **defense in depth**: if one algorithm is experimental, mis-implemented, or later weakened, another still has your back.
 
-❌ **NOT recommended for:**
-- Applications requiring FIPS validation
-- High-security environments requiring proven algorithms
-- Regulatory compliance requiring validated cryptography
-- Password hashing in production systems (use the [password hashing functions](#password-hashing) instead)
+| Sensitive thing | Multi-hash guidance |
+| --- | --- |
+| **Passwords** | Pre-mix with **two or more** general hashes, then always finish with a **password KDF** (`hash_password` / Argon2id, etc.). Never store only fast hashes. |
+| **Integrity of secrets / files** | At least two digests in series (e.g. WFLHASH then `sha256`), or store two independent digests. |
+| **Tokens / one-time secrets** | Prefer `secure_random_bytes` for generation; if you fingerprint a secret, multi-hash the fingerprint. |
+| **External API signatures** | Follow the protocol (often a single specified MAC). Multi-hash only when *you* define the scheme. |
 
-**For production security applications, use standard algorithms.** WFL provides standard `sha256` and `hmac_sha256` builtins (below) for exactly this: they are required when interoperating with external services (e.g. verifying Stripe or GitHub webhook signatures), where a custom algorithm cannot be used.
+### Passwords: multi-hash *and* a password hasher
+
+Passwords are the textbook sensitive case. Use **more than one general-purpose hash as a pre-mix**, then run the result through WFL's slow password hasher (which adds salt and cost parameters for you):
+
+```wfl
+// Sign-up — more than one hash, then a real password KDF
+store step1 as wflhash256 of user_password          // experimental / first algorithm
+store step2 as sha256 of step1                      // known-good second algorithm
+store stored_hash as hash_password of step2         // Argon2id (slow, salted) — required final step
+
+// Login — apply the same pre-mix, then verify
+store attempt_step1 as wflhash256 of attempt
+store attempt_step2 as sha256 of attempt_step1
+store login_ok as verify_password of attempt_step2 and stored_hash
+```
+
+**Rules of thumb:**
+
+1. **Always end with `hash_password` (or another password KDF).** Multi-hashing with only `wflhash` / `sha256` is still *fast* and still unsafe to store.
+2. **Use at least two different algorithms** in the pre-mix when the data is sensitive (WFLHASH + `sha256` is the natural WFL pairing).
+3. **Apply the exact same chain on verify** that you used on store — order and algorithms must match.
+4. **`hash_password` already salts** — you do not need a separate salt in the pre-mix for correctness; domain separation is optional extra.
+
+A minimal multi-hash without WFLHASH is fine too when you only want standards:
+
+```wfl
+// Two known-good layers in spirit: SHA-256 pre-image mix, then Argon2id
+store preimage as sha256 of user_password
+store stored_hash as hash_password of preimage
+```
+
+Prefer the WFLHASH + `sha256` + `hash_password` chain when you also want to exercise experimental WFLHASH behind a strong friend.
+
+## ⚠️ WFLHASH is experimental
+
+**WFLHASH is experimental and not externally audited.** It implements solid design ideas (sponge construction, strong round constants, secure memory cleanup), but it has not been through independent cryptanalysis the way SHA-2, SHA-3, or BLAKE3 have.
+
+We want people to **use it and test it** — checksums, cache keys, demos, internal tools, and real workloads are all welcome feedback. When the result must hold up under real risk, give it a **strong friend**: finish with a known-good hash so production strength never rests on WFLHASH alone.
+
+### The dual-hash (strong friend) pattern
+
+Hash with WFLHASH first, then hash that digest with a proven algorithm (`sha256` today; any other standard hash you trust works the same way):
+
+```wfl
+// Experimental first pass — try WFLHASH freely
+store wfl_digest as wflhash256 of file_content
+
+// Strong friend — known-good algorithm backs up the result
+store integrity_tag as sha256 of wfl_digest
+```
+
+**Why this is allowed in production:** if WFLHASH were ever weaker than expected, the outer `sha256` (or another audited hash) still provides the security properties of that standard algorithm. You get to exercise and stress-test WFLHASH while production integrity still rests on a proven primitive.
+
+You can also store **both** digests when you want to compare WFLHASH behavior over time without giving up a standard checksum:
+
+```wfl
+store wfl_digest as wflhash512 of payload
+store standard_digest as sha256 of payload
+// Prefer standard_digest for interop and compliance; keep wfl_digest for testing WFLHASH
+```
+
+### When to use what
+
+| Goal | Recommendation |
+| --- | --- |
+| Try / test / feedback on WFLHASH | `wflhash256` / `wflhash512` alone — please do |
+| Production integrity (files, caches, internal digests) | **Multi-hash:** WFLHASH then `sha256` (or another known-good hash) |
+| Interop with Stripe, GitHub, other APIs | `sha256` / `hmac_sha256` only (they will not speak WFLHASH) |
+| Passwords (sensitive) | **Multi-hash pre-mix** (e.g. WFLHASH then `sha256`) **then** `hash_password` — never store fast hashes alone |
+| FIPS / regulatory validated crypto | Standard algorithms only (`sha256`, etc.) |
+
+✅ **Encouraged:**
+- Experimentation, benchmarks, and community testing of WFLHASH
+- Production use **when dual-hashed** with a known-good algorithm
+- Checksums, deduplication, and cache keys (dual-hash for production)
+- Development and teaching examples
+
+❌ **Not appropriate:**
+- Relying on WFLHASH **alone** as the sole integrity guarantee for high-stakes data
+- Password storage (use [password hashing](#password-hashing))
+- External protocols that require a specific standard algorithm
+- Environments that demand only FIPS-validated or formally audited primitives (use the standard alone)
+
+**Interoperability still needs standards alone.** WFL's `sha256` and `hmac_sha256` builtins are required when talking to external services (e.g. Stripe or GitHub webhook signatures). A custom algorithm cannot stand in there.
 
 ## Password Hashing
 
 These functions store passwords the right way: they are **slow by design**, add a **random salt** automatically, and return a **self-describing string** that records the algorithm and its cost parameters. You store that one string and pass it straight back to the matching verify function later — nothing else needs to be saved.
+
+**Recommended for sensitive credentials:** use **more than one hash** — a multi-algorithm pre-mix, then always finish with `hash_password`. See [Multi-hash for sensitive data](#multi-hash-for-sensitive-data-recommended).
 
 **The two you'll usually want:**
 
@@ -49,16 +131,21 @@ These functions store passwords the right way: they are **slow by design**, add 
 | scrypt | `scrypt_hash of <password>` | `scrypt_verify of <password> and <hash>` | `$scrypt$...` |
 | PBKDF2 | `pbkdf2_hash of <password>` | `pbkdf2_verify of <password> and <hash>` | `$pbkdf2-sha256$...` |
 
-**Registration and login example:**
+**Registration and login example (recommended multi-hash chain):**
 
 ```wfl
-// When a user signs up, hash their password and store the result.
-store password_hash as hash_password of "correct horse battery staple"
+// When a user signs up: multi-hash pre-mix, then password KDF
+store password as "correct horse battery staple"
+store step1 as wflhash256 of password
+store step2 as sha256 of step1
+store password_hash as hash_password of step2
 display "Store this in your database: " with password_hash
 
-// When they log in later, verify the password they typed against the stored hash.
+// When they log in: same pre-mix order, then verify
 store attempt as "correct horse battery staple"
-store login_ok as verify_password of attempt and password_hash
+store attempt_step1 as wflhash256 of attempt
+store attempt_step2 as sha256 of attempt_step1
+store login_ok as verify_password of attempt_step2 and password_hash
 
 check if login_ok is yes:
     display "Welcome back!"
@@ -67,17 +154,26 @@ otherwise:
 end check
 ```
 
+**Minimal example (password KDF only):** fine for learning; for production-sensitive accounts prefer the multi-hash chain above.
+
+```wfl
+store password_hash as hash_password of "correct horse battery staple"
+store login_ok as verify_password of "correct horse battery staple" and password_hash
+```
+
 **Properties:**
 - **Salted automatically** — hashing the same password twice gives two different strings, so identical passwords never share a hash and precomputed (rainbow-table) attacks don't work.
 - **Slow on purpose** — each hash takes meaningful CPU/memory, which barely matters for a single login but makes mass cracking impractical.
 - **Self-describing** — the salt and cost parameters live inside the returned string, so `verify_password` needs nothing but the password and that string.
 - **Constant-time verification** — comparisons don't leak information through timing.
+- **Multi-hash friendly** — you may pre-mix with other hashes before `hash_password`; never replace the password KDF with fast hashes alone.
 
 **Notes and limits:**
 - The maximum password length is 4096 bytes.
-- bcrypt only considers the first 72 bytes of a password (a property of the algorithm itself).
+- bcrypt only considers the first 72 bytes of a password (a property of the algorithm itself). Pre-hashing with `sha256` (64 hex chars) fits under that limit if you ever choose bcrypt.
 - Defaults follow current OWASP guidance (e.g. PBKDF2 uses 600,000 iterations; Argon2id uses memory-hard parameters). Prefer `hash_password` unless you have a specific reason to pick another algorithm.
 - A malformed or unrecognized stored hash simply makes `verify_password` return `no` — it never errors, so a corrupted record can't crash a login.
+- If you multi-hash on store, you **must** multi-hash with the same algorithms and order on every verify.
 
 ---
 
@@ -85,7 +181,7 @@ end check
 
 ### wflhash256
 
-**Purpose:** Generate a 256-bit hash of text.
+**Purpose:** Generate a 256-bit **experimental** WFLHASH digest of text. For production integrity, pass the result through a known-good hash (see [dual-hash pattern](#the-dual-hash-strong-friend-pattern)).
 
 **Signature:**
 ```wfl
@@ -110,26 +206,28 @@ display "Same input, same hash: " with hash1 is equal to hash2
 store hash3 as wflhash256 of "Hello, World"
 display "Different input: " with hash1 is equal to hash3
 // Output: Different input: no
+
+// Production integrity: pair with a known-good hash
+store integrity_tag as sha256 of hash1
 ```
 
 **Properties:**
 - Deterministic - Same input always produces same hash
 - Fixed length - Always 64 hex characters (256 bits)
-- Collision resistant - Different inputs produce different hashes
 - One-way - Cannot reverse the hash
+- Experimental - Please test and report findings
 
 **Use Cases:**
-- Data integrity verification
-- File checksums
-- Duplicate detection
-- Cache keys
-- Non-sensitive data hashing
+- Experiments, benchmarks, and community testing
+- Data integrity (dual-hash for production)
+- File checksums (dual-hash for production)
+- Duplicate detection and cache keys
 
 ---
 
 ### wflhash512
 
-**Purpose:** Generate a 512-bit hash of text.
+**Purpose:** Generate a 512-bit **experimental** WFLHASH digest of text. Same dual-hash guidance as `wflhash256`.
 
 **Signature:**
 ```wfl
@@ -146,27 +244,28 @@ wflhash512 of <text>
 store hash as wflhash512 of "Important data"
 display "512-bit hash: " with hash
 // Output: 128 hex characters
+
+// Production integrity: pair with a known-good hash
+store integrity_tag as sha256 of hash
 ```
 
 **Properties:**
 - Same as wflhash256 but with 512-bit output
-- More collision resistant
-- Longer hash string
+- Longer hash string for extra margin in experiments
 
 **Use Cases:**
-- Higher security requirements
-- When 256 bits isn't enough
-- Cryptographic applications
+- Experiments that want a wider digest
+- When you prefer a longer intermediate before dual-hashing
 
 **When to use 256 vs 512:**
 - Use 256 for most cases (faster, shorter)
-- Use 512 for higher security margin
+- Use 512 when you want a longer experimental digest
 
 ---
 
 ### wflhash256_with_salt
 
-**Purpose:** Generate a salted 256-bit hash for domain separation.
+**Purpose:** Generate a salted 256-bit **experimental** WFLHASH digest for domain separation.
 
 **Signature:**
 ```wfl
@@ -192,29 +291,33 @@ display "Same password, different hashes: " with hash1 is not equal to hash2
 
 **Use Cases:**
 - Domain separation (different contexts)
-- User-specific hashing
-- Preventing rainbow table attacks
-- Key derivation
+- User-specific integrity tags (not passwords)
+- Per-tenant or per-feature digests
+- Experiments that need distinct hash domains
 
-**Example: Per-User Hashing**
+**Example: Domain-separated digests (with strong friend for production)**
 ```wfl
-define action called hash_password with parameters password and username:
-    return wflhash256_with_salt of password and username
+define action called integrity_tag_for_user with parameters data and username:
+    // WFLHASH with salt separates domains; sha256 is the known-good backup
+    store wfl_digest as wflhash256_with_salt of data and username
+    return sha256 of wfl_digest
 end action
 
-store user1_hash as hash_password of "secret" and "alice"
-store user2_hash as hash_password of "secret" and "bob"
+store alice_tag as integrity_tag_for_user of "profile-v1" and "alice"
+store bob_tag as integrity_tag_for_user of "profile-v1" and "bob"
 
-// Even with same password, hashes are different
-display "Alice's hash: " with user1_hash
-display "Bob's hash: " with user2_hash
+// Same data, different users → different tags
+display "Alice's tag: " with alice_tag
+display "Bob's tag: " with bob_tag
 ```
+
+> **Not for passwords.** Use `hash_password` / `verify_password` for credentials.
 
 ---
 
 ### wflmac256
 
-**Purpose:** Generate a Message Authentication Code (MAC) with HKDF key derivation.
+**Purpose:** Generate an **experimental** Message Authentication Code (MAC) with HKDF key derivation. Prefer `hmac_sha256` for external services and production auth that must interoperate with standards.
 
 **Signature:**
 ```wfl
@@ -328,7 +431,7 @@ end check
 - Signing outgoing API requests
 - Any integration that specifies HMAC-SHA256
 
-**Note:** For WFL-internal message authentication where interoperability is not required, `wflmac256` also works; `hmac_sha256` is the standard everyone else speaks.
+**Note:** `wflmac256` is part of experimental WFLHASH. For production authentication, prefer `hmac_sha256`, or dual-protect: compute a WFL MAC for testing and still verify with a standard HMAC when talking to real clients.
 
 > **Always compare signatures and tokens with [`constant_time_equals`](#constant_time_equals), not `is`.** A normal `is` comparison stops at the first differing byte, and the time it takes leaks how much of a secret an attacker guessed correctly. `constant_time_equals` takes the same time regardless, closing that side channel.
 
@@ -449,44 +552,49 @@ display "New session id: " with session_id
 display "=== Crypto Module Demo ==="
 display ""
 
-// Basic hashing
-store data as "Sensitive information"
+// Experimental WFLHASH — try it freely
+store data as "Example integrity payload"
 
 store hash256 as wflhash256 of data
-display "256-bit hash: " with hash256
+display "WFLHASH-256: " with hash256
 
 store hash512 as wflhash512 of data
-display "512-bit hash (first 64 chars): " with substring of hash512 from 0 length 64
+display "WFLHASH-512 (first 64 chars): " with substring of hash512 from 0 length 64
+display ""
+
+// Dual-hash: WFLHASH then a known-good friend for production integrity
+store production_tag as sha256 of hash256
+display "Production integrity tag (sha256 of WFLHASH): " with production_tag
 display ""
 
 // Verify determinism
 store hash_again as wflhash256 of data
 check if hash256 is equal to hash_again:
-    display "✓ Hashes are deterministic"
+    display "✓ WFLHASH is deterministic"
 end check
 display ""
 
-// Salted hashing
-store password as "user_password"
+// Salted domain separation (not for passwords)
+store payload as "shared-value"
 store salt1 as "user@example.com"
 store salt2 as "admin@example.com"
 
-store hash1 as wflhash256_with_salt of password and salt1
-store hash2 as wflhash256_with_salt of password and salt2
+store hash1 as wflhash256_with_salt of payload and salt1
+store hash2 as wflhash256_with_salt of payload and salt2
 
-display "Same password, different salts:"
+display "Same payload, different salts:"
 display "  User hash: " with substring of hash1 from 0 length 16 with "..."
 display "  Admin hash: " with substring of hash2 from 0 length 16 with "..."
 display "  Hashes are different: " with hash1 is not equal to hash2
 display ""
 
-// MAC (Message Authentication Code)
+// MAC demo (experimental WFLHASH MAC — use hmac_sha256 for external services)
 store key as "secret_authentication_key"
 store message as "Transfer $100 to account 12345"
 
 store mac as wflmac256 of message and key
 display "Message: " with message
-display "MAC: " with substring of mac from 0 length 32 with "..."
+display "WFL MAC: " with substring of mac from 0 length 32 with "..."
 
 // Tampered message
 store tampered as "Transfer $999 to account 12345"
@@ -504,7 +612,7 @@ display "=== Demo Complete ==="
 
 ## Common Patterns
 
-### File Integrity Checking
+### File Integrity Checking (dual-hash for production)
 
 ```wfl
 define action called checksum_file with parameters filename:
@@ -513,8 +621,11 @@ define action called checksum_file with parameters filename:
         wait for store file_content as read content from file_handle
         close file file_handle
 
-        store hash as wflhash256 of file_content
-        return hash
+        // Experimental pass — helps test WFLHASH in the wild
+        store wfl_digest as wflhash256 of file_content
+        // Strong friend — known-good hash backs production integrity
+        store integrity_tag as sha256 of wfl_digest
+        return integrity_tag
     when error:
         return nothing
     end try
@@ -522,7 +633,7 @@ end action
 
 // Create checksum
 store original_hash as checksum_file of "important.txt"
-display "Original checksum: " with original_hash
+display "Original integrity tag: " with original_hash
 
 // Later, verify file hasn't changed
 store current_hash as checksum_file of "important.txt"
@@ -536,11 +647,14 @@ end check
 
 ### API Request Signing
 
+For external APIs, use standard HMAC. For internal WFL-only experiments you may use `wflmac256`, but prefer the standard when anything leaves your process:
+
 ```wfl
 define action called sign_request with parameters request_data and api_key:
     store timestamp as current time in milliseconds
     store payload as request_data with "|" with timestamp
-    store signature as wflmac256 of payload and api_key
+    // Known-good MAC for production / interop
+    store signature as hmac_sha256 of payload and api_key
     return signature
 end action
 
@@ -560,6 +674,7 @@ store unique_items as []
 store items as ["apple", "banana", "apple", "cherry", "banana"]
 
 for each item in items:
+    // WFLHASH alone is fine for in-memory dedup experiments
     store hash as wflhash256 of item
     store hash_index as indexof of seen_hashes and hash
 
@@ -575,25 +690,37 @@ display "Unique items: " with unique_items
 
 ## Security Best Practices
 
-✅ **Use salts for user data:** Prevents rainbow tables
+✅ **Multi-hash sensitive data:** For passwords and other high-stakes material, use **more than one** hash algorithm (see [multi-hash](#multi-hash-for-sensitive-data-recommended))
 
-✅ **Use MAC for authentication:** Verify message integrity
+✅ **Passwords: multi-hash then password KDF:** e.g. WFLHASH → `sha256` → `hash_password` — never store only fast hashes
+
+✅ **Test WFLHASH:** Use it in real code and share feedback — experimental means we want exercise, not shelf-ware
+
+✅ **Dual-hash for production integrity:** WFLHASH then `sha256` (or another known-good hash) so a proven algorithm always backs you up
+
+✅ **Use salts for domain separation:** `wflhash256_with_salt` keeps contexts apart
+
+✅ **Use standard MACs for external auth:** `hmac_sha256` for webhooks and third-party APIs
 
 ✅ **Keep keys secret:** Never expose keys in logs
 
 ✅ **Use strong keys:** Long, random keys are best
 
-✅ **Limit input size:** Hash function has 100MB limit
+✅ **Limit input size:** Hash functions enforce a 100MB limit
 
-❌ **Don't use fast hashes (sha256/wflhash) for passwords:** Use `hash_password`/`verify_password` (Argon2id, bcrypt, scrypt, PBKDF2)
+❌ **Don't store passwords with only fast hashes (sha256/wflhash):** Multi-hash pre-mix is good; final step must be `hash_password` / Argon2id / bcrypt / scrypt / PBKDF2
 
-❌ **Don't use without understanding limitations:** Not externally audited
+❌ **Don't rely on a single hash alone** for sensitive data
 
-❌ **Don't rely on for high-security:** Use proven algorithms (SHA-256, SHA-3, BLAKE3)
+❌ **Don't rely on experimental WFLHASH alone** for high-stakes integrity — always pair with a known-good hash
 
-❌ **Don't log keys or MACs:** Security sensitive data
+❌ **Don't log keys or MACs:** Security-sensitive data
 
 ## WFLHASH Technical Details
+
+### Status
+
+**Experimental.** Community testing welcome. Production use is supported when you follow the dual-hash (strong friend) pattern above.
 
 ### Design Features
 
@@ -606,33 +733,36 @@ display "Unique items: " with unique_items
 
 ### Limitations
 
-- **Not standardized** - Custom algorithm
-- **Not externally audited** - Internal security review only
-- **Not FIPS validated** - Cannot be used where FIPS required
-- **Not quantum-resistant** - Like most current hash functions
+- **Experimental** — API and security claims may evolve as testing continues
+- **Not standardized** — Custom algorithm, no external interop by itself
+- **Not externally audited** — Internal review and community testing only so far
+- **Not FIPS validated** — Use standard algorithms where FIPS is required
+- **Not quantum-resistant** — Like most current hash functions
 
-### When to Use Alternatives
+### When to Use Alternatives (alone)
 
-**Production passwords:** Use bcrypt, argon2id, or scrypt
-**Regulatory compliance:** Use SHA-256, SHA-3, or BLAKE3
-**Digital signatures:** Use RSA, ECDSA, or EdDSA
-**Encryption:** Use AES, ChaCha20, or similar
+**Production passwords:** multi-hash pre-mix recommended, then always `hash_password` (Argon2id) or the algorithm-specific helpers  
+**Regulatory / FIPS-only paths:** `sha256` (or another validated standard) without depending on WFLHASH  
+**External webhooks / API signing:** `hmac_sha256`  
+**Digital signatures / encryption:** Not provided by this module — use appropriate external tooling
 
-**WFLHASH is for non-critical applications where an unaudited hash function is acceptable.**
+**WFLHASH is experimental: test it freely; for production integrity and sensitive data, bring a strong friend (`sha256` or another known-good hash) — and for passwords, finish with a password KDF.**
 
 ## What You've Learned
 
 In this module, you learned:
 
-✅ **hash_password / verify_password** - Safe password storage with Argon2id by default
+✅ **Multi-hash for sensitive data** - Always prefer more than one hash (passwords especially)
+✅ **hash_password / verify_password** - Required password KDF (Argon2id by default)
 ✅ **argon2 / bcrypt / scrypt / pbkdf2** - Algorithm-specific password hashing
 ✅ **sha256 / hmac_sha256** - Standard hashing and MAC for interoperability
-✅ **wflhash256 / wflhash512** - 256-bit and 512-bit hashing
-✅ **wflhash256_with_salt** - Salted hashing
-✅ **wflmac256** - Message authentication codes
-✅ **Use cases** - Password storage, checksums, integrity, deduplication, signing
-✅ **Limitations** - WFLHASH is not audited; use standard algorithms for production security
-✅ **Best practices** - Never store passwords with fast hashes, salting, key management
+✅ **wflhash256 / wflhash512** - Experimental WFLHASH (test it!)
+✅ **Dual-hash production pattern** - WFLHASH then a known-good hash
+✅ **wflhash256_with_salt** - Salted / domain-separated hashing
+✅ **wflmac256** - Experimental message authentication codes
+✅ **Use cases** - Passwords, checksums, integrity, deduplication, signing
+✅ **Limitations** - Experimental, unaudited alone; pair with standards for production
+✅ **Best practices** - Multi-hash sensitive material; never store passwords with only fast hashes
 
 ## Next Steps
 

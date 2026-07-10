@@ -13,7 +13,7 @@ WFL's standard library provides:
 - **[Filesystem Module](filesystem-module.md)** - File and directory operations
 - **[Time Module](time-module.md)** - Date and time handling
 - **[Random Module](random-module.md)** - Random number generation
-- **[Crypto Module](crypto-module.md)** - Password hashing, standard hashing/MAC, and WFLHASH
+- **[Crypto Module](crypto-module.md)** - Password hashing, standard hashing/MAC, and experimental WFLHASH
 - **[Pattern Module](pattern-module.md)** - Pattern matching utilities
 - **[Typechecker Module](typechecker-module.md)** - Type checking utilities
 
@@ -71,10 +71,9 @@ WFL's standard library provides:
 - `hash_password` / `verify_password` - Safe password storage (Argon2id by default)
 - `argon2_hash`, `bcrypt_hash`, `scrypt_hash`, `pbkdf2_hash` (+ matching `*_verify`) - Password hashing
 - `sha256` / `hmac_sha256` - Standard hash and MAC
-- `wflhash256` - 256-bit hash
-- `wflhash512` - 512-bit hash
-- `wflhash256_with_salt` - Salted hash
-- `wflmac256` - Message authentication code
+- `wflhash256` / `wflhash512` - Experimental WFLHASH (dual-hash with `sha256` for production)
+- `wflhash256_with_salt` - Experimental salted WFLHASH
+- `wflmac256` - Experimental WFL message authentication code
 
 ## Using Standard Library Functions
 
@@ -105,8 +104,9 @@ store ext as path_extension of "document.pdf"
 store dice_roll as random_int of 1 and 6
 store coin_flip as random_boolean
 
-// Crypto
-store hash as wflhash256 of "sensitive data"
+// Crypto — experimental WFLHASH, then a known-good friend for production
+store wfl_digest as wflhash256 of "example data"
+store integrity_tag as sha256 of wfl_digest
 ```
 
 ## Module Organization
@@ -219,7 +219,8 @@ Try every function interactively!
 ### Crypto Module
 - Password hashing: hash_password, verify_password, argon2/bcrypt/scrypt/pbkdf2 (_hash and _verify)
 - Standard: sha256, hmac_sha256
-- WFLHASH: wflhash256, wflhash512, wflhash256_with_salt, wflmac256, generate_csrf_token
+- WFLHASH (experimental): wflhash256, wflhash512, wflhash256_with_salt, wflmac256 — dual-hash with sha256 for production
+- Tokens: generate_csrf_token
 
 ### Pattern Module (3 functions)
 - Pattern creation, matching, extraction

@@ -101,7 +101,7 @@ Complete reference for all standard library modules.
 - [Filesystem Module](05-standard-library/filesystem-module.md) - File and directory ops *(coming soon)*
 - [Time Module](05-standard-library/time-module.md) - Date and time *(coming soon)*
 - [Random Module](05-standard-library/random-module.md) - Random number generation *(coming soon)*
-- [Crypto Module](05-standard-library/crypto-module.md) - WFLHASH functions *(coming soon)*
+- [Crypto Module](05-standard-library/crypto-module.md) - Password hashing, standard crypto, experimental WFLHASH
 - [Pattern Module](05-standard-library/pattern-module.md) - Pattern matching *(coming soon)*
 
 **Time to read:** 2-3 hours (reference material)

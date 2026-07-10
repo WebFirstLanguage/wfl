@@ -310,7 +310,7 @@ You've completed all standard library modules! You now understand:
 ✅ **Filesystem** - File/directory operations, path utilities
 ✅ **Time** - Dates, times, formatting, calculations
 ✅ **Random** - Secure random number generation
-✅ **Crypto** - WFLHASH hashing and MACs
+✅ **Crypto** - Password hashing, standard SHA/HMAC, experimental WFLHASH
 ✅ **Pattern** - Pattern matching utilities
 ✅ **Typechecker** - Runtime type validation
 

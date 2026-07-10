@@ -292,12 +292,16 @@ end count
 
 ### 20. Hash Generation
 
+WFLHASH is experimental. For production integrity, pair it with a known-good hash:
+
 ```wfl
-store payload as "Sensitive information"
-store hash as wflhash256 of payload
+store payload as "Example integrity payload"
+store wfl_digest as wflhash256 of payload
+store integrity_tag as sha256 of wfl_digest
 
 display "Data: " with payload
-display "Hash: " with substring of hash from 0 length 32 with "..."
+display "WFLHASH: " with substring of wfl_digest from 0 length 32 with "..."
+display "Integrity tag: " with substring of integrity_tag from 0 length 32 with "..."
 ```
 
 ---

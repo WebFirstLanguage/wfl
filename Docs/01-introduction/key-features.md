@@ -224,13 +224,17 @@ store coin as random_boolean
 store choice as random_from of ["red", "green", "blue"]
 ```
 
-### Crypto Module (WFLHASH)
+### Crypto Module (experimental WFLHASH + standards)
 ```wfl
-store hash as wflhash256 of "sensitive data"
-store mac as wflmac256 of "message" and "secret key"
+// Experimental WFLHASH — try it; dual-hash for production integrity
+store wfl_digest as wflhash256 of "example data"
+store integrity_tag as sha256 of wfl_digest
+
+// Standard MAC for external services
+store mac as hmac_sha256 of "message" and "secret key"
 ```
 
-**Note:** WFLHASH is a custom hash function, NOT externally audited. Use SHA-256/SHA-3/BLAKE3 for production security.
+**Note:** WFLHASH is **experimental** and not externally audited. Please test it. For sensitive data (passwords especially), use **more than one hash** — e.g. WFLHASH then `sha256`, and for passwords always finish with `hash_password`. Use `sha256` / `hmac_sha256` alone for external interop.
 
 ## 8. Developer-Friendly Tooling
 
