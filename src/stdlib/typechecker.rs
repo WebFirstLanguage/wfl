@@ -41,6 +41,7 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
 
     register_path_params(analyzer);
     register_path_matches(analyzer);
+    register_parse_multipart(analyzer);
 
     register_generate_uuid(analyzer);
     register_generate_csrf_token(analyzer);
@@ -447,6 +448,14 @@ fn register_path_matches(analyzer: &mut Analyzer) {
     let return_type = Type::Boolean;
 
     analyzer.register_builtin_function("path_matches", param_types, return_type);
+}
+
+fn register_parse_multipart(analyzer: &mut Analyzer) {
+    // body (text or binary) + Content-Type header value
+    let param_types = vec![Type::Any, Type::Text];
+    let return_type = Type::List(Box::new(Type::Unknown)); // list of part objects
+
+    analyzer.register_builtin_function("parse_multipart", param_types, return_type);
 }
 
 fn register_generate_uuid(analyzer: &mut Analyzer) {

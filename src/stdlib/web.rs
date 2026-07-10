@@ -151,10 +151,249 @@ pub fn native_mime_type(args: Vec<Value>) -> Result<Value, RuntimeError> {
     Ok(Value::Text(Arc::from(content_type_for_extension(ext))))
 }
 
+/// Extract the `boundary=` parameter from a Content-Type header value.
+/// Accepts both `multipart/form-data; boundary=...` and a bare boundary string.
+fn extract_multipart_boundary(content_type: &str) -> Option<String> {
+    let trimmed = content_type.trim();
+    // Bare boundary (no semicolon / no type) is accepted for convenience in tests
+    if !trimmed.contains(';') && !trimmed.contains('/') {
+        if trimmed.is_empty() {
+            return None;
+        }
+        return Some(trimmed.to_string());
+    }
+    for part in trimmed.split(';').skip(1) {
+        let part = part.trim();
+        if let Some((key, value)) = part.split_once('=')
+            && key.trim().eq_ignore_ascii_case("boundary")
+        {
+            let value = value.trim().trim_matches('"');
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Parse a single multipart Content-Disposition header for name and optional filename.
+fn parse_content_disposition(header: &str) -> (Option<String>, Option<String>) {
+    let mut name = None;
+    let mut filename = None;
+    for part in header.split(';').skip(1) {
+        let part = part.trim();
+        if let Some((key, value)) = part.split_once('=') {
+            let key = key.trim();
+            let value = value.trim().trim_matches('"').to_string();
+            if key.eq_ignore_ascii_case("name") {
+                name = Some(value);
+            } else if key.eq_ignore_ascii_case("filename") || key.eq_ignore_ascii_case("filename*")
+            {
+                // filename* can be charset'lang'value — take the raw value for now
+                let value = value
+                    .rsplit_once('\'')
+                    .map(|(_, v)| v.to_string())
+                    .unwrap_or(value);
+                filename = Some(value);
+            }
+        }
+    }
+    (name, filename)
+}
+
+/// Minimal multipart/form-data parser.
+///
+/// Splits the body on the boundary delimiter and returns each part's headers
+/// and raw content bytes. Tolerates both CRLF and LF line endings.
+fn parse_multipart_body(body: &[u8], boundary: &str) -> Result<Vec<Value>, RuntimeError> {
+    // Boundary markers: --boundary  and  --boundary--
+    let delim = format!("--{boundary}");
+    let delim_bytes = delim.as_bytes();
+    let close_delim = format!("--{boundary}--");
+    let close_bytes = close_delim.as_bytes();
+
+    // Find all boundary occurrences
+    let mut parts: Vec<Value> = Vec::new();
+    let mut search_from = 0;
+
+    // Locate the first boundary
+    let Some(mut pos) = find_bytes(body, delim_bytes, search_from) else {
+        return Err(RuntimeError::new(
+            "parse_multipart: no boundary found in body".to_string(),
+            0,
+            0,
+        ));
+    };
+
+    loop {
+        // Skip past the boundary line (and optional trailing whitespace / CRLF)
+        let mut content_start = pos + delim_bytes.len();
+        // Closing boundary ends the parse
+        if body.get(pos..pos + close_bytes.len()) == Some(close_bytes) {
+            break;
+        }
+        // Consume trailing spaces/tabs then CRLF or LF after the boundary
+        while content_start < body.len()
+            && (body[content_start] == b' ' || body[content_start] == b'\t')
+        {
+            content_start += 1;
+        }
+        if body.get(content_start..content_start + 2) == Some(b"\r\n") {
+            content_start += 2;
+        } else if body.get(content_start) == Some(&b'\n') {
+            content_start += 1;
+        }
+
+        // Find the next boundary
+        search_from = content_start;
+        let next = match find_bytes(body, delim_bytes, search_from) {
+            Some(n) => n,
+            None => break,
+        };
+
+        // Part data ends just before the next boundary; strip trailing CRLF/LF
+        let mut content_end = next;
+        if content_end >= 2 && &body[content_end - 2..content_end] == b"\r\n" {
+            content_end -= 2;
+        } else if content_end >= 1 && body[content_end - 1] == b'\n' {
+            content_end -= 1;
+        }
+
+        let part_bytes = &body[content_start..content_end];
+        // Split headers from body at the first blank line
+        let (headers_bytes, body_bytes) = split_headers_and_body(part_bytes);
+
+        let headers_text = String::from_utf8_lossy(headers_bytes);
+        let mut part_name: Option<String> = None;
+        let mut part_filename: Option<String> = None;
+        let mut part_content_type: Option<String> = None;
+
+        for line in headers_text.split(['\r', '\n']) {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once(':') {
+                let key = key.trim();
+                let value = value.trim();
+                if key.eq_ignore_ascii_case("Content-Disposition") {
+                    let (n, f) = parse_content_disposition(value);
+                    part_name = n;
+                    part_filename = f;
+                } else if key.eq_ignore_ascii_case("Content-Type") {
+                    part_content_type = Some(value.to_string());
+                }
+            }
+        }
+
+        let mut part_map = HashMap::new();
+        part_map.insert(
+            "name".to_string(),
+            match part_name {
+                Some(n) => Value::Text(Arc::from(n.as_str())),
+                None => Value::Null,
+            },
+        );
+        part_map.insert(
+            "filename".to_string(),
+            match part_filename {
+                Some(f) => Value::Text(Arc::from(f.as_str())),
+                None => Value::Null,
+            },
+        );
+        part_map.insert(
+            "content_type".to_string(),
+            match part_content_type {
+                Some(ct) => Value::Text(Arc::from(ct.as_str())),
+                None => Value::Null,
+            },
+        );
+        // Lossy text view + lossless binary view, mirroring request body
+        let content_text = String::from_utf8_lossy(body_bytes).into_owned();
+        part_map.insert(
+            "content".to_string(),
+            Value::Text(Arc::from(content_text.as_str())),
+        );
+        part_map.insert(
+            "content_bytes".to_string(),
+            Value::Binary(Arc::from(body_bytes)),
+        );
+
+        parts.push(Value::Object(Rc::new(RefCell::new(part_map))));
+        pos = next;
+    }
+
+    Ok(parts)
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
+    if needle.is_empty() || start >= haystack.len() {
+        return None;
+    }
+    haystack[start..]
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .map(|p| start + p)
+}
+
+fn split_headers_and_body(part: &[u8]) -> (&[u8], &[u8]) {
+    // Prefer CRLF blank line, then LF blank line
+    if let Some(idx) = find_bytes(part, b"\r\n\r\n", 0) {
+        return (&part[..idx], &part[idx + 4..]);
+    }
+    if let Some(idx) = find_bytes(part, b"\n\n", 0) {
+        return (&part[..idx], &part[idx + 2..]);
+    }
+    // No body separator — treat entire part as headers with empty body
+    (part, &[])
+}
+
+/// parse_multipart(body, content_type) -> list of part objects
+///
+/// Usage:
+///   store parts as parse_multipart of body_bytes and content_type
+///   // or with the Content-Type header value:
+///   store parts as parse_multipart of body and header "Content-Type" of req
+///
+/// Each part is an object with:
+///   name, filename (or nothing), content_type (or nothing),
+///   content (text, lossy UTF-8), content_bytes (binary)
+pub fn native_parse_multipart(args: Vec<Value>) -> Result<Value, RuntimeError> {
+    check_arg_count("parse_multipart", &args, 2)?;
+
+    let body_bytes: Vec<u8> = match &args[0] {
+        Value::Binary(b) => b.to_vec(),
+        Value::Text(t) => t.as_bytes().to_vec(),
+        other => {
+            return Err(RuntimeError::new(
+                format!(
+                    "parse_multipart expects text or binary body, got {}",
+                    other.type_name()
+                ),
+                0,
+                0,
+            ));
+        }
+    };
+    let content_type = expect_text(&args[1])?;
+
+    let boundary = extract_multipart_boundary(&content_type).ok_or_else(|| {
+        RuntimeError::new(
+            format!("parse_multipart: could not find boundary in Content-Type '{content_type}'"),
+            0,
+            0,
+        )
+    })?;
+
+    let parts = parse_multipart_body(&body_bytes, &boundary)?;
+    Ok(Value::List(Rc::new(RefCell::new(parts))))
+}
+
 pub fn register_web(env: &mut Environment) {
     env.define_native("path_params", native_path_params);
     env.define_native("path_matches", native_path_matches);
     env.define_native("mime_type", native_mime_type);
+    env.define_native("parse_multipart", native_parse_multipart);
 }
 
 #[cfg(test)]
@@ -177,6 +416,85 @@ mod tests {
     fn rejects_segment_count_mismatch() {
         assert!(match_path_template("/users", "/users/:id").is_none());
         assert!(match_path_template("/users/1/2", "/users/:id").is_none());
+    }
+
+    #[test]
+    fn extract_boundary_from_content_type() {
+        assert_eq!(
+            extract_multipart_boundary("multipart/form-data; boundary=----WebKitFormBoundary"),
+            Some("----WebKitFormBoundary".to_string())
+        );
+        assert_eq!(
+            extract_multipart_boundary("multipart/form-data; boundary=\"abc123\""),
+            Some("abc123".to_string())
+        );
+        assert_eq!(
+            extract_multipart_boundary("abc123"),
+            Some("abc123".to_string())
+        );
+        assert!(extract_multipart_boundary("application/json").is_none());
+    }
+
+    #[test]
+    fn parse_multipart_text_and_file_parts() {
+        let body = "------bound\r\n\
+Content-Disposition: form-data; name=\"title\"\r\n\
+\r\n\
+Hello\r\n\
+------bound\r\n\
+Content-Disposition: form-data; name=\"file\"; filename=\"hi.txt\"\r\n\
+Content-Type: text/plain\r\n\
+\r\n\
+file body\r\n\
+------bound--\r\n";
+
+        let result = native_parse_multipart(vec![
+            Value::Text(Arc::from(body)),
+            Value::Text(Arc::from("multipart/form-data; boundary=----bound")),
+        ])
+        .expect("parse_multipart should succeed");
+
+        match result {
+            Value::List(list) => {
+                let parts = list.borrow();
+                assert_eq!(parts.len(), 2);
+
+                match &parts[0] {
+                    Value::Object(obj) => {
+                        let m = obj.borrow();
+                        assert!(
+                            matches!(m.get("name"), Some(Value::Text(t)) if t.as_ref() == "title")
+                        );
+                        assert!(
+                            matches!(m.get("content"), Some(Value::Text(t)) if t.as_ref() == "Hello")
+                        );
+                        assert!(matches!(m.get("filename"), Some(Value::Null)));
+                    }
+                    other => panic!("expected object part, got {other:?}"),
+                }
+
+                match &parts[1] {
+                    Value::Object(obj) => {
+                        let m = obj.borrow();
+                        assert!(
+                            matches!(m.get("name"), Some(Value::Text(t)) if t.as_ref() == "file")
+                        );
+                        assert!(
+                            matches!(m.get("filename"), Some(Value::Text(t)) if t.as_ref() == "hi.txt")
+                        );
+                        assert!(
+                            matches!(m.get("content_type"), Some(Value::Text(t)) if t.as_ref() == "text/plain")
+                        );
+                        assert!(
+                            matches!(m.get("content"), Some(Value::Text(t)) if t.as_ref() == "file body")
+                        );
+                        assert!(matches!(m.get("content_bytes"), Some(Value::Binary(_))));
+                    }
+                    other => panic!("expected object part, got {other:?}"),
+                }
+            }
+            other => panic!("expected list, got {other:?}"),
+        }
     }
 
     #[test]

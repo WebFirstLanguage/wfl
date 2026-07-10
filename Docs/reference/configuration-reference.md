@@ -298,6 +298,16 @@ Default TLS private key file used by `listen on port ... secured` statements tha
 
 **Security Note:** Protect the private key with restrictive file permissions (e.g. `chmod 600`). WFL validates both files at `listen` time and reports missing or malformed files with the offending path.
 
+#### web_server_max_body_size
+
+Maximum HTTP request body size accepted by `listen on port` servers, in bytes. Requests larger than this limit are rejected before the body reaches your WFL handler (DoS protection).
+
+- **Type:** Integer (bytes, at least 1)
+- **Default:** `1048576` (1 MiB)
+- **Example:** `web_server_max_body_size = 10485760` (10 MiB, suitable for media uploads)
+
+Raise this when accepting file uploads via `parse_multipart` or raw `body_bytes`. Keep it as small as practical for public-facing APIs.
+
 ## Example Configuration Files
 
 ### Development Configuration

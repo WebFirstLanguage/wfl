@@ -188,6 +188,30 @@ display "User agent: " with user_agent
 respond to req with "ok"
 ```
 
+`header "Name" of req` reads from the **request object**, so it also works
+inside actions that receive `req` as a parameter (you do not need the
+loop-scoped `headers` binding).
+
+### Query String
+
+The raw query string (without the leading `?`) is available as `query` in the
+request loop, or as `query of req` when you have a request object. Feed it to
+`parse_query_string` for key/value access:
+
+```wfl
+listen on port 8080 as web_server
+wait for request comes in on web_server as req
+
+store params as parse_query_string of query
+store page as params["page"]
+// or equivalently:
+// store params as parse_query_string of query of req
+
+respond to req with "Page: " with page
+```
+
+An URL without a query string yields empty text (`""`).
+
 ### Request Body
 
 The request body is available two ways:
@@ -207,6 +231,68 @@ close file out_file
 
 respond to req with "Uploaded"
 ```
+
+Bodies larger than the configured limit (default **1 MiB**) are rejected before
+they reach your handler. Raise the limit in `.wflcfg` when you need larger
+uploads:
+
+```ini
+web_server_max_body_size = 10485760
+```
+
+### Multipart Form Uploads
+
+Parse `multipart/form-data` bodies with `parse_multipart`. Pass the body
+(text or `body_bytes`) and the `Content-Type` header (needed for the boundary):
+
+```wfl
+wait for request comes in on web_server as req
+
+store content_type as header "Content-Type" of req
+store parts as parse_multipart of body_bytes and content_type
+
+for each part in parts:
+    store field_name as part["name"]
+    store filename as part["filename"]
+    // Text fields: part["content"]
+    // File bytes:  part["content_bytes"]
+    // Optional:    part["content_type"]
+end for
+
+respond to req with "Uploaded"
+```
+
+Each part is an object with:
+
+| Field | Type | Notes |
+|-------|------|--------|
+| `name` | text or nothing | Form field name |
+| `filename` | text or nothing | Present for file parts |
+| `content_type` | text or nothing | Part's Content-Type, if any |
+| `content` | text | Lossy UTF-8 view of the part body |
+| `content_bytes` | binary | Exact bytes (use for files) |
+
+### Using the request object inside actions
+
+`method`, `path`, `query`, `body`, and `body_bytes` are also properties of the
+request object. Prefer `path of req` (and friends) inside actions so handlers
+stay self-contained:
+
+```wfl
+define action called handle with parameters req:
+    store p as path of req
+    store m as method of req
+    store ua as header "User-Agent" of req
+    respond to req with m with " " with p with " " with ua
+end action
+
+listen on port 8080 as web_server
+wait for request comes in on web_server as req
+call handle with req
+```
+
+Bare names like `path` and `method` only exist in the request loop scope after
+`wait for request`; they are not visible inside actions.
 
 ## Response Options
 

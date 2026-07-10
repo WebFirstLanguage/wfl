@@ -72,6 +72,10 @@ pub struct WflHttpRequest {
     pub id: String,
     pub method: String,
     pub path: String,
+    /// Raw query string without the leading `?` (empty when the URL has none).
+    /// Exposed as the `query` request property / loop-scoped variable so
+    /// handlers can feed it to `parse_query_string`.
+    pub query: String,
     pub client_ip: String,
     /// Raw request body bytes. Exposed to WFL both as a lossy-UTF-8 `body`
     /// text variable (backward compatible) and as a lossless `body_bytes`
@@ -90,6 +94,25 @@ pub struct WflHttpResponse {
     pub status: u16,
     pub content_type: String,
     pub headers: HashMap<String, String>,
+}
+
+/// Look up an HTTP header by name in a request headers map.
+///
+/// Header names are case-insensitive (RFC 7230). Warp stores them lowercase,
+/// while WFL programs typically use canonical forms like `User-Agent`, so an
+/// exact-key miss falls back to a case-insensitive scan. Extracted as a pure
+/// function so unit tests pin the regression without spinning up a server.
+pub(crate) fn lookup_header_case_insensitive(
+    headers: &HashMap<String, Value>,
+    header_name: &str,
+) -> Option<Value> {
+    headers.get(header_name).cloned().or_else(|| {
+        let lowered = header_name.to_lowercase();
+        headers
+            .iter()
+            .find(|(key, _)| key.to_lowercase() == lowered)
+            .map(|(_, value)| value.clone())
+    })
 }
 
 #[derive(Debug)]
@@ -5362,30 +5385,33 @@ impl Interpreter {
 
                 // Create warp routes that handle all HTTP methods and paths
                 // Note: Body size validation is performed manually in the handler below
-                // to allow GET requests without Content-Length headers
+                // to allow GET requests without Content-Length headers. The limit is
+                // configurable via `.wflcfg` `web_server_max_body_size` (default 1 MB).
                 let request_sender_clone = request_sender.clone();
+                let max_body_size = self.config.web_server_max_body_size;
                 let routes = warp::any()
                     .and(warp::method())
                     .and(warp::path::full())
+                    .and(warp::query::raw().or(warp::any().map(String::new)).unify())
                     .and(warp::header::headers_cloned())
                     .and(warp::body::bytes())
                     .and(warp::addr::remote())
                     .and_then(
                         move |method: warp::http::Method,
                               path: warp::path::FullPath,
+                              query: String,
                               headers: warp::http::HeaderMap,
                               body: bytes::Bytes,
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
                             async move {
-                                // DoS PROTECTION: Enforce 1MB body size limit
-                                // This maintains the security requirement from web_server_body_limit_test.wfl
-                                const MAX_BODY_SIZE: usize = 1_048_576; // 1MB
-                                if body.len() > MAX_BODY_SIZE {
+                                // DoS PROTECTION: Enforce configurable body size limit
+                                // Default 1 MB; override with web_server_max_body_size in .wflcfg
+                                if body.len() > max_body_size {
                                     return Err(warp::reject::custom(ServerError(format!(
                                         "Request body too large: {} bytes (limit: {} bytes)",
                                         body.len(),
-                                        MAX_BODY_SIZE
+                                        max_body_size
                                     ))));
                                 }
 
@@ -5419,6 +5445,7 @@ impl Interpreter {
                                     id: request_id,
                                     method: method.to_string(),
                                     path: path.as_str().to_string(),
+                                    query,
                                     client_ip,
                                     body: body_bytes,
                                     headers: header_map,
@@ -5902,6 +5929,10 @@ impl Interpreter {
                     Value::Text(Arc::from(request.path.clone())),
                 );
                 request_properties.insert(
+                    "query".to_string(),
+                    Value::Text(Arc::from(request.query.clone())),
+                );
+                request_properties.insert(
                     "client_ip".to_string(),
                     Value::Text(Arc::from(request.client_ip.clone())),
                 );
@@ -5925,6 +5956,8 @@ impl Interpreter {
                 env_mut.define_or_replace("method", Value::Text(Arc::from(request.method.clone())));
 
                 env_mut.define_or_replace("path", Value::Text(Arc::from(request.path.clone())));
+
+                env_mut.define_or_replace("query", Value::Text(Arc::from(request.query.clone())));
 
                 env_mut.define_or_replace(
                     "client_ip",
@@ -6680,7 +6713,7 @@ impl Interpreter {
                         Value::Object(props) => {
                             let props = props.borrow();
                             let mut vars = Vec::new();
-                            for key in ["method", "path", "client_ip", "body", "headers"] {
+                            for key in ["method", "path", "query", "client_ip", "body", "headers"] {
                                 let value = props.get(key).ok_or_else(|| {
                                     RuntimeError::new(
                                         format!(
@@ -8955,37 +8988,54 @@ impl Interpreter {
             }
             Expression::HeaderAccess {
                 header_name,
-                request: _,
+                request,
                 line,
                 column,
             } => {
-                // Access the headers object from the environment
-                // Headers are stored as a global variable when wait for request is executed
-                let headers_val = match env.borrow().get("headers") {
-                    Some(val) => val.clone(),
-                    None => {
-                        return Err(RuntimeError::new(
-                            "Cannot access headers: no request in scope. Use 'wait for request comes in' first.".to_string(),
-                            *line,
-                            *column,
-                        ));
+                // Resolve headers from the request object first so
+                // `header "X" of req` works inside actions that receive
+                // `req` as a parameter (issue #597). Fall back to the
+                // loop-scoped `headers` binding for backward compatibility
+                // when the request expression is not a request object.
+                let headers_val = {
+                    let request_val = self.evaluate_expression(request, Rc::clone(&env)).await?;
+                    match &request_val {
+                        Value::Object(obj) => {
+                            let map = obj.borrow();
+                            if let Some(headers) = map.get("headers") {
+                                headers.clone()
+                            } else {
+                                // Not a request object — try env fallback
+                                match env.borrow().get("headers") {
+                                    Some(val) => val.clone(),
+                                    None => {
+                                        return Err(RuntimeError::new(
+                                            "Cannot access headers: no request in scope. Use 'wait for request comes in' first, or pass a request object to the action.".to_string(),
+                                            *line,
+                                            *column,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        _ => match env.borrow().get("headers") {
+                            Some(val) => val.clone(),
+                            None => {
+                                return Err(RuntimeError::new(
+                                    "Cannot access headers: no request in scope. Use 'wait for request comes in' first, or pass a request object to the action.".to_string(),
+                                    *line,
+                                    *column,
+                                ));
+                            }
+                        },
                     }
                 };
 
-                // Get the specific header from the headers object. HTTP
-                // header names are case-insensitive (and warp normalizes
-                // them to lowercase), so fall back to a case-insensitive
-                // scan when the exact key is absent.
+                // Get the specific header from the headers object.
                 match &headers_val {
                     Value::Object(headers_map) => {
                         let map = headers_map.borrow();
-                        let header_value = map.get(header_name).cloned().or_else(|| {
-                            let lowered = header_name.to_lowercase();
-                            map.iter()
-                                .find(|(key, _)| key.to_lowercase() == lowered)
-                                .map(|(_, value)| value.clone())
-                        });
-                        match header_value {
+                        match lookup_header_case_insensitive(&map, header_name) {
                             Some(header_value) => Ok(header_value),
                             // Value::Null is the runtime value of WFL's
                             // `nothing` literal
@@ -9601,6 +9651,76 @@ impl Interpreter {
         }
 
         Ok(files)
+    }
+}
+
+#[cfg(test)]
+mod header_lookup_tests {
+    use super::*;
+
+    fn text(s: &str) -> Value {
+        Value::Text(Arc::from(s))
+    }
+
+    fn headers_with(pairs: &[(&str, &str)]) -> HashMap<String, Value> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), text(v)))
+            .collect()
+    }
+
+    #[test]
+    fn exact_key_match_returns_value() {
+        let headers = headers_with(&[("user-agent", "exact")]);
+        let got = lookup_header_case_insensitive(&headers, "user-agent");
+        assert!(
+            matches!(got, Some(Value::Text(t)) if t.as_ref() == "exact"),
+            "exact key should hit without scanning"
+        );
+    }
+
+    #[test]
+    fn canonical_name_finds_lowercase_warp_key() {
+        // Regression: warp normalizes to lowercase; programs use "User-Agent".
+        let headers = headers_with(&[("user-agent", "wfl-header-test")]);
+        let got = lookup_header_case_insensitive(&headers, "User-Agent");
+        assert!(
+            matches!(got, Some(Value::Text(t)) if t.as_ref() == "wfl-header-test"),
+            "header \"User-Agent\" must resolve the lowercase 'user-agent' entry"
+        );
+    }
+
+    #[test]
+    fn mixed_case_lookup_against_mixed_case_key() {
+        let headers = headers_with(&[("Content-Type", "application/json")]);
+        let got = lookup_header_case_insensitive(&headers, "content-type");
+        assert!(
+            matches!(got, Some(Value::Text(t)) if t.as_ref() == "application/json"),
+            "lookup should be case-insensitive in both directions"
+        );
+    }
+
+    #[test]
+    fn uppercase_lookup_against_lowercase_key() {
+        let headers = headers_with(&[("x-custom-header", "present")]);
+        let got = lookup_header_case_insensitive(&headers, "X-CUSTOM-HEADER");
+        assert!(
+            matches!(got, Some(Value::Text(t)) if t.as_ref() == "present"),
+            "full uppercase name should still match"
+        );
+    }
+
+    #[test]
+    fn missing_header_returns_none() {
+        let headers = headers_with(&[("user-agent", "bot")]);
+        let got = lookup_header_case_insensitive(&headers, "Accept");
+        assert!(got.is_none(), "absent header should return None (maps to nothing)");
+    }
+
+    #[test]
+    fn empty_headers_map_returns_none() {
+        let headers = HashMap::new();
+        assert!(lookup_header_case_insensitive(&headers, "User-Agent").is_none());
     }
 }
 

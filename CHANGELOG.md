@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- HTTP request query string access: raw query is available as `query` / `query of req` (no leading `?`) so `parse_query_string of query` works on real requests (#597)
+- Configurable request body size limit via `.wflcfg` `web_server_max_body_size` (default still 1 MiB) (#597)
+- `parse_multipart of <body> and <content_type>` returns a list of part objects (`name`, `filename`, `content_type`, `content`, `content_bytes`) for multipart form uploads (#597)
 - HTTPS support for the built-in web server: `listen on port 8443 secured with certificate "cert.pem" and key "key.pem" as server` (PEM files; paths may be expressions)
 - Bare `secured` form takes certificate/key paths from new `.wflcfg` settings `web_server_tls_cert_file` / `web_server_tls_key_file`; in-language paths always win, and a plain `listen` never becomes HTTPS via config
 - HTTP→HTTPS auto-redirect servers: `listen on port 8080 redirecting to port 8443 as redirect_server` answers every request natively with `301 Moved Permanently`, preserving host, path, and query (target port omitted when 443)
@@ -35,6 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - New documentation: `Docs/04-advanced-features/databases.md`; route-parameters section in `Docs/04-advanced-features/web-servers.md`
 
 ### Fixed
+- `header "<Name>" of <request>` now reads headers from the request object, so it works inside actions that receive `req` as a parameter (previously looked only at loop-scoped `headers` and failed with "no request in scope") (#597)
 - `respond to ... with <content> and status <code> and content_type <type>` previously parsed the status as the boolean expression `<code> and content_type`, which failed at runtime and left the HTTP request unanswered; status/content_type values now parse as primary expressions
 - `header "<Name>" of <request>` is now case-insensitive; warp normalizes header names to lowercase, so canonically-spelled names like `User-Agent` always returned nothing on real requests. Absent headers now compare equal to `nothing`
 - The static analyzer now marks variables inside list literals (e.g. `parameters [user_name]`) as used
