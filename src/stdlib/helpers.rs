@@ -450,6 +450,29 @@ generate_expect!(
 );
 
 generate_expect!(
+    /// Extracts binary data from a WFL Value, returning it as a reference-counted byte slice.
+    ///
+    /// Returns an `Arc<[u8]>` clone (incrementing the reference count) if the value is a
+    /// Binary variant. The underlying bytes are shared, not copied. Binary values are
+    /// produced by reading files as binary content, binary HTTP request bodies, and
+    /// similar byte-oriented operations.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The WFL Value to extract from
+    ///
+    /// # Errors
+    ///
+    /// Returns `RuntimeError` if the value is not Binary, with an error message
+    /// indicating the expected type and the actual type received.
+    expect_binary,
+    Binary,
+    Arc<[u8]>,
+    "binary data",
+    |b: &Arc<[u8]>| Arc::clone(b)
+);
+
+generate_expect!(
     /// Extracts a boolean value from a WFL Value, returning it as a primitive bool.
     ///
     /// Returns a copy of the bool value rather than a reference since bool implements Copy.

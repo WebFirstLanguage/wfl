@@ -1,0 +1,61 @@
+// Native image builtins — end-to-end coverage of image_dimensions and
+// resize_image. Reads the repository's 128x128 PNG icon (the integration
+// runner executes from the repo root), inspects it, resizes it, and confirms
+// the thumbnail decodes at the expected size and format.
+//
+// Being able to resize an image from inside WFL — rather than shelling out to
+// an external tool — is what keeps media handling on the WFL side of the
+// process boundary.
+
+describe "image_dimensions":
+
+    test "reports the source width and height":
+        open file at "icons/wfl.png" for reading binary as icon
+        store icon_bytes as read binary from icon
+        close file icon
+
+        store dims as image_dimensions of icon_bytes
+        expect dims["width"] to equal 128
+        expect dims["height"] to equal 128
+    end test
+
+end describe
+
+describe "resize_image":
+
+    test "produces a thumbnail that fits the requested box":
+        open file at "icons/wfl.png" for reading binary as icon
+        store icon_bytes as read binary from icon
+        close file icon
+
+        // Source is square, so fitting into 32x32 yields exactly 32x32.
+        store thumb as resize_image of icon_bytes and 32 and 32
+
+        store thumb_dims as image_dimensions of thumb
+        expect thumb_dims["width"] to equal 32
+        expect thumb_dims["height"] to equal 32
+    end test
+
+    test "resized bytes round-trip through the filesystem":
+        open file at "icons/wfl.png" for reading binary as icon
+        store icon_bytes as read binary from icon
+        close file icon
+
+        store thumb as resize_image of icon_bytes and 48 and 48
+
+        open file at "icon_thumb.png" for writing binary as out_file
+        write binary thumb into out_file
+        close file out_file
+
+        open file at "icon_thumb.png" for reading binary as back_file
+        store reloaded as read binary from back_file
+        close file back_file
+
+        store reloaded_dims as image_dimensions of reloaded
+        expect reloaded_dims["width"] to equal 48
+        expect reloaded_dims["height"] to equal 48
+
+        delete file at "icon_thumb.png"
+    end test
+
+end describe

@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod core;
 pub mod crypto;
 pub mod filesystem;
@@ -5,6 +6,7 @@ pub mod helpers;
 pub mod json;
 pub mod list;
 pub mod math;
+pub mod media;
 pub mod pattern;
 pub mod pattern_test;
 pub mod random;
@@ -27,4 +29,6 @@ pub fn register_stdlib(env: &mut Environment) {
     pattern::register(env);
     time::register_time(env);
     web::register_web(env);
+    media::register_media(env);
+    cache::register_cache(env);
 }

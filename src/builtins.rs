@@ -65,6 +65,17 @@ const BUILTIN_FUNCTIONS: &[&str] = &[
     "path_params",
     "path_matches",
     "mime_type",
+    // Media (image) functions (implemented in stdlib/media.rs)
+    "resize_image",
+    "image_dimensions",
+    // Cache (TTL) functions (implemented in stdlib/cache.rs)
+    "create_cache",
+    "cache_set",
+    "cache_get",
+    "cache_has",
+    "cache_delete",
+    "cache_clear",
+    "cache_size",
     // Math functions (implemented in stdlib/math.rs)
     "min",
     "max",
@@ -312,6 +323,22 @@ pub fn get_function_arity(name: &str) -> usize {
         "path_params" | "path_matches" => 2,
         // Single argument: (name)
         "mime_type" => 1,
+
+        // === MEDIA (IMAGE) FUNCTIONS ===
+        // Single argument: (image_data)
+        "image_dimensions" => 1,
+        // Three argument functions: (image_data, width, height)
+        "resize_image" => 3,
+
+        // === CACHE (TTL) FUNCTIONS ===
+        // Zero argument functions
+        "create_cache" => 0,
+        // Single argument: (cache)
+        "cache_clear" | "cache_size" => 1,
+        // Two argument functions: (cache, key)
+        "cache_get" | "cache_has" | "cache_delete" => 2,
+        // Four argument functions: (cache, key, value, ttl_seconds)
+        "cache_set" => 4,
 
         // === TEXT FUNCTIONS ===
         // Single argument functions

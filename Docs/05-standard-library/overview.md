@@ -1,13 +1,13 @@
 # Standard Library Overview
 
-WFL's standard library provides 181+ built-in functions organized into 11 modules. Everything you need is already included—no package managers, no external dependencies.
+WFL's standard library provides 190+ built-in functions organized into 13 modules. Everything you need is already included—no package managers, no external dependencies.
 
 ## Library Architecture
 
 The standard library is organized by functionality:
 
 ```
-Standard Library (181+ functions)
+Standard Library (190+ functions)
 ├── Core Module (3 functions)
 │   └── Essential operations
 ├── Math Module (5 functions)
@@ -26,6 +26,10 @@ Standard Library (181+ functions)
 │   └── Password hashing, auth/session primitives, hashing & MAC
 ├── Pattern Module (3 functions)
 │   └── Pattern matching utilities
+├── Media Module (2 functions)
+│   └── Native image inspection and resizing
+├── Cache Module (7 functions)
+│   └── In-memory TTL cache primitive
 └── Typechecker Module
     └── Type checking utilities
 ```
@@ -286,8 +290,8 @@ Use whichever reads most naturally in your code!
 
 In this overview, you learned:
 
-✅ **Library organization** - 11 modules by functionality
-✅ **Function count** - 181+ built-in functions
+✅ **Library organization** - 13 modules by functionality
+✅ **Function count** - 190+ built-in functions
 ✅ **Naming conventions** - Natural language names
 ✅ **Syntax patterns** - Consistent `of` and `and` usage
 ✅ **No imports** - Everything available by default

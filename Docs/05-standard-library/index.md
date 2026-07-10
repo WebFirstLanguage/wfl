@@ -1,6 +1,6 @@
 # Standard Library
 
-WFL includes a comprehensive standard library with 181+ built-in functions across 11 modules. Everything you need is included.
+WFL includes a comprehensive standard library with 190+ built-in functions across 13 modules. Everything you need is included.
 
 ## What's in the Standard Library?
 
@@ -15,6 +15,8 @@ WFL's standard library provides:
 - **[Random Module](random-module.md)** - Random number generation
 - **[Crypto Module](crypto-module.md)** - Password hashing, standard hashing/MAC, and WFLHASH
 - **[Pattern Module](pattern-module.md)** - Pattern matching utilities
+- **[Media Module](media-module.md)** - Native image inspection and resizing
+- **[Cache Module](cache-module.md)** - In-memory TTL cache primitive
 - **[Typechecker Module](typechecker-module.md)** - Type checking utilities
 
 **No external dependencies required!** Everything is built-in.

@@ -314,7 +314,7 @@ You've completed all standard library modules! You now understand:
 ✅ **Pattern** - Pattern matching utilities
 ✅ **Typechecker** - Runtime type validation
 
-**Total:** 181+ functions across 11 modules!
+**Total:** 190+ functions across 13 modules!
 
 ## What's Next?
 

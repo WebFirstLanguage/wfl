@@ -1,0 +1,92 @@
+// TTL cache primitive — end-to-end coverage of the create_cache / cache_set /
+// cache_get / cache_has / cache_delete / cache_clear / cache_size builtins.
+// Timing-based expiry is covered by the Rust unit tests in src/stdlib/cache.rs;
+// here we exercise the behaviour reachable without sleeping.
+
+describe "TTL cache basics":
+
+    test "create_cache returns a numeric handle":
+        store pages as create_cache
+        expect pages to be of type "Number"
+    end test
+
+    test "set then get returns the stored value":
+        store c as create_cache
+        cache_set of c and "greeting" and "hello" and 60
+        store hit as cache_get of c and "greeting"
+        expect hit to equal "hello"
+    end test
+
+    test "missing key reports absent via cache_has":
+        store c as create_cache
+        expect cache_has of c and "absent" to be no
+    end test
+
+    test "present key reports true via cache_has":
+        store c as create_cache
+        cache_set of c and "k" and "v" and 60
+        expect cache_has of c and "k" to be yes
+    end test
+
+    test "ttl of zero never expires":
+        store c as create_cache
+        cache_set of c and "forever" and "v" and 0
+        expect cache_has of c and "forever" to be yes
+    end test
+
+    test "overwriting a key replaces its value":
+        store c as create_cache
+        cache_set of c and "k" and "old" and 60
+        cache_set of c and "k" and "new" and 60
+        store hit as cache_get of c and "k"
+        expect hit to equal "new"
+        expect cache_size of c to equal 1
+    end test
+
+end describe
+
+describe "TTL cache management":
+
+    test "delete removes a live entry and reports true":
+        store c as create_cache
+        cache_set of c and "k" and "v" and 60
+        expect cache_delete of c and "k" to be yes
+        expect cache_has of c and "k" to be no
+    end test
+
+    test "delete of a missing key reports false":
+        store c as create_cache
+        expect cache_delete of c and "nope" to be no
+    end test
+
+    test "cache_size counts live entries":
+        store c as create_cache
+        cache_set of c and "a" and "1" and 60
+        cache_set of c and "b" and "2" and 60
+        expect cache_size of c to equal 2
+    end test
+
+    test "cache_clear empties the cache":
+        store c as create_cache
+        cache_set of c and "a" and "1" and 60
+        cache_set of c and "b" and "2" and 60
+        cache_clear of c
+        expect cache_size of c to equal 0
+    end test
+
+    test "caches are independent of one another":
+        store a as create_cache
+        store b as create_cache
+        cache_set of a and "k" and "in-a" and 60
+        expect cache_has of a and "k" to be yes
+        expect cache_has of b and "k" to be no
+    end test
+
+    test "values of any type round-trip":
+        store c as create_cache
+        cache_set of c and "count" and 42 and 60
+        store n as cache_get of c and "count"
+        expect n to equal 42
+    end test
+
+end describe

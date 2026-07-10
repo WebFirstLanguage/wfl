@@ -225,6 +225,18 @@ impl TypeChecker {
             "path_matches" => Type::Boolean,
             "mime_type" => Type::Text,
 
+            // Media (image) helpers
+            "resize_image" => Type::Binary,
+            "image_dimensions" => Type::Map(Box::new(Type::Text), Box::new(Type::Number)),
+
+            // TTL cache primitive: create_cache and cache_size yield numbers,
+            // cache_has/cache_delete yield booleans, cache_get yields the stored
+            // value (Any), and the mutating ops yield Nothing.
+            "create_cache" | "cache_size" => Type::Number,
+            "cache_has" | "cache_delete" => Type::Boolean,
+            "cache_get" => Type::Any,
+            "cache_set" | "cache_clear" => Type::Nothing,
+
             // Text functions registered under stdlib-specific names
             "string_split" => Type::List(Box::new(Type::Text)),
 

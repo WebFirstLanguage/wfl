@@ -42,6 +42,9 @@ pub fn register_stdlib_types(analyzer: &mut Analyzer) {
     register_path_params(analyzer);
     register_path_matches(analyzer);
 
+    register_media(analyzer);
+    register_cache(analyzer);
+
     register_generate_uuid(analyzer);
     register_generate_csrf_token(analyzer);
 
@@ -447,6 +450,46 @@ fn register_path_matches(analyzer: &mut Analyzer) {
     let return_type = Type::Boolean;
 
     analyzer.register_builtin_function("path_matches", param_types, return_type);
+}
+
+fn register_media(analyzer: &mut Analyzer) {
+    // resize_image of image_data and width and height -> Binary
+    analyzer.register_builtin_function(
+        "resize_image",
+        vec![Type::Binary, Type::Number, Type::Number],
+        Type::Binary,
+    );
+    // image_dimensions of image_data -> { width, height } map of numbers
+    analyzer.register_builtin_function(
+        "image_dimensions",
+        vec![Type::Binary],
+        Type::Map(Box::new(Type::Text), Box::new(Type::Number)),
+    );
+}
+
+fn register_cache(analyzer: &mut Analyzer) {
+    // create_cache -> cache handle (Number)
+    analyzer.register_builtin_function("create_cache", vec![], Type::Number);
+    // cache_set of cache and key and value and ttl_seconds -> Nothing
+    analyzer.register_builtin_function(
+        "cache_set",
+        vec![Type::Number, Type::Text, Type::Any, Type::Number],
+        Type::Nothing,
+    );
+    // cache_get of cache and key -> stored value (Any) or nothing
+    analyzer.register_builtin_function("cache_get", vec![Type::Number, Type::Text], Type::Any);
+    // cache_has of cache and key -> Boolean
+    analyzer.register_builtin_function("cache_has", vec![Type::Number, Type::Text], Type::Boolean);
+    // cache_delete of cache and key -> Boolean
+    analyzer.register_builtin_function(
+        "cache_delete",
+        vec![Type::Number, Type::Text],
+        Type::Boolean,
+    );
+    // cache_clear of cache -> Nothing
+    analyzer.register_builtin_function("cache_clear", vec![Type::Number], Type::Nothing);
+    // cache_size of cache -> Number
+    analyzer.register_builtin_function("cache_size", vec![Type::Number], Type::Number);
 }
 
 fn register_generate_uuid(analyzer: &mut Analyzer) {
