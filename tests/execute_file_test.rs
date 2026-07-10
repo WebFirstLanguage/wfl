@@ -226,6 +226,7 @@ async fn test_execute_file_passes_request_context() {
         concat!(
             "display method\n",
             "display path\n",
+            "display query\n",
             "display body\n",
             "display client_ip\n",
         ),
@@ -248,6 +249,7 @@ async fn test_execute_file_passes_request_context() {
         let mut props = HashMap::new();
         props.insert("method".to_string(), Value::Text(Arc::from("POST")));
         props.insert("path".to_string(), Value::Text(Arc::from("/hello")));
+        props.insert("query".to_string(), Value::Text(Arc::from("q=1")));
         props.insert("body".to_string(), Value::Text(Arc::from("name=World")));
         props.insert("client_ip".to_string(), Value::Text(Arc::from("127.0.0.1")));
         props.insert(
@@ -269,7 +271,7 @@ async fn test_execute_file_passes_request_context() {
 
     assert_eq!(
         get_global_text(&interpreter, "page_output"),
-        "POST\n/hello\nname=World\n127.0.0.1\n"
+        "POST\n/hello\nq=1\nname=World\n127.0.0.1\n"
     );
 }
 
