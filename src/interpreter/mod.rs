@@ -9714,7 +9714,10 @@ mod header_lookup_tests {
     fn missing_header_returns_none() {
         let headers = headers_with(&[("user-agent", "bot")]);
         let got = lookup_header_case_insensitive(&headers, "Accept");
-        assert!(got.is_none(), "absent header should return None (maps to nothing)");
+        assert!(
+            got.is_none(),
+            "absent header should return None (maps to nothing)"
+        );
     }
 
     #[test]
