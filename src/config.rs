@@ -45,6 +45,9 @@ pub struct WflConfig {
     // statement does not name certificate/key files itself
     pub web_server_tls_cert_file: Option<String>,
     pub web_server_tls_key_file: Option<String>,
+    /// Maximum accepted HTTP request body size in bytes (DoS protection).
+    /// Default 1 MiB; raise for media uploads via `.wflcfg`.
+    pub web_server_max_body_size: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +126,8 @@ impl Default for WflConfig {
             // name its certificate/key files or these must be set in .wflcfg
             web_server_tls_cert_file: None,
             web_server_tls_key_file: None,
+            // 1 MiB default body limit (DoS protection); raise for uploads
+            web_server_max_body_size: 1_048_576,
         }
     }
 }
@@ -617,6 +622,41 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                         );
                     }
                 }
+                "web_server_max_body_size" => {
+                    if let Ok(size) = value.parse::<usize>() {
+                        // Reject zero so a misconfigured limit cannot lock out all POSTs
+                        if size == 0 {
+                            log::warn!(
+                                "Invalid web_server_max_body_size '0' in {}: must be at least 1. Keeping {}",
+                                file.display(),
+                                config.web_server_max_body_size
+                            );
+                        } else {
+                            if config.web_server_max_body_size
+                                != WflConfig::default().web_server_max_body_size
+                            {
+                                log::debug!(
+                                    "Overriding web_server_max_body_size: {} -> {} from {}",
+                                    config.web_server_max_body_size,
+                                    size,
+                                    file.display()
+                                );
+                            }
+                            config.web_server_max_body_size = size;
+                            log::debug!(
+                                "Loaded web_server_max_body_size: {} from {}",
+                                config.web_server_max_body_size,
+                                file.display()
+                            );
+                        }
+                    } else {
+                        log::warn!(
+                            "Invalid web_server_max_body_size '{}' in {}: expected a positive integer",
+                            value,
+                            file.display()
+                        );
+                    }
+                }
                 _ => {
                     log::warn!("Unknown configuration key: {} in {}", key, file.display());
                 }
@@ -1056,6 +1096,42 @@ mod tests {
         assert_eq!(
             config.web_server_tls_key_file, None,
             "Default web_server_tls_key_file should be None"
+        );
+    }
+
+    #[test]
+    fn test_web_server_max_body_size_default() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+
+        assert_eq!(
+            config.web_server_max_body_size, 1_048_576,
+            "Default web_server_max_body_size should be 1 MiB"
+        );
+    }
+
+    #[test]
+    fn test_web_server_max_body_size_custom() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join(".wflcfg");
+
+        let config_content = "web_server_max_body_size = 10485760\n";
+
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(config_content.as_bytes()).unwrap();
+
+        let config = with_test_global_path(|| {
+            set_test_env_var(Some("/non/existent/path"));
+            load_config(temp_dir.path())
+        });
+
+        assert_eq!(
+            config.web_server_max_body_size, 10_485_760,
+            "web_server_max_body_size should load from .wflcfg"
         );
     }
 
