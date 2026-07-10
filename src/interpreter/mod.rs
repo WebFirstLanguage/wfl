@@ -5383,17 +5383,38 @@ impl Interpreter {
                     mpsc::unbounded_channel::<WflHttpRequest>();
                 let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
 
-                // Create warp routes that handle all HTTP methods and paths
-                // Note: Body size validation is performed manually in the handler below
-                // to allow GET requests without Content-Length headers. The limit is
-                // configurable via `.wflcfg` `web_server_max_body_size` (default 1 MB).
+                // Create warp routes that handle all HTTP methods and paths.
+                // Body size: reject oversized Content-Length *before* buffering
+                // (when the header is present), then re-check after
+                // `body::bytes()` for missing/wrong Content-Length. GET and
+                // other no-body requests still work without Content-Length.
+                // Limit is configurable via `.wflcfg` `web_server_max_body_size`
+                // (default 1 MB).
                 let request_sender_clone = request_sender.clone();
                 let max_body_size = self.config.web_server_max_body_size;
+                let max_body_size_u64 = max_body_size as u64;
                 let routes = warp::any()
                     .and(warp::method())
                     .and(warp::path::full())
                     .and(warp::query::raw().or(warp::any().map(String::new)).unify())
                     .and(warp::header::headers_cloned())
+                    // Early reject when the client advertises an oversized body,
+                    // so we never allocate for that payload. Optional header so
+                    // GETs without Content-Length are unaffected.
+                    .and(
+                        warp::header::optional::<u64>("content-length").and_then(
+                            move |len: Option<u64>| async move {
+                                if let Some(len) = len
+                                    && len > max_body_size_u64
+                                {
+                                    return Err(warp::reject::custom(ServerError(format!(
+                                        "Request body too large: {len} bytes (limit: {max_body_size_u64} bytes)"
+                                    ))));
+                                }
+                                Ok::<(), warp::Rejection>(())
+                            },
+                        ),
+                    )
                     .and(warp::body::bytes())
                     .and(warp::addr::remote())
                     .and_then(
@@ -5401,12 +5422,13 @@ impl Interpreter {
                               path: warp::path::FullPath,
                               query: String,
                               headers: warp::http::HeaderMap,
+                              (),
                               body: bytes::Bytes,
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
                             async move {
-                                // DoS PROTECTION: Enforce configurable body size limit
-                                // Default 1 MB; override with web_server_max_body_size in .wflcfg
+                                // Safety net when Content-Length was absent or lied:
+                                // still refuse after buffering so the limit holds.
                                 if body.len() > max_body_size {
                                     return Err(warp::reject::custom(ServerError(format!(
                                         "Request body too large: {} bytes (limit: {} bytes)",

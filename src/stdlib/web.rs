@@ -177,28 +177,105 @@ fn extract_multipart_boundary(content_type: &str) -> Option<String> {
 }
 
 /// Parse a single multipart Content-Disposition header for name and optional filename.
+///
+/// Parameters may contain `=` inside the value (e.g. `filename="report=2024.pdf"`).
+/// Values are taken as everything after the first `=` of each parameter; quoted
+/// values keep internal `;` by scanning for the closing quote instead of splitting
+/// on every semicolon.
 fn parse_content_disposition(header: &str) -> (Option<String>, Option<String>) {
     let mut name = None;
     let mut filename = None;
-    for part in header.split(';').skip(1) {
-        let part = part.trim();
-        if let Some((key, value)) = part.split_once('=') {
-            let key = key.trim();
-            let value = value.trim().trim_matches('"').to_string();
-            if key.eq_ignore_ascii_case("name") {
-                name = Some(value);
-            } else if key.eq_ignore_ascii_case("filename") || key.eq_ignore_ascii_case("filename*")
-            {
-                // filename* can be charset'lang'value — take the raw value for now
-                let value = value
-                    .rsplit_once('\'')
-                    .map(|(_, v)| v.to_string())
-                    .unwrap_or(value);
-                filename = Some(value);
-            }
+
+    // Skip the disposition type (form-data) and walk `;`-separated params,
+    // respecting double-quoted values so `filename="a;b=c.pdf"` stays intact.
+    let mut rest = header;
+    // Drop the disposition token before the first `;`
+    if let Some((_, after)) = rest.split_once(';') {
+        rest = after;
+    } else {
+        return (None, None);
+    }
+
+    while !rest.is_empty() {
+        rest = rest.trim_start();
+        if rest.is_empty() {
+            break;
+        }
+
+        let (key, value, next) = match parse_disposition_param(rest) {
+            Some(parsed) => parsed,
+            None => break,
+        };
+        rest = next;
+
+        if key.eq_ignore_ascii_case("name") {
+            name = Some(value);
+        } else if key.eq_ignore_ascii_case("filename") || key.eq_ignore_ascii_case("filename*") {
+            // filename* can be charset'lang'value — take the raw value for now
+            let value = value
+                .rsplit_once('\'')
+                .map(|(_, v)| v.to_string())
+                .unwrap_or(value);
+            filename = Some(value);
         }
     }
     (name, filename)
+}
+
+/// Parse one `key=value` (or `key="quoted value"`) parameter from a
+/// Content-Disposition parameter list. Returns (key, value, remainder).
+fn parse_disposition_param(input: &str) -> Option<(String, String, &str)> {
+    let input = input.trim_start();
+    let eq = input.find('=')?;
+    let key = input[..eq].trim().to_string();
+    if key.is_empty() {
+        return None;
+    }
+    let after_eq = input[eq + 1..].trim_start();
+
+    let (value, remainder) = if let Some(rest) = after_eq.strip_prefix('"') {
+        // Quoted value: scan to the next unescaped `"`
+        let mut end = None;
+        let mut i = 0;
+        let bytes = rest.as_bytes();
+        while i < bytes.len() {
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if bytes[i] == b'"' {
+                end = Some(i);
+                break;
+            }
+            i += 1;
+        }
+        let end = end?;
+        // Unescape simple \" and \\ sequences in the quoted value
+        let raw = &rest[..end];
+        let mut unescaped = String::with_capacity(raw.len());
+        let mut chars = raw.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                if let Some(next) = chars.next() {
+                    unescaped.push(next);
+                }
+            } else {
+                unescaped.push(c);
+            }
+        }
+        let after_quote = &rest[end + 1..];
+        let remainder = after_quote.strip_prefix(';').unwrap_or(after_quote);
+        (unescaped, remainder)
+    } else {
+        // Token value: ends at next `;` or end of string
+        if let Some((val, after)) = after_eq.split_once(';') {
+            (val.trim().to_string(), after)
+        } else {
+            (after_eq.trim().to_string(), "")
+        }
+    };
+
+    Some((key, value, remainder))
 }
 
 /// Minimal multipart/form-data parser.
@@ -251,12 +328,17 @@ fn parse_multipart_body(body: &[u8], boundary: &str) -> Result<Vec<Value>, Runti
             None => break,
         };
 
-        // Part data ends just before the next boundary; strip trailing CRLF/LF
+        // Part data ends just before the next boundary; strip trailing CRLF/LF.
+        // Guard against empty parts (consecutive boundaries) where stripping
+        // would leave content_end < content_start and panic on the slice.
         let mut content_end = next;
         if content_end >= 2 && &body[content_end - 2..content_end] == b"\r\n" {
             content_end -= 2;
         } else if content_end >= 1 && body[content_end - 1] == b'\n' {
             content_end -= 1;
+        }
+        if content_end < content_start {
+            content_end = content_start;
         }
 
         let part_bytes = &body[content_start..content_end];
@@ -495,6 +577,42 @@ file body\r\n\
             }
             other => panic!("expected list, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_multipart_empty_parts_do_not_panic() {
+        // Consecutive boundaries (empty part) used to panic when CRLF stripping
+        // left content_end < content_start. Must return without crashing.
+        let body = b"--bound\r\n--bound\r\n--bound--\r\n";
+        let result = parse_multipart_body(body, "bound");
+        assert!(
+            result.is_ok(),
+            "empty parts between boundaries must not panic: {result:?}"
+        );
+    }
+
+    #[test]
+    fn content_disposition_preserves_equals_in_filename() {
+        let (name, filename) =
+            parse_content_disposition(r#"form-data; name="file"; filename="report=2024.pdf""#);
+        assert_eq!(name.as_deref(), Some("file"));
+        assert_eq!(
+            filename.as_deref(),
+            Some("report=2024.pdf"),
+            "filename values may contain '='"
+        );
+    }
+
+    #[test]
+    fn content_disposition_preserves_semicolon_in_quoted_filename() {
+        let (name, filename) =
+            parse_content_disposition(r#"form-data; name="file"; filename="a;b=c.pdf""#);
+        assert_eq!(name.as_deref(), Some("file"));
+        assert_eq!(
+            filename.as_deref(),
+            Some("a;b=c.pdf"),
+            "quoted filenames may contain ';' and '='"
+        );
     }
 
     #[test]
