@@ -7114,20 +7114,27 @@ impl Interpreter {
                         Err(e) => {
                             test_passed = false;
 
-                            // Only record failure if not already recorded by expect statement
-                            // Check if this is an assertion failure (which has already been recorded)
-                            let error_msg = e.to_string();
-                            if !error_msg.starts_with("Assertion failed:") {
-                                // This is a non-assertion error (e.g., runtime error in test code)
+                            // Assertion failures are already recorded (failure entry +
+                            // failed_tests increment) by the ExpectStatement handler; its
+                            // raw message begins with "Assertion failed:". We must inspect
+                            // the raw `message` field here rather than the Display string,
+                            // which is prefixed with "Runtime error at line ...:" and would
+                            // otherwise never match the guard, causing the assertion to be
+                            // recorded twice. Any error that is NOT an assertion failure is a
+                            // runtime error in the test body that we record and count here so
+                            // it is reflected in the failure count and the process exit code.
+                            if !e.message.starts_with("Assertion failed:") {
                                 let context = self.current_describe_stack.borrow().clone();
                                 let failure = TestFailure {
                                     describe_context: context,
                                     test_name: description.clone(),
-                                    assertion_message: error_msg,
+                                    assertion_message: e.to_string(),
                                     line: *line,
                                     column: *column,
                                 };
-                                self.test_results.borrow_mut().failures.push(failure);
+                                let mut results = self.test_results.borrow_mut();
+                                results.failures.push(failure);
+                                results.failed_tests += 1;
                             }
 
                             // Don't propagate the error - continue running other tests
