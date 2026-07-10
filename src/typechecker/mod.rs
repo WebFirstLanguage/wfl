@@ -1657,7 +1657,7 @@ impl TypeChecker {
                 methods,
                 events: _events,
                 static_properties: _static_properties,
-                static_methods: _static_methods,
+                static_methods,
                 line,
                 column,
             } => {
@@ -1726,23 +1726,32 @@ impl TypeChecker {
                     }
                 }
 
-                // Check method bodies and, for unannotated methods, infer the
-                // real return type from the body's `return` statements — the
-                // analyzer only registered a provisional `Unknown` (issue #560
-                // residual: leaving the provisional type in place made
-                // `instance.method()` results degrade to `Unknown`, and the old
-                // `Nothing` default produced false "Cannot index into Nothing"
-                // errors). Inferred types are collected first and written back
-                // after the loop so the registry borrow doesn't overlap the
-                // body checks.
+                // Check method bodies (instance and static) and, for
+                // unannotated methods, infer the real return type from the
+                // body's `return` statements — the analyzer only registered a
+                // provisional `Unknown` (issue #560 residual: leaving the
+                // provisional type in place made `instance.method()` results
+                // degrade to `Unknown`, and the old `Nothing` default produced
+                // false "Cannot index into Nothing" errors). Static methods get
+                // the same refinement so `Container.method` member access
+                // reports an accurate function type and void statics resolve
+                // back to `Nothing`. Inferred types are collected first and
+                // written back after the loop so the registry borrow doesn't
+                // overlap the body checks.
                 let mut inferred_method_returns: Vec<(String, Type)> = Vec::new();
-                for method in methods {
+                let mut inferred_static_method_returns: Vec<(String, Type)> = Vec::new();
+                for (method, is_static) in methods
+                    .iter()
+                    .map(|m| (m, false))
+                    .chain(static_methods.iter().map(|m| (m, true)))
+                {
                     if let Statement::ActionDefinition {
                         name: method_name,
                         parameters,
                         body,
                         return_type,
-                        ..
+                        line: method_line,
+                        column: method_column,
                     } = method
                     {
                         // Set container context for method body analysis
@@ -1768,9 +1777,21 @@ impl TypeChecker {
                             self.check_statement_types(stmt);
                         }
 
-                        if return_type.is_none() {
+                        if let Some(ret_type) = return_type {
+                            self.check_return_statements(
+                                body,
+                                ret_type,
+                                *method_line,
+                                *method_column,
+                            );
+                        } else {
                             let inferred = self.infer_action_return_type(body);
-                            inferred_method_returns.push((method_name.clone(), inferred));
+                            if is_static {
+                                inferred_static_method_returns
+                                    .push((method_name.clone(), inferred));
+                            } else {
+                                inferred_method_returns.push((method_name.clone(), inferred));
+                            }
                         }
 
                         self.analyzer.pop_scope();
@@ -1783,6 +1804,13 @@ impl TypeChecker {
                 if let Some(container_info) = self.analyzer.get_container_mut(_name) {
                     for (method_name, inferred) in inferred_method_returns {
                         if let Some(method_info) = container_info.methods.get_mut(&method_name) {
+                            method_info.return_type = inferred;
+                        }
+                    }
+                    for (method_name, inferred) in inferred_static_method_returns {
+                        if let Some(method_info) =
+                            container_info.static_methods.get_mut(&method_name)
+                        {
                             method_info.return_type = inferred;
                         }
                     }
@@ -5045,6 +5073,56 @@ mod tests {
         assert!(
             errors.iter().any(|e| e.found == Some(Type::Number)),
             "Inferred type should be precisely Number (not widened to Any), got: {errors:?}"
+        );
+    }
+
+    /// Issue #560 residual: unannotated static container methods must be
+    /// refined in the container registry just like instance methods — a
+    /// value-returning one gets its inferred type (so `Container.method`
+    /// member access reports an accurate function type) and a void one goes
+    /// back to `Nothing` instead of keeping the provisional `Unknown` seed.
+    /// Static method *calls* are still a future feature at runtime, so the
+    /// registry is the observable surface to pin down here.
+    #[test]
+    fn test_static_method_return_types_refined_in_registry() {
+        let code = r#"
+create container MathUtils:
+    static action get_pair:
+        return [1 and 2]
+    end
+    static action log_it:
+        display "hi"
+    end
+end
+"#;
+        let tokens = crate::lexer::lex_wfl_with_positions(code);
+        let mut parser = crate::parser::Parser::new(&tokens);
+        let program = parser.parse().expect("Should parse");
+
+        let mut type_checker = TypeChecker::new();
+        let _ = type_checker.check_types(&program);
+
+        let container = type_checker
+            .analyzer
+            .get_container("MathUtils")
+            .expect("container should be registered");
+        let get_pair = container
+            .static_methods
+            .get("get_pair")
+            .expect("static method get_pair should be registered");
+        assert!(
+            matches!(get_pair.return_type, Type::List(_)),
+            "value-returning static method should have an inferred List return type, got {:?}",
+            get_pair.return_type
+        );
+        let log_it = container
+            .static_methods
+            .get("log_it")
+            .expect("static method log_it should be registered");
+        assert_eq!(
+            log_it.return_type,
+            Type::Nothing,
+            "void static method should be refined to Nothing, not left as the Unknown seed"
         );
     }
 }

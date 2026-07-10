@@ -72,12 +72,21 @@ store x0 as xs[0]      // error[ERROR]: Cannot index into Nothing (false)
 - The analyzer seeds unannotated instance *and* static methods with a
   provisional `Type::Unknown` (degrades gracefully after #588/#589) instead of
   `Type::Nothing`.
-- The type checker's `ContainerDefinition` arm now checks each method body
-  with the method's parameters in scope (mirroring the top-level action arm's
-  #553 handling), infers the real return type from the body's `return`
-  statements, and writes it back into the registry through a new
-  `Analyzer::get_container_mut`. Void methods still end up `Nothing`, exactly
-  as before.
+- The type checker's `ContainerDefinition` arm now checks each method body —
+  instance *and* static — with the method's parameters in scope (mirroring the
+  top-level action arm's #553 handling), infers the real return type from the
+  body's `return` statements, and writes it back into the registry through a
+  new `Analyzer::get_container_mut`. Void methods still end up `Nothing`,
+  exactly as before.
+- Static methods matter here even though static method *calls*
+  (`Container.method()`) are still a future feature at runtime: the
+  refinement keeps `Container.method` member access reporting an accurate
+  function type, and without it a void static method would have stayed
+  `Unknown` forever instead of `Nothing` (a strictness regression flagged by
+  review on the first revision of this change).
+- Annotated container methods (e.g. `action get_info: Text`) now also get
+  their `return` statements validated against the annotation via
+  `check_return_statements`, mirroring the top-level action arm.
 - Inherited methods get the fix for free: the `MethodCall` parent-walk reads
   the same registry entries.
 
