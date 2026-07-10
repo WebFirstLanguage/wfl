@@ -1277,7 +1277,14 @@ impl Analyzer {
                         let method_info = MethodInfo {
                             name: method_name.clone(),
                             parameters: parameters.clone(),
-                            return_type: return_type.as_ref().cloned().unwrap_or(Type::Nothing),
+                            // Unannotated methods get a provisional `Unknown`
+                            // (not `Nothing`) so uses of a method result checked
+                            // before the type checker refines it degrade
+                            // gracefully instead of raising false "found
+                            // Nothing" errors (issue #560 residual). The type
+                            // checker infers the real return type from the body
+                            // and writes it back via `get_container_mut`.
+                            return_type: return_type.as_ref().cloned().unwrap_or(Type::Unknown),
                             is_public: true, // Default to public for now
                             line: *method_line,
                             column: *method_column,
@@ -1336,7 +1343,9 @@ impl Analyzer {
                         let method_info = MethodInfo {
                             name: method_name.clone(),
                             parameters: parameters.clone(),
-                            return_type: return_type.as_ref().cloned().unwrap_or(Type::Nothing),
+                            // Same provisional `Unknown` seed as instance
+                            // methods above (issue #560 residual).
+                            return_type: return_type.as_ref().cloned().unwrap_or(Type::Unknown),
                             is_public: true, // Default to public for now
                             line: *method_line,
                             column: *method_column,
@@ -2141,6 +2150,13 @@ impl Analyzer {
 
     pub fn get_container(&self, name: &str) -> Option<&ContainerInfo> {
         self.containers.get(name)
+    }
+
+    /// Mutable access to a registered container, used by the type checker to
+    /// refine an unannotated method's provisional return type after inferring
+    /// it from the method body (issue #560 residual).
+    pub fn get_container_mut(&mut self, name: &str) -> Option<&mut ContainerInfo> {
+        self.containers.get_mut(name)
     }
 
     pub fn get_containers(&self) -> &HashMap<String, ContainerInfo> {

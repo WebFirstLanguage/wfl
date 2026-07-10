@@ -1725,18 +1725,65 @@ impl TypeChecker {
                     }
                 }
 
+                // Check method bodies and, for unannotated methods, infer the
+                // real return type from the body's `return` statements — the
+                // analyzer only registered a provisional `Unknown` (issue #560
+                // residual: leaving the provisional type in place made
+                // `instance.method()` results degrade to `Unknown`, and the old
+                // `Nothing` default produced false "Cannot index into Nothing"
+                // errors). Inferred types are collected first and written back
+                // after the loop so the registry borrow doesn't overlap the
+                // body checks.
+                let mut inferred_method_returns: Vec<(String, Type)> = Vec::new();
                 for method in methods {
-                    if let Statement::ActionDefinition { body, .. } = method {
+                    if let Statement::ActionDefinition {
+                        name: method_name,
+                        parameters,
+                        body,
+                        return_type,
+                        ..
+                    } = method
+                    {
                         // Set container context for method body analysis
                         let previous_container = self.current_container.clone();
                         self.current_container = Some(_name.clone());
+
+                        // Parameters must be resolvable while checking the body
+                        // and inferring return expressions, mirroring the
+                        // top-level `ActionDefinition` arm (issue #553).
+                        self.analyzer.push_scope();
+                        for param in parameters {
+                            let param_symbol = Symbol {
+                                name: param.name.clone(),
+                                kind: SymbolKind::Variable { mutable: false },
+                                symbol_type: param.param_type.clone().or(Some(Type::Unknown)),
+                                line: param.line,
+                                column: param.column,
+                            };
+                            let _ = self.analyzer.define_symbol(param_symbol);
+                        }
 
                         for stmt in body {
                             self.check_statement_types(stmt);
                         }
 
+                        if return_type.is_none() {
+                            let inferred = self.infer_action_return_type(body);
+                            inferred_method_returns.push((method_name.clone(), inferred));
+                        }
+
+                        self.analyzer.pop_scope();
+
                         // Restore previous container context
                         self.current_container = previous_container;
+                    }
+                }
+
+                if let Some(container_info) = self.analyzer.get_container_mut(_name) {
+                    for (method_name, inferred) in inferred_method_returns {
+                        if let Some(method_info) = container_info.methods.get_mut(&method_name) {
+                            method_info.return_type = inferred;
+                        }
                     }
                 }
 
@@ -3835,6 +3882,32 @@ impl TypeChecker {
                 | Statement::MainLoop { body, .. } => {
                     self.collect_return_types(body, out);
                 }
+                // Actions commonly return from inside error handling — a `try:`
+                // body, its `when error` clauses, `otherwise`, or `finally`.
+                // Skipping these blocks inferred such actions as `Nothing` and
+                // produced false "Cannot index into Nothing" diagnostics at the
+                // call site (issue #560 residual).
+                Statement::TryStatement {
+                    body,
+                    when_clauses,
+                    otherwise_block,
+                    finally_block,
+                    ..
+                } => {
+                    self.collect_return_types(body, out);
+                    for clause in when_clauses {
+                        self.collect_return_types(&clause.body, out);
+                    }
+                    if let Some(otherwise_stmts) = otherwise_block {
+                        self.collect_return_types(otherwise_stmts, out);
+                    }
+                    if let Some(finally_stmts) = finally_block {
+                        self.collect_return_types(finally_stmts, out);
+                    }
+                }
+                Statement::WaitForStatement { inner, .. } => {
+                    self.collect_return_types(std::slice::from_ref(inner), out);
+                }
                 _ => {}
             }
         }
@@ -3924,6 +3997,34 @@ impl TypeChecker {
                 | Statement::ForeverLoop { body, .. }
                 | Statement::MainLoop { body, .. } => {
                     self.check_return_statements(body, expected_type, line, column);
+                }
+                // Keep in sync with `collect_return_types`: returns inside
+                // `try:` blocks and `wait for` wrappers count too.
+                Statement::TryStatement {
+                    body,
+                    when_clauses,
+                    otherwise_block,
+                    finally_block,
+                    ..
+                } => {
+                    self.check_return_statements(body, expected_type, line, column);
+                    for clause in when_clauses {
+                        self.check_return_statements(&clause.body, expected_type, line, column);
+                    }
+                    if let Some(otherwise_stmts) = otherwise_block {
+                        self.check_return_statements(otherwise_stmts, expected_type, line, column);
+                    }
+                    if let Some(finally_stmts) = finally_block {
+                        self.check_return_statements(finally_stmts, expected_type, line, column);
+                    }
+                }
+                Statement::WaitForStatement { inner, .. } => {
+                    self.check_return_statements(
+                        std::slice::from_ref(inner),
+                        expected_type,
+                        line,
+                        column,
+                    );
                 }
                 _ => {}
             }
