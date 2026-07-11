@@ -50,6 +50,26 @@ jobs:
       - name: Build (Release)
         run: cargo build --release --verbose
 
+      # Concurrency Phase 0 (PR-0a) gate: prove the panic-strategy gate is live.
+      # The `#[cfg(panic = "abort")] compile_error!` in src/lib.rs must fail the
+      # build when panic=abort is forced (via --config so Cargo actually compiles
+      # the crate with -C panic=abort). If this build SUCCEEDS the gate is not
+      # enforced and catch_unwind fault isolation would be a phantom control.
+      - name: Assert panic=abort is rejected
+        run: |
+          set +e
+          output=$(cargo build --release --config 'profile.release.panic="abort"' --quiet 2>&1)
+          status=$?
+          set -e
+          # The gate must fail the build *with our specific compile_error*, not
+          # merely error out for some unrelated reason.
+          if [ "$status" -eq 0 ] || ! grep -Fq 'WFL requires panic = "unwind"' <<<"$output"; then
+            printf '%s\n' "$output"
+            echo "::error::panic=abort was not rejected by the src/lib.rs compile_error gate"
+            exit 1
+          fi
+          echo "panic=abort correctly rejected by the compile_error gate"
+
       # Run tests (integration tests now have access to release binary)
       - name: Run Tests
         run: cargo test --verbose

@@ -1,0 +1,5 @@
+# Permissive subprocess policy for intentional TestPrograms demos only.
+# Repo-root and production defaults remain secure (deny all process execution).
+allow_shell_execution = true
+shell_execution_mode = sanitized
+warn_on_shell_execution = false

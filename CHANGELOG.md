@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Security
+- **Subprocess policy is enforced on every process launch** (shell path and
+  direct-exec / `with arguments` path). Previously, `shell_execution_mode` and
+  related checks ran only when the engine believed a shell was required, so
+  forms such as `execute command "sh" with arguments ["-c", "..."]` bypassed
+  the default `forbidden` policy.
+- **`allow_shell_execution` is now enforced** as a master switch: when `false`
+  (the default), all `execute command` / `spawn command` launches are blocked.
+- **Secure defaults deny all external processes.** To opt in for local tooling:
+
+  ```ini
+  allow_shell_execution = true
+  shell_execution_mode = sanitized
+  # or: shell_execution_mode = allowlist_only
+  #     allowed_shell_commands = echo, ls, git
+  ```
+
+- README and configuration docs updated to describe the real policy (subprocess
+  execution disabled by default; not a free “sandboxed” escape hatch).
+
 ### Added
 - HTTP request query string access: raw query is available as `query` / `query of req` (no leading `?`) so `parse_query_string of query` works on real requests (#597)
 - Configurable request body size limit via `.wflcfg` `web_server_max_body_size` (default still 1 MiB) (#597)

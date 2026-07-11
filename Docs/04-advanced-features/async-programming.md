@@ -1,12 +1,14 @@
 # Async Programming
 
-WFL supports asynchronous operations using natural language syntax. Handle multiple operations concurrently without blocking.
+WFL supports asynchronous operations using natural language syntax. The `wait for` keyword lets a slow operation yield cooperatively — while it waits on I/O, the WFL runtime can make progress on other awaited work instead of the thread sitting idle.
 
 ## What is Async?
 
-**Synchronous (blocking):** Operations run one at a time. If one is slow, everything waits.
+**Synchronous (blocking):** Operations run one at a time, and while one runs the thread can do nothing else.
 
-**Asynchronous (non-blocking):** Operations can run concurrently. Slow operations don't block others.
+**Asynchronous (cooperative):** An awaited operation *yields* while it waits on I/O, so the runtime can drive other awaited work in the meantime.
+
+> **Concurrent, not parallel.** WFL's async today is cooperative and single-threaded: awaited work is *interleaved* on one thread, not run on multiple cores at once. In a plain script, statements — including `wait for` statements — still execute one after another. The payoff of `wait for` is that a waiting operation releases the thread to the runtime rather than hard-blocking it. Running independent operations so they actually overlap is a planned feature (see [Concurrent Async](#concurrent-async-future-feature) below).
 
 ## The `wait for` Keyword
 
@@ -56,7 +58,7 @@ close file file2
 // Total time: Time1 + Time2
 ```
 
-### With Async (Non-Blocking)
+### With Async (Cooperative)
 
 ```wfl
 // Prepare two sample files
@@ -67,16 +69,20 @@ open file at "file2.txt" for writing as setup2
 wait for write content "second file" into setup2
 close file setup2
 
-// Operations can overlap
+// Each `wait for` still completes before the next statement runs — these do
+// not overlap. What `wait for` changes is that while an operation waits on
+// I/O, the thread yields to the runtime instead of hard-blocking, so other
+// runtime work (such as a web server's transport layer) keeps making progress.
 open file at "file1.txt" for reading as file1
-wait for store content1 as read content from file1  // Doesn't block
+wait for store content1 as read content from file1  // Yields while waiting
 close file file1
 
 open file at "file2.txt" for reading as file2
-wait for store content2 as read content from file2  // Can run concurrently
+wait for store content2 as read content from file2  // Runs after the first
 close file file2
 
-// Total time: ~max(Time1, Time2)
+// Total time today: Time1 + Time2. Overlapping independent operations is a
+// planned feature (see "Concurrent Async" below) — it is not available yet.
 ```
 
 ## Common Async Operations
@@ -102,7 +108,8 @@ display "File read complete"
 ```wfl
 listen on port 8080 as web_server
 
-// Async request handling: wait for a request without blocking other work
+// Wait for the next request. The transport layer accepts connections
+// concurrently, but your handler code below runs one request at a time.
 wait for request comes in on web_server as incoming
 
 respond to incoming with "Response" and content_type "text/plain"
@@ -158,7 +165,10 @@ end check
 
 ## Async in Web Servers
 
-Web servers naturally use async operations:
+Web servers naturally use async operations. Note that request *handlers* run one
+at a time today — the transport layer (accepting connections, TLS handshakes) is
+concurrent, but your handler code is serial. See
+[Web Servers → Limitations](web-servers.md#limitations--notes) for details.
 
 ```wfl
 listen on port 8081 as web_server
@@ -202,7 +212,8 @@ display "All operations complete"
 
 ### Concurrent Async (Future Feature)
 
-Planned syntax for running operations in parallel:
+Planned syntax for running independent operations concurrently (so they actually
+overlap instead of running one after another):
 
 ```wfl
 // This is planned for future versions
@@ -317,7 +328,7 @@ WFL's async support is built on the Tokio runtime and includes:
 In this section, you learned:
 
 ✅ **The `wait for` keyword** - Async operation syntax
-✅ **Why async matters** - Non-blocking operations
+✅ **Why async matters** - Cooperative, non-blocking I/O (concurrent, not parallel)
 ✅ **Common async operations** - File I/O, web requests, directory listing
 ✅ **Error handling** - Try-catch with async
 ✅ **Async in web servers** - Request handling

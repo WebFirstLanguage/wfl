@@ -176,6 +176,11 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
   - A working example (in `TestPrograms/`, validated with MCP) demonstrating the feature.
   - A Dev Diary entry in `Dev diary/` for any non-trivial feature or behavior change.
   - When a feature is removed or its syntax changes, remove or fix the now-stale docs and examples — don't leave contradictions.
+- **Docs Must Be Honest — "validate docs" (MANDATORY)**: Documentation describes **what actually ships today**, not what is aspirational. This is a binding policy, not a preference:
+  - **No overclaiming runtime behavior.** Never describe behavior the runtime does not have (e.g. calling serial request handlers "parallel" or saying they "don't block others"). Prefer the precise word — say "concurrent" (interleaved on one thread) vs "parallel" (multiple cores) deliberately, and describe the transport/handler split accurately.
+  - **Mark planned/future behavior explicitly.** Anything not yet implemented must be labeled as planned/future so a reader never mistakes it for current behavior.
+  - **Validate, don't just assert.** Every user-visible change ships **validated** docs (MCP tools + `python scripts/validate_docs_examples.py` for any touched example) **and** a Dev Diary entry, in the **same change**. "Validate docs" means both: the examples run, and the prose matches the implementation.
+  - When behavior changes, fix the now-stale claims in the same change — a doc that contradicts the code is a bug.
 - **Location**: `Docs/` organized in 6 sections (Introduction, Getting Started, Language Basics, Advanced Features, Standard Library, Best Practices).
 - **Structure**: Follow `Docs/wfl-documentation-policy.md` and 19 principles in `Docs/wfl-foundation.md`.
 - **Reference Documentation**: Two-tiered system for keywords

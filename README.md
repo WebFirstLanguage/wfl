@@ -22,7 +22,8 @@ Hello, World!
 - **Reads like English.** `check if score is greater than 90:` — no cryptic
   symbols to memorize.
 - **Safe by default.** Static typing with inference, clear Elm-style error
-  messages, and secure defaults (output escaping, sandboxed subprocesses).
+  messages, and secure defaults (output escaping; subprocess execution disabled
+  unless opted in via `.wflcfg`).
 - **Batteries included.** Text, math, lists, filesystem I/O, crypto, time,
   async/await, pattern matching, containers (objects), an HTTP client, and a
   built-in web server.

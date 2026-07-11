@@ -38,7 +38,7 @@ Runtime behavior, lint/style rules, shell security, subprocess limits, and web s
 - **Code quality** — line length, indent, naming, nesting (used by `wfl --lint`)
 - **Security** — shell execution allowlists and modes
 - **Subprocesses** — concurrency and buffer limits
-- **Web server** — bind address, TLS cert/key defaults, max request body size
+- **Web server** — bind address, TLS cert/key defaults, max request body size, request queue bound
 
 It is **not** for application secrets or app-specific settings (ports your program chooses, API keys, business config). Put those in data files your program reads (see [Project Organization](../06-best-practices/project-organization.md)).
 
@@ -190,9 +190,9 @@ All keys currently loaded from config files, with defaults.
 
 | Key | Type | Default | Purpose |
 |---|---|---|---|
-| `allow_shell_execution` | bool | `false` | Master switch for shell commands |
+| `allow_shell_execution` | bool | `false` | Master switch for all process launches |
 | `shell_execution_mode` | string | `forbidden` | `forbidden` / `allowlist_only` / `sanitized` / `unrestricted` |
-| `allowed_shell_commands` | comma-list | *(empty)* | Commands allowed in `allowlist_only` mode |
+| `allowed_shell_commands` | comma-list | *(empty)* | Program basenames allowed in `allowlist_only` mode |
 | `warn_on_shell_execution` | bool | `true` | Warn whenever a shell command runs |
 
 ### Subprocess resources
@@ -211,6 +211,7 @@ All keys currently loaded from config files, with defaults.
 | `web_server_tls_cert_file` | path | *(none)* | Default PEM cert for bare `listen … secured` |
 | `web_server_tls_key_file` | path | *(none)* | Default PEM key for bare `listen … secured` |
 | `web_server_max_body_size` | integer ≥ 1 | `1048576` (1 MiB) | Max HTTP request body size (bytes) |
+| `web_server_request_queue_bound` | integer ≥ 1 | `256` | Max queued HTTP requests before shedding with 503 |
 
 ---
 
@@ -338,11 +339,15 @@ Requires consistent casing for keywords throughout the script.
 
 ### Security settings
 
-These control subprocess / shell command security. See also [Subprocess Execution](../04-advanced-features/subprocess-execution.md).
+These settings control **all** subprocess execution (`execute command` and
+`spawn command`), on both the shell path and the direct-exec / argv path.
+Policy is always checked before any process is started.
+See also [Subprocess Execution](../04-advanced-features/subprocess-execution.md).
 
 #### `allow_shell_execution`
 
-Master switch for shell command execution. When `false`, all shell commands are blocked.
+Master switch for subprocess execution. When `false`, **all** process launches
+are blocked (shell form and `with arguments` form). This is the secure default.
 
 - **Type:** Boolean
 - **Default:** `false`
@@ -350,20 +355,38 @@ Master switch for shell command execution. When `false`, all shell commands are 
 
 #### `shell_execution_mode`
 
-How shell commands are validated and executed.
+Controls how subprocesses are authorized when `allow_shell_execution = true`.
+Applied to every launch, not only shell metacharacter forms.
 
 - **Type:** String
 - **Default:** `forbidden`
 - **Options:**
-  - `forbidden` — no shell execution (most secure)
-  - `allowlist_only` — only commands in `allowed_shell_commands`
-  - `sanitized` — shell with validation and warnings
-  - `unrestricted` — legacy mode; not recommended for production
+  - `forbidden` — no process execution allowed (most secure)
+  - `allowlist_only` — only programs whose basename is in `allowed_shell_commands` may run
+  - `sanitized` — any program may run; shell features produce warnings
+  - `unrestricted` — any program may run with shell; not recommended for production
 - **Example:** `shell_execution_mode = allowlist_only`
+
+To opt in for local tooling (after enabling the master switch):
+
+```ini
+allow_shell_execution = true
+shell_execution_mode = sanitized
+```
+
+Or tighter:
+
+```ini
+allow_shell_execution = true
+shell_execution_mode = allowlist_only
+allowed_shell_commands = echo, ls, git
+```
 
 #### `allowed_shell_commands`
 
-Comma-separated list of allowed shell commands when using `allowlist_only` mode.
+Comma-separated list of allowed **program basenames** when using
+`allowlist_only` mode. Matching uses the basename of the program path
+(`/bin/echo` matches `echo`). On Windows, comparison is case-insensitive.
 
 - **Type:** Comma-separated strings
 - **Default:** *(empty)*
@@ -462,6 +485,16 @@ Maximum HTTP request body size accepted by `listen on port` servers, in bytes. L
 
 Raise for `parse_multipart` or large `body_bytes` uploads; keep as small as practical on public APIs.
 
+#### `web_server_request_queue_bound`
+
+Maximum number of accepted-but-not-yet-handled HTTP requests held in the queue between the transport layer and your `wait for request` loop (DoS protection).
+
+- **Type:** Integer (at least 1)
+- **Default:** `256`
+- **Example:** `web_server_request_queue_bound = 512`
+
+Because request handlers run one at a time (see [Web Servers → Limitations](../04-advanced-features/web-servers.md#limitations--notes)), a burst of traffic queues up behind the handler. Without a bound, that queue could grow until the process runs out of memory. When the queue is full, the server **sheds** further requests with a `503 Service Unavailable` (and a `Retry-After` header) and logs a warning, instead of buffering unbounded work. Raise it to absorb larger bursts at the cost of more memory; lower it to shed sooner under load. A value of `0` is rejected (the default is kept).
+
 ---
 
 ## How config relates to lint, style, and servers
@@ -503,6 +536,7 @@ Application settings (business ports, feature flags) belong in data files your p
 | Reachable from other machines | `web_server_bind_address = 0.0.0.0` |
 | HTTPS defaults without hardcoding paths | `web_server_tls_cert_file` / `web_server_tls_key_file` |
 | Large uploads | `web_server_max_body_size` |
+| Bound request backlog under load | `web_server_request_queue_bound` |
 
 TLS intent always lives in the program (`secured`); config only supplies default file paths.
 
@@ -558,7 +592,7 @@ max_line_length = 100
 max_nesting_depth = 4
 snake_case_variables = true
 
-# No shell
+# Secure subprocess policy (default): no external processes
 allow_shell_execution = false
 shell_execution_mode = forbidden
 
