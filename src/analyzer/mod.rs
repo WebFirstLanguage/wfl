@@ -132,6 +132,20 @@ impl Scope {
             None
         }
     }
+
+    /// Mutable resolve: current scope first, then parents. Used when refining a
+    /// symbol's type from an inner scope (e.g. `change` of an outer variable
+    /// inside a loop body — issue #605). Mutations reach the boxed parent that
+    /// `pop_scope` restores, so type updates survive the scope pop.
+    pub fn resolve_mut(&mut self, name: &str) -> Option<&mut Symbol> {
+        if self.symbols.contains_key(name) {
+            self.symbols.get_mut(name)
+        } else if let Some(parent) = self.parent.as_mut() {
+            parent.resolve_mut(name)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2077,7 +2091,12 @@ impl Analyzer {
     }
 
     pub fn get_symbol_mut(&mut self, name: &str) -> Option<&mut Symbol> {
-        self.current_scope.symbols.get_mut(name)
+        // Walk parent scopes so type refinements (e.g. widening away from
+        // Nothing on reassignment inside a loop) update the real binding and
+        // survive `pop_scope` (issue #605). Previously only the innermost
+        // scope was mutable, so outer-variable updates from loop/try bodies
+        // were silently dropped.
+        self.current_scope.resolve_mut(name)
     }
 
     pub fn define_symbol(&mut self, symbol: Symbol) -> Result<(), SemanticError> {

@@ -697,24 +697,51 @@ impl TypeChecker {
             } => {
                 let inferred_type = self.infer_expression_type(value);
 
-                if let Some(symbol) = self.analyzer.get_symbol(name) {
-                    if let Some(variable_type) = &symbol.symbol_type {
-                        if !self.are_types_compatible(variable_type, &inferred_type) {
+                // Clone the existing type first so we can re-borrow mutably below
+                // when widening away from Nothing (issue #605).
+                let existing_type = self
+                    .analyzer
+                    .get_symbol(name)
+                    .and_then(|s| s.symbol_type.clone());
+
+                match existing_type {
+                    // `store x as nothing` is the idiomatic "uninitialized"
+                    // sentinel. Reassignment must widen the stored type to the
+                    // new value's type; otherwise later indexing/use stays
+                    // pinned to Nothing and raises false
+                    // "Cannot index into Nothing" diagnostics (issue #605).
+                    Some(Type::Nothing) => {
+                        if inferred_type != Type::Nothing
+                            && inferred_type != Type::Error
+                            && let Some(symbol) = self.analyzer.get_symbol_mut(name)
+                        {
+                            symbol.symbol_type = Some(inferred_type);
+                        }
+                    }
+                    Some(variable_type) => {
+                        if !self.are_types_compatible(&variable_type, &inferred_type) {
                             self.type_error(
                                 format!(
                                     "Cannot assign value of incompatible type to variable '{name}'"
                                 ),
-                                Some(variable_type.clone()),
+                                Some(variable_type),
                                 Some(inferred_type),
                                 *line,
                                 *column,
                             );
                         }
-                    } else if inferred_type != Type::Error
-                        && inferred_type != Type::Unknown
-                        && let Some(symbol) = self.analyzer.get_symbol_mut(name)
-                    {
-                        symbol.symbol_type = Some(inferred_type);
+                    }
+                    None => {
+                        // Symbol exists but has no recorded type yet, or the
+                        // name is unresolved (undefined-variable is reported
+                        // elsewhere). Record a concrete type when available.
+                        if self.analyzer.get_symbol(name).is_some()
+                            && inferred_type != Type::Error
+                            && inferred_type != Type::Unknown
+                            && let Some(symbol) = self.analyzer.get_symbol_mut(name)
+                        {
+                            symbol.symbol_type = Some(inferred_type);
+                        }
                     }
                 }
             }
@@ -782,11 +809,10 @@ impl TypeChecker {
                 }
 
                 // Infer the return type while body-locals and parameters are
-                // still in scope, but defer applying it to the action's symbol
-                // until after the scope is popped: `get_symbol_mut` only reaches
-                // the current (innermost) scope, so the action symbol — which
-                // lives in the parent scope — is only reachable once the param
-                // scope is gone (issue #569).
+                // still in scope. Apply it after pop so the action symbol (in the
+                // parent scope) is updated without relying on in-scope parent
+                // mutation during the body check (issue #569; parent-walking
+                // `get_symbol_mut` from #605 would also work pre-pop).
                 let inferred_return = if return_type.is_none() {
                     Some(self.infer_action_return_type(body))
                 } else {
