@@ -1026,6 +1026,7 @@ end check
 
 - **Single request handling:** Each `wait for request` handles one request
 - **Blocking:** Server handles requests sequentially (TLS handshakes are concurrent, but your responses are serialized)
+- **Bounded accept queue:** Because handlers are serial, incoming requests queue up behind the one being handled. That queue is bounded (default 256, configurable via `web_server_request_queue_bound`). When it is full, the server sheds new requests with a `503 Service Unavailable` (plus a `Retry-After` header) and logs a warning, rather than growing memory without bound. See [Configuration Reference](../reference/configuration-reference.md#web_server_request_queue_bound).
 - **No middleware system** (yet) - Implement manually
 - **No built-in session management** - Implement yourself
 
@@ -1196,7 +1197,7 @@ Expand your web development skills:
 Learn to read and write files for data persistence.
 
 **[Async Programming →](async-programming.md)**
-Handle multiple operations concurrently.
+Cooperative async I/O with `wait for`.
 
 **[Pattern Matching →](pattern-matching.md)**
 Validate request data and extract parameters.

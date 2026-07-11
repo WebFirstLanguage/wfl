@@ -117,9 +117,26 @@ pub(crate) fn lookup_header_case_insensitive(
 
 #[derive(Debug)]
 pub struct WflWebServer {
-    pub request_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflHttpRequest>>>,
-    pub request_sender: mpsc::UnboundedSender<WflHttpRequest>,
+    // Bounded transport→interpreter queue (Phase 0, PR-0c): a full queue sheds
+    // new requests with 503 rather than growing memory without bound.
+    pub request_receiver: Arc<tokio::sync::Mutex<mpsc::Receiver<WflHttpRequest>>>,
+    pub request_sender: mpsc::Sender<WflHttpRequest>,
     pub server_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// Build the 503 response returned when the transport→interpreter request queue
+/// is full (Phase 0, PR-0c). A free function so the shed path can be unit-tested
+/// without standing up a live server.
+pub(crate) fn overloaded_response() -> warp::http::Response<Vec<u8>> {
+    let body = b"Service Unavailable: the server is overloaded, please retry later\n".to_vec();
+    let content_length = body.len();
+    warp::http::Response::builder()
+        .status(warp::http::StatusCode::SERVICE_UNAVAILABLE)
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .header("Content-Length", content_length)
+        .header("Retry-After", "1")
+        .body(body)
+        .expect("static 503 response is always valid")
 }
 
 // ---------------------------------------------------------------------------
@@ -5378,9 +5395,12 @@ impl Interpreter {
                     }
                 };
 
-                // Create request/response channels
+                // Create request/response channels. The request queue is bounded
+                // (Phase 0, PR-0c) so a flood of accepted-but-unhandled requests
+                // sheds with 503 instead of growing memory without bound.
+                let queue_bound = self.config.web_server_request_queue_bound.max(1);
                 let (request_sender, request_receiver) =
-                    mpsc::unbounded_channel::<WflHttpRequest>();
+                    mpsc::channel::<WflHttpRequest>(queue_bound);
                 let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
 
                 // Create warp routes that handle all HTTP methods and paths.
@@ -5476,11 +5496,28 @@ impl Interpreter {
                                     ))),
                                 };
 
-                                // Send request to WFL interpreter
-                                if sender.send(wfl_request).is_err() {
-                                    return Err(warp::reject::custom(ServerError(
-                                        "Request channel closed".to_string(),
-                                    )));
+                                // Send request to WFL interpreter. The queue is
+                                // bounded (Phase 0, PR-0c): a full queue means the
+                                // interpreter is saturated, so shed with 503 rather
+                                // than buffering unbounded work. `try_send` never
+                                // blocks the transport task.
+                                match sender.try_send(wfl_request) {
+                                    Ok(()) => {}
+                                    Err(mpsc::error::TrySendError::Full(shed)) => {
+                                        log::warn!(
+                                            "web server request queue full (capacity {}); shedding {} {} from {} with 503",
+                                            sender.max_capacity(),
+                                            shed.method,
+                                            shed.path,
+                                            shed.client_ip
+                                        );
+                                        return Ok(overloaded_response());
+                                    }
+                                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                                        return Err(warp::reject::custom(ServerError(
+                                            "Request channel closed".to_string(),
+                                        )));
+                                    }
                                 }
 
                                 // Wait for response
@@ -8281,14 +8318,29 @@ impl Interpreter {
                     Value::Function(func) => {
                         self.call_function(&func, arg_values, *line, *column).await
                     }
-                    Value::NativeFunction(_, native_fn) => {
-                        native_fn(arg_values.clone()).map_err(|e| {
-                            RuntimeError::new(
-                                format!("Error in native function: {e}"),
-                                *line,
-                                *column,
-                            )
-                        })
+                    Value::NativeFunction(native_name, native_fn) => {
+                        // CPU-heavy crypto builtins hop onto the blocking pool so
+                        // they don't monopolize the interpreter thread (Phase 0,
+                        // PR-0b). Everything else runs synchronously as before.
+                        if let Some(fut) =
+                            crate::stdlib::crypto_async::route(native_name, &arg_values)
+                        {
+                            fut.await.map_err(|e| {
+                                RuntimeError::new(
+                                    format!("Error in native function: {e}"),
+                                    *line,
+                                    *column,
+                                )
+                            })
+                        } else {
+                            native_fn(arg_values.clone()).map_err(|e| {
+                                RuntimeError::new(
+                                    format!("Error in native function: {e}"),
+                                    *line,
+                                    *column,
+                                )
+                            })
+                        }
                     }
                     _ => Err(RuntimeError::new(
                         format!("Cannot call {}", function_val.type_name()),
@@ -8354,12 +8406,21 @@ impl Interpreter {
 
                         // Preserve the native error's message and kind; only
                         // point the location at the call site (natives report
-                        // their position as 0,0).
-                        native_fn(arg_values).map_err(|mut e| {
-                            e.line = *line;
-                            e.column = *column;
-                            e
-                        })
+                        // their position as 0,0). CPU-heavy crypto builtins are
+                        // routed onto the blocking pool (Phase 0, PR-0b).
+                        if let Some(fut) = crate::stdlib::crypto_async::route(name, &arg_values) {
+                            fut.await.map_err(|mut e| {
+                                e.line = *line;
+                                e.column = *column;
+                                e
+                            })
+                        } else {
+                            native_fn(arg_values).map_err(|mut e| {
+                                e.line = *line;
+                                e.column = *column;
+                                e
+                            })
+                        }
                     }
                     _ => Err(RuntimeError::new(
                         format!("'{name}' is not callable"),
@@ -9925,6 +9986,62 @@ mod process_tests {
             err.contains("Invalid process ID"),
             "Error should indicate invalid process ID: {}",
             err
+        );
+    }
+}
+
+/// Phase 0 (PR-0c): the bounded request queue sheds with a well-formed 503 when
+/// the interpreter is saturated, instead of buffering work without bound.
+#[cfg(test)]
+mod queue_bound_tests {
+    use super::*;
+
+    #[test]
+    fn overloaded_response_is_a_well_formed_503() {
+        let resp = overloaded_response();
+        assert_eq!(resp.status(), warp::http::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            resp.headers()
+                .get("Content-Type")
+                .and_then(|v| v.to_str().ok()),
+            Some("text/plain; charset=utf-8")
+        );
+        // Content-Length matches the actual body byte count.
+        let declared: usize = resp
+            .headers()
+            .get("Content-Length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse().ok())
+            .expect("Content-Length header present and numeric");
+        assert_eq!(declared, resp.body().len());
+        assert!(!resp.body().is_empty());
+    }
+
+    /// The over-cap decision is deterministic: once a bounded channel is full,
+    /// `try_send` reports `Full` (which the warp handler maps to `overloaded_response`),
+    /// and never blocks or grows the queue.
+    #[tokio::test]
+    async fn full_queue_sheds_deterministically() {
+        let bound = 4usize;
+        let (tx, _rx) = mpsc::channel::<u32>(bound);
+
+        // Fill to capacity — every send within the bound succeeds.
+        for i in 0..bound {
+            tx.try_send(i as u32)
+                .expect("send within capacity succeeds");
+        }
+        assert_eq!(tx.max_capacity(), bound);
+
+        // The next send over capacity sheds rather than blocking or growing.
+        match tx.try_send(999) {
+            Err(mpsc::error::TrySendError::Full(v)) => assert_eq!(v, 999),
+            other => panic!("expected Full over capacity, got {other:?}"),
+        }
+
+        // The shed maps to a 503.
+        assert_eq!(
+            overloaded_response().status(),
+            warp::http::StatusCode::SERVICE_UNAVAILABLE
         );
     }
 }

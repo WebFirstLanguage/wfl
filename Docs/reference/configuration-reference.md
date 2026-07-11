@@ -308,6 +308,16 @@ Maximum HTTP request body size accepted by `listen on port` servers, in bytes. R
 
 Raise this when accepting file uploads via `parse_multipart` or raw `body_bytes`. Keep it as small as practical for public-facing APIs.
 
+#### web_server_request_queue_bound
+
+Maximum number of accepted-but-not-yet-handled HTTP requests held in the queue between the transport layer and your `wait for request` loop (DoS protection).
+
+- **Type:** Integer (at least 1)
+- **Default:** `256`
+- **Example:** `web_server_request_queue_bound = 512`
+
+Because request handlers run one at a time (see [Web Servers → Limitations](../04-advanced-features/web-servers.md#limitations--notes)), a burst of traffic queues up behind the handler. Without a bound, that queue could grow until the process runs out of memory. When the queue is full, the server **sheds** further requests with a `503 Service Unavailable` (and a `Retry-After` header) and logs a warning, instead of buffering unbounded work. Raise it to absorb larger bursts at the cost of more memory; lower it to shed sooner under load. A value of `0` is rejected (the default is kept).
+
 ## Example Configuration Files
 
 ### Development Configuration
