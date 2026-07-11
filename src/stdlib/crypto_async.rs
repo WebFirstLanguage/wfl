@@ -15,17 +15,23 @@
 //! on the interpreter thread after the `.await`. No `Rc`/`RefCell`/`Value`/
 //! `Environment` ever crosses threads.
 //!
-//! The returned future is a `!Send` [`LocalBoxFuture`]; it is awaited from the
-//! interpreter future, which runs via `block_on` (never `tokio::spawn`), so
-//! awaiting a `Send` `JoinHandle` from inside it is sound.
+//! The returned future is a boxed `Pin<Box<dyn Future>>` ([`RoutedFuture`]); it
+//! is awaited from the interpreter future, which runs via `block_on` (never
+//! `tokio::spawn`), so awaiting a `Send` `JoinHandle` from inside it is sound.
 
 use crate::interpreter::error::RuntimeError;
 use crate::interpreter::value::Value;
 use crate::stdlib::crypto;
 use crate::stdlib::helpers::{check_arg_count, expect_text};
-use futures_util::future::{FutureExt, LocalBoxFuture};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use zeroize::Zeroizing;
+
+/// Boxed future produced by [`route`]. A plain `std` type (rather than a
+/// `futures_util` alias) so the public signature doesn't leak a third-party type
+/// into the crate's API. It is awaited only on the interpreter thread.
+type RoutedFuture = Pin<Box<dyn Future<Output = Result<Value, RuntimeError>>>>;
 
 /// Route a CPU-heavy crypto builtin onto the blocking pool.
 ///
@@ -43,10 +49,7 @@ use zeroize::Zeroizing;
 ///
 /// Public so the interpreter dispatch (and the `tests/crypto_async_test.rs`
 /// integration tests) can drive it; not part of the stable language surface.
-pub fn route(
-    name: &str,
-    args: &[Value],
-) -> Option<LocalBoxFuture<'static, Result<Value, RuntimeError>>> {
+pub fn route(name: &str, args: &[Value]) -> Option<RoutedFuture> {
     let fut = match name {
         "argon2_hash" => hash_route("argon2_hash", args, crypto::argon2_hash_str),
         "scrypt_hash" => hash_route("scrypt_hash", args, crypto::scrypt_hash_str),
@@ -71,18 +74,17 @@ fn hash_route(
     func: &'static str,
     args: &[Value],
     compute: fn(&str, &str) -> Result<String, RuntimeError>,
-) -> LocalBoxFuture<'static, Result<Value, RuntimeError>> {
+) -> RoutedFuture {
     // Extract on the interpreter thread; only the owned `String` crosses the
     // boundary below.
     let extracted = extract_password(func, args);
-    async move {
+    Box::pin(async move {
         let password = extracted?;
         let hash = tokio::task::spawn_blocking(move || compute(func, password.as_str()))
             .await
             .map_err(|e| join_error(func, e))??;
         Ok(Value::Text(Arc::from(hash)))
-    }
-    .boxed_local()
+    })
 }
 
 /// Two-argument verify builtins: `<func> of "password" and stored` → boolean.
@@ -90,21 +92,20 @@ fn verify_route(
     func: &'static str,
     args: &[Value],
     compute: fn(&str, &str) -> bool,
-) -> LocalBoxFuture<'static, Result<Value, RuntimeError>> {
+) -> RoutedFuture {
     let extracted = extract_password_and_stored(func, args);
-    async move {
+    Box::pin(async move {
         let (password, stored) = extracted?;
         let ok = tokio::task::spawn_blocking(move || compute(password.as_str(), &stored))
             .await
             .map_err(|e| join_error(func, e))?;
         Ok(Value::Bool(ok))
-    }
-    .boxed_local()
+    })
 }
 
 /// Raw PBKDF2-HMAC-SHA256 KDF: `pbkdf2_hmac_sha256 of password and salt and
 /// iterations and length` → hex string.
-fn pbkdf2_hmac_route(args: &[Value]) -> LocalBoxFuture<'static, Result<Value, RuntimeError>> {
+fn pbkdf2_hmac_route(args: &[Value]) -> RoutedFuture {
     const FUNC: &str = "pbkdf2_hmac_sha256";
     let extracted = (|| {
         check_arg_count(FUNC, args, 4)?;
@@ -114,7 +115,7 @@ fn pbkdf2_hmac_route(args: &[Value]) -> LocalBoxFuture<'static, Result<Value, Ru
         let length = crypto::expect_count(FUNC, "length", &args[3])? as usize;
         Ok::<_, RuntimeError>((password, salt, iterations, length))
     })();
-    async move {
+    Box::pin(async move {
         let (password, salt, iterations, length) = extracted?;
         let hex = tokio::task::spawn_blocking(move || {
             crypto::pbkdf2_hmac_sha256_str(password.as_str(), &salt, iterations, length)
@@ -122,8 +123,7 @@ fn pbkdf2_hmac_route(args: &[Value]) -> LocalBoxFuture<'static, Result<Value, Ru
         .await
         .map_err(|e| join_error(FUNC, e))??;
         Ok(Value::Text(Arc::from(hex)))
-    }
-    .boxed_local()
+    })
 }
 
 /// Validate arity and pull out an owned password on the interpreter thread.

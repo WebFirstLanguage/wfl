@@ -5487,9 +5487,15 @@ impl Interpreter {
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
                             async move {
-                                // Hold the admission permit until this request is
-                                // fully processed, then release it on drop.
-                                let _permit = permit;
+                                // `permit` (acquired before the body was buffered)
+                                // is released right after the request is enqueued
+                                // below — see the `drop(permit)` in the `try_send`
+                                // Ok arm. Holding it across the untimed response
+                                // wait would let a handler that never calls
+                                // `respond` pin the in-flight cap and take the
+                                // server offline; an actual per-request response
+                                // timeout is Phase 1 work. On the early returns
+                                // below, `permit` is dropped when the future ends.
                                 // Safety net when Content-Length was absent or lied:
                                 // still refuse after buffering so the limit holds.
                                 if body.len() > max_body_size {
@@ -5545,7 +5551,16 @@ impl Interpreter {
                                 // than buffering unbounded work. `try_send` never
                                 // blocks the transport task.
                                 match sender.try_send(wfl_request) {
-                                    Ok(()) => {}
+                                    Ok(()) => {
+                                        // Enqueued: the body is now owned by the
+                                        // bounded queue (then the serial
+                                        // interpreter), so release the admission
+                                        // permit before the response wait. Concurrent
+                                        // body buffering stays bounded without pinning
+                                        // a permit to a possibly-never-answered
+                                        // request.
+                                        drop(permit);
+                                    }
                                     Err(mpsc::error::TrySendError::Full(shed)) => {
                                         log::warn!(
                                             "web server request queue full (capacity {}); shedding {} {} from {} with 503",
