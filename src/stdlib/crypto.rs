@@ -594,7 +594,7 @@ const MAX_SECURE_RANDOM_BYTES: usize = 4096;
 
 /// Convert a WFL number argument into a non-negative integer count, rejecting
 /// non-finite, negative, or fractional values with a clear message.
-fn expect_count(func: &str, name: &str, value: &Value) -> Result<u64, RuntimeError> {
+pub(crate) fn expect_count(func: &str, name: &str, value: &Value) -> Result<u64, RuntimeError> {
     let n = expect_number(value)?;
     if !n.is_finite() || n < 0.0 || n.fract() != 0.0 {
         return Err(RuntimeError::new(
@@ -612,7 +612,10 @@ fn expect_count(func: &str, name: &str, value: &Value) -> Result<u64, RuntimeErr
 /// Unlike `pbkdf2_hash` (which generates its own salt, pins OWASP's iteration
 /// count, and returns a self-describing PHC string), this is the raw KDF: use it
 /// to derive keys or to interoperate with a stored PBKDF2 hash produced elsewhere.
-/// The iteration loop runs in native Rust, bounding per-call cost.
+/// The iteration count is capped so a runaway value cannot hang the process, but
+/// a native KDF is still CPU-bound: run inline it would monopolize the single
+/// interpreter thread, so the heavy loop is offloaded to the blocking pool (see
+/// `crate::stdlib::crypto_async`).
 ///
 /// Usage: pbkdf2_hmac_sha256 of password and salt and iterations and length
 pub fn native_pbkdf2_hmac_sha256(args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -621,8 +624,24 @@ pub fn native_pbkdf2_hmac_sha256(args: Vec<Value>) -> Result<Value, RuntimeError
     let password = expect_text(&args[0])?;
     let salt = expect_text(&args[1])?;
     let iterations = expect_count("pbkdf2_hmac_sha256", "iterations", &args[2])?;
-    let length = expect_count("pbkdf2_hmac_sha256", "length", &args[3])? as usize;
+    let length = expect_count("pbkdf2_hmac_sha256", "length", &args[3])?;
 
+    Ok(Value::Text(Arc::from(pbkdf2_hmac_sha256_str(
+        &password, &salt, iterations, length,
+    )?)))
+}
+
+/// PBKDF2-HMAC-SHA256 key derivation core operating on plain data (validation +
+/// the native KDF loop). Returns the derived key as a lowercase hex string.
+/// Kept separate from `native_pbkdf2_hmac_sha256` so the CPU-heavy iteration
+/// loop can be run off the interpreter thread via `spawn_blocking` (see
+/// `crypto_async`). The sensitive derived buffer is zeroized before return.
+pub(crate) fn pbkdf2_hmac_sha256_str(
+    password: &str,
+    salt: &str,
+    iterations: u64,
+    length: u64,
+) -> Result<String, RuntimeError> {
     if password.len() > MAX_INPUT_SIZE || salt.len() > MAX_INPUT_SIZE {
         return Err(RuntimeError::new(
             format!(
@@ -646,6 +665,16 @@ pub fn native_pbkdf2_hmac_sha256(args: Vec<Value>) -> Result<Value, RuntimeError
             0,
         ));
     }
+    // Convert to `usize` with a checked cast so a value that doesn't fit (e.g.
+    // greater than u32::MAX on a 32-bit target such as wasm32) is rejected
+    // cleanly rather than silently truncating past the bound check below.
+    let length = usize::try_from(length).map_err(|_| {
+        RuntimeError::new(
+            format!("pbkdf2_hmac_sha256: length exceeds maximum ({MAX_PBKDF2_KEY_LENGTH} bytes)"),
+            0,
+            0,
+        )
+    })?;
     if length < 1 {
         return Err(RuntimeError::new(
             "pbkdf2_hmac_sha256: length must be at least 1 byte".to_string(),
@@ -670,7 +699,7 @@ pub fn native_pbkdf2_hmac_sha256(args: Vec<Value>) -> Result<Value, RuntimeError
     );
     let hex = bytes_to_hex(&derived);
     derived.zeroize();
-    Ok(Value::Text(Arc::from(hex)))
+    Ok(hex)
 }
 
 /// Compare two strings in constant time, returning a boolean.
@@ -777,7 +806,7 @@ fn random_salt() -> Result<SaltString, RuntimeError> {
     salt
 }
 
-fn argon2_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
+pub(crate) fn argon2_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
     check_password_len(func, password)?;
     let salt = random_salt()?;
     Argon2::default()
@@ -797,22 +826,26 @@ pub fn native_argon2_hash(args: Vec<Value>) -> Result<Value, RuntimeError> {
     )?)))
 }
 
+/// Verify a password against a stored Argon2 PHC string (plain-data core).
+pub(crate) fn argon2_verify_str(password: &str, stored: &str) -> bool {
+    match PasswordHash::new(stored) {
+        Ok(parsed) => Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok(),
+        Err(_) => false,
+    }
+}
+
 /// Verify a password against a stored Argon2 PHC string. Returns a boolean.
 /// Usage: argon2_verify of "my password" and stored_hash
 pub fn native_argon2_verify(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("argon2_verify", &args, 2)?;
     let password = expect_text(&args[0])?;
     let stored = expect_text(&args[1])?;
-    let ok = match PasswordHash::new(&stored) {
-        Ok(parsed) => Argon2::default()
-            .verify_password(password.as_bytes(), &parsed)
-            .is_ok(),
-        Err(_) => false,
-    };
-    Ok(Value::Bool(ok))
+    Ok(Value::Bool(argon2_verify_str(&password, &stored)))
 }
 
-fn scrypt_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
+pub(crate) fn scrypt_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
     check_password_len(func, password)?;
     let salt = random_salt()?;
     Scrypt
@@ -832,20 +865,24 @@ pub fn native_scrypt_hash(args: Vec<Value>) -> Result<Value, RuntimeError> {
     )?)))
 }
 
+/// Verify a password against a stored scrypt PHC string (plain-data core).
+pub(crate) fn scrypt_verify_str(password: &str, stored: &str) -> bool {
+    match PasswordHash::new(stored) {
+        Ok(parsed) => Scrypt.verify_password(password.as_bytes(), &parsed).is_ok(),
+        Err(_) => false,
+    }
+}
+
 /// Verify a password against a stored scrypt PHC string. Returns a boolean.
 /// Usage: scrypt_verify of "my password" and stored_hash
 pub fn native_scrypt_verify(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("scrypt_verify", &args, 2)?;
     let password = expect_text(&args[0])?;
     let stored = expect_text(&args[1])?;
-    let ok = match PasswordHash::new(&stored) {
-        Ok(parsed) => Scrypt.verify_password(password.as_bytes(), &parsed).is_ok(),
-        Err(_) => false,
-    };
-    Ok(Value::Bool(ok))
+    Ok(Value::Bool(scrypt_verify_str(&password, &stored)))
 }
 
-fn pbkdf2_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
+pub(crate) fn pbkdf2_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
     check_password_len(func, password)?;
     let salt = random_salt()?;
     // Override the weak default iteration count with OWASP's recommendation.
@@ -870,20 +907,24 @@ pub fn native_pbkdf2_hash(args: Vec<Value>) -> Result<Value, RuntimeError> {
     )?)))
 }
 
+/// Verify a password against a stored PBKDF2 PHC string (plain-data core).
+pub(crate) fn pbkdf2_verify_str(password: &str, stored: &str) -> bool {
+    match PasswordHash::new(stored) {
+        Ok(parsed) => Pbkdf2.verify_password(password.as_bytes(), &parsed).is_ok(),
+        Err(_) => false,
+    }
+}
+
 /// Verify a password against a stored PBKDF2 PHC string. Returns a boolean.
 /// Usage: pbkdf2_verify of "my password" and stored_hash
 pub fn native_pbkdf2_verify(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("pbkdf2_verify", &args, 2)?;
     let password = expect_text(&args[0])?;
     let stored = expect_text(&args[1])?;
-    let ok = match PasswordHash::new(&stored) {
-        Ok(parsed) => Pbkdf2.verify_password(password.as_bytes(), &parsed).is_ok(),
-        Err(_) => false,
-    };
-    Ok(Value::Bool(ok))
+    Ok(Value::Bool(pbkdf2_verify_str(&password, &stored)))
 }
 
-fn bcrypt_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
+pub(crate) fn bcrypt_hash_str(func: &str, password: &str) -> Result<String, RuntimeError> {
     check_password_len(func, password)?;
     // bcrypt manages its own salt internally and returns an MCF `$2b$` string.
     bcrypt::hash(password.as_bytes(), bcrypt::DEFAULT_COST)
@@ -903,20 +944,24 @@ pub fn native_bcrypt_hash(args: Vec<Value>) -> Result<Value, RuntimeError> {
     )?)))
 }
 
+/// Verify a password against a stored bcrypt hash (plain-data core).
+/// A malformed stored hash simply fails verification rather than erroring.
+pub(crate) fn bcrypt_verify_str(password: &str, stored: &str) -> bool {
+    bcrypt::verify(password.as_bytes(), stored).unwrap_or(false)
+}
+
 /// Verify a password against a stored bcrypt hash. Returns a boolean.
 /// Usage: bcrypt_verify of "my password" and stored_hash
 pub fn native_bcrypt_verify(args: Vec<Value>) -> Result<Value, RuntimeError> {
     check_arg_count("bcrypt_verify", &args, 2)?;
     let password = expect_text(&args[0])?;
     let stored = expect_text(&args[1])?;
-    // A malformed stored hash simply fails verification rather than erroring.
-    let ok = bcrypt::verify(password.as_bytes(), stored.as_ref()).unwrap_or(false);
-    Ok(Value::Bool(ok))
+    Ok(Value::Bool(bcrypt_verify_str(&password, &stored)))
 }
 
 /// Verify a password against any supported stored hash, auto-detecting the
 /// algorithm from the stored string. Returns a boolean.
-fn verify_any_password(password: &str, stored: &str) -> bool {
+pub(crate) fn verify_any_password(password: &str, stored: &str) -> bool {
     // bcrypt MCF strings are not PHC format; detect them by their version prefix.
     if stored.starts_with("$2a$") || stored.starts_with("$2b$") || stored.starts_with("$2y$") {
         return bcrypt::verify(password.as_bytes(), stored).unwrap_or(false);

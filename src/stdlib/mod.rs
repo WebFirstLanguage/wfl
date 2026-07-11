@@ -1,5 +1,6 @@
 pub mod core;
 pub mod crypto;
+pub mod crypto_async;
 pub mod filesystem;
 pub mod helpers;
 pub mod json;

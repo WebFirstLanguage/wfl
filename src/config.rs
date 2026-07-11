@@ -48,6 +48,11 @@ pub struct WflConfig {
     /// Maximum accepted HTTP request body size in bytes (DoS protection).
     /// Default 1 MiB; raise for media uploads via `.wflcfg`.
     pub web_server_max_body_size: usize,
+    /// Maximum number of accepted-but-not-yet-handled HTTP requests held in the
+    /// transport→interpreter queue (DoS protection). When the queue is full the
+    /// server sheds new requests with a 503 instead of growing memory without
+    /// bound. Default 256; must be at least 1.
+    pub web_server_request_queue_bound: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +133,9 @@ impl Default for WflConfig {
             web_server_tls_key_file: None,
             // 1 MiB default body limit (DoS protection); raise for uploads
             web_server_max_body_size: 1_048_576,
+            // Bound the accept queue so a flood sheds with 503 rather than
+            // growing memory without bound. Aligns with the Phase 1 in-flight cap.
+            web_server_request_queue_bound: 256,
         }
     }
 }
@@ -652,6 +660,42 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                     } else {
                         log::warn!(
                             "Invalid web_server_max_body_size '{}' in {}: expected a positive integer",
+                            value,
+                            file.display()
+                        );
+                    }
+                }
+                "web_server_request_queue_bound" => {
+                    if let Ok(bound) = value.parse::<usize>() {
+                        // Reject zero: `tokio::sync::mpsc::channel(0)` panics, and a
+                        // zero-length queue could never accept a request.
+                        if bound == 0 {
+                            log::warn!(
+                                "Invalid web_server_request_queue_bound '0' in {}: must be at least 1. Keeping {}",
+                                file.display(),
+                                config.web_server_request_queue_bound
+                            );
+                        } else {
+                            if config.web_server_request_queue_bound
+                                != WflConfig::default().web_server_request_queue_bound
+                            {
+                                log::debug!(
+                                    "Overriding web_server_request_queue_bound: {} -> {} from {}",
+                                    config.web_server_request_queue_bound,
+                                    bound,
+                                    file.display()
+                                );
+                            }
+                            config.web_server_request_queue_bound = bound;
+                            log::debug!(
+                                "Loaded web_server_request_queue_bound: {} from {}",
+                                config.web_server_request_queue_bound,
+                                file.display()
+                            );
+                        }
+                    } else {
+                        log::warn!(
+                            "Invalid web_server_request_queue_bound '{}' in {}: expected a positive integer",
                             value,
                             file.display()
                         );

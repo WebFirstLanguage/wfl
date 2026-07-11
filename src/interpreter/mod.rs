@@ -117,9 +117,26 @@ pub(crate) fn lookup_header_case_insensitive(
 
 #[derive(Debug)]
 pub struct WflWebServer {
-    pub request_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflHttpRequest>>>,
-    pub request_sender: mpsc::UnboundedSender<WflHttpRequest>,
+    // Bounded transport→interpreter queue (Phase 0, PR-0c): a full queue sheds
+    // new requests with 503 rather than growing memory without bound.
+    pub request_receiver: Arc<tokio::sync::Mutex<mpsc::Receiver<WflHttpRequest>>>,
+    pub request_sender: mpsc::Sender<WflHttpRequest>,
     pub server_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// Build the 503 response returned when the transport→interpreter request queue
+/// is full (Phase 0, PR-0c). A free function so the shed path can be tested
+/// without standing up a live server.
+pub fn overloaded_response() -> warp::http::Response<Vec<u8>> {
+    let body = b"Service Unavailable: the server is overloaded, please retry later\n".to_vec();
+    let content_length = body.len();
+    warp::http::Response::builder()
+        .status(warp::http::StatusCode::SERVICE_UNAVAILABLE)
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .header("Content-Length", content_length)
+        .header("Retry-After", "1")
+        .body(body)
+        .expect("static 503 response is always valid")
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +346,27 @@ fn build_ws_event_object(event: &WflWsEvent) -> Value {
 pub struct ServerError(String);
 
 impl warp::reject::Reject for ServerError {}
+
+/// Rejection raised when the server is at its in-flight request capacity, so a
+/// request is shed *before* its body is buffered (Phase 0, PR-0c). Mapped to a
+/// 503 by [`handle_overloaded`].
+#[derive(Debug)]
+struct Overloaded;
+
+impl warp::reject::Reject for Overloaded {}
+
+/// Warp recover handler: turn an [`Overloaded`] rejection into a 503, and
+/// re-raise every other rejection so warp's default handling still applies
+/// (e.g. oversized-body `ServerError`s are unaffected).
+async fn handle_overloaded(
+    err: warp::Rejection,
+) -> Result<warp::http::Response<Vec<u8>>, warp::Rejection> {
+    if err.find::<Overloaded>().is_some() {
+        Ok(overloaded_response())
+    } else {
+        Err(err)
+    }
+}
 
 /// Strips the port from an HTTP Host header value, preserving IPv6 brackets
 /// (`example.com:8080` -> `example.com`, `[::1]:8080` -> `[::1]`).
@@ -5373,10 +5411,21 @@ impl Interpreter {
                     }
                 };
 
-                // Create request/response channels
+                // Create request/response channels. The request queue is bounded
+                // (Phase 0, PR-0c) so a flood of accepted-but-unhandled requests
+                // sheds with 503 instead of growing memory without bound.
+                let queue_bound = self.config.web_server_request_queue_bound.max(1);
                 let (request_sender, request_receiver) =
-                    mpsc::unbounded_channel::<WflHttpRequest>();
+                    mpsc::channel::<WflHttpRequest>(queue_bound);
                 let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
+
+                // Cap concurrently in-flight requests so a flood cannot allocate
+                // an unbounded number of request bodies before the queue check
+                // (Phase 0, PR-0c). A permit is acquired *before* `body::bytes()`
+                // buffers the payload and released when the request completes;
+                // when none is available the request is shed with 503 before any
+                // body is read.
+                let inflight = Arc::new(tokio::sync::Semaphore::new(queue_bound));
 
                 // Create warp routes that handle all HTTP methods and paths.
                 // Body size: reject oversized Content-Length *before* buffering
@@ -5410,6 +5459,21 @@ impl Interpreter {
                             },
                         ),
                     )
+                    // Admission control: acquire an in-flight permit *before* the
+                    // body is buffered. If the server is saturated, shed with a
+                    // 503 (via the `Overloaded` rejection + `handle_overloaded`)
+                    // so we never allocate a body for a request we can't serve.
+                    .and({
+                        let inflight = inflight.clone();
+                        warp::any().and_then(move || {
+                            let inflight = inflight.clone();
+                            async move {
+                                inflight
+                                    .try_acquire_owned()
+                                    .map_err(|_| warp::reject::custom(Overloaded))
+                            }
+                        })
+                    })
                     .and(warp::body::bytes())
                     .and(warp::addr::remote())
                     .and_then(
@@ -5418,10 +5482,20 @@ impl Interpreter {
                               query: String,
                               headers: warp::http::HeaderMap,
                               (),
+                              permit: tokio::sync::OwnedSemaphorePermit,
                               body: bytes::Bytes,
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
                             async move {
+                                // `permit` (acquired before the body was buffered)
+                                // is released right after the request is enqueued
+                                // below — see the `drop(permit)` in the `try_send`
+                                // Ok arm. Holding it across the untimed response
+                                // wait would let a handler that never calls
+                                // `respond` pin the in-flight cap and take the
+                                // server offline; an actual per-request response
+                                // timeout is Phase 1 work. On the early returns
+                                // below, `permit` is dropped when the future ends.
                                 // Safety net when Content-Length was absent or lied:
                                 // still refuse after buffering so the limit holds.
                                 if body.len() > max_body_size {
@@ -5471,11 +5545,37 @@ impl Interpreter {
                                     ))),
                                 };
 
-                                // Send request to WFL interpreter
-                                if sender.send(wfl_request).is_err() {
-                                    return Err(warp::reject::custom(ServerError(
-                                        "Request channel closed".to_string(),
-                                    )));
+                                // Send request to WFL interpreter. The queue is
+                                // bounded (Phase 0, PR-0c): a full queue means the
+                                // interpreter is saturated, so shed with 503 rather
+                                // than buffering unbounded work. `try_send` never
+                                // blocks the transport task.
+                                match sender.try_send(wfl_request) {
+                                    Ok(()) => {
+                                        // Enqueued: the body is now owned by the
+                                        // bounded queue (then the serial
+                                        // interpreter), so release the admission
+                                        // permit before the response wait. Concurrent
+                                        // body buffering stays bounded without pinning
+                                        // a permit to a possibly-never-answered
+                                        // request.
+                                        drop(permit);
+                                    }
+                                    Err(mpsc::error::TrySendError::Full(shed)) => {
+                                        log::warn!(
+                                            "web server request queue full (capacity {}); shedding {} {} from {} with 503",
+                                            sender.max_capacity(),
+                                            shed.method,
+                                            shed.path,
+                                            shed.client_ip
+                                        );
+                                        return Ok(overloaded_response());
+                                    }
+                                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                                        return Err(warp::reject::custom(ServerError(
+                                            "Request channel closed".to_string(),
+                                        )));
+                                    }
                                 }
 
                                 // Wait for response
@@ -5515,7 +5615,8 @@ impl Interpreter {
                                 }
                             }
                         },
-                    );
+                    )
+                    .recover(handle_overloaded);
 
                 // Parse the bind address from config
                 let bind_addr: IpAddr = match self.config.web_server_bind_address.parse() {
@@ -8276,14 +8377,29 @@ impl Interpreter {
                     Value::Function(func) => {
                         self.call_function(&func, arg_values, *line, *column).await
                     }
-                    Value::NativeFunction(_, native_fn) => {
-                        native_fn(arg_values.clone()).map_err(|e| {
-                            RuntimeError::new(
-                                format!("Error in native function: {e}"),
-                                *line,
-                                *column,
-                            )
-                        })
+                    Value::NativeFunction(native_name, native_fn) => {
+                        // CPU-heavy crypto builtins hop onto the blocking pool so
+                        // they don't monopolize the interpreter thread (Phase 0,
+                        // PR-0b). Everything else runs synchronously as before.
+                        if let Some(fut) =
+                            crate::stdlib::crypto_async::route(native_name, &arg_values)
+                        {
+                            fut.await.map_err(|e| {
+                                RuntimeError::new(
+                                    format!("Error in native function: {e}"),
+                                    *line,
+                                    *column,
+                                )
+                            })
+                        } else {
+                            native_fn(arg_values.clone()).map_err(|e| {
+                                RuntimeError::new(
+                                    format!("Error in native function: {e}"),
+                                    *line,
+                                    *column,
+                                )
+                            })
+                        }
                     }
                     _ => Err(RuntimeError::new(
                         format!("Cannot call {}", function_val.type_name()),
@@ -8349,12 +8465,21 @@ impl Interpreter {
 
                         // Preserve the native error's message and kind; only
                         // point the location at the call site (natives report
-                        // their position as 0,0).
-                        native_fn(arg_values).map_err(|mut e| {
-                            e.line = *line;
-                            e.column = *column;
-                            e
-                        })
+                        // their position as 0,0). CPU-heavy crypto builtins are
+                        // routed onto the blocking pool (Phase 0, PR-0b).
+                        if let Some(fut) = crate::stdlib::crypto_async::route(name, &arg_values) {
+                            fut.await.map_err(|mut e| {
+                                e.line = *line;
+                                e.column = *column;
+                                e
+                            })
+                        } else {
+                            native_fn(arg_values).map_err(|mut e| {
+                                e.line = *line;
+                                e.column = *column;
+                                e
+                            })
+                        }
                     }
                     _ => Err(RuntimeError::new(
                         format!("'{name}' is not callable"),
