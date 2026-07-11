@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-Common problems and solutions for WFL development.
+Common problems and solutions when installing, writing, or running WFL. Messages should stay actionable—if an error feels opaque, that is a language or tooling bug worth reporting, not something you are expected to “just know.”
 
 ## Installation Issues
 

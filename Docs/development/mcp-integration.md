@@ -1,12 +1,14 @@
 # MCP Integration
 
-Model Context Protocol enables AI assistants to understand and help with WFL code.
+Model Context Protocol (MCP) lets AI assistants call WFL tools—parse, analyze, type-check, and lint—so help stays grounded in the real language, not guesses.
+
+This is the **user and developer guide** for WFL’s MCP server (served by `wfl-lsp --mcp`). For editor features without AI, see [LSP Integration](lsp-integration.md).
 
 ## What is MCP?
 
-MCP lets AI assistants (like Claude) access tools and resources from applications.
+MCP connects an assistant to tools and resources from an application.
 
-**For WFL:** Claude can parse, analyze, type-check, and lint WFL code.
+**For WFL:** the assistant can validate syntax, report semantic and type issues, and suggest style fixes using the same pipeline as the compiler and linter—aligned with clear, actionable error reporting.
 
 ## Quick Setup (Claude Desktop)
 

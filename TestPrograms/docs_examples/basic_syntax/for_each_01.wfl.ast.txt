@@ -1,0 +1,80 @@
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\basic_syntax\for_each_01.wfl
+==============================================
+
+Program with 3 statements:
+
+Statement #1: CreateListStatement {
+    name: "fruits",
+    initial_values: [
+        Literal(
+            String(
+                "apple",
+            ),
+            5,
+            9,
+        ),
+        Literal(
+            String(
+                "banana",
+            ),
+            6,
+            9,
+        ),
+        Literal(
+            String(
+                "orange",
+            ),
+            7,
+            9,
+        ),
+    ],
+    line: 4,
+    column: 1,
+}
+
+Statement #2: DisplayStatement {
+    value: Literal(
+        String(
+            "My favorite fruits:",
+        ),
+        10,
+        9,
+    ),
+    line: 10,
+    column: 30,
+}
+
+Statement #3: ForEachLoop {
+    item_name: "fruit",
+    collection: Variable(
+        "fruits",
+        11,
+        19,
+    ),
+    reversed: false,
+    body: [
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "  - ",
+                    ),
+                    12,
+                    13,
+                ),
+                right: Variable(
+                    "fruit",
+                    12,
+                    25,
+                ),
+                line: 12,
+                column: 20,
+            },
+            line: 12,
+            column: 30,
+        },
+    ],
+    line: 13,
+    column: 8,
+}
+

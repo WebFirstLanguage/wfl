@@ -1,24 +1,28 @@
 # WFL Language Specification
 
-Formal specification of the WebFirst Language (WFL). Technical reference for implementers and advanced users.
+Formal specification of the WebFirst Language (WFL). This is a technical reference for implementers and advanced users. Everyday learning should start with the [Introduction](../01-introduction/index.md) and [Language Basics](../03-language-basics/index.md).
+
+WFL’s design follows the [19 guiding principles](../wfl-foundation.md) and the **no-unlearning invariant**: beginner forms and expert forms are the same language, connected by growth rather than replacement.
 
 ## Language Overview
 
-**Name:** WebFirst Language (WFL)
-**Version:** 26.1.17 (January 2026)
-**Status:** Alpha
-**Paradigm:** Multi-paradigm (imperative, functional, object-oriented)
-**Type System:** Static with inference
-**Execution:** Interpreted (direct AST execution)
+| Field | Value |
+|-------|--------|
+| **Name** | WebFirst Language (WFL) |
+| **Version** | 26.7.30 |
+| **Status** | Active development |
+| **Paradigm** | Multi-paradigm (imperative, object-oriented containers, natural-language constructs) |
+| **Type system** | Static with inference |
+| **Execution** | Interpreted (direct AST execution, Tokio async) |
 
 ## Lexical Structure
 
 ### Keywords
 
-180 reserved keywords organized by purpose and type.
+**181** keywords and literals, organized by purpose and type.
 
-**Keyword Types:**
-- 53 Structural Keywords (core language constructs)
+**Keyword types:**
+- 54 Structural Keywords (core language constructs)
 - 29 Contextual Keywords (context-dependent usage)
 - 96 Other Reserved Keywords (feature-specific)
 - 7 Boolean & Null Literals
@@ -141,10 +145,12 @@ end action
 call <identifier> [with <argument-list>]
 ```
 
-**Try-Catch:**
+**Try / when / catch / finally:**
 ```
 try:
     <statements>
+[when error [as <identifier>]:
+    <statements>]*
 [when <error-type>:
     <statements>]*
 [catch:
@@ -153,6 +159,8 @@ try:
     <statements>]
 end try
 ```
+
+`finally` always runs after the try body and any matching handler (success or handled error).
 
 **Container Definition:**
 ```

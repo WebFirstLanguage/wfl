@@ -1,12 +1,12 @@
 # Frequently Asked Questions (FAQ)
 
-Common questions about WFL answered.
+Common questions about WFL, answered in plain language. For philosophy and design law, see the [foundation](../wfl-foundation.md).
 
 ## General Questions
 
 ### What is WFL?
 
-WFL (WebFirst Language) is a programming language that uses natural English-like syntax instead of cryptic symbols. It's designed to make coding intuitive and accessible.
+WFL (WebFirst Language) is a programming language that uses natural English-like syntax instead of cryptic symbols. It is designed so beginners and experienced developers share one continuous language—nothing you learn on day one has to be unlearned later.
 
 **[Learn more →](../01-introduction/what-is-wfl.md)**
 
@@ -14,10 +14,11 @@ WFL (WebFirst Language) is a programming language that uses natural English-like
 
 ### Is WFL production-ready?
 
-**No.** WFL is in alpha (v26.1.17). It's great for:
-- ✅ Learning programming
-- ✅ Side projects
-- ✅ Prototypes
+WFL is under active development (current version in the repo: **26.7.x**). It is already useful for:
+
+- ✅ Learning programming with natural syntax
+- ✅ Side projects and prototypes
+- ✅ Exploring web servers, files, and patterns in one language
 - ✅ Experimentation
 
 **Not recommended for:**
@@ -203,7 +204,7 @@ Compiler catches type errors before runtime.
 - Examples
 - Tests
 
-**[Contributing guide →](../development/contributing-guide.md)** *(coming soon)*
+**[Contributing guide →](../development/contributing-guide.md)**
 
 ---
 

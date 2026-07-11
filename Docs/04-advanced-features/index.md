@@ -2,6 +2,8 @@
 
 WFL includes powerful features for real-world applications: web servers, file I/O, async operations, pattern matching, object-oriented programming, and more.
 
+These features still use the same natural-language style as the basics—experts get more power without a second, incompatible dialect ([foundation](../wfl-foundation.md)).
+
 ## What You'll Learn
 
 This section covers WFL's advanced capabilities:

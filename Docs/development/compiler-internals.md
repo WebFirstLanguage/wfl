@@ -1,6 +1,6 @@
 # Compiler Internals
 
-Deep dive into WFL's implementation. For contributors and those curious about how WFL works.
+Deep dive into WFL’s implementation. For contributors and people curious about how natural-language-friendly syntax is turned into reliable execution. Prefer [Architecture Overview](architecture-overview.md) first if you only need the big picture.
 
 ## Pipeline Overview
 

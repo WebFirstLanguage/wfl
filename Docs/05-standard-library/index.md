@@ -1,5 +1,7 @@
 # Standard Library
 
+Built-in tools that use the same natural-language style as the rest of WFL—no separate package manager required for core work. See the [foundation principles](../wfl-foundation.md) on standard libraries and gradual learning.
+
 WFL includes a comprehensive standard library with 181+ built-in functions across 11 modules. Everything you need is included.
 
 ## What's in the Standard Library?

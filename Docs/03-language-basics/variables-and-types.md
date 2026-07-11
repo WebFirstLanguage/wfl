@@ -295,18 +295,22 @@ store APP_NAME as "My Application"
 
 ## Naming Conventions
 
+Full project conventions: **[Naming Conventions](../06-best-practices/naming-conventions.md)**. Summary:
+
 ### Recommended Style
 
-**Use descriptive names with spaces:**
-```wfl
-store user age as 25               // Good: Clear what it represents
-store customer balance as 1000.00  // Good: Very descriptive
-```
+**Prefer snake_case** (project default; matches the linter):
 
-**Or snake_case (single words):**
 ```wfl
 store user_age as 25
 store customer_balance as 1000.00
+```
+
+**Spaced names** are also valid — be consistent within a project:
+
+```wfl
+store user age as 25
+store customer balance as 1000.00
 ```
 
 **Avoid single letters (except in math):**
@@ -330,7 +334,7 @@ Variable names cannot:
 
 ### Reserved Keywords
 
-WFL has 178 reserved keywords. Most cannot be used as variable names.
+WFL has **181** keywords and literals. Many cannot be used as variable names.
 
 **Common reserved keywords you'll encounter:**
 - **Control flow:** check, if, otherwise, for, repeat, end
@@ -353,6 +357,7 @@ store filename as "data.txt"  // ✅ Different name
 **Tip:** Some keywords like `count`, `list`, and `pattern` are "contextual"—you CAN use them as variables in certain contexts but NOT in others.
 
 **See complete lists:**
+- **[Naming Conventions →](../06-best-practices/naming-conventions.md)** - Project naming guide
 - **[Quick Reference →](../reference/keyword-reference.md)** - Fast lookup
 - **[Complete Reference →](../reference/reserved-keywords.md)** - Technical details & edge cases
 

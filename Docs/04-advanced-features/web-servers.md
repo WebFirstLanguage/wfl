@@ -1169,7 +1169,7 @@ close server chat_server
 5. **Set timeouts** - Prevent slow clients from hanging
 6. **Log securely** - Don't log sensitive data
 
-**[See Security Guidelines →](../06-best-practices/security-guidelines.md)** *(coming soon)*
+**[See Security Guidelines →](../06-best-practices/security-guidelines.md)**
 
 ## What You've Learned
 

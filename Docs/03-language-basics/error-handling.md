@@ -132,13 +132,9 @@ check if file_handle is not nothing:
 end check
 ```
 
-## Cleanup After the Try Block
+## Always-Run Cleanup with `finally`
 
-WFL has no separate `finally` keyword. To run cleanup code whether or not an
-error occurred, place it **right after `end try`**. Once a `catch:` (or a
-`when` clause) has handled the error, execution continues past `end try`, so
-that code always runs. Track any state you need to inspect during cleanup in a
-variable that lives *outside* the try block:
+Use a `finally:` clause when cleanup must run whether the try body succeeded or failed. This matches how people describe the intent in English: “try this, handle errors, and **always** clean up.”
 
 ```wfl
 store outcome as "unknown"
@@ -148,35 +144,30 @@ try:
     store result as 10 divided by 2
     display "Result: " with result
     change outcome to "succeeded"
-catch:
+when error:
     display "Something went wrong"
     change outcome to "failed"
+finally:
+    display "Cleanup: work " with outcome
 end try
-
-// This cleanup runs whether the work succeeded or failed
-display "Cleanup: work " with outcome
 ```
 
 **Syntax:**
 ```wfl
 try:
     <statements that might fail>
-catch:
+when error:
     <error handling code>
+finally:
+    <cleanup that always runs>
 end try
-<cleanup code that always runs>
 ```
 
-**Put cleanup after `end try` for:**
-- Closing files
-- Releasing resources
-- Cleanup operations
-- Logging
+You can also use `catch:` instead of (or with) `when` clauses. Prefer `finally` for closing files, releasing resources, and final logging.
 
-### Cleanup Example
+### File Cleanup Example
 
-Store the file handle in an outer variable so you can close it after the try
-block finishes:
+Track the handle outside the try body, close it in `finally`:
 
 ```wfl
 store file_handle as nothing
@@ -186,15 +177,17 @@ try:
     change file_handle to my_file
     write content "log entry" into my_file
     display "File written successfully"
-catch:
+when error:
     display "Error: Could not write file"
+finally:
+    check if file_handle is not nothing:
+        close file file_handle
+        display "File closed"
+    end check
 end try
-
-check if file_handle is not nothing:
-    close file_handle
-    display "File closed"
-end check
 ```
+
+If you omit `finally`, code placed **after** `end try` still runs once a `when`/`catch` clause has handled the error — but `finally` is the clear, dedicated form for cleanup.
 
 ## Accessing Error Information
 

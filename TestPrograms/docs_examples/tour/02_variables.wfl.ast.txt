@@ -1,0 +1,189 @@
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\tour\02_variables.wfl
+==============================================
+
+Program with 9 statements:
+
+Statement #1: VariableDeclaration {
+    name: "name",
+    value: Literal(
+        String(
+            "Alice",
+        ),
+        2,
+        15,
+    ),
+    is_constant: false,
+    line: 2,
+    column: 1,
+}
+
+Statement #2: VariableDeclaration {
+    name: "age",
+    value: Literal(
+        Integer(
+            30,
+        ),
+        3,
+        14,
+    ),
+    is_constant: false,
+    line: 3,
+    column: 1,
+}
+
+Statement #3: VariableDeclaration {
+    name: "is_member",
+    value: Literal(
+        Boolean(
+            true,
+        ),
+        4,
+        20,
+    ),
+    is_constant: false,
+    line: 4,
+    column: 1,
+}
+
+Statement #4: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Name: ",
+            ),
+            6,
+            9,
+        ),
+        right: Variable(
+            "name",
+            6,
+            23,
+        ),
+        line: 6,
+        column: 18,
+    },
+    line: 6,
+    column: 27,
+}
+
+Statement #5: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Age: ",
+            ),
+            7,
+            9,
+        ),
+        right: Variable(
+            "age",
+            7,
+            22,
+        ),
+        line: 7,
+        column: 17,
+    },
+    line: 7,
+    column: 25,
+}
+
+Statement #6: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Member? ",
+            ),
+            8,
+            9,
+        ),
+        right: Variable(
+            "is_member",
+            8,
+            25,
+        ),
+        line: 8,
+        column: 20,
+    },
+    line: 8,
+    column: 34,
+}
+
+Statement #7: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "age is a ",
+            ),
+            9,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "typeof",
+                9,
+                26,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "age",
+                        9,
+                        36,
+                    ),
+                },
+            ],
+            line: 9,
+            column: 33,
+        },
+        line: 9,
+        column: 21,
+    },
+    line: 9,
+    column: 39,
+}
+
+Statement #8: Assignment {
+    name: "age",
+    value: BinaryOperation {
+        left: Variable(
+            "age",
+            11,
+            15,
+        ),
+        operator: Plus,
+        right: Literal(
+            Integer(
+                1,
+            ),
+            11,
+            24,
+        ),
+        line: 11,
+        column: 19,
+    },
+    line: 11,
+    column: 25,
+}
+
+Statement #9: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Next year: ",
+            ),
+            12,
+            9,
+        ),
+        right: Variable(
+            "age",
+            12,
+            28,
+        ),
+        line: 12,
+        column: 23,
+    },
+    line: 12,
+    column: 31,
+}
+

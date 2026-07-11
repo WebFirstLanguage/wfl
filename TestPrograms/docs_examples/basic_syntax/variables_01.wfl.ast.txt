@@ -1,0 +1,285 @@
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\basic_syntax\variables_01.wfl
+==============================================
+
+Program with 12 statements:
+
+Statement #1: VariableDeclaration {
+    name: "name",
+    value: Literal(
+        String(
+            "Alice",
+        ),
+        4,
+        15,
+    ),
+    is_constant: false,
+    line: 4,
+    column: 1,
+}
+
+Statement #2: VariableDeclaration {
+    name: "age",
+    value: Literal(
+        Integer(
+            25,
+        ),
+        5,
+        14,
+    ),
+    is_constant: false,
+    line: 5,
+    column: 1,
+}
+
+Statement #3: VariableDeclaration {
+    name: "is_active",
+    value: Literal(
+        Boolean(
+            true,
+        ),
+        6,
+        20,
+    ),
+    is_constant: false,
+    line: 6,
+    column: 1,
+}
+
+Statement #4: VariableDeclaration {
+    name: "account_balance",
+    value: Literal(
+        Float(
+            1250.75,
+        ),
+        7,
+        26,
+    ),
+    is_constant: false,
+    line: 7,
+    column: 1,
+}
+
+Statement #5: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Name: ",
+            ),
+            9,
+            9,
+        ),
+        right: Variable(
+            "name",
+            9,
+            23,
+        ),
+        line: 9,
+        column: 18,
+    },
+    line: 9,
+    column: 27,
+}
+
+Statement #6: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Age: ",
+            ),
+            10,
+            9,
+        ),
+        right: Variable(
+            "age",
+            10,
+            22,
+        ),
+        line: 10,
+        column: 17,
+    },
+    line: 10,
+    column: 25,
+}
+
+Statement #7: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Active: ",
+            ),
+            11,
+            9,
+        ),
+        right: Variable(
+            "is_active",
+            11,
+            25,
+        ),
+        line: 11,
+        column: 20,
+    },
+    line: 11,
+    column: 34,
+}
+
+Statement #8: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Balance: ",
+            ),
+            12,
+            9,
+        ),
+        right: Variable(
+            "account_balance",
+            12,
+            26,
+        ),
+        line: 12,
+        column: 21,
+    },
+    line: 12,
+    column: 41,
+}
+
+Statement #9: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Type of name: ",
+            ),
+            15,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "typeof",
+                15,
+                31,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "name",
+                        15,
+                        41,
+                    ),
+                },
+            ],
+            line: 15,
+            column: 38,
+        },
+        line: 15,
+        column: 26,
+    },
+    line: 15,
+    column: 45,
+}
+
+Statement #10: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Type of age: ",
+            ),
+            16,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "typeof",
+                16,
+                30,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "age",
+                        16,
+                        40,
+                    ),
+                },
+            ],
+            line: 16,
+            column: 37,
+        },
+        line: 16,
+        column: 25,
+    },
+    line: 16,
+    column: 43,
+}
+
+Statement #11: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Type of is_active: ",
+            ),
+            17,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "typeof",
+                17,
+                36,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "is_active",
+                        17,
+                        46,
+                    ),
+                },
+            ],
+            line: 17,
+            column: 43,
+        },
+        line: 17,
+        column: 31,
+    },
+    line: 17,
+    column: 55,
+}
+
+Statement #12: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Type of account_balance: ",
+            ),
+            18,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "typeof",
+                18,
+                42,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "account_balance",
+                        18,
+                        52,
+                    ),
+                },
+            ],
+            line: 18,
+            column: 49,
+        },
+        line: 18,
+        column: 37,
+    },
+    line: 18,
+    column: 67,
+}
+

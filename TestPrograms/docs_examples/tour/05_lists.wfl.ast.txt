@@ -1,0 +1,153 @@
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\tour\05_lists.wfl
+==============================================
+
+Program with 4 statements:
+
+Statement #1: CreateListStatement {
+    name: "evens",
+    initial_values: [],
+    line: 2,
+    column: 1,
+}
+
+Statement #2: CountLoop {
+    start: Literal(
+        Integer(
+            1,
+        ),
+        5,
+        12,
+    ),
+    end: Literal(
+        Integer(
+            10,
+        ),
+        5,
+        17,
+    ),
+    step: None,
+    downward: false,
+    variable_name: None,
+    body: [
+        VariableDeclaration {
+            name: "remainder",
+            value: BinaryOperation {
+                left: Variable(
+                    "count",
+                    6,
+                    24,
+                ),
+                operator: Modulo,
+                right: Literal(
+                    Integer(
+                        2,
+                    ),
+                    6,
+                    32,
+                ),
+                line: 6,
+                column: 30,
+            },
+            is_constant: false,
+            line: 6,
+            column: 5,
+        },
+        IfStatement {
+            condition: BinaryOperation {
+                left: Variable(
+                    "remainder",
+                    7,
+                    14,
+                ),
+                operator: Equals,
+                right: Literal(
+                    Integer(
+                        0,
+                    ),
+                    7,
+                    36,
+                ),
+                line: 7,
+                column: 24,
+            },
+            then_block: [
+                PushStatement {
+                    list: Variable(
+                        "evens",
+                        8,
+                        19,
+                    ),
+                    value: Variable(
+                        "count",
+                        8,
+                        29,
+                    ),
+                    line: 8,
+                    column: 9,
+                },
+            ],
+            else_block: None,
+            line: 7,
+            column: 5,
+        },
+    ],
+    line: 10,
+    column: 10,
+}
+
+Statement #3: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Even numbers 1..10: ",
+            ),
+            12,
+            9,
+        ),
+        right: Variable(
+            "evens",
+            12,
+            37,
+        ),
+        line: 12,
+        column: 32,
+    },
+    line: 12,
+    column: 42,
+}
+
+Statement #4: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "How many: ",
+            ),
+            13,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "length",
+                13,
+                27,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Variable(
+                        "evens",
+                        13,
+                        37,
+                    ),
+                },
+            ],
+            line: 13,
+            column: 34,
+        },
+        line: 13,
+        column: 22,
+    },
+    line: 13,
+    column: 42,
+}
+

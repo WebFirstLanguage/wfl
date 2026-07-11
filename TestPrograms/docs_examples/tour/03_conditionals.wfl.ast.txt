@@ -1,0 +1,107 @@
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\tour\03_conditionals.wfl
+==============================================
+
+Program with 2 statements:
+
+Statement #1: VariableDeclaration {
+    name: "score",
+    value: Literal(
+        Integer(
+            82,
+        ),
+        2,
+        16,
+    ),
+    is_constant: false,
+    line: 2,
+    column: 1,
+}
+
+Statement #2: IfStatement {
+    condition: BinaryOperation {
+        left: Variable(
+            "score",
+            4,
+            10,
+        ),
+        operator: GreaterThanOrEqual,
+        right: Literal(
+            Integer(
+                90,
+            ),
+            4,
+            44,
+        ),
+        line: 4,
+        column: 16,
+    },
+    then_block: [
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Grade: A",
+                ),
+                5,
+                13,
+            ),
+            line: 5,
+            column: 23,
+        },
+    ],
+    else_block: Some(
+        [
+            IfStatement {
+                condition: BinaryOperation {
+                    left: Variable(
+                        "score",
+                        7,
+                        14,
+                    ),
+                    operator: GreaterThanOrEqual,
+                    right: Literal(
+                        Integer(
+                            80,
+                        ),
+                        7,
+                        48,
+                    ),
+                    line: 7,
+                    column: 20,
+                },
+                then_block: [
+                    DisplayStatement {
+                        value: Literal(
+                            String(
+                                "Grade: B",
+                            ),
+                            8,
+                            17,
+                        ),
+                        line: 8,
+                        column: 27,
+                    },
+                ],
+                else_block: Some(
+                    [
+                        DisplayStatement {
+                            value: Literal(
+                                String(
+                                    "Grade: C or below",
+                                ),
+                                10,
+                                17,
+                            ),
+                            line: 10,
+                            column: 36,
+                        },
+                    ],
+                ),
+                line: 7,
+                column: 5,
+            },
+        ],
+    ),
+    line: 4,
+    column: 1,
+}
+

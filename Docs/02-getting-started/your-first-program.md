@@ -101,8 +101,15 @@ You are an adult.
 ```
 
 Try changing the age to 15 and run it again:
+
 ```wfl
 store age as 15
+
+check if age is greater than or equal to 18:
+    display "You are an adult."
+otherwise:
+    display "You are a minor."
+end check
 ```
 
 **Output:**

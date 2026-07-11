@@ -1,27 +1,31 @@
 # Building WFL from Source
 
-Complete guide to compiling WFL from source code.
+Compile WFL on your machine, run tests, and use a local binary. You do not need this for everyday WFL programming if you already have an installer or release build—this guide is for contributors and anyone who wants the latest source.
 
 ## Prerequisites
 
-- **Rust** 1.75 or later
-- **Cargo** (included with Rust)
-- **Git**
+| Tool | Notes |
+|------|--------|
+| **Rust** | 1.75 or later (development often uses 1.91.1+) |
+| **Cargo** | Comes with Rust via rustup |
+| **Git** | To clone the repository |
 
 ### Install Rust
 
+**Windows, macOS, Linux** — use [rustup](https://rustup.rs/):
+
 ```bash
-# Visit https://rustup.rs/ or run:
+# Unix / Git Bash / WSL example:
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Verify installation
+# Verify
 rustc --version
 cargo --version
 ```
 
-You need Rust 1.75+. Development uses 1.91.1+.
+On Windows you can also install via the rustup installer executable from the same site.
 
-## Clone Repository
+## Clone the Repository
 
 ```bash
 git clone https://github.com/WebFirstLanguage/wfl.git
@@ -30,120 +34,129 @@ cd wfl
 
 ## Build Commands
 
-### Development Build
+### Development build
 
-**Fast compilation, slower runtime:**
+Faster compile, slower runtime—good while iterating on the compiler:
 
 ```bash
 cargo build
 ```
 
-**Binary location:**
-- Windows: `target\debug\wfl.exe`
-- Linux/macOS: `target/debug/wfl`
+| OS | Binary |
+|----|--------|
+| Windows | `target\debug\wfl.exe` |
+| Linux / macOS | `target/debug/wfl` |
 
-### Release Build
+### Release build
 
-**Slower compilation, fast runtime:**
+Slower compile, optimized runtime—**required for integration tests and TestPrograms**:
 
 ```bash
 cargo build --release
 ```
 
-**Binary location:**
-- Windows: `target\release\wfl.exe`
-- Linux/macOS: `target/release/wfl`
+| OS | Binary |
+|----|--------|
+| Windows | `target\release\wfl.exe` |
+| Linux / macOS | `target/release/wfl` |
 
-**Note:** Integration tests require release build!
-
-### Build LSP Server
+### Build the LSP server
 
 ```bash
 cargo build --release -p wfl-lsp
 ```
 
-**Binary location:**
-- Windows: `target\release\wfl-lsp.exe`
-- Linux/macOS: `target/release/wfl-lsp`
+| OS | Binary |
+|----|--------|
+| Windows | `target\release\wfl-lsp.exe` |
+| Linux / macOS | `target/release/wfl-lsp` |
 
 ## Running Tests
 
 ```bash
-# All tests
+# Unit and most integration tests
 cargo test
 
-# Specific test
+# One test by name
 cargo test test_name
 
-# With output
+# Show println! output
 cargo test -- --nocapture
 
-# Integration tests (requires release build)
+# End-to-end scripts (need release binary first)
 cargo build --release
-./scripts/run_integration_tests.ps1  # Windows
-./scripts/run_integration_tests.sh   # Linux/macOS
+./scripts/run_integration_tests.ps1   # Windows PowerShell
+./scripts/run_integration_tests.sh    # Linux / macOS
 ```
+
+Web server tests have their own scripts: `scripts/run_web_tests.ps1` / `.sh`.
 
 ## Code Quality
 
+WFL’s own codebase uses the same quality bar we recommend for WFL programs: clear structure, automated checks, no silent breakage.
+
 ```bash
-# Format code
+# Format Rust sources
 cargo fmt --all
 
-# Lint
+# Lint (warnings are errors in CI)
 cargo clippy --all-targets --all-features -- -D warnings
 
-# Check formatting
+# Check formatting without writing
 cargo fmt --all -- --check
 ```
 
-## Running WFL
+## Running WFL Locally
 
 ```bash
-# Run program
-./target/release/wfl program.wfl
+# Run a program (use path style for your OS)
+./target/release/wfl program.wfl          # Unix
+.\target\release\wfl.exe program.wfl      # Windows PowerShell
 
-# Start REPL
+# Interactive REPL
 ./target/release/wfl
 
-# With flags
+# Useful flags
 ./target/release/wfl --lint program.wfl
 ./target/release/wfl --analyze program.wfl
 ./target/release/wfl --time program.wfl
+./target/release/wfl --test program.wfl
 ```
 
 ## Troubleshooting
 
-### Build Fails
+### Build fails
 
-**Check Rust version:**
 ```bash
-rustc --version  # Need 1.75+
+rustc --version   # need 1.75+
 rustup update
-```
-
-**Clean and rebuild:**
-```bash
 cargo clean
 cargo build --release
 ```
 
-### Long Build Times
+### First build is slow
 
-**First build:** 8-15 minutes (compiles all dependencies)
-**Subsequent builds:** 1-2 minutes
+| Build | Typical time |
+|-------|----------------|
+| First release | ~8–15 minutes (downloads and compiles dependencies) |
+| Later builds | ~1–2 minutes when little changed |
 
-This is normal for Rust projects.
+That is normal for a Rust project of this size.
 
-### Integration Tests Fail
+### Integration tests fail with “binary not found”
 
-**Cause:** Release binary not built.
+Build release first, then re-run tests or scripts:
 
-**Fix:**
 ```bash
 cargo build --release
 cargo test
 ```
+
+## Next Steps
+
+- [Contributing Guide](contributing-guide.md) — how patches are reviewed
+- [Architecture Overview](architecture-overview.md) — pipeline from source to execution
+- [LSP Integration](lsp-integration.md) · [MCP Integration](mcp-integration.md) — editor and AI tooling
 
 ---
 

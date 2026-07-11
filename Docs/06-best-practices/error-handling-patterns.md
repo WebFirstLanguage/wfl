@@ -4,9 +4,9 @@ Robust applications handle errors gracefully. This guide shows proven patterns f
 
 ## Golden Rules
 
-1. **Always use try-catch for risky operations** (file I/O, network, user input)
+1. **Always use try / when / catch for risky operations** (file I/O, network, user input)
 2. **Provide context in error messages** (what failed, why, how to fix)
-3. **Clean up resources** (close files after the `try` block — WFL has no `finally`)
+3. **Clean up resources** (prefer a `finally:` clause so cleanup always runs)
 4. **Fail fast** (validate early)
 5. **Don't swallow errors** (log or display them)
 
@@ -16,10 +16,8 @@ Robust applications handle errors gracefully. This guide shows proven patterns f
 
 ```wfl
 define action called safe_read_file with parameters filepath:
-    // Keep the handle and result in outer variables so we can close the file
-    // AFTER end try and only then return — returning inside the try would skip
-    // cleanup on the success path. A `succeeded` flag lets us still return
-    // `nothing` on failure (so callers can use `isnothing`).
+    // Keep the handle and result in outer variables so finally can close the file
+    // and we can return nothing on failure (callers use isnothing).
     store file_handle as nothing
     store succeeded as no
     store file_content as ""
@@ -30,10 +28,11 @@ define action called safe_read_file with parameters filepath:
         change succeeded to yes
     when error:
         display "Error: Could not read file '" with filepath with "'"
+    finally:
+        check if file_handle is not nothing:
+            close file file_handle
+        end check
     end try
-    check if file_handle is not nothing:
-        close file file_handle
-    end check
     check if succeeded is yes:
         return file_content
     otherwise:
@@ -48,9 +47,9 @@ check if isnothing of config_data:
 end check
 ```
 
-## Pattern 2: Resource Cleanup After try
+## Pattern 2: Resource Cleanup with `finally`
 
-**WFL has no `finally`. To always close resources, track the handle and clean up after the `try` block:**
+Prefer `finally:` so cleanup runs on both success and error paths. Track handles in outer variables if you open them inside the try body:
 
 ```wfl
 store file_handle as nothing
@@ -62,14 +61,15 @@ try:
     display "Write successful"
 when error:
     display "Error: Failed to write file"
+finally:
+    check if file_handle is not nothing:
+        close file file_handle
+        display "File closed"
+    end check
 end try
-
-// Cleanup runs whether or not the try block succeeded
-check if file_handle is not nothing:
-    close file file_handle
-    display "File closed"
-end check
 ```
+
+This form is clearer than scattering cleanup after `end try`, and it matches the beginner-friendly rule: risky work, handle errors, always clean up.
 
 ## Pattern 3: Validation Before Processing
 
@@ -258,8 +258,8 @@ display "Valid: " with is_valid
 
 ## Best Practices
 
-✅ **Always try-catch risky operations** - File I/O, network, subprocess
-✅ **Clean up after the try block** - Close resources after `end try` (WFL has no `finally`)
+✅ **Always try / when / catch risky operations** - File I/O, network, subprocess
+✅ **Use `finally` for cleanup** - Close files and release resources reliably
 ✅ **Provide helpful error messages** - Include context
 ✅ **Log errors** - For debugging
 ✅ **Validate early** - Fail fast on bad input
@@ -269,14 +269,14 @@ display "Valid: " with is_valid
 ✅ **Provide fallbacks** - Graceful degradation
 
 ❌ **Don't swallow errors** - Always log or display
-❌ **Don't leave resources open** - Close them after the try block
+❌ **Don't leave resources open** - Prefer `finally` for close paths
 ❌ **Don't give vague errors** - "Error" is not helpful
 ❌ **Don't assume success** - Always handle failure cases
 
 ## What You've Learned
 
 ✅ File operation error handling
-✅ Resource cleanup after the try block
+✅ Resource cleanup with `finally`
 ✅ Input validation patterns
 ✅ Multiple operation handling
 ✅ Retry logic

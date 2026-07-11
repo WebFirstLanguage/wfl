@@ -5,8 +5,9 @@ Quick lookup for WFL syntax. Cheat sheet for common patterns.
 ## Variables
 
 ```wfl
-store name as value           // Create variable
-change name to new_value      // Modify variable
+store name as "Alice"         // Create variable
+change name to "Bob"          // Modify variable
+display name
 ```
 
 ## Data Types
@@ -23,48 +24,47 @@ store list as [1, 2, 3]                 // List
 ## Operators
 
 ```wfl
-// Arithmetic
-x plus y                      // Addition
-x minus y                     // Subtraction
-x times y                     // Multiplication
-x divided by y                // Division
-x % y                         // Modulo
+store x as 10
+store y as 3
+display x plus y              // Addition
+display x minus y             // Subtraction
+display x times y             // Multiplication
+display x divided by y        // Division
+display x % y                 // Modulo
 
-// Comparison
-x is equal to y               // Equality
-x is not equal to y           // Inequality
-x is greater than y
-x is greater than or equal to y
-x is less than y
-x is less than or equal to y
+check if x is greater than y:
+    display "x is larger"
+end check
 
-// Logical
-a and b                       // AND
-a or b                        // OR
-not a                         // NOT
+store a as yes
+store b as no
+check if a and not b:
+    display "logical ok"
+end check
 
-// String
-text1 with text2              // Concatenation
+display "hi" with " " with "there"
 ```
 
 ## Control Flow
 
 ```wfl
+store score as 85
+
 // If-else
-check if condition:
-    code
+check if score is greater than or equal to 60:
+    display "Pass"
 otherwise:
-    code
+    display "Retry"
 end check
 
 // Nested conditionals
-check if condition1:
-    code
+check if score is greater than 90:
+    display "Excellent"
 otherwise:
-    check if condition2:
-        code
+    check if score is greater than 70:
+        display "Good"
     otherwise:
-        code
+        display "Keep practicing"
     end check
 end check
 ```
@@ -73,28 +73,26 @@ end check
 
 ```wfl
 // Count loop
-count from 1 to 10:
+count from 1 to 3:
     display count
 end count
 
 // Count with step
-count from 0 to 100 by 10:
+count from 0 to 6 by 2:
     display count
 end count
 
 // For each
-for each item in list:
+store items as ["a", "b"]
+for each item in items:
     display item
 end for
 
 // While
-repeat while condition:
-    code
-end repeat
-
-// Until
-repeat until condition:
-    code
+store n as 0
+repeat while n is less than 3:
+    display n
+    change n to n plus 1
 end repeat
 ```
 
@@ -102,13 +100,14 @@ end repeat
 
 ```wfl
 // Define
-define action called name with parameters x and y:
+define action called add_numbers with parameters x and y:
     return x plus y
 end action
 
 // Call
-call name with 5 and 3
-store result as name with 5 and 3
+call add_numbers with 5 and 3
+store result as add_numbers with 5 and 3
+display result
 ```
 
 ## Lists
@@ -121,53 +120,56 @@ create list items:
 end list
 
 // Literal
-store items as [1, 2, 3]
+store more_items as [1, 2, 3]
 
 // Operations
-push with items and value     // Add
-store last as pop from items  // Remove
-store len as length of items  // Length
-store idx as indexof of items and value
+push with more_items and 4
+store last as pop of more_items
+store len as length of more_items
+store idx as indexof of more_items and 2
+display last with " " with len with " " with idx
 ```
 
 ## Error Handling
 
 ```wfl
-try:
-    risky_operation()
-catch:
-    display "Error"
-finally:
-    cleanup()
-end try
+// Create a small file so the read path succeeds in this demo
+open file at "data.txt" for writing as setupfile
+wait for write content "hello" into setupfile
+close file setupfile
 
-// Specific errors
+store file_handle as nothing
+
 try:
-    code
-when file not found:
-    handle_missing_file()
-when permission denied:
-    handle_permission()
-catch:
-    handle_other()
+    open file at "data.txt" for reading as myfile
+    change file_handle to myfile
+    wait for store file_content as read content from myfile
+    display file_content
+when error:
+    display "Error reading file"
+finally:
+    check if file_handle is not nothing:
+        close file file_handle
+    end check
 end try
 ```
 
 ## File I/O
 
 ```wfl
-// Read
-open file at "path" for reading as myfile
-wait for store content as read content from myfile
-close file myfile
-
 // Write
-open file at "path" for writing as outfile
+open file at "path.txt" for writing as outfile
 wait for write content "data" into outfile
 close file outfile
 
+// Read
+open file at "path.txt" for reading as myfile
+wait for store file_content as read content from myfile
+close file myfile
+display file_content
+
 // Append
-open file at "path" for appending as logfile
+open file at "path.txt" for appending as logfile
 wait for append content "line" into logfile
 close file logfile
 ```
@@ -175,13 +177,14 @@ close file logfile
 ## Patterns
 
 ```wfl
-create pattern name:
+create pattern email_like:
     one or more letter
     followed by "@"
     one or more letter or digit
 end pattern
 
-check if text matches name:
+store sample as "a@b"
+check if sample matches email_like:
     display "Matches"
 end check
 ```
@@ -189,83 +192,76 @@ end check
 ## Containers
 
 ```wfl
-create container Name:
-    property field: Type
+create container Person:
+    property name: Text
 
-    action method:
-        code
+    action greet:
+        display "Hello, " with name
     end
 end
 
-create new Name as instance:
-    field is value
+create new Person as alice:
+    name is "Alice"
 end
 
-instance.method()
+alice.greet()
 ```
 
 ## Built-in Functions
 
 ```wfl
 // Core
+store value as 42
 display value
-typeof of value
-isnothing of value
+display typeof of value
+display isnothing of value
 
 // Math
-abs of -5
-round of 3.7
-floor of 3.7
-ceil of 3.2
-clamp of 15 between 0 and 10
+display abs of -5
+display round of 3.7
+display floor of 3.7
+display ceil of 3.2
+// Prefer word forms that match the language style:
+// clamp of 15 between 0 and 10  (see math module docs)
 
 // Text
-touppercase of text
-tolowercase of text
-length of text
-substring of text from start length len
-trim of text
+store sample as "  Hello  "
+display touppercase of sample
+display tolowercase of sample
+display length of sample
+display trim of sample
 
 // List
-length of list
-push with list and item
-pop from list
-indexof of list and item
+store nums as [10, 20, 30]
+push with nums and 40
+display length of nums
+display pop of nums
+display indexof of nums and 20
 
-// File
-file exists at path
-file size at path
-path extension of path
-
-// Time
-today
-now
-current time in milliseconds
-
-// Random
-random
-random_int between min and max
-random_boolean
+// Time / random
+display current time in milliseconds
+display random_boolean
 ```
 
-## Web Server
+## Web Server (forms)
 
-```wfl
+These keep a process listening; they are documentation forms, not a standalone script to run:
+
+```text
 listen on port 8080 as server
-
-wait for request [that] comes in on server as req
-
-respond to req with content
-respond to req with content and status 200
-respond to req with content and content_type "text/html"
+wait for request that comes in on server as req
+respond to req with "Hello"
+respond to req with "Hello" and status 200
+respond to req with "<h1>Hi</h1>" and content_type "text/html"
 ```
 
-## Execute WFL Files
+See [Web Servers](../04-advanced-features/web-servers.md) for complete programs.
 
-```wfl
+## Execute WFL Files (forms)
+
+```text
 execute wfl file at "page.wfl"
 execute file at "page.wfl" and read output as page_output
-execute wfl file at "page.wfl" with req and read output as page_output
 ```
 
 ## Comments

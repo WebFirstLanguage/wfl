@@ -1,4 +1,4 @@
-AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\basic_syntax\hello_world.wfl
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\tour\01_hello.wfl
 ==============================================
 
 Program with 1 statements:
@@ -8,10 +8,10 @@ Statement #1: DisplayStatement {
         String(
             "Hello, World!",
         ),
-        4,
+        2,
         9,
     ),
-    line: 4,
+    line: 2,
     column: 24,
 }
 

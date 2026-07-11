@@ -173,12 +173,16 @@ display 42         // Numbers don't
 ```
 
 **Q: What if I make a mistake?**
-A: WFL will tell you! Try this:
+A: WFL will tell you. A missing opening quote is a common slip:
+
 ```wfl
-display Hello, World!"
+// This is intentionally wrong — missing the opening quote:
+// display Hello, World!"
+// Fix it like this:
+display "Hello, World!"
 ```
 
-You'll get a helpful error message pointing to the problem (missing opening quote).
+You'll get a helpful error message pointing at the problem when the opening quote is missing.
 
 **Q: Can I add comments?**
 A: Yes! Use `//` for single-line comments:

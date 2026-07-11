@@ -193,12 +193,12 @@ end check
 ```wfl
 try:
     store result as 10 divided by 0
-catch:
-    display "Error caught: Division by zero"
+    display "Result: " with result
+when error:
+    display "Error caught: something went wrong"
+finally:
+    display "Cleanup complete"
 end try
-
-// WFL has no `finally`; put cleanup after `end try`
-display "Cleanup complete"
 ```
 
 ---

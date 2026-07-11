@@ -507,10 +507,10 @@ Code style, security, performance, testing strategies.
 
 ### Build Something
 
-**[Cookbook →](../guides/cookbook.md)** *(coming soon)*
+**[Cookbook →](../guides/cookbook.md)**
 Recipes for common tasks.
 
-**[WFL by Example →](../guides/wfl-by-example.md)** *(coming soon)*
+**[WFL by Example →](../guides/wfl-by-example.md)**
 Complete working examples.
 
 ---

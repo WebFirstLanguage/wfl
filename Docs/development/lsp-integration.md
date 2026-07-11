@@ -1,17 +1,19 @@
 # LSP Integration
 
-WFL Language Server Protocol implementation provides IDE features for WFL development.
+The WFL Language Server brings diagnostics, completions, and other editor features into any LSP-aware IDE. The goal is the same as WFL itself: **clear, actionable feedback** so beginners and experts fix problems without fighting the tool.
+
+User-facing editor setup lives in **[Editor Setup](../02-getting-started/editor-setup.md)**. This page covers how the server is built and run.
 
 ## What is LSP?
 
-Language Server Protocol standardizes IDE features:
-- Syntax highlighting
-- Error checking
-- Auto-completion
-- Go-to definition
-- Hover documentation
+Language Server Protocol standardizes IDE features across editors:
 
-One server works with multiple editors (VS Code, Vim, Emacs, etc.).
+- Diagnostics (errors and warnings as you type)
+- Completions and hover information
+- Document symbols
+- Semantic highlighting tokens
+
+One server works with many editors (VS Code, Neovim, Emacs, and others).
 
 ## WFL LSP Server
 

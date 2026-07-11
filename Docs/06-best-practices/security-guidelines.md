@@ -52,9 +52,8 @@ define action called safe_read_file with parameters filename:
     // Build the path safely instead of concatenating strings
     store safe_path as path_join of "safe_directory" and filename
 
-    // Keep the handle and result in outer variables so we can close the file
-    // AFTER end try and only then return — returning inside the try would skip
-    // cleanup, and if the read throws, the handle would otherwise leak.
+    // Keep handle and result in outer variables; close in finally so the
+    // file is released on both success and error paths.
     store file_handle as nothing
     store succeeded as no
     store file_content as ""
@@ -65,10 +64,11 @@ define action called safe_read_file with parameters filename:
         change succeeded to yes
     when error:
         display "Error: Could not read file"
+    finally:
+        check if file_handle is not nothing:
+            close file file_handle
+        end check
     end try
-    check if file_handle is not nothing:
-        close file file_handle
-    end check
     check if succeeded is yes:
         return file_content
     otherwise:

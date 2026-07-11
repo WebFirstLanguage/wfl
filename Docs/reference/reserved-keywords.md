@@ -662,7 +662,7 @@ Complete reference table of all 181 keywords.
 | `pattern` | Contextual | Pattern | ✅ | `define pattern` |
 | `permission` | Other | File I/O | ❌ | `file permission` |
 | `plus` | Other | Operations | ❌ | `plus 5` |
-| `pop` | Other | Operations | ❌ | `pop from list` |
+| `pop` | Other | Operations | ❌ | `pop of list` |
 | `port` | Other | Web/Network | ❌ | `listen on port` |
 | `private` | Structural | OOP | ❌ | `private property` |
 | `process` | Other | Process | ❌ | `spawn process` |

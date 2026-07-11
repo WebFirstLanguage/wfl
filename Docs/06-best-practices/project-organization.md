@@ -1,6 +1,6 @@
 # Project Organization
 
-Organize WFL projects for maintainability and scalability. Good structure makes code easier to navigate and understand.
+Organize WFL projects for maintainability and scalability. Good structure makes code easier to navigate and understand—whether the program is a short script or a larger application ([scalability & maintainability](../wfl-foundation.md)).
 
 ## Recommended Directory Structure
 

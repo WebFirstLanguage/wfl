@@ -195,42 +195,42 @@
 
 #### Section 6: Best Practices (9 files, ~18,000 words estimated)
 
-- [ ] Write 06-best-practices/index.md
+- [x] Write 06-best-practices/index.md
 - [x] Write 06-best-practices/code-style-guide.md
   - Reference .wflcfg configuration
   - Indentation, line length, nesting depth
   - Keyword case, whitespace rules
-- [ ] Write 06-best-practices/naming-conventions.md
+- [x] Write 06-best-practices/naming-conventions.md
   - snake_case vs spaces in names
   - Descriptive names
   - Avoiding reserved keywords
-- [ ] Write 06-best-practices/error-handling-patterns.md
+- [x] Write 06-best-practices/error-handling-patterns.md
   - Use error_handling_comprehensive.wfl as reference
   - Try-catch-finally patterns
   - Specific error types
   - Resource cleanup
-- [ ] Write 06-best-practices/security-guidelines.md
+- [x] Write 06-best-practices/security-guidelines.md
   - Input validation
   - Subprocess security (command injection)
   - File I/O security (directory traversal)
   - WFLHASH usage guidelines
   - Secrets management
-- [ ] Write 06-best-practices/performance-tips.md
+- [x] Write 06-best-practices/performance-tips.md
   - Algorithm efficiency
   - Async operations for I/O
   - Short-circuit evaluation
   - Caching strategies
-- [ ] Write 06-best-practices/testing-strategies.md
+- [x] Write 06-best-practices/testing-strategies.md
   - TDD workflow
   - TestPrograms/ as examples
   - Edge case testing
   - Error case testing
-- [ ] Write 06-best-practices/project-organization.md
+- [x] Write 06-best-practices/project-organization.md
   - Directory structure recommendations
   - Module system (when available)
   - Configuration management
   - Separation of concerns
-- [ ] Write 06-best-practices/collaboration-guide.md
+- [x] Write 06-best-practices/collaboration-guide.md
   - Code reviews
   - Pull requests
   - Commit messages (conventional commits)
@@ -246,26 +246,26 @@
 
 #### Guides Directory (6 files, ~15,000 words estimated)
 
-- [ ] Write guides/wfl-by-example.md
+- [x] Write guides/wfl-by-example.md
   - 20-30 standalone working examples
   - Each with: goal, code, explanation, exercises
   - Topics: Hello World, file processing, web server, API client, data processing, pattern matching, container usage
   - Extract from TestPrograms/ (basic_syntax_comprehensive.wfl, file_io_comprehensive.wfl, etc.)
-- [ ] Write guides/cookbook.md
+- [x] Write guides/cookbook.md
   - Recipe format: Problem → Solution → Discussion
   - 20-30 common tasks
   - Examples: "How do I read a file?", "How do I start a web server?", "How do I validate email?", "How do I handle errors?", "How do I work with lists?", "How do I make HTTP requests?"
-- [ ] Write guides/migration-from-javascript.md
+- [x] Write guides/migration-from-javascript.md
   - Side-by-side syntax comparisons
   - Concept mapping (var/let/const → store, function → action, if → check if, for → count/for each)
   - Common patterns translated
   - Async/await differences
-- [ ] Write guides/migration-from-python.md
+- [x] Write guides/migration-from-python.md
   - Python to WFL translations
   - Concept mapping (variables, functions, classes → containers)
   - Syntax comparisons
   - Philosophy similarities (readability)
-- [ ] Write guides/troubleshooting.md
+- [x] Write guides/troubleshooting.md
   - Installation issues
   - Build errors
   - Runtime errors
@@ -273,7 +273,7 @@
   - LSP not working
   - Integration test failures
   - Use README.md troubleshooting section as base
-- [ ] Write guides/faq.md
+- [x] Write guides/faq.md
   - What is WFL?
   - Is WFL production-ready? (No, alpha)
   - Can I use WFL for X?
@@ -294,7 +294,7 @@
 
 #### Reference Directory (6 files, ~12,000 words estimated)
 
-- [ ] Write reference/language-specification.md
+- [x] Write reference/language-specification.md
   - Formal grammar (BNF)
   - Lexical structure
   - Syntax rules
@@ -302,31 +302,31 @@
   - Type system formal definition
   - Scoping rules
   - Evaluation order
-- [ ] Write reference/syntax-reference.md
+- [x] Write reference/syntax-reference.md
   - Cheat sheet format
   - All statement types with syntax
   - All expression types
   - Operators
   - Keywords
   - Quick lookup table
-- [ ] Write reference/keyword-reference.md
+- [x] Write reference/keyword-reference.md
   - Alphabetical list of all keywords
   - Category for each (control flow, declaration, etc.)
   - Description and example
   - Related keywords
   - From reserved keywords list in variables-and-types.md
-- [ ] Write reference/operator-reference.md
+- [x] Write reference/operator-reference.md
   - Operator table: symbol, name, precedence, associativity
   - Natural language alternatives
   - Examples for each
   - From operators-and-expressions.md
-- [ ] Write reference/builtin-functions-reference.md
+- [x] Write reference/builtin-functions-reference.md
   - Aggregate all stdlib functions in one place
   - Organized by module
   - Signature, description, example for each
   - Searchable/sortable format
   - Extract from existing stdlib documentation
-- [ ] Write reference/error-codes.md
+- [x] Write reference/error-codes.md
   - Error categories (parse, semantic, type, runtime)
   - Common errors with solutions
   - Examples from error_handling_comprehensive.wfl
@@ -342,7 +342,7 @@
 
 #### Development Directory (6 files, ~12,000 words estimated)
 
-- [ ] Write development/building-from-source.md
+- [x] Write development/building-from-source.md
   - Prerequisites (Rust, Cargo)
   - Clone repository
   - Build commands
@@ -350,7 +350,7 @@
   - Development build vs release build
   - Troubleshooting build issues
   - Extract from README.md installation section
-- [ ] Write development/contributing-guide.md
+- [x] Write development/contributing-guide.md
   - How to contribute
   - Fork and clone
   - Create feature branch
@@ -362,7 +362,7 @@
   - Pull request process
   - Commit message conventions
   - Extract from README.md contributing section
-- [ ] Write development/architecture-overview.md
+- [x] Write development/architecture-overview.md
   - Compiler pipeline diagram (detailed)
   - Lexer: tokenization with Logos
   - Parser: recursive descent, error recovery
@@ -373,7 +373,7 @@
   - Standard library: module structure
   - LSP server: IDE integration
   - Extract from CLAUDE.md Core Architecture section
-- [ ] Write development/lsp-integration.md
+- [x] Write development/lsp-integration.md
   - What is LSP
   - WFL LSP capabilities
   - Building: cargo build -p wfl-lsp
@@ -382,7 +382,7 @@
   - Supported features (diagnostics, completion, hover, etc.)
   - Troubleshooting
   - Extract from README.md and editor-setup.md
-- [ ] Write development/mcp-integration.md
+- [x] Write development/mcp-integration.md
   - What is MCP (Model Context Protocol)
   - Claude Desktop integration
   - Configuration: claude_desktop_config.json
@@ -391,7 +391,7 @@
   - Example workflows
   - Troubleshooting
   - Extract from README.md and editor-setup.md
-- [ ] Write development/compiler-internals.md
+- [x] Write development/compiler-internals.md
   - Lexer implementation (Logos)
   - Parser algorithms
   - AST structure
@@ -687,7 +687,7 @@ create list items:
 end list
 
 push with items and "third"
-store last as pop from items
+store last as pop of items
 ```
 
 **Error Handling:**

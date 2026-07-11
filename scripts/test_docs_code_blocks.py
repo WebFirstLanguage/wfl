@@ -52,6 +52,14 @@ FRAGMENT_LEADS = ("otherwise", "and ", "or ", "with ", "then ", "end ")
 # Lead tokens for non-WFL shell/tooling lines.
 SHELL_LEADS = ("wfl ", "$", "cargo", "npm")
 
+# Constructs that keep the process alive forever (or until a client connects).
+# Running them would only burn the full --timeout budget per block.
+SERVER_DEMO_RE = re.compile(
+    r"(?im)^\s*listen\s+on\s+port\b"
+    r"|^\s*wait\s+for\s+request\b"
+    r"|^\s*wait\s+for\s+websocket\b"
+    r"|start\s+web\s+server\b"
+)
 
 @dataclass
 class Block:
@@ -201,14 +209,37 @@ def looks_like_snippet(code: str) -> bool:
     return False
 
 
+def looks_like_server_demo(code: str) -> bool:
+    """True for listen/wait-forever demos that must not burn the full timeout."""
+    return bool(SERVER_DEMO_RE.search(code))
+
+
 def uses_test_framework(code: str) -> bool:
     return bool(TEST_FRAMEWORK_RE.search(code))
+
+
+def default_wfl_bin() -> str:
+    """Prefer the platform-specific release binary when present."""
+    candidates = [
+        Path("target/release/wfl.exe"),
+        Path("target/release/wfl"),
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p)
+    return "target/release/wfl.exe" if sys.platform == "win32" else "target/release/wfl"
 
 
 def run_block(blk: Block, wfl_bin: str, timeout: int) -> None:
     if looks_like_snippet(blk.code):
         blk.classification = "SNIPPET"
         blk.note = "heuristic: incomplete fragment / non-wfl command"
+        return
+    if looks_like_server_demo(blk.code):
+        # Classify without executing — these only exit when a client connects
+        # or the process is killed, so running them is pure timeout waste.
+        blk.classification = "TIMEOUT"
+        blk.note = "skipped: listen/wait-for-request server demo"
         return
     # Run each block inside its own throwaway working directory so examples
     # that write files (data.txt, app.db, ...) don't litter the repo.
@@ -222,16 +253,29 @@ def run_block(blk: Block, wfl_bin: str, timeout: int) -> None:
         blk.note = "run with --test (describe/test/expect)"
     cmd.append("example.wfl")
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True, text=True, timeout=timeout, cwd=workdir,
-        )
+        # On Windows, start a new process group so timeout can kill descendants.
+        kwargs = {
+            "args": cmd,
+            "capture_output": True,
+            "text": True,
+            "timeout": timeout,
+            "cwd": workdir,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+        proc = subprocess.run(**kwargs)
         blk.exit_code = proc.returncode
         blk.stdout = proc.stdout
         blk.stderr = proc.stderr
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
         blk.classification = "TIMEOUT"
         blk.note = f"exceeded {timeout}s (likely a server / wait-forever demo)"
+        # Best-effort kill if the child is still attached to the exception.
+        if getattr(exc, "process", None) is not None:
+            try:
+                exc.process.kill()
+            except Exception:
+                pass
         return
     finally:
         import shutil
@@ -358,8 +402,10 @@ def first_error_line(blk: Block) -> str:
 
 
 def section_of(doc: str) -> str:
+    # Normalize Windows backslashes so section bucketing works on all platforms.
+    norm = doc.replace("\\", "/")
     for s in SECTION_KEYS:
-        if "/" + s + "/" in doc:
+        if "/" + s + "/" in norm or norm.startswith(s + "/"):
             return s
     return "other"
 
@@ -420,14 +466,21 @@ def write_audit(blocks: List[Block], path: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--docs", default="Docs")
-    ap.add_argument("--wfl-bin", default="target/release/wfl")
+    ap.add_argument("--wfl-bin", default=None,
+                    help="path to wfl binary (default: target/release/wfl[.exe])")
     ap.add_argument("--json", default=None)
     ap.add_argument("--audit", default=None,
                     help="write the categorized Markdown audit report to this path")
     ap.add_argument("--filter", default=None, help="only docs whose path contains this")
-    ap.add_argument("--timeout", type=int, default=20)
+    ap.add_argument("--timeout", type=int, default=8,
+                    help="seconds per block (default 8; server demos are skipped early)")
     ap.add_argument("--show-errors", action="store_true")
+    ap.add_argument("--progress-every", type=int, default=25,
+                    help="print progress every N blocks (0=off)")
     args = ap.parse_args()
+
+    if args.wfl_bin is None:
+        args.wfl_bin = default_wfl_bin()
 
     # Preflight: fail fast with a clear message if the binary is missing,
     # instead of a confusing per-block FileNotFoundError traceback.
@@ -454,12 +507,19 @@ def main() -> int:
             print(f"WARNING: unclosed fence in {md}:{ln}", file=sys.stderr)
         all_blocks.extend(blocks)
 
-    for blk in all_blocks:
+    total = len(all_blocks)
+    print(f"Running {total} wfl blocks from {len(md_files)} docs "
+          f"(timeout={args.timeout}s, bin={args.wfl_bin})...", flush=True)
+
+    for i, blk in enumerate(all_blocks, start=1):
         run_block(blk, args.wfl_bin, args.timeout)
+        if args.progress_every and (i % args.progress_every == 0 or i == total):
+            print(f"  progress {i}/{total}  last={blk.doc}:{blk.start_line} "
+                  f"[{blk.classification}]", flush=True)
 
     counts = Counter(blk.classification for blk in all_blocks)
 
-    print(f"Scanned {len(md_files)} docs, {len(all_blocks)} wfl code blocks\n")
+    print(f"\nScanned {len(md_files)} docs, {len(all_blocks)} wfl code blocks\n")
     for k in ("PASS", "OUTPUT_MISMATCH", "ERROR", "TIMEOUT", "SNIPPET"):
         print(f"  {k:16} {counts.get(k, 0)}")
     print()

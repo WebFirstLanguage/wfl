@@ -402,9 +402,8 @@ wait for store text_files as list files in "input"
 store processed as 0
 
 for each filename in text_files:
-    // Track handles in outer variables so we can close them AFTER end try —
-    // WFL has no `finally`, and closing inside the try would leak a handle if a
-    // later read or write throws.
+    // Track handles in outer variables; close them in finally so a throw
+    // during read or write cannot leave a file open.
     store in_handle as nothing
     store out_handle as nothing
     try:
@@ -426,13 +425,14 @@ for each filename in text_files:
         display "Processed: " with filename
     when error:
         display "Error processing: " with filename
+    finally:
+        check if in_handle is not nothing:
+            close file in_handle
+        end check
+        check if out_handle is not nothing:
+            close file out_handle
+        end check
     end try
-    check if in_handle is not nothing:
-        close file in_handle
-    end check
-    check if out_handle is not nothing:
-        close file out_handle
-    end check
 end for
 
 display ""
@@ -586,7 +586,7 @@ display "Total size: " with total_size with " bytes"
 
 ✅ **Use try-catch** - File operations can fail
 
-✅ **Clean up after `end try`** - WFL has no `finally`; place cleanup after the try block to ensure files are closed even with errors
+✅ **Use `finally` for cleanup** - Close files in a `finally:` clause so handles are released on success and error
 
 ✅ **Validate paths** - Check if files exist before opening
 
@@ -606,10 +606,9 @@ display "Total size: " with total_size with " bytes"
 
 ## File I/O with Error Handling
 
-**Pattern: Try, then Clean Up**
+**Pattern: try / when error / finally**
 
-WFL has no `finally` clause. Put cleanup code *after* `end try` so it runs
-whether the block succeeded or the error was handled.
+Use `finally:` so cleanup runs whether the body succeeded or the error was handled:
 
 ```wfl
 store file_handle as nothing
@@ -622,13 +621,12 @@ try:
     display "File written successfully"
 when error:
     display "Error writing to file"
+finally:
+    check if file_handle is not nothing:
+        close file file_handle
+        display "File closed"
+    end check
 end try
-
-// Cleanup runs after the try block (WFL has no `finally`)
-check if file_handle is not nothing:
-    close file file_handle
-    display "File closed"
-end check
 ```
 
 ## Common Mistakes

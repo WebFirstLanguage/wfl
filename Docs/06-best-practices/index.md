@@ -2,6 +2,7 @@
 
 Write better WFL code with proven practices for style, security, performance, testing, and collaboration.
 
+These guides follow the [WFL foundation](../wfl-foundation.md): natural-language readability, clear errors, secure defaults, gradual learning, and habits that still work at production scale (**no-unlearning**).
 ## What You'll Learn
 
 1. **[Code Style Guide](code-style-guide.md)** - Formatting and conventions
@@ -35,9 +36,11 @@ Best practices help you write good code consistently.
 
 **Naming** ([full guide](naming-conventions.md)):
 - snake_case (project default): `user_name`, `total_count`
-- Descriptive: `customer_balance` not `cb`
+- Actions: verb phrases (`validate_email`)
+- Containers: PascalCase (`ShoppingCart`); methods snake_case
+- Booleans: `is_`, `has_`, `can_`
+- Collections: plural (`users`, `error_messages`)
 - Avoid reserved keywords: `is_active` not `is`
-- Containers: PascalCase (`ShoppingCart`)
 
 **Error Handling:**
 - Use try-catch for risky operations

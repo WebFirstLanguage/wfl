@@ -287,7 +287,7 @@ respond to incoming with reply and content_type "text/plain"
 
 ✅ **Handle errors** - Async operations can fail
 
-✅ **Close resources** - Use finally blocks
+✅ **Close resources** - Prefer `finally:` so cleanup always runs
 
 ✅ **Log operations** - Track what's happening
 

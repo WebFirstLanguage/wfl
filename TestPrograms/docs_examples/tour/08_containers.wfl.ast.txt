@@ -1,0 +1,143 @@
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\tour\08_containers.wfl
+==============================================
+
+Program with 3 statements:
+
+Statement #1: ContainerDefinition {
+    name: "Dog",
+    extends: None,
+    implements: [],
+    properties: [
+        PropertyDefinition {
+            name: "name",
+            property_type: Some(
+                Text,
+            ),
+            default_value: None,
+            validation_rules: [],
+            visibility: Public,
+            is_static: false,
+            line: 3,
+            column: 5,
+        },
+        PropertyDefinition {
+            name: "tricks",
+            property_type: Some(
+                Number,
+            ),
+            default_value: None,
+            validation_rules: [],
+            visibility: Public,
+            is_static: false,
+            line: 4,
+            column: 5,
+        },
+    ],
+    methods: [
+        ActionDefinition {
+            name: "show_info",
+            parameters: [],
+            body: [
+                DisplayStatement {
+                    value: Concatenation {
+                        left: Variable(
+                            "name",
+                            7,
+                            17,
+                        ),
+                        right: Concatenation {
+                            left: Literal(
+                                String(
+                                    " knows ",
+                                ),
+                                7,
+                                27,
+                            ),
+                            right: Concatenation {
+                                left: Variable(
+                                    "tricks",
+                                    7,
+                                    42,
+                                ),
+                                right: Literal(
+                                    String(
+                                        " tricks.",
+                                    ),
+                                    7,
+                                    54,
+                                ),
+                                line: 7,
+                                column: 49,
+                            },
+                            line: 7,
+                            column: 37,
+                        },
+                        line: 7,
+                        column: 22,
+                    },
+                    line: 7,
+                    column: 64,
+                },
+            ],
+            return_type: None,
+            line: 0,
+            column: 0,
+        },
+    ],
+    events: [],
+    static_properties: [],
+    static_methods: [],
+    line: 2,
+    column: 1,
+}
+
+Statement #2: ContainerInstantiation {
+    container_type: "Dog",
+    instance_name: "rex",
+    arguments: [],
+    property_initializers: [
+        PropertyInitializer {
+            name: "name",
+            value: Literal(
+                String(
+                    "Rex",
+                ),
+                12,
+                13,
+            ),
+            line: 12,
+            column: 5,
+        },
+        PropertyInitializer {
+            name: "tricks",
+            value: Literal(
+                Integer(
+                    3,
+                ),
+                13,
+                15,
+            ),
+            line: 13,
+            column: 5,
+        },
+    ],
+    line: 11,
+    column: 1,
+}
+
+Statement #3: ExpressionStatement {
+    expression: MethodCall {
+        object: Variable(
+            "rex",
+            16,
+            1,
+        ),
+        method: "show_info",
+        arguments: [],
+        line: 16,
+        column: 1,
+    },
+    line: 16,
+    column: 16,
+}
+

@@ -46,7 +46,7 @@ Complete alphabetical list of all 181+ WFL built-in functions.
 |----------|-----------|---------|-------------|
 | `indexof` | `indexof of <list> and <value>` | Number | Find position (-1 if not found) |
 | `length` | `length of <list>` | Number | Item count |
-| `pop` | `pop from <list>` | Any | Remove from end |
+| `pop` | `pop of <list>` | Any | Remove from end |
 | `push` | `push with <list> and <value>` | None | Add to end |
 
 **[List Module Details →](../05-standard-library/list-module.md)**

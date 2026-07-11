@@ -1,0 +1,169 @@
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\tour\06_actions.wfl
+==============================================
+
+Program with 4 statements:
+
+Statement #1: ActionDefinition {
+    name: "area",
+    parameters: [
+        Parameter {
+            name: "width",
+            param_type: None,
+            default_value: None,
+            line: 2,
+            column: 43,
+        },
+        Parameter {
+            name: "height",
+            param_type: None,
+            default_value: None,
+            line: 2,
+            column: 53,
+        },
+    ],
+    body: [
+        ReturnStatement {
+            value: Some(
+                BinaryOperation {
+                    left: Variable(
+                        "width",
+                        3,
+                        12,
+                    ),
+                    operator: Multiply,
+                    right: Variable(
+                        "height",
+                        3,
+                        24,
+                    ),
+                    line: 3,
+                    column: 18,
+                },
+            ),
+            line: 3,
+            column: 5,
+        },
+    ],
+    return_type: None,
+    line: 4,
+    column: 11,
+}
+
+Statement #2: ActionDefinition {
+    name: "greet",
+    parameters: [
+        Parameter {
+            name: "who",
+            param_type: None,
+            default_value: None,
+            line: 6,
+            column: 44,
+        },
+    ],
+    body: [
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "Hello, ",
+                    ),
+                    7,
+                    13,
+                ),
+                right: Concatenation {
+                    left: Variable(
+                        "who",
+                        7,
+                        28,
+                    ),
+                    right: Literal(
+                        String(
+                            "!",
+                        ),
+                        7,
+                        37,
+                    ),
+                    line: 7,
+                    column: 32,
+                },
+                line: 7,
+                column: 23,
+            },
+            line: 7,
+            column: 40,
+        },
+    ],
+    return_type: None,
+    line: 8,
+    column: 11,
+}
+
+Statement #3: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Area 4x5 = ",
+            ),
+            10,
+            9,
+        ),
+        right: FunctionCall {
+            function: Variable(
+                "area",
+                10,
+                28,
+            ),
+            arguments: [
+                Argument {
+                    name: None,
+                    value: Literal(
+                        Integer(
+                            4,
+                        ),
+                        10,
+                        36,
+                    ),
+                },
+                Argument {
+                    name: None,
+                    value: Literal(
+                        Integer(
+                            5,
+                        ),
+                        10,
+                        42,
+                    ),
+                },
+            ],
+            line: 10,
+            column: 33,
+        },
+        line: 10,
+        column: 23,
+    },
+    line: 10,
+    column: 43,
+}
+
+Statement #4: ExpressionStatement {
+    expression: ActionCall {
+        name: "greet",
+        arguments: [
+            Argument {
+                name: None,
+                value: Literal(
+                    String(
+                        "world",
+                    ),
+                    11,
+                    17,
+                ),
+            },
+        ],
+        line: 11,
+        column: 1,
+    },
+    line: 11,
+    column: 24,
+}
+

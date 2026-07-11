@@ -1,6 +1,6 @@
 # Architecture Overview
 
-How WFL works internally. Understanding the compiler pipeline and key components.
+How WFL works internally: the path from readable source to execution. The pipeline exists to support **clear errors**, **type safety**, and **natural-language syntax**—not to force users to think about intermediate stages. For design principles, see [wfl-foundation.md](../wfl-foundation.md).
 
 ## Compiler Pipeline
 

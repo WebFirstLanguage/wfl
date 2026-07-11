@@ -72,16 +72,16 @@ Everything you need to write effective WFL programs.
 
 **Unlock WFL's powerful capabilities.**
 
-Web servers, async operations, pattern matching, and object-oriented programming.
+Web servers, async operations, pattern matching, and object-oriented programming — still in the same natural-language style as the basics ([foundation](wfl-foundation.md)).
 
 - [Modules](04-advanced-features/modules.md) - Code organization and reuse **✨ NEW**
-- [Async Programming](04-advanced-features/async-programming.md) - Non-blocking operations *(coming soon)*
-- [Web Servers](04-advanced-features/web-servers.md) - Built-in HTTP servers *(coming soon)*
-- [File I/O](04-advanced-features/file-io.md) - Reading and writing files *(coming soon)*
-- [Pattern Matching](04-advanced-features/pattern-matching.md) - Regex-like patterns *(coming soon)*
-- [Containers (OOP)](04-advanced-features/containers-oop.md) - Object-oriented programming *(coming soon)*
-- [Subprocess Execution](04-advanced-features/subprocess-execution.md) - Running external commands *(coming soon)*
-- [Interoperability](04-advanced-features/interoperability.md) - Working with other technologies *(coming soon)*
+- [Async Programming](04-advanced-features/async-programming.md) - Non-blocking operations
+- [Web Servers](04-advanced-features/web-servers.md) - Built-in HTTP servers
+- [File I/O](04-advanced-features/file-io.md) - Reading and writing files
+- [Pattern Matching](04-advanced-features/pattern-matching.md) - Regex-like patterns
+- [Containers (OOP)](04-advanced-features/containers-oop.md) - Object-oriented programming
+- [Subprocess Execution](04-advanced-features/subprocess-execution.md) - Running external commands
+- [Interoperability](04-advanced-features/interoperability.md) - Working with other technologies
 
 **Time to complete:** 4-5 hours
 
@@ -93,16 +93,16 @@ Web servers, async operations, pattern matching, and object-oriented programming
 
 Complete reference for all standard library modules.
 
-- [Overview](05-standard-library/overview.md) - Library architecture *(coming soon)*
-- [Core Module](05-standard-library/core-module.md) - print, typeof, isnothing *(coming soon)*
-- [Math Module](05-standard-library/math-module.md) - abs, round, floor, ceil *(coming soon)*
-- [Text Module](05-standard-library/text-module.md) - String manipulation *(coming soon)*
-- [List Module](05-standard-library/list-module.md) - List operations *(coming soon)*
-- [Filesystem Module](05-standard-library/filesystem-module.md) - File and directory ops *(coming soon)*
-- [Time Module](05-standard-library/time-module.md) - Date and time *(coming soon)*
-- [Random Module](05-standard-library/random-module.md) - Random number generation *(coming soon)*
+- [Overview](05-standard-library/overview.md) - Library architecture
+- [Core Module](05-standard-library/core-module.md) - print, typeof, isnothing
+- [Math Module](05-standard-library/math-module.md) - abs, round, floor, ceil
+- [Text Module](05-standard-library/text-module.md) - String manipulation
+- [List Module](05-standard-library/list-module.md) - List operations
+- [Filesystem Module](05-standard-library/filesystem-module.md) - File and directory ops
+- [Time Module](05-standard-library/time-module.md) - Date and time
+- [Random Module](05-standard-library/random-module.md) - Random number generation
 - [Crypto Module](05-standard-library/crypto-module.md) - Password hashing, standard crypto, experimental WFLHASH
-- [Pattern Module](05-standard-library/pattern-module.md) - Pattern matching *(coming soon)*
+- [Pattern Module](05-standard-library/pattern-module.md) - Pattern matching
 
 **Time to read:** 2-3 hours (reference material)
 
@@ -112,16 +112,16 @@ Complete reference for all standard library modules.
 
 **Write better WFL code.**
 
-Guidelines for quality, security, performance, and collaboration.
+Guidelines for quality, security, performance, and collaboration — aligned with the [WFL foundation](wfl-foundation.md) (readability, secure defaults, no-unlearning).
 
 - [Code Style Guide](06-best-practices/code-style-guide.md) - Formatting and conventions
-- [Naming Conventions](06-best-practices/naming-conventions.md) - Clear, descriptive names *(coming soon)*
-- [Error Handling Patterns](06-best-practices/error-handling-patterns.md) - Robust error handling *(coming soon)*
-- [Security Guidelines](06-best-practices/security-guidelines.md) - Secure coding *(coming soon)*
-- [Performance Tips](06-best-practices/performance-tips.md) - Optimization strategies *(coming soon)*
-- [Testing Strategies](06-best-practices/testing-strategies.md) - Quality assurance *(coming soon)*
-- [Project Organization](06-best-practices/project-organization.md) - Structuring projects *(coming soon)*
-- [Collaboration Guide](06-best-practices/collaboration-guide.md) - Team development *(coming soon)*
+- [Naming Conventions](06-best-practices/naming-conventions.md) - Clear, descriptive names
+- [Error Handling Patterns](06-best-practices/error-handling-patterns.md) - Robust error handling
+- [Security Guidelines](06-best-practices/security-guidelines.md) - Secure coding
+- [Performance Tips](06-best-practices/performance-tips.md) - Optimization strategies
+- [Testing Strategies](06-best-practices/testing-strategies.md) - Quality assurance
+- [Project Organization](06-best-practices/project-organization.md) - Structuring projects
+- [Collaboration Guide](06-best-practices/collaboration-guide.md) - Team development
 
 **Time to read:** 2-3 hours
 
@@ -168,13 +168,13 @@ Guidelines for quality, security, performance, and collaboration.
 5. Jump to [Advanced Features](04-advanced-features/index.md) - Where you'll spend time
 
 **Migration Guides:**
-- [From JavaScript](guides/migration-from-javascript.md) *(coming soon)*
-- [From Python](guides/migration-from-python.md) *(coming soon)*
+- [From JavaScript](guides/migration-from-javascript.md)
+- [From Python](guides/migration-from-python.md)
 
 **Use as reference:**
-- [Syntax Reference](reference/syntax-reference.md) *(coming soon)*
-- [Standard Library](05-standard-library/index.md) *(coming soon)*
-- [Cookbook](guides/cookbook.md) *(coming soon)*
+- [Syntax Reference](reference/syntax-reference.md)
+- [Standard Library](05-standard-library/index.md)
+- [Cookbook](guides/cookbook.md)
 
 ---
 
@@ -182,22 +182,22 @@ Guidelines for quality, security, performance, and collaboration.
 
 **Web Server:**
 1. [Installation](02-getting-started/installation.md)
-2. Skip to [Web Servers](04-advanced-features/web-servers.md) *(coming soon)*
+2. Skip to [Web Servers](04-advanced-features/web-servers.md)
 3. Reference [Standard Library](05-standard-library/index.md) as needed
 
 **File Processing:**
 1. [Language Basics](03-language-basics/index.md) - Quick skim
-2. [File I/O](04-advanced-features/file-io.md) *(coming soon)*
-3. [Filesystem Module](05-standard-library/filesystem-module.md) *(coming soon)*
+2. [File I/O](04-advanced-features/file-io.md)
+3. [Filesystem Module](05-standard-library/filesystem-module.md)
 
 **Data Validation:**
-1. [Pattern Matching](04-advanced-features/pattern-matching.md) *(coming soon)*
-2. [Pattern Module](05-standard-library/pattern-module.md) *(coming soon)*
+1. [Pattern Matching](04-advanced-features/pattern-matching.md)
+2. [Pattern Module](05-standard-library/pattern-module.md)
 
 **API Development:**
-1. [Web Servers](04-advanced-features/web-servers.md) *(coming soon)*
+1. [Web Servers](04-advanced-features/web-servers.md)
 2. [Error Handling](03-language-basics/error-handling.md)
-3. [Best Practices](06-best-practices/index.md) *(coming soon)*
+3. [Best Practices](06-best-practices/index.md)
 
 ---
 
@@ -205,29 +205,30 @@ Guidelines for quality, security, performance, and collaboration.
 
 ### Guides & Tutorials
 
-- **[WFL by Example](guides/wfl-by-example.md)** - Learn through 20-30 practical examples *(coming soon)*
-- **[Cookbook](guides/cookbook.md)** - Recipes for common tasks *(coming soon)*
-- **[Troubleshooting](guides/troubleshooting.md)** - Common problems and solutions *(coming soon)*
-- **[FAQ](guides/faq.md)** - Frequently asked questions *(coming soon)*
+- **[WFL by Example](guides/wfl-by-example.md)** - Learn through 20-30 practical examples
+- **[Cookbook](guides/cookbook.md)** - Recipes for common tasks
+- **[Troubleshooting](guides/troubleshooting.md)** - Common problems and solutions
+- **[FAQ](guides/faq.md)** - Frequently asked questions
 
 ### Language Reference
 
-- **[Language Specification](reference/language-specification.md)** - Formal language spec *(coming soon)*
-- **[Syntax Reference](reference/syntax-reference.md)** - Quick syntax lookup *(coming soon)*
+- **[Language Specification](reference/language-specification.md)** - Formal language spec
+- **[Syntax Reference](reference/syntax-reference.md)** - Quick syntax lookup
 - **[Keyword Reference (Quick)](reference/keyword-reference.md)** - Fast scannable keyword lookup
 - **[Reserved Keywords (Complete)](reference/reserved-keywords.md)** - Complete technical reference
-- **[Operator Reference](reference/operator-reference.md)** - All operators *(coming soon)*
-- **[Built-in Functions](reference/builtin-functions-reference.md)** - Complete function list *(coming soon)*
-- **[Error Codes](reference/error-codes.md)** - Understanding errors *(coming soon)*
+- **[Operator Reference](reference/operator-reference.md)** - All operators
+- **[Built-in Functions](reference/builtin-functions-reference.md)** - Complete function list
+- **[Error Codes](reference/error-codes.md)** - Understanding errors
 
 ### Development
 
-- **[Building from Source](development/building-from-source.md)** - Compile WFL *(coming soon)*
+- **[Development index](development/index.md)** - Overview of contributor docs
+- **[Building from Source](development/building-from-source.md)** - Compile WFL
 - **[Contributing Guide](development/contributing-guide.md)** - Day-to-day contribution workflow
-- **[Architecture Overview](development/architecture-overview.md)** - How WFL works *(coming soon)*
-- **[LSP Integration](development/lsp-integration.md)** - Language Server details *(coming soon)*
-- **[MCP Integration](development/mcp-integration.md)** - AI assistant integration *(coming soon)*
-- **[Compiler Internals](development/compiler-internals.md)** - Deep dive *(coming soon)*
+- **[Architecture Overview](development/architecture-overview.md)** - How WFL works
+- **[LSP Integration](development/lsp-integration.md)** - Language Server details
+- **[MCP Integration](development/mcp-integration.md)** - AI assistant integration
+- **[Compiler Internals](development/compiler-internals.md)** - Deep dive
 
 ---
 
@@ -306,7 +307,7 @@ substring of "hello" from 0 length 2  // "he"
 // Lists
 length of list
 push with list and item
-pop from list
+pop of list
 ```
 
 ---
@@ -334,13 +335,13 @@ pop from list
 → [Error Handling](03-language-basics/error-handling.md)
 
 **...build a web server?**
-→ [Web Servers](04-advanced-features/web-servers.md) *(coming soon)*
+→ [Web Servers](04-advanced-features/web-servers.md)
 
 **...read/write files?**
-→ [File I/O](04-advanced-features/file-io.md) *(coming soon)*
+→ [File I/O](04-advanced-features/file-io.md)
 
 **...validate data?**
-→ [Pattern Matching](04-advanced-features/pattern-matching.md) *(coming soon)*
+→ [Pattern Matching](04-advanced-features/pattern-matching.md)
 
 ### "What is...?"
 
@@ -371,7 +372,7 @@ pop from list
 → [Variables: Type Safety](03-language-basics/variables-and-types.md#type-safety)
 
 **...General troubleshooting**
-→ [Troubleshooting Guide](guides/troubleshooting.md) *(coming soon)*
+→ [Troubleshooting Guide](guides/troubleshooting.md)
 
 ---
 
@@ -499,8 +500,8 @@ Real-time error checking helps you learn faster!
 
 Stuck? Check these resources:
 
-- **[Troubleshooting Guide](guides/troubleshooting.md)** *(coming soon)*
-- **[FAQ](guides/faq.md)** *(coming soon)*
+- **[Troubleshooting Guide](guides/troubleshooting.md)**
+- **[FAQ](guides/faq.md)**
 - **[GitHub Issues](https://github.com/WebFirstLanguage/wfl/issues)**
 - **[GitHub Discussions](https://github.com/WebFirstLanguage/wfl/discussions)**
 
@@ -574,8 +575,8 @@ wfl hello.wfl
 
 **Build Something:**
 - Use [TestPrograms](../TestPrograms/) as examples
-- Reference [Standard Library](05-standard-library/index.md) *(coming soon)*
-- Check [Cookbook](guides/cookbook.md) for recipes *(coming soon)*
+- Reference [Standard Library](05-standard-library/index.md)
+- Check [Cookbook](guides/cookbook.md) for recipes
 
 ---
 

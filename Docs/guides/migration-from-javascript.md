@@ -249,10 +249,9 @@ try:
     call risky_operation
 when error:
     display "Error occurred"
+finally:
+    call cleanup
 end try
-
-// WFL has no finally; run cleanup after end try
-call cleanup
 ```
 
 ## What WFL Doesn't Have

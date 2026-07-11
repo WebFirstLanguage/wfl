@@ -1,0 +1,280 @@
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\basic_syntax\loops_01.wfl
+==============================================
+
+Program with 9 statements:
+
+Statement #1: DisplayStatement {
+    value: Literal(
+        String(
+            "Count from 1 to 5:",
+        ),
+        4,
+        9,
+    ),
+    line: 4,
+    column: 29,
+}
+
+Statement #2: CountLoop {
+    start: Literal(
+        Integer(
+            1,
+        ),
+        5,
+        12,
+    ),
+    end: Literal(
+        Integer(
+            5,
+        ),
+        5,
+        17,
+    ),
+    step: None,
+    downward: false,
+    variable_name: None,
+    body: [
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "Number: ",
+                    ),
+                    6,
+                    13,
+                ),
+                right: Variable(
+                    "count",
+                    6,
+                    29,
+                ),
+                line: 6,
+                column: 24,
+            },
+            line: 6,
+            column: 34,
+        },
+    ],
+    line: 7,
+    column: 10,
+}
+
+Statement #3: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        9,
+        9,
+    ),
+    line: 9,
+    column: 11,
+}
+
+Statement #4: DisplayStatement {
+    value: Literal(
+        String(
+            "Count by 2s:",
+        ),
+        10,
+        9,
+    ),
+    line: 10,
+    column: 23,
+}
+
+Statement #5: CountLoop {
+    start: Literal(
+        Integer(
+            0,
+        ),
+        11,
+        12,
+    ),
+    end: Literal(
+        Integer(
+            10,
+        ),
+        11,
+        17,
+    ),
+    step: Some(
+        Literal(
+            Integer(
+                2,
+            ),
+            11,
+            23,
+        ),
+    ),
+    downward: false,
+    variable_name: None,
+    body: [
+        DisplayStatement {
+            value: Concatenation {
+                left: Literal(
+                    String(
+                        "Even: ",
+                    ),
+                    12,
+                    13,
+                ),
+                right: Variable(
+                    "count",
+                    12,
+                    27,
+                ),
+                line: 12,
+                column: 22,
+            },
+            line: 12,
+            column: 32,
+        },
+    ],
+    line: 13,
+    column: 10,
+}
+
+Statement #6: DisplayStatement {
+    value: Literal(
+        String(
+            "",
+        ),
+        15,
+        9,
+    ),
+    line: 15,
+    column: 11,
+}
+
+Statement #7: DisplayStatement {
+    value: Literal(
+        String(
+            "Multiplication table for 7:",
+        ),
+        16,
+        9,
+    ),
+    line: 16,
+    column: 38,
+}
+
+Statement #8: VariableDeclaration {
+    name: "number",
+    value: Literal(
+        Integer(
+            7,
+        ),
+        17,
+        17,
+    ),
+    is_constant: false,
+    line: 17,
+    column: 1,
+}
+
+Statement #9: CountLoop {
+    start: Literal(
+        Integer(
+            1,
+        ),
+        18,
+        12,
+    ),
+    end: Literal(
+        Integer(
+            10,
+        ),
+        18,
+        17,
+    ),
+    step: None,
+    downward: false,
+    variable_name: None,
+    body: [
+        VariableDeclaration {
+            name: "result",
+            value: BinaryOperation {
+                left: Variable(
+                    "number",
+                    19,
+                    21,
+                ),
+                operator: Multiply,
+                right: Variable(
+                    "count",
+                    19,
+                    34,
+                ),
+                line: 19,
+                column: 28,
+            },
+            is_constant: false,
+            line: 19,
+            column: 5,
+        },
+        VariableDeclaration {
+            name: "loop_num",
+            value: Variable(
+                "count",
+                20,
+                23,
+            ),
+            is_constant: false,
+            line: 20,
+            column: 5,
+        },
+        DisplayStatement {
+            value: Concatenation {
+                left: Variable(
+                    "number",
+                    21,
+                    13,
+                ),
+                right: Concatenation {
+                    left: Literal(
+                        String(
+                            " × ",
+                        ),
+                        21,
+                        25,
+                    ),
+                    right: Concatenation {
+                        left: Variable(
+                            "loop_num",
+                            21,
+                            37,
+                        ),
+                        right: Concatenation {
+                            left: Literal(
+                                String(
+                                    " = ",
+                                ),
+                                21,
+                                51,
+                            ),
+                            right: Variable(
+                                "result",
+                                21,
+                                62,
+                            ),
+                            line: 21,
+                            column: 57,
+                        },
+                        line: 21,
+                        column: 46,
+                    },
+                    line: 21,
+                    column: 32,
+                },
+                line: 21,
+                column: 20,
+            },
+            line: 21,
+            column: 68,
+        },
+    ],
+    line: 22,
+    column: 10,
+}
+

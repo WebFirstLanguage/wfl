@@ -1,0 +1,209 @@
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\basic_syntax\control_flow_01.wfl
+==============================================
+
+Program with 4 statements:
+
+Statement #1: VariableDeclaration {
+    name: "age",
+    value: Literal(
+        Integer(
+            25,
+        ),
+        4,
+        14,
+    ),
+    is_constant: false,
+    line: 4,
+    column: 1,
+}
+
+Statement #2: IfStatement {
+    condition: BinaryOperation {
+        left: Variable(
+            "age",
+            6,
+            10,
+        ),
+        operator: GreaterThanOrEqual,
+        right: Literal(
+            Integer(
+                18,
+            ),
+            6,
+            42,
+        ),
+        line: 6,
+        column: 14,
+    },
+    then_block: [
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "You are an adult",
+                ),
+                7,
+                13,
+            ),
+            line: 7,
+            column: 31,
+        },
+    ],
+    else_block: Some(
+        [
+            DisplayStatement {
+                value: Literal(
+                    String(
+                        "You are a minor",
+                    ),
+                    9,
+                    13,
+                ),
+                line: 9,
+                column: 30,
+            },
+        ],
+    ),
+    line: 6,
+    column: 1,
+}
+
+Statement #3: VariableDeclaration {
+    name: "score",
+    value: Literal(
+        Integer(
+            85,
+        ),
+        13,
+        16,
+    ),
+    is_constant: false,
+    line: 13,
+    column: 1,
+}
+
+Statement #4: IfStatement {
+    condition: BinaryOperation {
+        left: Variable(
+            "score",
+            15,
+            10,
+        ),
+        operator: GreaterThanOrEqual,
+        right: Literal(
+            Integer(
+                90,
+            ),
+            15,
+            44,
+        ),
+        line: 15,
+        column: 16,
+    },
+    then_block: [
+        DisplayStatement {
+            value: Literal(
+                String(
+                    "Grade: A",
+                ),
+                16,
+                13,
+            ),
+            line: 16,
+            column: 23,
+        },
+    ],
+    else_block: Some(
+        [
+            IfStatement {
+                condition: BinaryOperation {
+                    left: Variable(
+                        "score",
+                        18,
+                        14,
+                    ),
+                    operator: GreaterThanOrEqual,
+                    right: Literal(
+                        Integer(
+                            80,
+                        ),
+                        18,
+                        48,
+                    ),
+                    line: 18,
+                    column: 20,
+                },
+                then_block: [
+                    DisplayStatement {
+                        value: Literal(
+                            String(
+                                "Grade: B",
+                            ),
+                            19,
+                            17,
+                        ),
+                        line: 19,
+                        column: 27,
+                    },
+                ],
+                else_block: Some(
+                    [
+                        IfStatement {
+                            condition: BinaryOperation {
+                                left: Variable(
+                                    "score",
+                                    21,
+                                    18,
+                                ),
+                                operator: GreaterThanOrEqual,
+                                right: Literal(
+                                    Integer(
+                                        70,
+                                    ),
+                                    21,
+                                    52,
+                                ),
+                                line: 21,
+                                column: 24,
+                            },
+                            then_block: [
+                                DisplayStatement {
+                                    value: Literal(
+                                        String(
+                                            "Grade: C",
+                                        ),
+                                        22,
+                                        21,
+                                    ),
+                                    line: 22,
+                                    column: 31,
+                                },
+                            ],
+                            else_block: Some(
+                                [
+                                    DisplayStatement {
+                                        value: Literal(
+                                            String(
+                                                "Grade: F",
+                                            ),
+                                            24,
+                                            21,
+                                        ),
+                                        line: 24,
+                                        column: 31,
+                                    },
+                                ],
+                            ),
+                            line: 21,
+                            column: 9,
+                        },
+                    ],
+                ),
+                line: 18,
+                column: 5,
+            },
+        ],
+    ),
+    line: 15,
+    column: 1,
+}
+

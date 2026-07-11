@@ -208,13 +208,13 @@ end check
 ```wfl
 create list empty
 end list
-store item as pop from empty  // ERROR
+store item as pop of empty  // ERROR
 ```
 
 **Fix:**
 ```wfl
 check if length of list is greater than 0:
-    store item as pop from list
+    store item as pop of list
 otherwise:
     display "List is empty"
 end check

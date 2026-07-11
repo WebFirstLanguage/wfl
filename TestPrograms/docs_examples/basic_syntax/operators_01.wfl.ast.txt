@@ -1,0 +1,290 @@
+AST output for: C:\Users\ke5cr\OneDrive\Documents\Starnet\Repos\wfl\TestPrograms\docs_examples\basic_syntax\operators_01.wfl
+==============================================
+
+Program with 14 statements:
+
+Statement #1: VariableDeclaration {
+    name: "x",
+    value: Literal(
+        Integer(
+            10,
+        ),
+        4,
+        12,
+    ),
+    is_constant: false,
+    line: 4,
+    column: 1,
+}
+
+Statement #2: VariableDeclaration {
+    name: "y",
+    value: Literal(
+        Integer(
+            3,
+        ),
+        5,
+        12,
+    ),
+    is_constant: false,
+    line: 5,
+    column: 1,
+}
+
+Statement #3: VariableDeclaration {
+    name: "sum",
+    value: BinaryOperation {
+        left: Variable(
+            "x",
+            7,
+            14,
+        ),
+        operator: Plus,
+        right: Variable(
+            "y",
+            7,
+            21,
+        ),
+        line: 7,
+        column: 16,
+    },
+    is_constant: false,
+    line: 7,
+    column: 1,
+}
+
+Statement #4: VariableDeclaration {
+    name: "difference",
+    value: BinaryOperation {
+        left: Variable(
+            "x",
+            8,
+            21,
+        ),
+        operator: Minus,
+        right: Variable(
+            "y",
+            8,
+            29,
+        ),
+        line: 8,
+        column: 23,
+    },
+    is_constant: false,
+    line: 8,
+    column: 1,
+}
+
+Statement #5: VariableDeclaration {
+    name: "product",
+    value: BinaryOperation {
+        left: Variable(
+            "x",
+            9,
+            18,
+        ),
+        operator: Multiply,
+        right: Variable(
+            "y",
+            9,
+            26,
+        ),
+        line: 9,
+        column: 20,
+    },
+    is_constant: false,
+    line: 9,
+    column: 1,
+}
+
+Statement #6: VariableDeclaration {
+    name: "quotient",
+    value: BinaryOperation {
+        left: Variable(
+            "x",
+            10,
+            19,
+        ),
+        operator: Divide,
+        right: Variable(
+            "y",
+            10,
+            32,
+        ),
+        line: 10,
+        column: 21,
+    },
+    is_constant: false,
+    line: 10,
+    column: 1,
+}
+
+Statement #7: VariableDeclaration {
+    name: "remainder",
+    value: BinaryOperation {
+        left: Variable(
+            "x",
+            11,
+            20,
+        ),
+        operator: Modulo,
+        right: Variable(
+            "y",
+            11,
+            24,
+        ),
+        line: 11,
+        column: 22,
+    },
+    is_constant: false,
+    line: 11,
+    column: 1,
+}
+
+Statement #8: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "x = ",
+            ),
+            13,
+            9,
+        ),
+        right: Variable(
+            "x",
+            13,
+            21,
+        ),
+        line: 13,
+        column: 16,
+    },
+    line: 13,
+    column: 22,
+}
+
+Statement #9: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "y = ",
+            ),
+            14,
+            9,
+        ),
+        right: Variable(
+            "y",
+            14,
+            21,
+        ),
+        line: 14,
+        column: 16,
+    },
+    line: 14,
+    column: 22,
+}
+
+Statement #10: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Sum: ",
+            ),
+            15,
+            9,
+        ),
+        right: Variable(
+            "sum",
+            15,
+            22,
+        ),
+        line: 15,
+        column: 17,
+    },
+    line: 15,
+    column: 25,
+}
+
+Statement #11: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Difference: ",
+            ),
+            16,
+            9,
+        ),
+        right: Variable(
+            "difference",
+            16,
+            29,
+        ),
+        line: 16,
+        column: 24,
+    },
+    line: 16,
+    column: 39,
+}
+
+Statement #12: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Product: ",
+            ),
+            17,
+            9,
+        ),
+        right: Variable(
+            "product",
+            17,
+            26,
+        ),
+        line: 17,
+        column: 21,
+    },
+    line: 17,
+    column: 33,
+}
+
+Statement #13: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Quotient: ",
+            ),
+            18,
+            9,
+        ),
+        right: Variable(
+            "quotient",
+            18,
+            27,
+        ),
+        line: 18,
+        column: 22,
+    },
+    line: 18,
+    column: 35,
+}
+
+Statement #14: DisplayStatement {
+    value: Concatenation {
+        left: Literal(
+            String(
+                "Remainder: ",
+            ),
+            19,
+            9,
+        ),
+        right: Variable(
+            "remainder",
+            19,
+            28,
+        ),
+        line: 19,
+        column: 23,
+    },
+    line: 19,
+    column: 37,
+}
+
