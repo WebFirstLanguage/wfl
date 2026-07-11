@@ -1,5 +1,21 @@
 #![deny(clippy::await_holding_refcell_ref)]
 
+// Concurrency Phase 0 (PR-0a) — panic-strategy gate.
+//
+// The runtime relies on `std::panic::catch_unwind` to contain a panicking
+// request handler so its siblings survive (concurrency Phase 1). That fault
+// isolation is UNSOUND under `panic = "abort"`: an abort tears the whole
+// process down before the catch can run, turning it into a phantom control.
+// Fail the build rather than ship that. `cfg(panic = ...)` reflects the panic
+// strategy actually compiled into this crate; Cargo force-unwinds test/bench
+// harnesses, so this never trips `cargo test`.
+#[cfg(panic = "abort")]
+compile_error!(
+    "WFL requires panic = \"unwind\"; the runtime's catch_unwind-based request-handler \
+     fault isolation (concurrency Phase 1) is unsound under panic = \"abort\". \
+     Remove the panic = \"abort\" override."
+);
+
 // Global allocator for dhat heap profiling
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]

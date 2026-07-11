@@ -50,7 +50,7 @@ display file_content
 //   wait for request comes in on web_server as req
 ```
 
-**Why:** Non-blocking I/O lets WFL handle other work while waiting.
+**Why:** While an awaited I/O operation is pending, WFL yields the thread to the runtime instead of hard-blocking it, so runtime-level work keeps progressing. (Request handlers still run one at a time — see the web server docs.)
 
 ## Short-Circuit Evaluation
 
@@ -368,7 +368,7 @@ end action
 ## Best Practices
 
 ✅ **Choose right algorithm** - Most important!
-✅ **Use async for I/O** - Non-blocking operations
+✅ **Use async for I/O** - Cooperative, non-blocking operations
 ✅ **Cache expensive results** - Don't recalculate
 ✅ **Compile patterns once** - Reuse across iterations
 ✅ **Short-circuit cleverly** - Cheap checks first

@@ -32,7 +32,7 @@ If you've completed those, you're ready for advanced features!
 These features are "advanced" not because they're complicated, but because they're **powerful**:
 
 - **Web Servers** - Build HTTP APIs and web applications
-- **Async** - Handle multiple operations concurrently
+- **Async** - Cooperative, non-blocking I/O with `wait for`
 - **File I/O** - Persist data and process files
 - **Pattern Matching** - Validate and extract data
 - **Containers** - Organize code with object-oriented programming
@@ -130,7 +130,7 @@ Object-oriented programming with readable syntax.
 **Focus on:**
 1. [Containers (OOP)](containers-oop.md) - Code organization
 2. [Web Servers](web-servers.md) - Backend services
-3. [Async Programming](async-programming.md) - Concurrent operations
+3. [Async Programming](async-programming.md) - Cooperative async I/O
 4. [File I/O](file-io.md) - Persistence
 
 ## Real-World Examples

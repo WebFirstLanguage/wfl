@@ -97,3 +97,6 @@ harness = false
 
 [profile.release]
 debug = true
+# Concurrency Phase 0 (PR-0a): pin unwinding so the runtime's catch_unwind-based
+# request-handler fault isolation (Phase 1) stays sound. Enforced by build.rs.
+panic = "unwind"

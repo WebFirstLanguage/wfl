@@ -62,7 +62,7 @@ close file input_file
 display "File contents: " with file_data
 ```
 
-Non-blocking I/O is natural and easy to use.
+Cooperative, non-blocking I/O is natural and easy to use.
 
 ## 4. Built-in Web Server
 

@@ -56,7 +56,7 @@ end count
 ## ✨ Key Features
 
 - **📖 Natural Language Syntax**: Write code that reads like English sentences
-- **🚀 Modern Async Support**: Built-in async/await for concurrent operations
+- **🚀 Modern Async Support**: Built-in async/await for cooperative (single-thread) concurrency
 - **🛡️ Type Safety**: Static type checking with intelligent inference
 - **🌐 Web-First Design**: Native HTTP and database support
 - **🌍 Built-in Web Server**: Create HTTP servers with `listen on port 8080` - no external frameworks needed
