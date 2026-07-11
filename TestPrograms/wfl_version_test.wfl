@@ -1,0 +1,31 @@
+// wfl_version constant validation - WFL (issue #602)
+// Demonstrates reading the running interpreter's version without a subprocess.
+
+display "=== WFL Version Constant Validation ==="
+display ""
+
+// === Test 1: Read the running interpreter's version ===
+display "Test 1: Read wfl_version"
+store v as wfl_version
+display "Running WFL version: " with v
+display "✓ wfl_version is readable"
+display ""
+
+// === Test 2: It is Text ===
+display "Test 2: wfl_version is Text"
+display "typeof of wfl_version: " with typeof of wfl_version
+check if typeof of wfl_version is equal to "Text":
+    display "✓ wfl_version is Text"
+otherwise:
+    display "✗ wfl_version is not Text"
+end check
+display ""
+
+// === Test 3: Composes into a banner without a subprocess ===
+display "Test 3: Build a banner"
+store banner as "WebFirst Language (WFL) version " with wfl_version
+display banner
+display "✓ wfl_version composes with text"
+display ""
+
+display "=== All wfl_version tests complete ==="

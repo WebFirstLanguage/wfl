@@ -203,6 +203,61 @@ end check
 
 ---
 
+## Constants
+
+The core module also predefines a few immutable values that are always in
+scope. Use them like any other variable.
+
+### wfl_version
+
+**Purpose:** The version of the WFL interpreter that is actually running your
+program.
+
+**Type:** Text — the bare semver string (for example `"26.7.28"`).
+
+**Example:**
+```wfl
+display "Running on WFL " with wfl_version   // Output: Running on WFL 26.7.28
+```
+
+Because this reads the interpreter's compiled-in version constant, it always
+reports the truth about the binary executing your program — unlike shelling out
+to `wfl --version`, which probes whatever `wfl` happens to be on `PATH`. It is
+also cheaper (no subprocess) and works the same way inside included files.
+
+**Use Cases:**
+- **Self-reporting UIs:** Display the language version in a site or tool header.
+- **Diagnostics:** Include the interpreter version in logs or error reports.
+- **Compatibility checks:** Branch on the running version when needed.
+
+Being plain Text, it composes directly with text operations:
+```wfl
+store banner as "WebFirst Language (WFL) version " with wfl_version
+display banner
+```
+
+### newline
+
+**Purpose:** A single line-feed (`"\n"`) character, for building multi-line text.
+
+**Type:** Text
+
+```wfl
+display "line one" with newline with "line two"
+```
+
+### tab
+
+**Purpose:** A single tab (`"\t"`) character.
+
+**Type:** Text
+
+```wfl
+display "name" with tab with "value"
+```
+
+---
+
 ## Complete Example
 
 Using all core module functions together:
