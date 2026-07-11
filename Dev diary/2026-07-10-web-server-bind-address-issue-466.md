@@ -42,6 +42,25 @@ without it the move fails to compile (`E0382`).
 `with_timeout` is unchanged and still used by the REPL and tests, so there is no
 API surface change.
 
+### Preserving the 300-second timeout cap
+
+`with_timeout` clamped the execution timeout to 300 seconds
+(`if seconds > 300 { 300 } else { seconds }`). To keep this change *purely
+additive* — i.e. new config fields propagate, but nothing else about execution
+changes — the script-run path re-applies that same cap before building the
+interpreter:
+
+```rust
+let mut run_config = config.clone();
+run_config.timeout_seconds = run_config.timeout_seconds.min(300);
+let mut interpreter = Interpreter::with_config(std::sync::Arc::new(run_config));
+```
+
+Note this cap never affected web servers in the first place: `check_time` skips
+the timeout entirely while `in_main_loop` is set (see
+`src/interpreter/mod.rs`), and web servers run inside a `main loop`. The cap only
+bounds ordinary, non-main-loop scripts, exactly as before.
+
 ## Tests
 
 New `tests/web_server_bind_address_cli_test.rs` drives the **compiled binary**

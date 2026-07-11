@@ -57,6 +57,19 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
     dir
 }
 
+/// Ask the OS for a currently-free TCP port instead of hardcoding one, so
+/// parallel test runs (or unrelated processes) can't collide on a fixed port
+/// and make these tests flaky. Binds an ephemeral port, reads it back, and
+/// releases it; the small reuse window before the WFL server binds is
+/// acceptable for a test.
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("bind ephemeral port")
+        .local_addr()
+        .expect("read local_addr")
+        .port()
+}
+
 /// Read the hex local-address of the listening (state 0A) socket bound to
 /// `port` from `/proc/net/tcp`. Returns the `HHHHHHHH` local-address field
 /// (little-endian IPv4), e.g. `00000000` for 0.0.0.0 or `0100007F` for
@@ -106,7 +119,7 @@ fn wflcfg_bind_address_reaches_listening_socket() {
     // Loopback default: `.wflcfg` says 127.0.0.1 -> socket bound to 127.0.0.1.
     {
         let dir = temp_dir("loopback");
-        let port = 8471;
+        let port = free_port();
         let child = spawn_server(&dir, "127.0.0.1", port);
         let addr = wait_for_listen(port);
         kill(child);
@@ -123,7 +136,7 @@ fn wflcfg_bind_address_reaches_listening_socket() {
     // because the config never reached the interpreter.
     {
         let dir = temp_dir("allifaces");
-        let port = 8472;
+        let port = free_port();
         let child = spawn_server(&dir, "0.0.0.0", port);
         let addr = wait_for_listen(port);
         kill(child);
@@ -143,7 +156,7 @@ fn wflcfg_bind_address_reaches_listening_socket() {
 #[test]
 fn wflcfg_server_is_reachable() {
     let dir = temp_dir("reachable");
-    let port = 8473;
+    let port = free_port();
     let child = spawn_server(&dir, "0.0.0.0", port);
     let target: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
 
