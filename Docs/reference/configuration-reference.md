@@ -190,11 +190,14 @@ Requires consistent casing for keywords throughout the script.
 
 ### Security Settings
 
-These settings control subprocess execution and shell command security.
+These settings control **all** subprocess execution (`execute command` and
+`spawn command`), on both the shell path and the direct-exec / argv path.
+Policy is always checked before any process is started.
 
 #### allow_shell_execution
 
-Master switch for shell command execution. When `false`, all shell commands are blocked.
+Master switch for subprocess execution. When `false`, **all** process launches
+are blocked (shell form and `with arguments` form). This is the secure default.
 
 - **Type:** Boolean
 - **Default:** `false`
@@ -202,21 +205,39 @@ Master switch for shell command execution. When `false`, all shell commands are 
 
 #### shell_execution_mode
 
-Controls how shell commands are validated and executed.
+Controls how subprocesses are authorized when `allow_shell_execution = true`.
+Applied to every launch, not only shell metacharacter forms.
 
 - **Type:** String
 - **Default:** `forbidden`
 - **Options:**
-  - `forbidden` - No shell execution allowed (most secure)
-  - `allowlist_only` - Only commands in `allowed_shell_commands` can run
-  - `sanitized` - Shell execution with validation and warnings
-  - `unrestricted` - Legacy mode, not recommended for production
+  - `forbidden` - No process execution allowed (most secure)
+  - `allowlist_only` - Only programs whose basename is in `allowed_shell_commands` may run
+  - `sanitized` - Any program may run; shell features produce warnings
+  - `unrestricted` - Any program may run with shell; not recommended for production
 
 - **Example:** `shell_execution_mode = allowlist_only`
 
+To opt in for local tooling (after enabling the master switch):
+
+```ini
+allow_shell_execution = true
+shell_execution_mode = sanitized
+```
+
+Or tighter:
+
+```ini
+allow_shell_execution = true
+shell_execution_mode = allowlist_only
+allowed_shell_commands = echo, ls, git
+```
+
 #### allowed_shell_commands
 
-Comma-separated list of allowed shell commands when using `allowlist_only` mode.
+Comma-separated list of allowed **program basenames** when using
+`allowlist_only` mode. Matching uses the basename of the program path
+(`/bin/echo` matches `echo`). On Windows, comparison is case-insensitive.
 
 - **Type:** Comma-separated strings
 - **Default:** (empty)
@@ -356,7 +377,7 @@ max_line_length = 100
 max_nesting_depth = 4
 snake_case_variables = true
 
-# Secure shell execution
+# Secure subprocess policy (default): no external processes
 allow_shell_execution = false
 shell_execution_mode = forbidden
 

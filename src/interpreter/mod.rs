@@ -1305,6 +1305,65 @@ impl IoClient {
 
     // Subprocess management methods
 
+    /// Shared subprocess policy gate for execute + spawn (shell and direct-exec).
+    fn authorize_subprocess(
+        &self,
+        command: &str,
+        args: &[&str],
+        use_shell: bool,
+        line: usize,
+        column: usize,
+    ) -> Result<bool, String> {
+        use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
+
+        let needs_shell = use_shell
+            || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
+
+        // Resolve program name for policy (must happen before any Command::new)
+        let program = if args.is_empty() && !needs_shell {
+            CommandSanitizer::parse_command(command)
+                .map(|(p, _)| p)
+                .unwrap_or_else(|_| command.to_string())
+        } else if args.is_empty() && needs_shell {
+            // Shell path: policy uses the first token for allowlist matching
+            command
+                .split_whitespace()
+                .next()
+                .unwrap_or(command)
+                .to_string()
+        } else {
+            command.to_string()
+        };
+
+        let sanitizer = CommandSanitizer::new(Arc::clone(&self.config));
+        match sanitizer.authorize_process_execution(&program, needs_shell, command)? {
+            ValidationResult::Safe => Ok(needs_shell),
+            ValidationResult::RequiresShell { warnings, .. } => {
+                if self.config.warn_on_shell_execution {
+                    eprintln!("⚠️  Security Warning (line {}, column {}):", line, column);
+                    eprintln!("   Shell execution enabled for command: {}", command);
+                    for warning in warnings {
+                        eprintln!("   - {}", warning);
+                    }
+                    eprintln!(
+                        "   Prefer: execute command \"program\" with arguments [\"arg1\", \"arg2\"] \
+                         after allowing the program in .wflcfg."
+                    );
+                }
+                Ok(needs_shell)
+            }
+            ValidationResult::Blocked { reason } => Err(format!(
+                "Command blocked by security policy: {}\n\
+                 Subprocess execution is disabled by default. To allow it, update .wflcfg:\n\
+                   allow_shell_execution = true\n\
+                   shell_execution_mode = allowlist_only   # or sanitized / unrestricted\n\
+                   allowed_shell_commands = echo, ls       # required for allowlist_only\n\
+                 (line {}, column {})",
+                reason, line, column
+            )),
+        }
+    }
+
     /// Execute a command and wait for it to complete, returning (stdout, stderr, exit_code)
     #[allow(dead_code)]
     async fn execute_command(
@@ -1315,42 +1374,10 @@ impl IoClient {
         line: usize,
         column: usize,
     ) -> Result<(String, String, i32), String> {
-        use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
+        use crate::interpreter::command_sanitizer::CommandSanitizer;
         use tokio::process::Command;
 
-        // Determine if shell execution is needed
-        let needs_shell = use_shell
-            || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
-
-        // Security validation if shell is needed
-        if needs_shell {
-            let sanitizer = CommandSanitizer::new(Arc::clone(&self.config));
-            match sanitizer.validate_command(command)? {
-                ValidationResult::Safe => {
-                    // No shell needed after all
-                }
-                ValidationResult::RequiresShell { warnings, .. } => {
-                    // Shell is needed, show warnings if configured
-                    if self.config.warn_on_shell_execution {
-                        eprintln!("⚠️  Security Warning (line {}, column {}):", line, column);
-                        eprintln!("   Shell execution enabled for command: {}", command);
-                        for warning in warnings {
-                            eprintln!("   - {}", warning);
-                        }
-                        eprintln!("   Consider using 'with arguments' syntax for safer execution.");
-                    }
-                }
-                ValidationResult::Blocked { reason } => {
-                    return Err(format!(
-                        "Command blocked by security policy: {}\n\
-                         To allow shell execution, update the configuration in .wflcfg:\n\
-                         shell_execution_mode = \"sanitized\"  # or \"unrestricted\"\n\
-                         Or use safe execution: execute command \"program\" with arguments [\"arg1\", \"arg2\"]",
-                        reason
-                    ));
-                }
-            }
-        }
+        let needs_shell = self.authorize_subprocess(command, args, use_shell, line, column)?;
 
         // Build the command
         let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
@@ -1369,7 +1396,7 @@ impl IoClient {
                 cmd
             }
         } else {
-            // Safe path: parse and execute directly
+            // Direct-exec path (still policy-gated above)
             let (program, parsed_args) = if args.is_empty() {
                 CommandSanitizer::parse_command(command)?
             } else {
@@ -1407,7 +1434,7 @@ impl IoClient {
         line: usize,
         column: usize,
     ) -> Result<String, String> {
-        use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
+        use crate::interpreter::command_sanitizer::CommandSanitizer;
         use tokio::io::AsyncReadExt;
         use tokio::process::Command;
 
@@ -1427,39 +1454,7 @@ impl IoClient {
             }
         }
 
-        // Determine if shell execution is needed
-        let needs_shell = use_shell
-            || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
-
-        // Security validation if shell is needed
-        if needs_shell {
-            let sanitizer = CommandSanitizer::new(Arc::clone(&self.config));
-            match sanitizer.validate_command(command)? {
-                ValidationResult::Safe => {
-                    // No shell needed after all
-                }
-                ValidationResult::RequiresShell { warnings, .. } => {
-                    // Shell is needed, show warnings if configured
-                    if self.config.warn_on_shell_execution {
-                        eprintln!("⚠️  Security Warning (line {}, column {}):", line, column);
-                        eprintln!("   Shell execution enabled for command: {}", command);
-                        for warning in warnings {
-                            eprintln!("   - {}", warning);
-                        }
-                        eprintln!("   Consider using 'with arguments' syntax for safer execution.");
-                    }
-                }
-                ValidationResult::Blocked { reason } => {
-                    return Err(format!(
-                        "Command blocked by security policy: {}\n\
-                         To allow shell execution, update the configuration in .wflcfg:\n\
-                         shell_execution_mode = \"sanitized\"  # or \"unrestricted\"\n\
-                         Or use safe execution: spawn command \"program\" with arguments [\"arg1\", \"arg2\"] as proc_id",
-                        reason
-                    ));
-                }
-            }
-        }
+        let needs_shell = self.authorize_subprocess(command, args, use_shell, line, column)?;
 
         // Build the command
         let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
@@ -1478,7 +1473,7 @@ impl IoClient {
                 cmd
             }
         } else {
-            // Safe path: parse and execute directly
+            // Direct-exec path (still policy-gated above)
             let (program, parsed_args) = if args.is_empty() {
                 CommandSanitizer::parse_command(command)?
             } else {
@@ -9862,18 +9857,70 @@ mod header_lookup_tests {
 #[cfg(test)]
 mod process_tests {
     use super::*;
+    use crate::config::ShellExecutionMode;
+
+    /// Config that permits subprocesses for lifecycle tests (not the secure default).
+    fn permissive_process_config() -> Arc<WflConfig> {
+        Arc::new(WflConfig {
+            allow_shell_execution: true,
+            shell_execution_mode: ShellExecutionMode::Sanitized,
+            warn_on_shell_execution: false,
+            ..Default::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn test_default_config_blocks_direct_exec() {
+        let client = IoClient::new(Arc::new(WflConfig::default()));
+        let result = client
+            .execute_command("echo", &["hello"], false, 0, 0)
+            .await;
+        assert!(
+            result.is_err(),
+            "Default config must deny direct-exec; got {:?}",
+            result
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("security policy") || err.contains("blocked") || err.contains("disabled"),
+            "Error should mention policy: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_default_config_blocks_shell_interpreter_args() {
+        let client = IoClient::new(Arc::new(WflConfig::default()));
+        #[cfg(windows)]
+        let result = client
+            .execute_command("cmd.exe", &["/C", "echo pwned"], false, 0, 0)
+            .await;
+        #[cfg(not(windows))]
+        let result = client
+            .execute_command("sh", &["-c", "echo pwned"], false, 0, 0)
+            .await;
+        assert!(
+            result.is_err(),
+            "Default config must deny shell-with-args bypass; got {:?}",
+            result
+        );
+    }
 
     #[tokio::test]
     async fn test_execute_simple_command() {
-        let config = Arc::new(WflConfig::default());
-        let client = IoClient::new(config);
+        let client = IoClient::new(permissive_process_config());
 
-        // Use safe argument-based execution (no shell)
+        // Use a real platform binary (Windows has no standalone `echo.exe`)
+        #[cfg(windows)]
+        let result = client
+            .execute_command("cmd.exe", &["/C", "echo hello"], false, 0, 0)
+            .await;
+        #[cfg(not(windows))]
         let result = client
             .execute_command("echo", &["hello"], false, 0, 0)
             .await;
 
-        assert!(result.is_ok(), "Failed to execute command");
+        assert!(result.is_ok(), "Failed to execute command: {:?}", result);
         let (stdout, stderr, exit_code) = result.unwrap();
         assert!(stdout.contains("hello"), "Output should contain 'hello'");
         assert_eq!(exit_code, 0, "Exit code should be 0 for successful command");
@@ -9886,8 +9933,7 @@ mod process_tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn test_spawn_and_kill_process() {
-        let config = Arc::new(WflConfig::default());
-        let client = IoClient::new(config);
+        let client = IoClient::new(permissive_process_config());
 
         // Unix-specific test using sleep command
         let proc_id = client
@@ -9920,8 +9966,7 @@ mod process_tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn test_spawn_and_kill_process() {
-        let config = Arc::new(WflConfig::default());
-        let client = IoClient::new(config);
+        let client = IoClient::new(permissive_process_config());
 
         // Windows-specific test using timeout command
         let proc_id = client
@@ -9953,10 +9998,14 @@ mod process_tests {
 
     #[tokio::test]
     async fn test_capture_process_output() {
-        let config = Arc::new(WflConfig::default());
-        let client = IoClient::new(config);
+        let client = IoClient::new(permissive_process_config());
 
-        // Use shell command that works cross-platform (no args = shell execution)
+        #[cfg(windows)]
+        let proc_id = client
+            .spawn_process("cmd.exe", &["/C", "echo test output"], false, 0, 0)
+            .await
+            .expect("Failed to spawn process");
+        #[cfg(not(windows))]
         let proc_id = client
             .spawn_process("echo", &["test output"], false, 0, 0)
             .await
@@ -9978,10 +10027,14 @@ mod process_tests {
 
     #[tokio::test]
     async fn test_wait_for_process_completion() {
-        let config = Arc::new(WflConfig::default());
-        let client = IoClient::new(config);
+        let client = IoClient::new(permissive_process_config());
 
-        // Use shell command that works cross-platform (no args = shell execution)
+        #[cfg(windows)]
+        let proc_id = client
+            .spawn_process("cmd.exe", &["/C", "echo done"], false, 0, 0)
+            .await
+            .expect("Failed to spawn process");
+        #[cfg(not(windows))]
         let proc_id = client
             .spawn_process("echo", &["done"], false, 0, 0)
             .await
@@ -9997,8 +10050,7 @@ mod process_tests {
 
     #[tokio::test]
     async fn test_command_not_found() {
-        let config = Arc::new(WflConfig::default());
-        let client = IoClient::new(config);
+        let client = IoClient::new(permissive_process_config());
 
         // With shell execution, the shell runs successfully but reports command not found
         // So we check for non-zero exit code or error in stderr
