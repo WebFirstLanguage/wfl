@@ -271,6 +271,17 @@ impl Analyzer {
         };
         let _ = global_scope.define(tab_symbol);
 
+        // Version of the running interpreter, exposed as an immutable Text
+        // constant (#602).
+        let wfl_version_symbol = Symbol {
+            name: "wfl_version".to_string(),
+            kind: SymbolKind::Variable { mutable: false },
+            symbol_type: Some(Type::Text),
+            line: 0,
+            column: 0,
+        };
+        let _ = global_scope.define(wfl_version_symbol);
+
         let missing_symbol = Symbol {
             name: "missing".to_string(),
             kind: SymbolKind::Variable { mutable: false },
