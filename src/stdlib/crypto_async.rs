@@ -25,6 +25,7 @@ use crate::stdlib::crypto;
 use crate::stdlib::helpers::{check_arg_count, expect_text};
 use futures_util::future::{FutureExt, LocalBoxFuture};
 use std::sync::Arc;
+use zeroize::Zeroizing;
 
 /// Route a CPU-heavy crypto builtin onto the blocking pool.
 ///
@@ -73,7 +74,7 @@ fn hash_route(
     let extracted = extract_password(func, args);
     async move {
         let password = extracted?;
-        let hash = tokio::task::spawn_blocking(move || compute(func, &password))
+        let hash = tokio::task::spawn_blocking(move || compute(func, password.as_str()))
             .await
             .map_err(|e| join_error(func, e))??;
         Ok(Value::Text(Arc::from(hash)))
@@ -90,7 +91,7 @@ fn verify_route(
     let extracted = extract_password_and_stored(func, args);
     async move {
         let (password, stored) = extracted?;
-        let ok = tokio::task::spawn_blocking(move || compute(&password, &stored))
+        let ok = tokio::task::spawn_blocking(move || compute(password.as_str(), &stored))
             .await
             .map_err(|e| join_error(func, e))?;
         Ok(Value::Bool(ok))
@@ -104,7 +105,7 @@ fn pbkdf2_hmac_route(args: &[Value]) -> LocalBoxFuture<'static, Result<Value, Ru
     const FUNC: &str = "pbkdf2_hmac_sha256";
     let extracted = (|| {
         check_arg_count(FUNC, args, 4)?;
-        let password = expect_text(&args[0])?.to_string();
+        let password = Zeroizing::new(expect_text(&args[0])?.to_string());
         let salt = expect_text(&args[1])?.to_string();
         let iterations = crypto::expect_count(FUNC, "iterations", &args[2])?;
         let length = crypto::expect_count(FUNC, "length", &args[3])? as usize;
@@ -113,7 +114,7 @@ fn pbkdf2_hmac_route(args: &[Value]) -> LocalBoxFuture<'static, Result<Value, Ru
     async move {
         let (password, salt, iterations, length) = extracted?;
         let hex = tokio::task::spawn_blocking(move || {
-            crypto::pbkdf2_hmac_sha256_str(&password, &salt, iterations, length)
+            crypto::pbkdf2_hmac_sha256_str(password.as_str(), &salt, iterations, length)
         })
         .await
         .map_err(|e| join_error(FUNC, e))??;
@@ -122,20 +123,23 @@ fn pbkdf2_hmac_route(args: &[Value]) -> LocalBoxFuture<'static, Result<Value, Ru
     .boxed_local()
 }
 
-/// Validate arity and pull out an owned password `String` on the interpreter
-/// thread. Kept as a plain (non-async) fn so extraction errors surface before
-/// any thread hop.
-fn extract_password(func: &str, args: &[Value]) -> Result<String, RuntimeError> {
+/// Validate arity and pull out an owned password on the interpreter thread.
+/// Kept as a plain (non-async) fn so extraction errors surface before any thread
+/// hop. The password copy is wrapped in `Zeroizing` so it is wiped when the
+/// blocking closure that owns it is dropped.
+fn extract_password(func: &str, args: &[Value]) -> Result<Zeroizing<String>, RuntimeError> {
     check_arg_count(func, args, 1)?;
-    Ok(expect_text(&args[0])?.to_string())
+    Ok(Zeroizing::new(expect_text(&args[0])?.to_string()))
 }
 
+/// Like [`extract_password`] but also returns the stored hash. Only the password
+/// is secret, so only it is zeroized; the stored hash is left as a plain `String`.
 fn extract_password_and_stored(
     func: &str,
     args: &[Value],
-) -> Result<(String, String), RuntimeError> {
+) -> Result<(Zeroizing<String>, String), RuntimeError> {
     check_arg_count(func, args, 2)?;
-    let password = expect_text(&args[0])?.to_string();
+    let password = Zeroizing::new(expect_text(&args[0])?.to_string());
     let stored = expect_text(&args[1])?.to_string();
     Ok((password, stored))
 }

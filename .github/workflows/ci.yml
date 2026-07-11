@@ -57,8 +57,15 @@ jobs:
       # enforced and catch_unwind fault isolation would be a phantom control.
       - name: Assert panic=abort is rejected
         run: |
-          if cargo build --release --config 'profile.release.panic="abort"' --quiet 2>/dev/null; then
-            echo "::error::panic=abort build succeeded — the panic=unwind gate (src/lib.rs compile_error) is not enforced"
+          set +e
+          output=$(cargo build --release --config 'profile.release.panic="abort"' --quiet 2>&1)
+          status=$?
+          set -e
+          # The gate must fail the build *with our specific compile_error*, not
+          # merely error out for some unrelated reason.
+          if [ "$status" -eq 0 ] || ! grep -Fq 'WFL requires panic = "unwind"' <<<"$output"; then
+            printf '%s\n' "$output"
+            echo "::error::panic=abort was not rejected by the src/lib.rs compile_error gate"
             exit 1
           fi
           echo "panic=abort correctly rejected by the compile_error gate"
