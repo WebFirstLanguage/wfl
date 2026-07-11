@@ -1180,7 +1180,18 @@ async fn main() -> io::Result<()> {
                 // Log execution start if execution logging is enabled
                 exec_trace!("Starting execution of script: {}", &file_path);
 
-                let mut interpreter = Interpreter::with_timeout(config.timeout_seconds);
+                // Pass the full loaded configuration (not just the timeout) so that
+                // settings like `web_server_bind_address` from `.wflcfg` actually reach
+                // the interpreter. `config.clone()` is needed because `config` is read
+                // again later (e.g. `if config.logging_enabled`). See issue #466.
+                //
+                // Preserve the 300-second execution-timeout safety cap that the previous
+                // `Interpreter::with_timeout` path enforced, so this change only *adds*
+                // config propagation without altering timeout semantics. (The cap never
+                // affects web servers: `check_time` skips the timeout inside a main loop.)
+                let mut run_config = config.clone();
+                run_config.timeout_seconds = run_config.timeout_seconds.min(300);
+                let mut interpreter = Interpreter::with_config(std::sync::Arc::new(run_config));
                 interpreter.set_step_mode(step_mode); // Set step mode from CLI flag
                 interpreter.set_test_mode(test_mode); // Set test mode from CLI flag
                 interpreter.set_script_args(script_args); // Pass script arguments
