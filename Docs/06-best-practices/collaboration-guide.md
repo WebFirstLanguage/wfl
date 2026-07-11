@@ -5,7 +5,8 @@ Working with others on WFL projects requires clear communication and consistent 
 **Project-wide policies:** [GOVERNANCE.md](../../GOVERNANCE.md) ·
 [CODE_OF_CONDUCT.md](../../CODE_OF_CONDUCT.md) ·
 [AI_POLICY.md](../../AI_POLICY.md) ·
-[CONTRIBUTING.md](../../CONTRIBUTING.md)
+[CONTRIBUTING.md](../../CONTRIBUTING.md) ·
+[SECURITY.md](../../SECURITY.md)
 
 ## Code Reviews
 

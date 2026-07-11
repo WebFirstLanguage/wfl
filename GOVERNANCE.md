@@ -91,8 +91,8 @@ docs; this section makes them governance-level requirements.
 - Never break existing WFL programs without a documented path.  
 - Prefer **additive** change over removal or semantic change.  
 - If a break is unavoidable: **announce ≥ 1 year in advance**, document in
-  `CHANGELOG.md`, provide a migration guide, and keep the old behavior working
-  until the deadline.  
+  [`CHANGELOG.md`](CHANGELOG.md) (create or extend an entry if needed), provide
+  a migration guide, and keep the old behavior working until the deadline.  
 - Run `TestPrograms/` (release build) for end-to-end confidence.
 
 ### 3.2 The No-Unlearning Invariant

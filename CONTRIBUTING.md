@@ -98,6 +98,12 @@ application.
 5. If not approved yet, Maintainers will say what would help (e.g. more review
    cycles, a specific area of ownership). You may re-apply later.
 
+**Privacy:** GitHub Discussions are **public**. Do **not** put a private email
+address, phone number, or other non-public contact details in a Discussion
+application. Use your public GitHub identity there. If Maintainers need a
+private contact path, apply (or follow up) by email to **info@logbie.com**
+instead.
+
 ### Application template
 
 ```markdown
@@ -106,8 +112,8 @@ application.
 ## Identity
 - Name (or preferred handle):
 - GitHub username:
-- Email (if not public on GitHub):
 - Time zone (optional):
+- Preferred private contact: (EMAIL APPLICATIONS ONLY — leave blank on public Discussions)
 
 ## Motivation
 Why do you want Contributor status on WFL?
