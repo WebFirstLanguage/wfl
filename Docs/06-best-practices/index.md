@@ -26,16 +26,18 @@ Best practices help you write good code consistently.
 
 ## Quick Reference
 
-**Code Style:**
+**Code Style** ([full guide](code-style-guide.md)):
 - 4-space indentation
 - Max 100 characters per line
 - Max 5 nesting levels
 - Lowercase keywords
+- No trailing whitespace
 
-**Naming:**
-- snake_case: `user_name`, `total_count`
+**Naming** ([full guide](naming-conventions.md)):
+- snake_case (project default): `user_name`, `total_count`
 - Descriptive: `customer_balance` not `cb`
-- Avoid reserved keywords: `is_active` not `is active`
+- Avoid reserved keywords: `is_active` not `is`
+- Containers: PascalCase (`ShoppingCart`)
 
 **Error Handling:**
 - Use try-catch for risky operations

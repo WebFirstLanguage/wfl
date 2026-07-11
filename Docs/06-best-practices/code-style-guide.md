@@ -1,13 +1,39 @@
 # Code Style Guide
 
-Consistent code style makes WFL programs easier to read, maintain, and collaborate on. This guide defines WFL's coding conventions.
+Consistent style makes WFL programs easier to read, review, and maintain. This guide is the **canonical high-level overview** of WFL formatting style. It matches the defaults in `.wflcfg` and what `wfl --lint` checks for.
+
+For naming detail (actions, containers, booleans, reserved words), see **[Naming Conventions](naming-conventions.md)**. For project layout, see **[Project Organization](project-organization.md)**.
+
+## Quick Reference
+
+| Topic | Canonical style | Default |
+|-------|-----------------|---------|
+| Indentation | Spaces only | **4 spaces** per level |
+| Line length | Soft maximum | **100** characters |
+| Nesting depth | Prefer shallow structure | **5** levels max |
+| Keywords | Consistent case | **lowercase** (`check if`, `end check`) |
+| Trailing whitespace | None | **disallowed** |
+| Variables & actions | Preferred form | **snake_case** |
+| Containers | Type-like names | **PascalCase** |
+| Blocks | Explicit closers | Always use `end …` |
+| Blank lines | Separate logical sections | Between config / actions / main |
+| Comments | Explain *why* | `//` single-line |
+
+These are the project defaults. Override them in `.wflcfg` only when the whole team agrees.
+
+## Principles
+
+1. **Read like English** — WFL’s natural-language syntax is the point; keep wording clear.
+2. **Be consistent** — One style per project beats personal preference.
+3. **Prefer shallow structure** — Deep nesting is harder to follow than small actions.
+4. **Let tools help** — Lint and fix early; don’t rely on review alone for whitespace and indent.
 
 ## Configuration
 
-WFL style is configured via `.wflcfg` in your project directory:
+Project style lives in `.wflcfg` (project directory). Defaults match this guide:
 
 ```ini
-# Code style settings
+# Code style settings (WFL defaults)
 max_line_length = 100
 max_nesting_depth = 5
 indent_size = 4
@@ -16,13 +42,30 @@ trailing_whitespace = false
 consistent_keyword_case = true
 ```
 
+| Setting | Meaning |
+|---------|---------|
+| `max_line_length` | Soft cap for a single line |
+| `max_nesting_depth` | Max depth for nested control structures |
+| `indent_size` | Spaces per indent level (canonical: 4) |
+| `snake_case_variables` | Prefer snake_case for variables and actions |
+| `trailing_whitespace` | `false` means trailing spaces are not allowed |
+| `consistent_keyword_case` | Prefer consistent (lowercase) keywords |
+
+Full option list: **[Configuration Reference](../reference/configuration-reference.md)**.
+
+```bash
+wfl --configCheck
+wfl --configFix
+```
+
 ## Indentation
 
-**Use 4 spaces** (not tabs):
+**Use 4 spaces. Do not use tabs.**
 
 ```wfl
 store condition as yes
 store another_condition as yes
+
 check if condition:
     display "Indented 4 spaces"
     check if another_condition:
@@ -31,69 +74,48 @@ check if condition:
 end check
 ```
 
+- Indent one level after a line that opens a block (typically ends with `:`).
+- Dedent on `end …` and on `otherwise:`.
+- Keep blank lines and pure comment lines without forcing indent noise.
+
 ## Line Length
 
-**Maximum 100 characters per line.**
+**Prefer lines at or under 100 characters.**
 
-**Too long:**
+WFL has no line-continuation marker. Split long work with extra statements or shorter strings:
+
 ```wfl
-display "This is a very long message that exceeds 100 characters and should be broken into multiple lines for better readability"
+// Prefer breaking work across statements
+store message_start as "This is a long message that has been "
+store message as message_start with "broken across lines for readability"
+display message
 ```
 
-**Good:**
 ```wfl
+// Or split sequential display lines when that still reads clearly
 display "This is a long message that has been"
 display "broken into multiple lines for readability"
 ```
 
-**Or:** build the string across separate statements (WFL has no line-continuation):
-```wfl
-store message_start as "This is a long message that has been "
-store message as message_start with "broken across lines"
-display message
-```
-
 ## Nesting Depth
 
-**Maximum 5 levels of nesting.**
+**Keep control-structure nesting at or under 5 levels.**
 
-**Too deep:**
-```wfl
-store a as yes
-store b as yes
-store c as yes
-store d as yes
-store e as yes
-store f as yes
-check if a:
-    check if b:
-        check if c:
-            check if d:
-                check if e:
-                    check if f:  // 6 levels - too much!
-                    end check
-                end check
-            end check
-        end check
-    end check
-end check
-```
+Deep trees of `check if` / loops are hard to follow. Prefer:
 
-**Better:**
+1. Combine conditions with `and` / `or` when the logic is still clear.
+2. Extract inner logic into an **action**.
+
 ```wfl
-store a as yes
-store b as yes
-store c as yes
-store d as yes
-store e as yes
+// Prefer combining related conditions
 check if a and b and c and d and e:
-    // Use logical operators
+    display "All conditions met"
 end check
 ```
 
-**Or extract to action:**
 ```wfl
-define action called check_conditions with parameters a and b and c:
+// Or extract nested decisions into an action
+define action called all_conditions_met with parameters a and b and c:
     check if a:
         check if b:
             check if c:
@@ -107,7 +129,7 @@ end action
 
 ## Keyword Case
 
-**Use lowercase keywords consistently:**
+**Write keywords in lowercase** and keep that style through a file:
 
 ```wfl
 store value as 15
@@ -117,29 +139,21 @@ check if value is greater than 10:
     display "Large value"
 end check
 
-// Avoid mixing cases
+// Avoid mixed or all-caps keywords
 // CHECK IF value IS GREATER THAN 10:
 ```
 
+Common keywords include: `store`, `change`, `check`, `if`, `otherwise`, `end`, `define`, `action`, `count`, `for`, `each`, `while`, `display`, `yes`, `no`, `nothing`.
+
 ## Whitespace
 
-### No Trailing Whitespace
+### No trailing whitespace
 
-**Bad:**
-```wfl
-display "Hello"
-store x as 5
-```
+Do not leave spaces or tabs at the end of a line.
 
-**Good:**
-```wfl
-display "Hello"
-store x as 5
-```
+### Blank lines
 
-### Blank Lines
-
-Use blank lines to separate logical sections:
+Use blank lines to separate logical sections — configuration, actions, main flow — not after every single statement:
 
 ```wfl
 // Configuration
@@ -161,63 +175,77 @@ end for
 
 ## Comments
 
-### Single-Line Comments
-
 ```wfl
-// This is a comment
-store value as 42  // Inline comment
+// Section or intent comment
+store value as 42  // short inline note when needed
 ```
 
-### Comment Style
-
-**Good (explain why):**
+**Good (why):**
 ```wfl
 // Using 21 as minimum age for US alcohol laws
 store legal_drinking_age as 21
 ```
 
-**Poor (state the obvious):**
+**Poor (restates the code):**
 ```wfl
 // Store legal drinking age as 21
 store legal_drinking_age as 21
 ```
 
-**[More on comments →](../03-language-basics/comments-and-documentation.md)**
+More detail: **[Comments and Documentation](../03-language-basics/comments-and-documentation.md)**.
 
-## Naming
+## Naming (summary)
 
-**[See detailed naming guide →](naming-conventions.md)**
+**Project default: snake_case** for variables and actions. The linter (`LINT-NAME`) expects that form.
 
-Quick rules:
-- snake_case: `user_name`, `total_count`
-- Descriptive: `customer_balance` not `cb`
-- Avoid reserved keywords
+```wfl
+store user_name as "Alice"
+store total_count as 0
+
+define action called calculate_total with parameters items:
+    return items
+end action
+```
+
+Spaced names (`store user name as "Alice"`) are valid WFL and fit natural-language experiments, but **pick one style per project**. For shared or linted code, prefer snake_case.
+
+| Kind | Convention | Example |
+|------|------------|---------|
+| Variables | snake_case | `account_balance` |
+| Actions | snake_case verb phrases | `validate_email` |
+| Containers | PascalCase singular nouns | `ShoppingCart` |
+| Constants (convention) | SCREAMING_SNAKE_CASE | `MAX_RETRY_COUNT` |
+
+Avoid reserved keywords as names (`is`, `file`, `add`, `current`, …). Prefer `is_valid`, `filename`, and similar.
+
+Full guide: **[Naming Conventions](naming-conventions.md)**.  
+Keyword lists: **[Keyword Reference](../reference/keyword-reference.md)** · **[Reserved Keywords](../reference/reserved-keywords.md)**.
 
 ## Block Structure
 
-### Always Use `end` Keywords
+### Always close blocks with `end …`
 
 ```wfl
 store condition as yes
 check if condition:
     display "code"
-end check  // Always close blocks
+end check
 
 count from 1 to 10:
     display "code"
-end count  // Always close
+end count
 
 store items as [1, 2, 3]
 for each item in items:
     display "code"
-end for  // Always close
+end for
 ```
 
-### Consistent Block Style
+### Prefer multi-line blocks
 
-**Good:**
 ```wfl
 store value as 15
+
 check if value is greater than 10:
     display "Large"
 otherwise:
@@ -225,16 +253,32 @@ otherwise:
 end check
 ```
 
-**Avoid one-liners for complex logic:**
+Avoid packing complex branches on one line:
+
 ```wfl
-store x as 5
-// Harder to read:
-check if x is 5: display "Five" otherwise: display "Not five" end check
+// Harder to scan — prefer multi-line form above
+// check if x is 5: display "Five" otherwise: display "Not five" end check
+```
+
+### Nested conditionals
+
+When chaining branches, nest under `otherwise:` (do not write `otherwise check if` as a single flat phrase):
+
+```wfl
+store score as 85
+
+check if score is greater than 90:
+    display "Excellent"
+otherwise:
+    check if score is greater than 70:
+        display "Good"
+    otherwise:
+        display "Keep practicing"
+    end check
+end check
 ```
 
 ## Complete Example
-
-Well-styled WFL code:
 
 ```wfl
 // temperature_converter.wfl
@@ -244,7 +288,7 @@ Well-styled WFL code:
 store celsius_to_f_multiplier as 9 divided by 5
 store celsius_to_f_offset as 32
 
-// Functions
+// Actions
 define action called celsius_to_fahrenheit with parameters celsius:
     store fahrenheit as celsius times celsius_to_f_multiplier plus celsius_to_f_offset
     return fahrenheit
@@ -259,7 +303,6 @@ end action
 display "=== Temperature Converter ==="
 display ""
 
-// Test conversions
 store temp_c as 25
 store temp_f as celsius_to_fahrenheit of temp_c
 display temp_c with "°C = " with temp_f with "°F"
@@ -269,63 +312,73 @@ store temp_c2 as fahrenheit_to_celsius of temp_f2
 display temp_f2 with "°F = " with temp_c2 with "°C"
 ```
 
-**Features:**
-- Clear file header
-- Grouped sections (config, functions, main)
+**What this demonstrates:**
+- Short file header
+- Grouped sections (config, actions, main)
 - 4-space indentation
-- Descriptive names
+- Descriptive snake_case names
 - Blank lines between sections
 - Lowercase keywords
-- Comments explain why, not what
+- Comments that explain purpose, not noise
 
 ## Enforcement
 
-### Automatic Formatting
+### Lint rule codes
+
+| Code | What it checks |
+|------|----------------|
+| `LINT-INDENT` | Indentation (4-space levels) |
+| `LINT-LENGTH` | Maximum line length |
+| `LINT-COMPLEX` | Maximum nesting depth |
+| `LINT-KEYWORD` | Lowercase keywords |
+| `LINT-WHITESPACE` | No trailing whitespace |
+| `LINT-NAME` | snake_case variables and actions |
+
+### Commands
 
 ```bash
-# Check style
+# Lint a program
 wfl --lint your_program.wfl
 
-# Auto-fix
-wfl --fix your_program.wfl --in-place
+# Lint and auto-fix (print fixed source)
+wfl --lint --fix your_program.wfl
 
-# Preview changes
-wfl --fix your_program.wfl --diff
+# Lint and overwrite the file
+wfl --lint --fix your_program.wfl --in-place
+
+# Lint and show a diff of proposed fixes
+wfl --lint --fix your_program.wfl --diff
 ```
 
-### Configuration Check
+`--fix` must be used **with** `--lint`.
+
+### Configuration check
 
 ```bash
-# Validate .wflcfg
 wfl --configCheck
-
-# Auto-fix config
 wfl --configFix
 ```
 
-## Best Practices
+## Checklist
 
-✅ **Follow .wflcfg settings** - Consistency across projects
-✅ **Use 4-space indentation** - Standard WFL style
-✅ **Keep lines under 100 chars** - Easier to read
-✅ **Limit nesting to 5 levels** - Extract to actions if deeper
-✅ **Use lowercase keywords** - Consistent style
-✅ **Remove trailing whitespace** - Clean code
-✅ **Add blank lines** - Separate logical sections
-✅ **Use `end` keywords** - Always close blocks
-✅ **Run linter** - Catch style issues early
+- [ ] 4-space indentation (no tabs)
+- [ ] Lines generally ≤ 100 characters
+- [ ] Nesting ≤ 5 levels (or extracted into actions)
+- [ ] Lowercase keywords throughout
+- [ ] No trailing whitespace
+- [ ] snake_case for variables and actions in shared code
+- [ ] Blank lines between logical sections
+- [ ] Every block closed with the matching `end …`
+- [ ] Comments explain *why* when intent is non-obvious
+- [ ] `wfl --lint` is clean (or intentional, documented exceptions)
 
 ## What You've Learned
 
-✅ Configuration via .wflcfg
-✅ Indentation (4 spaces)
-✅ Line length (100 chars max)
-✅ Nesting depth (5 levels max)
-✅ Keyword case (lowercase)
-✅ Whitespace rules
-✅ Comment style
-✅ Block structure
-✅ Automatic formatting tools
+- Canonical WFL formatting defaults and `.wflcfg` keys
+- Indentation, line length, nesting, keywords, and whitespace
+- Naming summary and where full naming rules live
+- Block layout, including nested `otherwise:` form
+- How to lint and auto-fix with the CLI
 
 **Next:** [Naming Conventions →](naming-conventions.md)
 

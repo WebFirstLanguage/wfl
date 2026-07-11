@@ -114,7 +114,7 @@ Complete reference for all standard library modules.
 
 Guidelines for quality, security, performance, and collaboration.
 
-- [Code Style Guide](06-best-practices/code-style-guide.md) - Formatting and conventions *(coming soon)*
+- [Code Style Guide](06-best-practices/code-style-guide.md) - Formatting and conventions
 - [Naming Conventions](06-best-practices/naming-conventions.md) - Clear, descriptive names *(coming soon)*
 - [Error Handling Patterns](06-best-practices/error-handling-patterns.md) - Robust error handling *(coming soon)*
 - [Security Guidelines](06-best-practices/security-guidelines.md) - Secure coding *(coming soon)*

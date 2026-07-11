@@ -2,16 +2,20 @@
 
 Good names make code self-documenting. WFL's natural language syntax encourages descriptive, readable names.
 
+This page is the detailed companion to the **[Code Style Guide](code-style-guide.md)**, which defines formatting defaults (indent, line length, keywords) and the project preference for **snake_case**.
+
 ## General Principles
 
 ✅ **Use descriptive names** - Code should read like English
 ✅ **Be specific** - `customer_email` not `email` or `e`
 ✅ **Avoid abbreviations** - Unless universally understood
-✅ **Use consistent style** - Pick snake_case or spaces
+✅ **Use consistent style** - Project default is snake_case; if you use spaced names, use them everywhere in that project
 
 ## Variable Names
 
-### Preferred: snake_case
+### Preferred: snake_case (project default)
+
+The linter (`LINT-NAME`) expects snake_case for variables and actions. Prefer this form for shared, documented, and linted code.
 
 ```wfl
 store user_name as "Alice"
@@ -22,6 +26,8 @@ store total_count as 0
 
 ### Alternative: Spaces (Natural Language)
 
+Spaced names are valid WFL and can feel more natural in tutorials or personal scripts:
+
 ```wfl
 store user name as "Alice"
 store account balance as 1000.00
@@ -29,9 +35,10 @@ store account verified as yes
 store item total as 0
 ```
 
-Both work. **Be consistent within a project.** (Avoid reserved words like
-`is` or `count` inside a spaced name — pick wording that doesn't collide.)
-
+Both parse. **Be consistent within a project.** Avoid reserved words like
+`is` or `count` inside a spaced name — pick wording that doesn't collide.
+For team and production code, stick with snake_case unless the project
+explicitly sets `snake_case_variables = false` in `.wflcfg`.
 ### Descriptive Over Cryptic
 
 **Good:**
@@ -283,7 +290,7 @@ display "Total: $" with dt
 
 ## What You've Learned
 
-✅ Variable naming (snake_case or spaces)
+✅ Variable naming (snake_case default; spaces as a consistent alternative)
 ✅ Action naming (verb phrases)
 ✅ Container naming (PascalCase)
 ✅ Boolean naming (is_, has_, can_)

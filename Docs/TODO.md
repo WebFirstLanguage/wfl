@@ -196,7 +196,7 @@
 #### Section 6: Best Practices (9 files, ~18,000 words estimated)
 
 - [ ] Write 06-best-practices/index.md
-- [ ] Write 06-best-practices/code-style-guide.md
+- [x] Write 06-best-practices/code-style-guide.md
   - Reference .wflcfg configuration
   - Indentation, line length, nesting depth
   - Keyword case, whitespace rules
