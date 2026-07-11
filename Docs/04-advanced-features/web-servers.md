@@ -88,7 +88,7 @@ Sends a 200 OK response with the specified content.
 
 By default, WFL web servers bind to **localhost (127.0.0.1)**, which means they only accept connections from the same machine. This is secure by default.
 
-To expose your server on a network, configure the binding address in `.wflcfg`:
+To expose your server on a network, configure the binding address in `.wflcfg`. All `.wflcfg` web keys (`web_server_bind_address`, TLS defaults, body size) are documented end-to-end in the **[Configuration Reference](../reference/configuration-reference.md)**.
 
 ### Example: Development (Default - Localhost Only)
 

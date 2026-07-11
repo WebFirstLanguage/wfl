@@ -210,7 +210,7 @@ Dev diary/
 
 ### Consistent Style
 
-Everyone uses same .wflcfg:
+Everyone uses the same `.wflcfg` (see **[Configuration Reference](../reference/configuration-reference.md)** for the full file):
 
 ```bash
 # All team members format the same way (--fix must be combined with --lint)

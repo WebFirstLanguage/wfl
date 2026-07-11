@@ -385,7 +385,7 @@ display "Total: $" with dt
 - Container **PascalCase**, method **snake_case**
 - Constant, boolean, list, pattern, and path naming patterns
 - How to avoid reserved-keyword collisions
-- How naming pairs with lint (`LINT-NAME`) and `.wflcfg`
+- How naming pairs with lint (`LINT-NAME`) and `.wflcfg` — full config keys: **[Configuration Reference](../reference/configuration-reference.md)**
 
 **Next:** [Error Handling Patterns →](error-handling-patterns.md)
 

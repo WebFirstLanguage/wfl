@@ -69,13 +69,20 @@ end action
 
 ## Configuration Management
 
-### Use .wflcfg for Style
+### Use .wflcfg for Style and Tooling
+
+`.wflcfg` is WFL’s project config (style/lint, runtime, security, web server). Full key list and CLI tools live in the **[Configuration Reference](../reference/configuration-reference.md)**.
 
 ```ini
 # .wflcfg
 max_line_length = 100
 max_nesting_depth = 5
 indent_size = 4
+```
+
+```bash
+wfl --init          # create interactively
+wfl --configCheck   # validate
 ```
 
 ### Use Config Files for Application Settings

@@ -268,12 +268,31 @@ listen on port 8081 as server
 
 ---
 
+## Configuration (`.wflcfg`)
+
+### Settings seem ignored
+
+**Problem:** You edited `.wflcfg` but behavior did not change.
+
+**Solutions:**
+1. Put `.wflcfg` in the **script’s** directory or a parent of that path (WFL walks up from the script, not only from your shell cwd)
+2. Confirm the filename is exactly `.wflcfg`
+3. Validate: `wfl --configCheck`
+4. Full key list and load order: **[Configuration Reference](../reference/configuration-reference.md)**
+
+### Web server only on localhost
+
+Set `web_server_bind_address = 0.0.0.0` in the `.wflcfg` that applies to that script, then restart. See [Web Servers](../04-advanced-features/web-servers.md) and the [Configuration Reference](../reference/configuration-reference.md).
+
+---
+
 ## Getting Help
 
 ### Documentation
 
 - [Language Basics](../03-language-basics/index.md)
 - [Standard Library](../05-standard-library/index.md)
+- [Configuration Reference (`.wflcfg`)](../reference/configuration-reference.md)
 - [FAQ](faq.md)
 
 ### Community

@@ -312,6 +312,22 @@ No timeline yet. WFL will reach 1.0 when:
 
 ---
 
+## Configuration
+
+### Where is `.wflcfg` documented?
+
+**One place:** the **[Configuration Reference](../reference/configuration-reference.md)**.
+
+That page covers every key and default, global vs local files, `wfl --init` / `--configCheck` / `--configFix`, how config drives lint/style, shell security, and web server bind/TLS/body size. Topic guides (web servers, style, project layout) still mention config in context and link back there.
+
+Create a project file with:
+
+```bash
+wfl --init
+```
+
+---
+
 ## Miscellaneous
 
 ### Who created WFL?

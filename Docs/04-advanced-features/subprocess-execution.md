@@ -11,6 +11,8 @@ Run external programs from WFL:
 - Automate system administration
 - Call other programming languages
 
+Shell and resource limits are controlled by `.wflcfg` (`allow_shell_execution`, `shell_execution_mode`, `allowed_shell_commands`, `max_concurrent_processes`, and related keys). Full reference: **[Configuration Reference](../reference/configuration-reference.md)**.
+
 ## Basic Command Execution
 
 ### Execute and Wait

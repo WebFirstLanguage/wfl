@@ -28,6 +28,7 @@ The main navigation page for all WFL documentation.
 
 ### Language Reference
 
+- **[Configuration Reference (`.wflcfg`)](../reference/configuration-reference.md)** - Project config: all keys, defaults, CLI tools
 - **[Language Specification](../reference/language-specification.md)** - Complete formal spec
 - **[Syntax Reference](../reference/syntax-reference.md)** - Quick syntax lookup
 - **[Keyword Reference](../reference/keyword-reference.md)** - All keywords explained
