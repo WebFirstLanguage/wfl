@@ -304,7 +304,8 @@ impl ConfigChecker {
                 config_type: ConfigType::Boolean,
                 required: false,
                 default_value: Some("false".to_string()),
-                description: "Allow shell command execution".to_string(),
+                description: "Master switch: allow any subprocess execution (execute/spawn)"
+                    .to_string(),
                 valid_values: None,
                 category: "Security".to_string(),
             },
@@ -317,7 +318,9 @@ impl ConfigChecker {
                 config_type: ConfigType::ShellMode,
                 required: false,
                 default_value: Some("forbidden".to_string()),
-                description: "Shell execution security mode".to_string(),
+                description:
+                    "Subprocess security mode (forbidden/allowlist_only/sanitized/unrestricted)"
+                        .to_string(),
                 valid_values: Some(vec![
                     "forbidden".to_string(),
                     "allowlist_only".to_string(),

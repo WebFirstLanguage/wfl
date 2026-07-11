@@ -2,6 +2,31 @@
 
 WFL lets you run external commands and programs. Integrate with system tools, build automation scripts, and extend WFL's capabilities.
 
+## Security: opt-in required
+
+**By default, all subprocess execution is disabled.** Both
+`execute command` and `spawn command` are blocked unless you enable them in
+`.wflcfg`:
+
+```ini
+# .wflcfg — required before any execute/spawn will run
+allow_shell_execution = true
+shell_execution_mode = sanitized
+# Tighter alternative:
+# shell_execution_mode = allowlist_only
+# allowed_shell_commands = echo, ls, git
+```
+
+- `allow_shell_execution = false` (default) blocks **every** process launch.
+- `shell_execution_mode = forbidden` (default) also blocks every process launch
+  when the master switch is on.
+- Policy applies to **both** the shell form and the `with arguments` form.
+  Passing arguments is safer against injection *after* a program is allowed;
+  it is not a bypass of the policy.
+
+See [Configuration Reference](../reference/configuration-reference.md#security-settings)
+for full option details.
+
 ## Why Subprocess Execution?
 
 Run external programs from WFL:
@@ -15,7 +40,7 @@ Run external programs from WFL:
 
 ### Execute and Wait
 
-Run a command and wait for it to complete:
+Run a command and wait for it to complete (requires opt-in config above):
 
 ```wfl
 wait for execute command "echo Hello from command line" as result
@@ -267,7 +292,15 @@ display "All tasks finished"
 
 ## Security Considerations
 
-⚠️ **Important:** Subprocess execution can be dangerous!
+⚠️ **Important:** Subprocess execution can be dangerous. WFL disables it by
+default; enable it only when needed, preferably with `allowlist_only`.
+
+### Policy layers
+
+1. **Config policy** (`.wflcfg`) — master switch + mode/allowlist, enforced on
+   every launch (shell and direct-exec).
+2. **Program design** — never splice untrusted input into a command string;
+   pass values with `with arguments` and restrict which programs run.
 
 ### Command Injection
 
@@ -278,9 +311,10 @@ store cmd as "echo " with user_input
 wait for execute command cmd  // UNSAFE: user input goes straight into the command!
 ```
 
-**Safe:** Don't try to filter out "dangerous" characters — blocklists are always
-incomplete. Instead, restrict the input to a set of approved values (an allowlist)
-and pass it as an argument, so it is never spliced into a shell command string.
+**Safer (after opt-in config allows `echo`):** Don't try to filter out
+"dangerous" characters — blocklists are always incomplete. Restrict input to
+approved values and pass them as arguments so they are never spliced into a
+shell command string.
 
 ```wfl
 store user_input as "hello"  // Untrusted input from a user or request
@@ -297,19 +331,21 @@ end check
 
 ### Best Practices
 
+✅ **Leave defaults off** for untrusted or public-facing hosts
+
+✅ **Prefer `allowlist_only`** when you must enable subprocesses
+
 ✅ **Validate all input** - Never trust user data
 
-✅ **Use whitelists** - Only allow specific commands
-
-✅ **Sanitize paths** - Prevent directory traversal
+✅ **Pass arguments, don't concatenate** - Avoid shell metacharacters
 
 ✅ **Limit permissions** - Run with minimal privileges
 
 ✅ **Log commands** - Track what's being executed
 
-❌ **Don't use user input directly** - Always validate
+❌ **Don't enable `unrestricted` in production**
 
-❌ **Don't execute arbitrary commands** - Whitelist allowed commands
+❌ **Don't assume `with arguments` bypasses policy** - it does not
 
 ❌ **Don't ignore exit codes** - Check for failures
 
