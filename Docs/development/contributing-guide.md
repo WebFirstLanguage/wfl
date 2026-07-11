@@ -1,15 +1,29 @@
 # Contributing Guide
 
-Help improve WFL! This guide covers how to contribute code, documentation, tests, and examples.
+Help improve WFL! This guide covers the **day-to-day workflow** for contributing
+code, documentation, tests, and examples.
+
+**Project policy (read first):**
+
+| Document | Purpose |
+|---|---|
+| [CONTRIBUTING.md](../../CONTRIBUTING.md) | Root contribution entry + **Contributor application** |
+| [GOVERNANCE.md](../../GOVERNANCE.md) | Who decides; binding technical policies |
+| [CODE_OF_CONDUCT.md](../../CODE_OF_CONDUCT.md) | Community standards |
+| [AI_POLICY.md](../../AI_POLICY.md) | AI-assisted contributions are welcome |
+| [SECURITY.md](../../SECURITY.md) | Private security reporting |
 
 ## Getting Started
 
 1. **Fork** the repository
 2. **Clone** your fork
 3. **Create branch:** `git checkout -b feature/my-feature`
-4. **Make changes**
+4. **Make changes** (TDD — tests first)
 5. **Test thoroughly**
 6. **Submit PR**
+
+Want trusted collaborator access? See
+[Becoming a Contributor](../../CONTRIBUTING.md#becoming-a-contributor).
 
 ## Development Workflow
 
@@ -160,12 +174,19 @@ Before submitting:
 - [ ] Clear commit messages
 ```
 
+## AI-assisted contributions
+
+AI tools and coding agents are **welcome**. WFL was built with AI assistance.
+You remain responsible for correctness, tests, docs, licensing, and review
+feedback. See [AI_POLICY.md](../../AI_POLICY.md).
+
 ## Getting Help
 
 **Questions?**
 - GitHub Discussions
 - Email: info@logbie.com
 - Open draft PR for feedback
+- Contributor applications: [CONTRIBUTING.md](../../CONTRIBUTING.md#becoming-a-contributor)
 
 **Thank you for contributing to WFL!** 🎉
 

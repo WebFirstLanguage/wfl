@@ -2,6 +2,11 @@
 
 Working with others on WFL projects requires clear communication and consistent practices. This guide covers team development workflows.
 
+**Project-wide policies:** [GOVERNANCE.md](../../GOVERNANCE.md) ·
+[CODE_OF_CONDUCT.md](../../CODE_OF_CONDUCT.md) ·
+[AI_POLICY.md](../../AI_POLICY.md) ·
+[CONTRIBUTING.md](../../CONTRIBUTING.md)
+
 ## Code Reviews
 
 ### What to Look For

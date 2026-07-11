@@ -126,13 +126,23 @@ python3 scripts/test_docs_code_blocks.py --filter 03-language-basics --show-erro
 
 ## Contributing
 
-Contributions are welcome. Please read
-[Docs/development/contributing-guide.md](Docs/development/contributing-guide.md)
-and note the project conventions:
+Contributions are welcome — including **AI-assisted** work. WFL itself was
+built with AI help; we do not discriminate against contributors for using AI
+tools. See [AI_POLICY.md](AI_POLICY.md).
+
+| Document | What it covers |
+|---|---|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute & apply for Contributor status |
+| [GOVERNANCE.md](GOVERNANCE.md) | Project authority and binding policies |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
+| [Docs/development/contributing-guide.md](Docs/development/contributing-guide.md) | Day-to-day TDD / fmt / clippy / test workflow |
+
+Project conventions (also binding under governance):
 
 - **Test-driven:** write failing tests first (`tests/` for Rust, `TestPrograms/`
   for WFL end-to-end).
 - **Backward compatibility is sacred** — existing WFL programs must keep working.
+- **Docs ship with the feature** — update `Docs/` in the same change.
 - Before a PR: `cargo fmt --all -- --check`,
   `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all`.
 

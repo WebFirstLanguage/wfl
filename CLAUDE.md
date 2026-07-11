@@ -2,6 +2,31 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Governance (do not dig — start here)
+
+WFL is a **maintainer-led** open-source project (primary Maintainer: **Brad**, Logbie LLC).
+Binding community and contribution policy lives at the **repo root** (not only under `Docs/`):
+
+| File | What it is |
+|---|---|
+| `GOVERNANCE.md` | Authority, roles (Maintainer / Contributor / Participant), decision rights, binding technical policies |
+| `CODE_OF_CONDUCT.md` | Community standards and enforcement |
+| `AI_POLICY.md` | **AI-assisted work is welcome** — WFL was built with AI; do not discriminate against AI use; human author remains accountable |
+| `CONTRIBUTING.md` | How to contribute; **Contributor application** process (Discussion or email) |
+| `SECURITY.md` | Private vulnerability reporting only — never file security bugs as public issues |
+
+**Agent implications (already in force via governance):**
+
+- **AI is first-class** — use coding agents freely; same quality bar as hand-written work (tests, docs, compatibility, reviewability).
+- **Backward compatibility is sacred** — never break existing WFL programs without the documented deprecation path.
+- **TDD mandatory** — failing tests first (`tests/`, `TestPrograms/`).
+- **Docs ship with the feature** — same change; validate examples; Dev Diary for non-trivial work.
+- **Quality gates** — `cargo fmt`, `clippy -D warnings`, `cargo test`; conventional commits.
+- **Do not invent maintainer identity or process** — Contributor status is by application; merges/releases are Maintainer authority. Prefer first name **Brad** only if referring to the primary maintainer in docs (no last name).
+- Community tone: follow `CODE_OF_CONDUCT.md`; technical disagreement is fine; harassment and AI-shaming are not.
+
+When changing contribution workflow, community rules, or project authority, update the root governance suite **and** keep this section accurate.
+
 ## WFL Fundamentals (Guiding Principles)
 These 19 principles are the foundation of WFL's design. Every language, documentation, and tooling change should uphold them. Full descriptions live in `Docs/wfl-foundation.md`.
 
@@ -177,10 +202,11 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
   - Keyword examples: `TestPrograms/docs_examples/keyword_reference/` (11 example files with validation manifest)
 
 ## Agent‑Specific Policies (Critical Rules)
+- **Governance**: Follow root `GOVERNANCE.md`, `CODE_OF_CONDUCT.md`, `AI_POLICY.md`, `CONTRIBUTING.md` (see **Project Governance** above). Do not re-litigate AI use; do not skip quality gates because AI produced the draft.
 - **Backward Compatibility**: Sacred. Never break existing WFL programs. Run all `TestPrograms/`.
 - **Integration Tests**: Require `cargo build --release` and provided scripts.
 - **Documentation**: MANDATORY — any added or changed feature MUST ship its docs in the same change (see "Documentation Development"). Keep `Docs/` current, validate ALL code examples with MCP before adding, and add a Dev Diary note for non-trivial changes.
-- **Security**: Review `SECURITY.md`. Avoid logging secrets. Use zeroization.
+- **Security**: Review `SECURITY.md`. Avoid logging secrets. Use zeroization. No public security issues.
 - **Rules**: Refer to `.cursor/rules/wfl-rules.mdc`.
 
 ## Technical Requirements
