@@ -455,15 +455,37 @@ impl TypeChecker {
                     self.check_statement_types(stmt);
                 }
 
-                // Type check each when clause
+                // Type check each when clause in its own scope so the bound
+                // error name cannot clobber an outer variable of the same
+                // name. Required now that get_symbol_mut walks parents
+                // (issue #605 / PR review on #606). Use define_or_replace so
+                // the binding lives only in the child scope (runtime does the
+                // same via Environment::define_or_replace).
                 for when_clause in when_clauses {
-                    if let Some(symbol) = self.analyzer.get_symbol_mut(&when_clause.error_name) {
-                        symbol.symbol_type = Some(Type::Text); // Errors are represented as text
+                    self.analyzer.push_scope();
+                    self.analyzer.define_or_replace_symbol(Symbol {
+                        name: when_clause.error_name.clone(),
+                        kind: SymbolKind::Variable { mutable: false },
+                        symbol_type: Some(Type::Text), // Errors are represented as text
+                        line: *_line,
+                        column: *_column,
+                    });
+                    // `error_message` is always available as an alias, matching
+                    // the analyzer and runtime.
+                    if when_clause.error_name != "error_message" {
+                        self.analyzer.define_or_replace_symbol(Symbol {
+                            name: "error_message".to_string(),
+                            kind: SymbolKind::Variable { mutable: false },
+                            symbol_type: Some(Type::Text),
+                            line: *_line,
+                            column: *_column,
+                        });
                     }
 
                     for stmt in &when_clause.body {
                         self.check_statement_types(stmt);
                     }
+                    self.analyzer.pop_scope();
                 }
 
                 if let Some(otherwise_stmts) = otherwise_block {
@@ -804,15 +826,18 @@ impl TypeChecker {
                     let _ = self.analyzer.define_symbol(param_symbol);
                 }
 
+                // Snapshot before the body so Nothing-widening (and other
+                // refinements) of outer variables during the definition check
+                // do not permanently stick after the action is defined but
+                // never called (PR #606 Codex review).
+                let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
+
                 for stmt in body {
                     self.check_statement_types(stmt);
                 }
 
                 // Infer the return type while body-locals and parameters are
-                // still in scope. Apply it after pop so the action symbol (in the
-                // parent scope) is updated without relying on in-scope parent
-                // mutation during the body check (issue #569; parent-walking
-                // `get_symbol_mut` from #605 would also work pre-pop).
+                // still in scope (and still see any in-body widenings).
                 let inferred_return = if return_type.is_none() {
                     Some(self.infer_action_return_type(body))
                 } else {
@@ -823,6 +848,7 @@ impl TypeChecker {
                     self.check_return_statements(body, ret_type, *_line, *_column);
                 }
 
+                self.analyzer.restore_symbol_types(outer_type_snapshot);
                 self.analyzer.pop_scope();
 
                 // Update the action's symbol so call sites see the real result
@@ -1799,6 +1825,11 @@ impl TypeChecker {
                             let _ = self.analyzer.define_symbol(param_symbol);
                         }
 
+                        // Same as top-level actions: do not permanently refine
+                        // outer bindings while checking an uncalled method body
+                        // (PR #606 review).
+                        let outer_type_snapshot = self.analyzer.snapshot_symbol_types();
+
                         for stmt in body {
                             self.check_statement_types(stmt);
                         }
@@ -1820,6 +1851,7 @@ impl TypeChecker {
                             }
                         }
 
+                        self.analyzer.restore_symbol_types(outer_type_snapshot);
                         self.analyzer.pop_scope();
 
                         // Restore previous container context

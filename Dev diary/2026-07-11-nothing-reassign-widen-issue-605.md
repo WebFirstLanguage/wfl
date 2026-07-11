@@ -54,3 +54,26 @@ Unassigned `nothing` still rejects indexing — only reassignment widens.
 - nothing → change to text is allowed
 - nothing without reassign still rejects indexing
 - Number → Text reassignment still errors
+
+## Follow-up (PR #606 review)
+
+1. **When-clause scope (Devin).** Parent-walking `get_symbol_mut` made a latent
+   TryStatement gap more dangerous: the type checker used to call
+   `get_symbol_mut` on a `when` error name without a child scope, so a
+   colliding outer name could be rewritten to `Text`. Fixed by pushing a
+   when-clause scope and binding the error name (and `error_message` alias)
+   with `define_or_replace_symbol` so only the child scope is written —
+   matching runtime's `Environment::define_or_replace`.
+
+2. **Action / method bodies must not permanently widen outer bindings
+   (Codex).** Type-checking an action definition walks its body; with parent-
+   walking mutability that could refine outer `nothing` bindings even if the
+   action is never called. Snapshot symbol types before the body and restore
+   after (top-level actions and container methods). Loop bodies still keep
+   refinements — that is the intended #605 fix for the idiomatic pattern.
+
+3. **Loop test (CodeRabbit minor).** Loop regression no longer indexes a
+   list-of-text element as a map; it uses `length of item` after the widen.
+
+Covered by `test_when_error_name_does_not_clobber_outer_variable_type` and
+`test_action_body_does_not_permanently_widen_outer_nothing`.

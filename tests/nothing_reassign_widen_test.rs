@@ -52,8 +52,10 @@ fn assert_type_error_contains(code: &str, needle: &str) {
     );
 }
 
-/// Minimal repro from issue #605: init to nothing, reassign in a for-each,
-/// then index. Must not report "Cannot index into Nothing".
+/// Minimal repro from issue #605: init to nothing, reassign in a for-each.
+/// After the loop the variable must not stay pinned as Nothing.
+/// (List literals are `List of Any`, so we assert via a use that would fail
+/// on Nothing — length — rather than a map index on a text element.)
 #[test]
 fn test_nothing_then_reassign_in_loop_allows_indexing() {
     assert_typechecks_clean(
@@ -63,7 +65,7 @@ store items as ["a"]
 for each x in items:
     change item to x
 end for
-display item["k"]
+display length of item
 "#,
     );
 }
@@ -120,5 +122,85 @@ store x as 10
 change x to "hello"
 "#,
         "incompatible type",
+    );
+}
+
+/// Defining an action that would widen an outer Nothing binding must not
+/// permanently refine that outer binding — the action may never be called
+/// (PR #606 Codex review).
+#[test]
+fn test_action_body_does_not_permanently_widen_outer_nothing() {
+    assert_type_error_contains(
+        r#"
+store item as nothing
+define action called widen:
+    change item to "x"
+end action
+display item["k"]
+"#,
+        "Cannot index into",
+    );
+}
+
+/// Parent-walking `get_symbol_mut` must not let a `when` error binding
+/// overwrite an outer variable of the same name (PR #606 review).
+///
+/// Full-pipeline analysis already rejects `when error as msg` when outer
+/// `msg` exists (shadowing), so this builds the AST and uses a pre-seeded
+/// analyzer to exercise the type checker path in isolation.
+#[test]
+fn test_when_error_name_does_not_clobber_outer_variable_type() {
+    use wfl::analyzer::{Analyzer, Symbol, SymbolKind};
+    use wfl::parser::ast::{ErrorType, Expression, Literal, Program, Statement, Type, WhenClause};
+
+    let mut analyzer = Analyzer::new();
+    analyzer
+        .define_symbol(Symbol {
+            name: "msg".to_string(),
+            kind: SymbolKind::Variable { mutable: true },
+            symbol_type: Some(Type::Number),
+            line: 1,
+            column: 1,
+        })
+        .expect("define outer msg");
+
+    let program = Program {
+        statements: vec![
+            Statement::TryStatement {
+                body: vec![Statement::DisplayStatement {
+                    value: Expression::Literal(Literal::String("ok".into()), 2, 1),
+                    line: 2,
+                    column: 1,
+                }],
+                when_clauses: vec![WhenClause {
+                    error_type: ErrorType::General,
+                    error_name: "msg".to_string(),
+                    body: vec![Statement::DisplayStatement {
+                        value: Expression::Variable("msg".to_string(), 4, 1),
+                        line: 4,
+                        column: 1,
+                    }],
+                }],
+                otherwise_block: None,
+                finally_block: None,
+                line: 1,
+                column: 1,
+            },
+            // After the try, outer `msg` must still be Number.
+            Statement::Assignment {
+                name: "msg".to_string(),
+                value: Expression::Literal(Literal::Integer(20), 6, 1),
+                line: 6,
+                column: 1,
+            },
+        ],
+    };
+
+    let mut type_checker = TypeChecker::with_analyzer(analyzer);
+    let result = type_checker.check_types(&program);
+    assert!(
+        result.is_ok(),
+        "when error binding must not clobber outer Number type; got: {:?}",
+        result.err()
     );
 }
