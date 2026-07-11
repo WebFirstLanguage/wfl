@@ -223,7 +223,7 @@ Guidelines for quality, security, performance, and collaboration.
 ### Development
 
 - **[Building from Source](development/building-from-source.md)** - Compile WFL *(coming soon)*
-- **[Contributing Guide](development/contributing-guide.md)** - Help improve WFL *(coming soon)*
+- **[Contributing Guide](development/contributing-guide.md)** - Day-to-day contribution workflow
 - **[Architecture Overview](development/architecture-overview.md)** - How WFL works *(coming soon)*
 - **[LSP Integration](development/lsp-integration.md)** - Language Server details *(coming soon)*
 - **[MCP Integration](development/mcp-integration.md)** - AI assistant integration *(coming soon)*
@@ -535,10 +535,15 @@ Every code example is tested with the WFL compiler to ensure accuracy!
 - **[Installation](02-getting-started/installation.md)** - Get started in 5 minutes
 - **[Language Basics](03-language-basics/index.md)** - Core concepts
 - **[TestPrograms](../TestPrograms/)** - 90+ example programs
-- **[Contributing](development/contributing-guide.md)** *(coming soon)*
+- **[Contributing](development/contributing-guide.md)** - Workflow + [root CONTRIBUTING.md](../CONTRIBUTING.md)
 
 ### Policy Documents
 
+- **[Governance](../GOVERNANCE.md)** - Project authority and binding policies
+- **[Code of Conduct](../CODE_OF_CONDUCT.md)** - Community standards
+- **[AI Policy](../AI_POLICY.md)** - AI-assisted work is welcome
+- **[Contributing](../CONTRIBUTING.md)** - How to contribute & apply for Contributor status
+- **[Security Policy](../SECURITY.md)** - Vulnerability reporting
 - **[Documentation Policy](wfl-documentation-policy.md)** - How we write docs
 - **[WFL Foundation](wfl-foundation.md)** - The 19 guiding principles
 

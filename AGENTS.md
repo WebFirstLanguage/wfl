@@ -1,5 +1,30 @@
 # Repository Guidelines
 
+## Project Governance (do not dig — start here)
+
+WFL is a **maintainer-led** open-source project (primary Maintainer: **Brad**, Logbie LLC).
+Binding community and contribution policy lives at the **repo root** (not only under `Docs/`):
+
+| File | What it is |
+|---|---|
+| `GOVERNANCE.md` | Authority, roles (Maintainer / Contributor / Participant), decision rights, binding technical policies |
+| `CODE_OF_CONDUCT.md` | Community standards and enforcement |
+| `AI_POLICY.md` | **AI-assisted work is welcome** — WFL was built with AI; do not discriminate against AI use; human author remains accountable |
+| `CONTRIBUTING.md` | How to contribute; **Contributor application** process (Discussion or email) |
+| `SECURITY.md` | Private vulnerability reporting only — never file security bugs as public issues |
+
+**Agent implications (already in force via governance):**
+
+- **AI is first-class** — use coding agents freely; same quality bar as hand-written work (tests, docs, compatibility, reviewability).
+- **Backward compatibility is sacred** — never break existing WFL programs without the documented deprecation path.
+- **TDD mandatory** — failing tests first (`tests/`, `TestPrograms/`).
+- **Docs ship with the feature** — same change; validate examples; Dev Diary for non-trivial work.
+- **Quality gates** — `cargo fmt`, `clippy -D warnings`, `cargo test`; conventional commits.
+- **Do not invent maintainer identity or process** — Contributor status is by application; Maintainers own merges and releases unless those responsibilities are **explicitly delegated**. Prefer first name **Brad** only if referring to the primary maintainer in docs (no last name).
+- Community tone: follow `CODE_OF_CONDUCT.md`; technical disagreement is fine; harassment and AI-shaming are not.
+
+When changing contribution workflow, community rules, or project authority, update the root governance suite **and** keep this section accurate.
+
 ## Project Structure & Modules
 - `src/`: Core compiler/runtime (`main.rs`, `lib.rs`, `repl.rs`, `builtins.rs`).
 - `crates/`: Internal crates (e.g., `wfl_core`).
@@ -116,7 +141,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
 - **Location**: `Docs/` organized in 6 sections (Introduction, Getting Started, Language Basics, Advanced Features, Standard Library, Best Practices).
 - **Structure**: Follow `Docs/wfl-documentation-policy.md` and 19 principles in `Docs/wfl-foundation.md`.
 - **Reference Documentation**: Two-tiered system for keywords
-  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 178 keywords)
+  - `Docs/reference/keyword-reference.md` - Quick scannable lookup (2-3 pages, all 181 keywords)
   - `Docs/reference/reserved-keywords.md` - Complete technical reference (10-15 pages, classifications, edge cases)
   - Both updated together; quick reference for speed, comprehensive for understanding
 - **Validation**: ALL code examples MUST be validated with MCP tools before adding to docs.
@@ -125,7 +150,7 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
   - Use MCP tools: `mcp__wfl-lsp__parse_wfl`, `mcp__wfl-lsp__analyze_wfl`, `mcp__wfl-lsp__typecheck_wfl`, `mcp__wfl-lsp__lint_wfl`
 - **Critical Syntax**:
   - Conditionals use NESTED blocks: `otherwise: check if`, NOT `otherwise check if`
-  - Reserved keywords: **178 keywords total** (52 structural, 29 contextual, 95 other, 7 literals)
+  - Reserved keywords: **181 keywords total** (54 structural, 29 contextual, 96 other, 7 literals; see `Docs/reference/reserved-keywords.md`)
     - Always reserved: `is`, `file`, `add`, `current`, `check`, `store`, etc.
     - Contextual (can be variables in some contexts): `count`, `list`, `pattern`, `text`, `at`, etc.
     - Use underscores to avoid conflicts: `is_active`, `filename`, `my_list`
@@ -139,10 +164,11 @@ Source Code → Lexer → Parser → Analyzer → Type Checker → Interpreter
   - Keyword examples: `TestPrograms/docs_examples/keyword_reference/` (11 example files with validation manifest)
 
 ## Agent‑Specific Policies (Critical Rules)
-- **Backward Compatibility**: Sacred. Never break existing WFL programs. Run all `TestPrograms/`.
+- **Governance**: Follow root `GOVERNANCE.md`, `CODE_OF_CONDUCT.md`, `AI_POLICY.md`, `CONTRIBUTING.md` (see **Project Governance** above). Do not re-litigate AI use; do not skip quality gates because AI produced the draft.
+- **Backward Compatibility**: Sacred. Never break existing WFL programs without the documented deprecation path (`GOVERNANCE.md`). Run all `TestPrograms/`.
 - **Integration Tests**: Require `cargo build --release` and provided scripts.
-- **Documentation**: Keep `Docs/` current. Validate ALL code examples with MCP before adding. Major changes warrant Dev Diary note.
-- **Security**: Review `SECURITY.md`. Avoid logging secrets. Use zeroization.
+- **Documentation**: Keep `Docs/` current. Validate ALL code examples with MCP before adding. Major changes warrant Dev Diary note. User-facing behavior changes ship docs in the same change.
+- **Security**: Review `SECURITY.md`. Avoid logging secrets. Use zeroization. No public security issues.
 - **Rules**: Refer to `.cursor/rules/wfl-rules.mdc`.
 
 ## Technical Requirements

@@ -175,6 +175,9 @@ As alpha software, WFL has the following known limitations:
 
 - [GitHub Discussions](https://github.com/WebFirstLanguage/wfl/discussions) - Security questions and best practices
 - [Issue Tracker](https://github.com/WebFirstLanguage/wfl/issues) - Non-security bugs and feature requests
+- [GOVERNANCE.md](GOVERNANCE.md) - Project authority and contribution policies
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) - Community standards
+- [AI_POLICY.md](AI_POLICY.md) - AI-assisted work is welcome
 
 ## 🤝 Security Acknowledgments
 
