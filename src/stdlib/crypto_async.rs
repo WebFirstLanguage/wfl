@@ -30,8 +30,9 @@ use zeroize::Zeroizing;
 
 /// Boxed future produced by [`route`]. A plain `std` type (rather than a
 /// `futures_util` alias) so the public signature doesn't leak a third-party type
-/// into the crate's API. It is awaited only on the interpreter thread.
-type RoutedFuture = Pin<Box<dyn Future<Output = Result<Value, RuntimeError>>>>;
+/// into the crate's API. `pub` to match the visibility of `route`, which returns
+/// it. It is awaited only on the interpreter thread.
+pub type RoutedFuture = Pin<Box<dyn Future<Output = Result<Value, RuntimeError>>>>;
 
 /// Route a CPU-heavy crypto builtin onto the blocking pool.
 ///
