@@ -125,9 +125,9 @@ pub struct WflWebServer {
 }
 
 /// Build the 503 response returned when the transport→interpreter request queue
-/// is full (Phase 0, PR-0c). A free function so the shed path can be unit-tested
+/// is full (Phase 0, PR-0c). A free function so the shed path can be tested
 /// without standing up a live server.
-pub(crate) fn overloaded_response() -> warp::http::Response<Vec<u8>> {
+pub fn overloaded_response() -> warp::http::Response<Vec<u8>> {
     let body = b"Service Unavailable: the server is overloaded, please retry later\n".to_vec();
     let content_length = body.len();
     warp::http::Response::builder()
@@ -346,6 +346,27 @@ fn build_ws_event_object(event: &WflWsEvent) -> Value {
 pub struct ServerError(String);
 
 impl warp::reject::Reject for ServerError {}
+
+/// Rejection raised when the server is at its in-flight request capacity, so a
+/// request is shed *before* its body is buffered (Phase 0, PR-0c). Mapped to a
+/// 503 by [`handle_overloaded`].
+#[derive(Debug)]
+struct Overloaded;
+
+impl warp::reject::Reject for Overloaded {}
+
+/// Warp recover handler: turn an [`Overloaded`] rejection into a 503, and
+/// re-raise every other rejection so warp's default handling still applies
+/// (e.g. oversized-body `ServerError`s are unaffected).
+async fn handle_overloaded(
+    err: warp::Rejection,
+) -> Result<warp::http::Response<Vec<u8>>, warp::Rejection> {
+    if err.find::<Overloaded>().is_some() {
+        Ok(overloaded_response())
+    } else {
+        Err(err)
+    }
+}
 
 /// Strips the port from an HTTP Host header value, preserving IPv6 brackets
 /// (`example.com:8080` -> `example.com`, `[::1]:8080` -> `[::1]`).
@@ -5403,6 +5424,14 @@ impl Interpreter {
                     mpsc::channel::<WflHttpRequest>(queue_bound);
                 let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
 
+                // Cap concurrently in-flight requests so a flood cannot allocate
+                // an unbounded number of request bodies before the queue check
+                // (Phase 0, PR-0c). A permit is acquired *before* `body::bytes()`
+                // buffers the payload and released when the request completes;
+                // when none is available the request is shed with 503 before any
+                // body is read.
+                let inflight = Arc::new(tokio::sync::Semaphore::new(queue_bound));
+
                 // Create warp routes that handle all HTTP methods and paths.
                 // Body size: reject oversized Content-Length *before* buffering
                 // (when the header is present), then re-check after
@@ -5435,6 +5464,21 @@ impl Interpreter {
                             },
                         ),
                     )
+                    // Admission control: acquire an in-flight permit *before* the
+                    // body is buffered. If the server is saturated, shed with a
+                    // 503 (via the `Overloaded` rejection + `handle_overloaded`)
+                    // so we never allocate a body for a request we can't serve.
+                    .and({
+                        let inflight = inflight.clone();
+                        warp::any().and_then(move || {
+                            let inflight = inflight.clone();
+                            async move {
+                                inflight
+                                    .try_acquire_owned()
+                                    .map_err(|_| warp::reject::custom(Overloaded))
+                            }
+                        })
+                    })
                     .and(warp::body::bytes())
                     .and(warp::addr::remote())
                     .and_then(
@@ -5443,10 +5487,14 @@ impl Interpreter {
                               query: String,
                               headers: warp::http::HeaderMap,
                               (),
+                              permit: tokio::sync::OwnedSemaphorePermit,
                               body: bytes::Bytes,
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
                             async move {
+                                // Hold the admission permit until this request is
+                                // fully processed, then release it on drop.
+                                let _permit = permit;
                                 // Safety net when Content-Length was absent or lied:
                                 // still refuse after buffering so the limit holds.
                                 if body.len() > max_body_size {
@@ -5557,7 +5605,8 @@ impl Interpreter {
                                 }
                             }
                         },
-                    );
+                    )
+                    .recover(handle_overloaded);
 
                 // Parse the bind address from config
                 let bind_addr: IpAddr = match self.config.web_server_bind_address.parse() {
@@ -9986,62 +10035,6 @@ mod process_tests {
             err.contains("Invalid process ID"),
             "Error should indicate invalid process ID: {}",
             err
-        );
-    }
-}
-
-/// Phase 0 (PR-0c): the bounded request queue sheds with a well-formed 503 when
-/// the interpreter is saturated, instead of buffering work without bound.
-#[cfg(test)]
-mod queue_bound_tests {
-    use super::*;
-
-    #[test]
-    fn overloaded_response_is_a_well_formed_503() {
-        let resp = overloaded_response();
-        assert_eq!(resp.status(), warp::http::StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            resp.headers()
-                .get("Content-Type")
-                .and_then(|v| v.to_str().ok()),
-            Some("text/plain; charset=utf-8")
-        );
-        // Content-Length matches the actual body byte count.
-        let declared: usize = resp
-            .headers()
-            .get("Content-Length")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse().ok())
-            .expect("Content-Length header present and numeric");
-        assert_eq!(declared, resp.body().len());
-        assert!(!resp.body().is_empty());
-    }
-
-    /// The over-cap decision is deterministic: once a bounded channel is full,
-    /// `try_send` reports `Full` (which the warp handler maps to `overloaded_response`),
-    /// and never blocks or grows the queue.
-    #[tokio::test]
-    async fn full_queue_sheds_deterministically() {
-        let bound = 4usize;
-        let (tx, _rx) = mpsc::channel::<u32>(bound);
-
-        // Fill to capacity — every send within the bound succeeds.
-        for i in 0..bound {
-            tx.try_send(i as u32)
-                .expect("send within capacity succeeds");
-        }
-        assert_eq!(tx.max_capacity(), bound);
-
-        // The next send over capacity sheds rather than blocking or growing.
-        match tx.try_send(999) {
-            Err(mpsc::error::TrySendError::Full(v)) => assert_eq!(v, 999),
-            other => panic!("expected Full over capacity, got {other:?}"),
-        }
-
-        // The shed maps to a 503.
-        assert_eq!(
-            overloaded_response().status(),
-            warp::http::StatusCode::SERVICE_UNAVAILABLE
         );
     }
 }
