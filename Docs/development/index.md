@@ -19,6 +19,7 @@ Development work still follows the [WFL foundation](../wfl-foundation.md): clear
 
 - **[Route construct design](route-construct-design.md)** — HTTP routing design history
 - **[Stdlib higher-order functions](stdlib-higher-order-functions.md)** — Design notes for list transforms
+- **[Concurrency phase plan](concurrency-phase-plan.md)** — Phased TODOs for cooperative concurrency (`main loop concurrently:`, crypto off-thread, nursery)
 
 ## Quality gates
 
