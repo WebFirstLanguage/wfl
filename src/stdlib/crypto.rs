@@ -624,7 +624,7 @@ pub fn native_pbkdf2_hmac_sha256(args: Vec<Value>) -> Result<Value, RuntimeError
     let password = expect_text(&args[0])?;
     let salt = expect_text(&args[1])?;
     let iterations = expect_count("pbkdf2_hmac_sha256", "iterations", &args[2])?;
-    let length = expect_count("pbkdf2_hmac_sha256", "length", &args[3])? as usize;
+    let length = expect_count("pbkdf2_hmac_sha256", "length", &args[3])?;
 
     Ok(Value::Text(Arc::from(pbkdf2_hmac_sha256_str(
         &password, &salt, iterations, length,
@@ -640,7 +640,7 @@ pub(crate) fn pbkdf2_hmac_sha256_str(
     password: &str,
     salt: &str,
     iterations: u64,
-    length: usize,
+    length: u64,
 ) -> Result<String, RuntimeError> {
     if password.len() > MAX_INPUT_SIZE || salt.len() > MAX_INPUT_SIZE {
         return Err(RuntimeError::new(
@@ -665,6 +665,16 @@ pub(crate) fn pbkdf2_hmac_sha256_str(
             0,
         ));
     }
+    // Convert to `usize` with a checked cast so a value that doesn't fit (e.g.
+    // greater than u32::MAX on a 32-bit target such as wasm32) is rejected
+    // cleanly rather than silently truncating past the bound check below.
+    let length = usize::try_from(length).map_err(|_| {
+        RuntimeError::new(
+            format!("pbkdf2_hmac_sha256: length exceeds maximum ({MAX_PBKDF2_KEY_LENGTH} bytes)"),
+            0,
+            0,
+        )
+    })?;
     if length < 1 {
         return Err(RuntimeError::new(
             "pbkdf2_hmac_sha256: length must be at least 1 byte".to_string(),

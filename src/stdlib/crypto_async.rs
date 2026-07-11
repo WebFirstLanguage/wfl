@@ -113,7 +113,9 @@ fn pbkdf2_hmac_route(args: &[Value]) -> RoutedFuture {
         let password = Zeroizing::new(expect_text(&args[0])?.to_string());
         let salt = expect_text(&args[1])?.to_string();
         let iterations = crypto::expect_count(FUNC, "iterations", &args[2])?;
-        let length = crypto::expect_count(FUNC, "length", &args[3])? as usize;
+        // Pass the raw u64 through; `pbkdf2_hmac_sha256_str` does a checked
+        // usize conversion so a value that doesn't fit can't truncate.
+        let length = crypto::expect_count(FUNC, "length", &args[3])?;
         Ok::<_, RuntimeError>((password, salt, iterations, length))
     })();
     Box::pin(async move {
