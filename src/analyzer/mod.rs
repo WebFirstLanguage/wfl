@@ -132,6 +132,20 @@ impl Scope {
             None
         }
     }
+
+    /// Mutable resolve: current scope first, then parents. Used when refining a
+    /// symbol's type from an inner scope (e.g. `change` of an outer variable
+    /// inside a loop body — issue #605). Mutations reach the boxed parent that
+    /// `pop_scope` restores, so type updates survive the scope pop.
+    pub fn resolve_mut(&mut self, name: &str) -> Option<&mut Symbol> {
+        if self.symbols.contains_key(name) {
+            self.symbols.get_mut(name)
+        } else if let Some(parent) = self.parent.as_mut() {
+            parent.resolve_mut(name)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2077,11 +2091,62 @@ impl Analyzer {
     }
 
     pub fn get_symbol_mut(&mut self, name: &str) -> Option<&mut Symbol> {
-        self.current_scope.symbols.get_mut(name)
+        // Walk parent scopes so type refinements (e.g. widening away from
+        // Nothing on reassignment inside a loop) update the real binding and
+        // survive `pop_scope` (issue #605). Previously only the innermost
+        // scope was mutable, so outer-variable updates from loop/try bodies
+        // were silently dropped.
+        self.current_scope.resolve_mut(name)
     }
 
     pub fn define_symbol(&mut self, symbol: Symbol) -> Result<(), SemanticError> {
         self.current_scope.define(symbol)
+    }
+
+    /// Bind or overwrite a symbol in the *current* scope only (no parent walk,
+    /// no "already defined in outer scope" error). Used for implicit bindings
+    /// such as `when error as e` error names that must shadow for the clause
+    /// body without clobbering an outer variable of the same name.
+    pub fn define_or_replace_symbol(&mut self, symbol: Symbol) {
+        self.current_scope.define_or_replace(symbol);
+    }
+
+    /// Snapshot `symbol_type` for every symbol in the current scope chain
+    /// (innermost first). Used to restore outer bindings after type-checking
+    /// a definition body that must not permanently refine them (uncalled
+    /// actions / container methods — PR #606 review).
+    pub fn snapshot_symbol_types(&self) -> Vec<HashMap<String, Option<Type>>> {
+        let mut layers = Vec::new();
+        let mut scope = Some(&self.current_scope);
+        while let Some(s) = scope {
+            let mut map = HashMap::new();
+            for (name, sym) in &s.symbols {
+                map.insert(name.clone(), sym.symbol_type.clone());
+            }
+            layers.push(map);
+            scope = s.parent.as_deref();
+        }
+        layers
+    }
+
+    /// Restore `symbol_type` values previously captured by
+    /// [`snapshot_symbol_types`]. Only updates symbols that still exist; does
+    /// not remove symbols defined after the snapshot.
+    pub fn restore_symbol_types(&mut self, snapshot: Vec<HashMap<String, Option<Type>>>) {
+        let mut scope = Some(&mut self.current_scope);
+        let mut i = 0;
+        while let Some(s) = scope {
+            if i >= snapshot.len() {
+                break;
+            }
+            for (name, ty) in &snapshot[i] {
+                if let Some(sym) = s.symbols.get_mut(name) {
+                    sym.symbol_type = ty.clone();
+                }
+            }
+            i += 1;
+            scope = s.parent.as_mut().map(|p| p.as_mut());
+        }
     }
 
     pub fn register_builtin_function(
