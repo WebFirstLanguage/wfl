@@ -43,9 +43,9 @@ HARD RULES:
 
 | Phase | PR | Title | Status |
 |-------|-----|--------|--------|
-| 0 | 0a | Docs honesty + `panic=unwind` CI | ⬜ Not started |
-| 0 | 0b | `spawn_blocking` for blocking crypto | ⬜ Not started |
-| 0 | 0c | Bound accept/queue (OOM shed) | ⬜ Not started |
+| 0 | 0a | Docs honesty + `panic=unwind` CI | ✅ Done |
+| 0 | 0b | `spawn_blocking` for blocking crypto | ✅ Done |
+| 0 | 0c | Bound accept/queue (OOM shed) | ✅ Done |
 | 1 | 1a | Runtime spike (bridge, no surface) | ⬜ Not started |
 | 1 | 1b | `main loop concurrently:` surface + ops defaults | ⬜ Not started |
 | 1 | 1c | Honesty docs for real concurrent model | ⬜ Not started |
