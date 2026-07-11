@@ -44,4 +44,9 @@ pub fn register_core(env: &mut Environment) {
     // Text constants for natural-language string handling
     let _ = env.define("newline", Value::Text("\n".into()));
     let _ = env.define("tab", Value::Text("\t".into()));
+
+    // The version of the interpreter actually running this program (#602).
+    // Exposed as an immutable constant so programs can self-report the running
+    // interpreter's version without shelling out to `wfl --version`.
+    let _ = env.define("wfl_version", Value::Text(crate::version::VERSION.into()));
 }
