@@ -15,6 +15,13 @@ use wfl::config::load_config;
 
 mod test_helpers;
 
+/// Render a path for embedding in a WFL string literal. WFL treats `\` as an
+/// escape character, so Windows paths must use forward slashes (which the
+/// runtime accepts on every platform).
+fn wfl_path(p: &std::path::Path) -> String {
+    p.display().to_string().replace('\\', "/")
+}
+
 /// Write a `.wflcfg` with the given body into a fresh temp dir and load it.
 fn load_with_cfg(body: &str) -> wfl::config::WflConfig {
     let dir = tempfile::tempdir().expect("create temp dir");
@@ -201,7 +208,7 @@ fn nested_execute_file_source_is_size_checked() {
         &main,
         format!(
             "execute file at \"{}\" and read output as out\n",
-            big.display()
+            wfl_path(&big)
         ),
     )
     .expect("main");
@@ -266,7 +273,7 @@ fn execute_file_shares_the_parent_operation_budget() {
         "program.wfl",
         format!(
             "{loop_body}execute file at \"{}\" and read output as out\ndisplay out\n",
-            child.display()
+            wfl_path(&child)
         ),
     );
     assert!(
