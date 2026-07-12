@@ -2,6 +2,7 @@ use crate::analyzer::Analyzer;
 use crate::analyzer::static_analyzer::StaticAnalyzer;
 use crate::config::WflConfig;
 use crate::diagnostics::DiagnosticReporter;
+use crate::exec::budget::{BudgetLimits, ExecutionBudget};
 use crate::interpreter::Interpreter;
 use crate::lexer::{lex_wfl_with_positions, token::TokenWithPosition};
 use crate::parser::{
@@ -38,8 +39,19 @@ impl Default for ReplState {
 
 impl ReplState {
     pub fn new() -> Self {
-        let config = WflConfig::default();
-        let interpreter = Interpreter::with_timeout(config.timeout_seconds);
+        let config = std::sync::Arc::new(WflConfig::default());
+        // One interpreter serves the whole session, so a wall-clock deadline
+        // that starts at REPL launch would eventually reject every later command
+        // on its first sampled op. Use a budget with no deadline for interactive
+        // use (all other ceilings — recursion, pattern, source size — still
+        // apply); a runaway command is interrupted with Ctrl-C.
+        let limits = BudgetLimits {
+            max_duration: None,
+            ..BudgetLimits::from_config(&config)
+        };
+        let budget = std::sync::Arc::new(ExecutionBudget::new(limits));
+        let interpreter =
+            Interpreter::with_config_and_budget(std::sync::Arc::clone(&config), budget);
 
         ReplState {
             interpreter,

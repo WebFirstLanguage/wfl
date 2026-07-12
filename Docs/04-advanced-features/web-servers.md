@@ -1028,6 +1028,8 @@ end check
 - **Blocking:** Server handles requests sequentially (TLS handshakes are concurrent, but your responses are serialized)
 - **Bounded accept queue:** Because handlers are serial, incoming requests queue up behind the one being handled. That queue is bounded (default 256, configurable via `web_server_request_queue_bound`). When it is full, the server sheds new requests with a `503 Service Unavailable` (plus a `Retry-After` header) and logs a warning, rather than growing memory without bound. See [Configuration Reference](../reference/configuration-reference.md#web_server_request_queue_bound).
 - **Bounded response size:** A handler cannot `respond with` a body larger than `web_server_max_response_size` (default 64 MiB); an oversized response is refused with a runtime error rather than streamed unbounded. See [Configuration Reference](../reference/configuration-reference.md#web_server_max_response_size).
+- **Bounded request body (chunked-safe):** The request-body limit (`web_server_max_body_size`) is enforced *while the body streams in*, so a chunked upload with no `Content-Length` is bounded too — an oversized body is refused with `413 Payload Too Large` without being fully buffered.
+- **Global in-flight cap + response timeout:** The accepted-request cap is shared across every `listen` server via one budget, and each accepted request holds its slot until the handler responds, the client disconnects, or `web_server_response_timeout_seconds` (default 300s) elapses — in which case it is shed with `504 Gateway Timeout` so a stuck handler cannot pin capacity.
 - **No middleware system** (yet) - Implement manually
 - **No built-in session management** - Implement yourself
 

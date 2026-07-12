@@ -537,6 +537,12 @@ impl ConfigChecker {
                 "Maximum HTTP response body size in bytes (default 64 MiB, min 1)",
             );
             int_setting(
+                "web_server_response_timeout_seconds",
+                "300",
+                "Web Server",
+                "Seconds to await a handler before shedding with 504; 0 = disabled",
+            );
+            int_setting(
                 "web_socket_queue_bound",
                 "1024",
                 "Web Server",
@@ -1084,6 +1090,7 @@ max_line_length = 80
             "max_pattern_states",
             "max_source_size",
             "web_server_max_response_size",
+            "web_server_response_timeout_seconds",
             "web_server_request_queue_bound",
             "web_socket_queue_bound",
             "web_socket_max_connections",
@@ -1100,6 +1107,7 @@ max_pattern_steps = 250000
 max_pattern_states = 5000
 max_source_size = 1048576
 web_server_max_response_size = 5242880
+web_server_response_timeout_seconds = 30
 web_server_request_queue_bound = 512
 web_socket_queue_bound = 2048
 web_socket_max_connections = 256

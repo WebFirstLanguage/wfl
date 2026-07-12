@@ -140,6 +140,76 @@ pub fn overloaded_response() -> warp::http::Response<Vec<u8>> {
         .expect("static 503 response is always valid")
 }
 
+/// Build a static `text/plain` response with the given status and message.
+fn plain_status_response(
+    status: warp::http::StatusCode,
+    message: &str,
+) -> warp::http::Response<Vec<u8>> {
+    let body = message.as_bytes().to_vec();
+    let content_length = body.len();
+    warp::http::Response::builder()
+        .status(status)
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .header("Content-Length", content_length)
+        .body(body)
+        .expect("static status response is always valid")
+}
+
+/// 413 returned when a request body exceeds `web_server_max_body_size`. Because
+/// it is enforced while streaming, a chunked body with no `Content-Length` is
+/// bounded too.
+fn payload_too_large_response() -> warp::http::Response<Vec<u8>> {
+    plain_status_response(
+        warp::http::StatusCode::PAYLOAD_TOO_LARGE,
+        "Payload Too Large: request body exceeds the configured limit\n",
+    )
+}
+
+/// 504 returned when a handler does not answer an accepted request within
+/// `web_server_response_timeout_seconds`, freeing its in-flight slot.
+fn gateway_timeout_response() -> warp::http::Response<Vec<u8>> {
+    plain_status_response(
+        warp::http::StatusCode::GATEWAY_TIMEOUT,
+        "Gateway Timeout: the request handler did not respond in time\n",
+    )
+}
+
+/// Error from [`read_body_capped`].
+enum BodyReadError {
+    /// The streamed body exceeded the byte ceiling.
+    TooLarge,
+    /// The transport failed while reading the body.
+    Io,
+}
+
+/// Read a streamed request body into a `Vec`, aborting as soon as it exceeds
+/// `max` bytes. Unlike buffering the whole body first, this bounds memory for
+/// chunked requests (which carry no `Content-Length`): the buffer never grows
+/// past `max + 1` bytes before the limit trips.
+async fn read_body_capped<S, B>(stream: S, max: usize) -> Result<Vec<u8>, BodyReadError>
+where
+    S: futures_util::Stream<Item = Result<B, warp::Error>>,
+    B: bytes::Buf,
+{
+    use futures_util::StreamExt;
+
+    futures_util::pin_mut!(stream);
+    let mut out: Vec<u8> = Vec::new();
+    while let Some(item) = stream.next().await {
+        let mut chunk = item.map_err(|_| BodyReadError::Io)?;
+        while chunk.has_remaining() {
+            let slice = chunk.chunk();
+            let take = slice.len();
+            out.extend_from_slice(slice);
+            chunk.advance(take);
+            if out.len() > max {
+                return Err(BodyReadError::TooLarge);
+            }
+        }
+    }
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket support
 //
@@ -262,22 +332,31 @@ async fn handle_ws_connection(
         log::warn!("WebSocket event queue full; dropping connect event for {conn_id}: {err}");
     }
 
-    // Writer task: drains queued frames to the socket until the channel closes
-    // or the peer goes away.
+    // Writer task: drains queued frames to the socket until an explicit close,
+    // the peer going away, or the channel closing.
     let writer = tokio::spawn(async move {
+        let mut peer_gone = false;
         while let Some(out) = out_rx.recv().await {
             match out {
                 WsOutbound::Text(text) => {
                     if ws_tx.send(warp::ws::Message::text(text)).await.is_err() {
+                        peer_gone = true;
                         break;
                     }
                 }
-                WsOutbound::Close => {
-                    let _ = ws_tx.send(warp::ws::Message::close()).await;
-                    let _ = ws_tx.flush().await;
-                    break;
-                }
+                // Fall through to the unconditional close below.
+                WsOutbound::Close => break,
             }
+        }
+        // Always send a best-effort close frame on exit — whether from an
+        // explicit `Close`, an empty channel (`close server` dropped every
+        // sender), or a `Full` queue that could not carry the `Close` message.
+        // This guarantees `close server` terminates the socket even under
+        // backpressure, instead of leaving the reader task (and its connection
+        // slot) alive waiting on the peer.
+        if !peer_gone {
+            let _ = ws_tx.send(warp::ws::Message::close()).await;
+            let _ = ws_tx.flush().await;
         }
     });
 
@@ -386,14 +465,24 @@ struct Overloaded;
 
 impl warp::reject::Reject for Overloaded {}
 
-/// Warp recover handler: turn an [`Overloaded`] rejection into a 503, and
-/// re-raise every other rejection so warp's default handling still applies
-/// (e.g. oversized-body `ServerError`s are unaffected).
+/// Rejection raised when a request's advertised `Content-Length` exceeds the
+/// body ceiling, so it is refused before any body is read. Mapped to a 413 by
+/// [`handle_overloaded`] (the streaming path returns the 413 directly).
+#[derive(Debug)]
+struct PayloadTooLarge;
+
+impl warp::reject::Reject for PayloadTooLarge {}
+
+/// Warp recover handler: turn an [`Overloaded`] rejection into a 503 and a
+/// [`PayloadTooLarge`] rejection into a 413, and re-raise every other rejection
+/// so warp's default handling still applies.
 async fn handle_overloaded(
     err: warp::Rejection,
 ) -> Result<warp::http::Response<Vec<u8>>, warp::Rejection> {
     if err.find::<Overloaded>().is_some() {
         Ok(overloaded_response())
+    } else if err.find::<PayloadTooLarge>().is_some() {
+        Ok(payload_too_large_response())
     } else {
         Err(err)
     }
@@ -5586,62 +5675,56 @@ impl Interpreter {
                     mpsc::channel::<WflHttpRequest>(queue_bound);
                 let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
 
-                // Cap concurrently in-flight requests so a flood cannot allocate
-                // an unbounded number of request bodies before the queue check
-                // (Phase 0, PR-0c). A permit is acquired *before* `body::bytes()`
-                // buffers the payload and released when the request completes;
-                // when none is available the request is shed with 503 before any
-                // body is read.
-                let inflight = Arc::new(tokio::sync::Semaphore::new(queue_bound));
-
                 // Create warp routes that handle all HTTP methods and paths.
-                // Body size: reject oversized Content-Length *before* buffering
-                // (when the header is present), then re-check after
-                // `body::bytes()` for missing/wrong Content-Length. GET and
-                // other no-body requests still work without Content-Length.
-                // Limit is configurable via `.wflcfg` `web_server_max_body_size`
-                // (default 1 MB).
+                // In-flight admission uses the shared ExecutionBudget's global
+                // request cap (RequestGuard), so a flood is bounded across every
+                // listener — not per-server. The guard is acquired *before* the
+                // body is read and held until the handler answers, the request
+                // times out, or the client disconnects, so a dequeued request
+                // can no longer pin memory indefinitely. Body size is enforced
+                // *while streaming* (below), which bounds chunked bodies that
+                // carry no Content-Length.
                 let request_sender_clone = request_sender.clone();
                 let max_body_size = self.budget.max_request_body_bytes();
                 let max_body_size_u64 = max_body_size as u64;
+                let request_timeout = self.budget.max_request_duration();
+                let admit_budget = Arc::clone(&self.budget);
                 let routes = warp::any()
                     .and(warp::method())
                     .and(warp::path::full())
                     .and(warp::query::raw().or(warp::any().map(String::new)).unify())
                     .and(warp::header::headers_cloned())
-                    // Early reject when the client advertises an oversized body,
-                    // so we never allocate for that payload. Optional header so
-                    // GETs without Content-Length are unaffected.
+                    // Fast path: reject when the client advertises an oversized
+                    // body, before we admit it or read a byte. Optional header so
+                    // GETs (and chunked bodies) without Content-Length are still
+                    // admitted and then bounded by the streaming check below.
                     .and(
                         warp::header::optional::<u64>("content-length").and_then(
                             move |len: Option<u64>| async move {
                                 if let Some(len) = len
                                     && len > max_body_size_u64
                                 {
-                                    return Err(warp::reject::custom(ServerError(format!(
-                                        "Request body too large: {len} bytes (limit: {max_body_size_u64} bytes)"
-                                    ))));
+                                    return Err(warp::reject::custom(PayloadTooLarge));
                                 }
                                 Ok::<(), warp::Rejection>(())
                             },
                         ),
                     )
-                    // Admission control: acquire an in-flight permit *before* the
-                    // body is buffered. If the server is saturated, shed with a
-                    // 503 (via the `Overloaded` rejection + `handle_overloaded`)
-                    // so we never allocate a body for a request we can't serve.
+                    // Admission control: reserve a global in-flight slot *before*
+                    // the body is read. At the ceiling, shed with 503 (via the
+                    // `Overloaded` rejection) without reading a body.
                     .and({
-                        let inflight = inflight.clone();
+                        let admit_budget = Arc::clone(&admit_budget);
                         warp::any().and_then(move || {
-                            let inflight = inflight.clone();
+                            let admit_budget = Arc::clone(&admit_budget);
                             async move {
-                                inflight
-                                    .try_acquire_owned()
-                                    .map_err(|_| warp::reject::custom(Overloaded))
+                                admit_budget
+                                    .try_acquire_request()
+                                    .ok_or_else(|| warp::reject::custom(Overloaded))
                             }
                         })
                     })
-                    .and(warp::body::bytes())
+                    .and(warp::body::stream())
                     .and(warp::addr::remote())
                     .and_then(
                         move |method: warp::http::Method,
@@ -5649,29 +5732,33 @@ impl Interpreter {
                               query: String,
                               headers: warp::http::HeaderMap,
                               (),
-                              permit: tokio::sync::OwnedSemaphorePermit,
-                              body: bytes::Bytes,
+                              guard: crate::exec::budget::RequestGuard,
+                              body_stream,
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
                             async move {
-                                // `permit` (acquired before the body was buffered)
-                                // is released right after the request is enqueued
-                                // below — see the `drop(permit)` in the `try_send`
-                                // Ok arm. Holding it across the untimed response
-                                // wait would let a handler that never calls
-                                // `respond` pin the in-flight cap and take the
-                                // server offline; an actual per-request response
-                                // timeout is Phase 1 work. On the early returns
-                                // below, `permit` is dropped when the future ends.
-                                // Safety net when Content-Length was absent or lied:
-                                // still refuse after buffering so the limit holds.
-                                if body.len() > max_body_size {
-                                    return Err(warp::reject::custom(ServerError(format!(
-                                        "Request body too large: {} bytes (limit: {} bytes)",
-                                        body.len(),
-                                        max_body_size
-                                    ))));
-                                }
+                                // `guard` is held for the whole handler future:
+                                // the in-flight slot is released when this future
+                                // completes (response, timeout, or client
+                                // disconnect drops the future), so a
+                                // dequeued-but-unanswered request can no longer
+                                // leak the slot.
+                                let _guard = guard;
+
+                                // Enforce the body limit while streaming so a
+                                // chunked body (no Content-Length) is bounded too.
+                                let body_bytes =
+                                    match read_body_capped(body_stream, max_body_size).await {
+                                        Ok(bytes) => bytes,
+                                        Err(BodyReadError::TooLarge) => {
+                                            return Ok(payload_too_large_response());
+                                        }
+                                        Err(BodyReadError::Io) => {
+                                            return Err(warp::reject::custom(ServerError(
+                                                "Failed to read request body".to_string(),
+                                            )));
+                                        }
+                                    };
 
                                 // Generate unique request ID
                                 let request_id = uuid::Uuid::new_v4().to_string();
@@ -5688,11 +5775,6 @@ impl Interpreter {
                                         header_map.insert(name.to_string(), value_str.to_string());
                                     }
                                 }
-
-                                // Keep the raw body bytes so binary uploads survive;
-                                // WFL exposes both a lossy-text `body` and a lossless
-                                // `body_bytes` view of these bytes.
-                                let body_bytes = body.to_vec();
 
                                 // Create response channel
                                 let (response_sender, response_receiver) =
@@ -5713,21 +5795,12 @@ impl Interpreter {
                                 };
 
                                 // Send request to WFL interpreter. The queue is
-                                // bounded (Phase 0, PR-0c): a full queue means the
-                                // interpreter is saturated, so shed with 503 rather
-                                // than buffering unbounded work. `try_send` never
+                                // bounded: a full queue means the interpreter is
+                                // saturated, so shed with 503 rather than
+                                // buffering unbounded work. `try_send` never
                                 // blocks the transport task.
                                 match sender.try_send(wfl_request) {
-                                    Ok(()) => {
-                                        // Enqueued: the body is now owned by the
-                                        // bounded queue (then the serial
-                                        // interpreter), so release the admission
-                                        // permit before the response wait. Concurrent
-                                        // body buffering stays bounded without pinning
-                                        // a permit to a possibly-never-answered
-                                        // request.
-                                        drop(permit);
-                                    }
+                                    Ok(()) => {}
                                     Err(mpsc::error::TrySendError::Full(shed)) => {
                                         log::warn!(
                                             "web server request queue full (capacity {}); shedding {} {} from {} with 503",
@@ -5745,8 +5818,29 @@ impl Interpreter {
                                     }
                                 }
 
-                                // Wait for response
-                                match response_receiver.await {
+                                // Wait for the handler's response, bounded by the
+                                // per-request timeout so a handler that never
+                                // answers frees its in-flight slot with a 504.
+                                let received = match request_timeout {
+                                    Some(dur) => {
+                                        match tokio::time::timeout(dur, response_receiver).await {
+                                            Ok(r) => r,
+                                            Err(_) => {
+                                                log::warn!(
+                                                    "web server request from {} timed out after {:?} awaiting handler; shedding 504",
+                                                    remote_addr
+                                                        .map(|a| a.ip().to_string())
+                                                        .unwrap_or_else(|| "unknown".to_string()),
+                                                    dur
+                                                );
+                                                return Ok(gateway_timeout_response());
+                                            }
+                                        }
+                                    }
+                                    None => response_receiver.await,
+                                };
+
+                                match received {
                                     Ok(response) => {
                                         let status_code =
                                             warp::http::StatusCode::from_u16(response.status)
@@ -6306,6 +6400,21 @@ impl Interpreter {
                 // scalar values keep their existing UTF-8 rendering.
                 let content_val = self.evaluate_expression(content, Rc::clone(&env)).await?;
                 let is_binary = matches!(content_val, Value::Binary(_));
+
+                // Enforce the response-body ceiling on the *borrowed* length
+                // first, so an oversized Text/Binary body is refused before it is
+                // duplicated into `content_bytes` (bounding peak allocation).
+                if let Value::Text(text) = &content_val
+                    && let Err(exceeded) = self.budget.check_response_bytes(text.len())
+                {
+                    return Err(self.budget_error(exceeded, *line, *column));
+                }
+                if let Value::Binary(bytes) = &content_val
+                    && let Err(exceeded) = self.budget.check_response_bytes(bytes.len())
+                {
+                    return Err(self.budget_error(exceeded, *line, *column));
+                }
+
                 let content_bytes: Vec<u8> = match &content_val {
                     Value::Text(text) => text.as_bytes().to_vec(),
                     Value::Number(n) => n.to_string().into_bytes(),
@@ -6314,9 +6423,9 @@ impl Interpreter {
                     _ => format!("{content_val:?}").into_bytes(),
                 };
 
-                // Enforce the shared response-body ceiling before handing the
-                // payload to the transport, so a handler cannot emit an
-                // unbounded response.
+                // Re-check the materialized length to cover the formatted
+                // fallback variants (Number/Bool/other), which have no cheap
+                // borrowed length.
                 if let Err(exceeded) = self.budget.check_response_bytes(content_bytes.len()) {
                     return Err(self.budget_error(exceeded, *line, *column));
                 }
@@ -6788,7 +6897,11 @@ impl Interpreter {
                         // A closed writer task is indistinguishable from a live
                         // one here; a dropped frame simply means the peer left
                         // (or the bounded outbound queue is saturated).
-                        let _ = tx.try_send(WsOutbound::Text(text));
+                        if let Err(err) = tx.try_send(WsOutbound::Text(text)) {
+                            log::warn!(
+                                "WebSocket outbound queue full/closed for {conn_id}; dropping frame: {err}"
+                            );
+                        }
                         Ok((Value::Null, ControlFlow::None))
                     }
                     None => Err(RuntimeError::new(
@@ -6825,8 +6938,12 @@ impl Interpreter {
 
                 if let Ok(map) = self.ws_connections.lock() {
                     for id in ids {
-                        if let Some(tx) = map.get(&id) {
-                            let _ = tx.try_send(WsOutbound::Text(text.clone()));
+                        if let Some(tx) = map.get(&id)
+                            && let Err(err) = tx.try_send(WsOutbound::Text(text.clone()))
+                        {
+                            log::warn!(
+                                "WebSocket broadcast: outbound queue full/closed for {id}; dropping frame: {err}"
+                            );
                         }
                     }
                 }

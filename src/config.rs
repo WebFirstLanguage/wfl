@@ -57,6 +57,10 @@ pub struct WflConfig {
     /// larger body is refused with a 500 rather than streaming an unbounded
     /// payload. Feeds `ExecutionBudget`. Default 64 MiB.
     pub web_server_max_response_size: usize,
+    /// Maximum seconds the transport waits for a handler to answer an accepted
+    /// HTTP request before shedding it with 504 and releasing its in-flight
+    /// slot. `0` disables the timeout. Feeds `ExecutionBudget`. Default 300.
+    pub web_server_response_timeout_seconds: u64,
     // --- Shared ExecutionBudget limits (see src/exec/budget.rs) ---
     /// Hard ceiling on charged interpreter operations. `None`/`0` = unlimited
     /// (the default, matching historic behavior). Feeds `ExecutionBudget`.
@@ -171,6 +175,9 @@ impl Default for WflConfig {
             web_server_request_queue_bound: 256,
             // 64 MiB default response body limit (DoS protection).
             web_server_max_response_size: 64 * 1024 * 1024,
+            // Free an accepted request's in-flight slot if its handler does not
+            // answer within 5 minutes (far longer than any serial handler needs).
+            web_server_response_timeout_seconds: 300,
             // Shared ExecutionBudget limits (see src/exec/budget.rs). Defaults
             // are chosen so existing programs never trip them while runaway
             // behavior gets a clean error instead of a crash or OOM.
@@ -777,6 +784,21 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                             file.display()
                         );
                     }
+                },
+                "web_server_response_timeout_seconds" => match value.parse::<u64>() {
+                    Ok(secs) => {
+                        // 0 disables the timeout (the documented sentinel).
+                        config.web_server_response_timeout_seconds = secs;
+                        log::debug!(
+                            "Loaded web_server_response_timeout_seconds: {secs} from {}",
+                            file.display()
+                        );
+                    }
+                    Err(_) => log::warn!(
+                        "Invalid web_server_response_timeout_seconds '{}' in {}: expected a non-negative integer",
+                        value,
+                        file.display()
+                    ),
                 },
                 "max_operations" => match value.parse::<u64>() {
                     Ok(n) => {

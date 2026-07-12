@@ -210,9 +210,10 @@ All keys currently loaded from config files, with defaults.
 | `web_server_bind_address` | IP string | `127.0.0.1` | Bind address for `listen on port` |
 | `web_server_tls_cert_file` | path | *(none)* | Default PEM cert for bare `listen … secured` |
 | `web_server_tls_key_file` | path | *(none)* | Default PEM key for bare `listen … secured` |
-| `web_server_max_body_size` | integer ≥ 1 | `1048576` (1 MiB) | Max HTTP request body size (bytes) |
+| `web_server_max_body_size` | integer ≥ 1 | `1048576` (1 MiB) | Max HTTP request body size (bytes); enforced while streaming (chunked-safe) |
 | `web_server_max_response_size` | integer ≥ 1 | `67108864` (64 MiB) | Max HTTP response body size (bytes) |
 | `web_server_request_queue_bound` | integer ≥ 1 | `256` | Max queued HTTP requests before shedding with 503 |
+| `web_server_response_timeout_seconds` | integer ≥ 0 | `300` | Seconds to await a handler before shedding with 504; `0` disables |
 | `web_socket_queue_bound` | integer ≥ 1 | `1024` | Max queued frames/events per WebSocket channel before shedding |
 | `web_socket_max_connections` | integer ≥ 1 | `1024` | Max simultaneous live WebSocket connections |
 
@@ -526,6 +527,16 @@ Maximum HTTP response body a handler may `respond with`, in bytes. A larger resp
 - **Type:** Integer (bytes, at least 1)
 - **Default:** `67108864` (64 MiB)
 - **Example:** `web_server_max_response_size = 5242880`  # 5 MiB
+
+#### `web_server_response_timeout_seconds`
+
+Maximum time, in seconds, the transport waits for a handler to answer an accepted request before shedding it with a `504 Gateway Timeout` and freeing its in-flight slot. This bounds a dequeued-but-never-answered request so it cannot pin an in-flight slot indefinitely.
+
+- **Type:** Integer (0 or more)
+- **Default:** `300`
+- **Example:** `web_server_response_timeout_seconds = 30`
+
+A value of `0` disables the timeout. The in-flight request cap (`web_server_request_queue_bound`) is enforced globally across every `listen` server via one shared budget, and a request's slot is held from the moment its body starts streaming until the handler responds, this timeout fires, or the client disconnects.
 
 #### `web_socket_queue_bound`
 

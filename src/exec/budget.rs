@@ -106,6 +106,11 @@ pub struct BudgetLimits {
     /// Maximum accepted-but-unhandled HTTP requests held in the transport
     /// queue. Mapped from `.wflcfg` `web_server_request_queue_bound`.
     pub max_pending_requests: usize,
+    /// Maximum wall-clock time the transport waits for a handler to answer an
+    /// accepted request before shedding it with 504 and releasing its in-flight
+    /// slot. `None` disables the timeout. Mapped from `.wflcfg`
+    /// `web_server_response_timeout_seconds` (`0` = disabled).
+    pub max_request_duration: Option<Duration>,
     /// Maximum queued frames/events per WebSocket channel. Mapped from
     /// `.wflcfg` `web_socket_queue_bound`.
     pub max_ws_queue: usize,
@@ -147,6 +152,10 @@ impl Default for BudgetLimits {
             max_response_bytes: 64 * 1024 * 1024,
             // Preserves the previous `web_server_request_queue_bound` default.
             max_pending_requests: 256,
+            // Bound how long an accepted request may await its handler, so a
+            // dequeued-but-unanswered request cannot pin its in-flight slot
+            // forever. 300s is far longer than any serial handler needs.
+            max_request_duration: Some(Duration::from_secs(300)),
             // WebSocket channels were unbounded before; 1_024 clears normal use.
             max_ws_queue: 1_024,
             // Connection count was uncapped before; 1_024 clears normal use.
@@ -173,6 +182,10 @@ impl BudgetLimits {
             max_request_body_bytes: config.web_server_max_body_size,
             max_response_bytes: config.web_server_max_response_size,
             max_pending_requests: config.web_server_request_queue_bound.max(1),
+            max_request_duration: match config.web_server_response_timeout_seconds {
+                0 => None,
+                secs => Some(Duration::from_secs(secs)),
+            },
             max_ws_queue: config.web_socket_queue_bound.max(1),
             max_ws_connections: config.web_socket_max_connections.max(1),
         }
@@ -195,6 +208,7 @@ impl BudgetLimits {
             max_request_body_bytes: usize::MAX,
             max_response_bytes: usize::MAX,
             max_pending_requests: usize::MAX,
+            max_request_duration: None,
             max_ws_queue: usize::MAX,
             max_ws_connections: usize::MAX,
         }
@@ -600,6 +614,12 @@ impl ExecutionBudget {
         self.limits.max_pending_requests
     }
 
+    /// The maximum time the transport waits for a handler to answer an accepted
+    /// request before shedding it (504) and freeing its slot. `None` = no limit.
+    pub fn max_request_duration(&self) -> Option<Duration> {
+        self.limits.max_request_duration
+    }
+
     /// Try to reserve a pending-request slot, returning an RAII guard that
     /// releases it on drop. `None` when already at the ceiling. Provided for
     /// callers that want to account pending requests directly; the web server's
@@ -764,6 +784,7 @@ mod tests {
             max_request_body_bytes: 8,
             max_response_bytes: 8,
             max_pending_requests: 2,
+            max_request_duration: None,
             max_ws_queue: 2,
             max_ws_connections: 2,
         }
@@ -948,6 +969,26 @@ mod tests {
         assert_eq!(limits.max_duration, Some(Duration::from_secs(42)));
         assert_eq!(limits.max_request_body_bytes, 4096);
         assert_eq!(limits.max_pending_requests, 7);
+    }
+
+    #[test]
+    fn response_timeout_zero_disables() {
+        let config = WflConfig {
+            web_server_response_timeout_seconds: 0,
+            ..Default::default()
+        };
+        assert_eq!(
+            BudgetLimits::from_config(&config).max_request_duration,
+            None
+        );
+        let config = WflConfig {
+            web_server_response_timeout_seconds: 45,
+            ..Default::default()
+        };
+        assert_eq!(
+            BudgetLimits::from_config(&config).max_request_duration,
+            Some(Duration::from_secs(45))
+        );
     }
 
     #[test]
