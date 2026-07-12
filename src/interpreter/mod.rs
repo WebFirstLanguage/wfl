@@ -2082,6 +2082,19 @@ impl Interpreter {
         Arc::clone(&self.budget)
     }
 
+    /// Install a fresh run budget while keeping the rest of the interpreter
+    /// state (environment, definitions) intact. Used by the REPL to give each
+    /// command its own wall-clock deadline and cancellation flag without
+    /// discarding the session's variables.
+    pub fn set_budget(&mut self, budget: Arc<ExecutionBudget>) {
+        self.budget = budget;
+    }
+
+    /// A read-only handle to this interpreter's configuration.
+    pub fn config(&self) -> &Arc<WflConfig> {
+        &self.config
+    }
+
     pub fn set_script_args(&mut self, args: Vec<String>) {
         self.script_args = args;
     }

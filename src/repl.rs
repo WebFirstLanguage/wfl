@@ -1,8 +1,7 @@
 use crate::analyzer::Analyzer;
 use crate::analyzer::static_analyzer::StaticAnalyzer;
-use crate::config::WflConfig;
 use crate::diagnostics::DiagnosticReporter;
-use crate::exec::budget::{BudgetLimits, ExecutionBudget};
+use crate::exec::budget::ExecutionBudget;
 use crate::interpreter::Interpreter;
 use crate::lexer::{lex_wfl_with_positions, token::TokenWithPosition};
 use crate::parser::{
@@ -39,17 +38,20 @@ impl Default for ReplState {
 
 impl ReplState {
     pub fn new() -> Self {
-        let config = std::sync::Arc::new(WflConfig::default());
-        // One interpreter serves the whole session, so a wall-clock deadline
-        // that starts at REPL launch would eventually reject every later command
-        // on its first sampled op. Use a budget with no deadline for interactive
-        // use (all other ceilings — recursion, pattern, source size — still
-        // apply); a runaway command is interrupted with Ctrl-C.
-        let limits = BudgetLimits {
-            max_duration: None,
-            ..BudgetLimits::from_config(&config)
-        };
-        let budget = std::sync::Arc::new(ExecutionBudget::new(limits));
+        // Honor the user's `.wflcfg` (e.g. a smaller `max_source_size` or
+        // `timeout_seconds`) rather than hard-coding defaults. Fall back to the
+        // defaults if the current directory can't be determined.
+        let config = std::sync::Arc::new(
+            std::env::current_dir()
+                .map(|dir| crate::config::load_config_with_global(&dir))
+                .unwrap_or_default(),
+        );
+        // One interpreter serves the whole session, but each command gets its
+        // own fresh budget (see `reset_command_budget`), so the wall-clock
+        // deadline is *per command* — a runaway command still times out, while a
+        // long-idle session is never penalized on its next command. The initial
+        // budget is replaced before the first command runs.
+        let budget = std::sync::Arc::new(ExecutionBudget::from_config(&config));
         let interpreter =
             Interpreter::with_config_and_budget(std::sync::Arc::clone(&config), budget);
 
@@ -59,6 +61,16 @@ impl ReplState {
             in_multiline: false,
             history: Vec::new(),
         }
+    }
+
+    /// Give the next command a fresh budget (new wall-clock deadline, cleared
+    /// operation/cancellation counters) while preserving the session's
+    /// environment. Returns a handle to the new budget so the caller can request
+    /// cooperative cancellation (Ctrl-C) during execution.
+    pub fn reset_command_budget(&mut self) -> std::sync::Arc<ExecutionBudget> {
+        let budget = std::sync::Arc::new(ExecutionBudget::from_config(self.interpreter.config()));
+        self.interpreter.set_budget(std::sync::Arc::clone(&budget));
+        budget
     }
 
     pub async fn process_line(&mut self, line: &str) -> Result<Option<String>, String> {
@@ -75,6 +87,20 @@ impl ReplState {
             self.input_buffer.push('\n');
         }
         self.input_buffer.push_str(line);
+
+        // Enforce the source-size ceiling *immediately after appending*, before
+        // the buffer is cloned/lexed/parsed. Otherwise an oversized incomplete
+        // paste would be retained and re-cloned + re-tokenized on every following
+        // line, defeating the pre-lexing cap and risking memory exhaustion.
+        if let Err(exceeded) = self
+            .interpreter
+            .budget()
+            .check_source_bytes(self.input_buffer.len())
+        {
+            self.input_buffer.clear();
+            self.in_multiline = false;
+            return Err(exceeded.message());
+        }
 
         let input = self.input_buffer.clone();
         let tokens = lex_wfl_with_positions(&input);
@@ -371,7 +397,27 @@ pub async fn run_repl() -> RustylineResult<()> {
             Ok(line) => {
                 rl.add_history_entry(&line)?;
 
-                match repl_state.process_line(&line).await {
+                // Fresh per-command budget (new deadline), and a handle so Ctrl-C
+                // *during execution* cancels cooperatively. Ctrl-C while waiting
+                // for input is still handled by rustyline (below).
+                let budget = repl_state.reset_command_budget();
+                let outcome = {
+                    let fut = repl_state.process_line(&line);
+                    tokio::pin!(fut);
+                    let mut cancelled = false;
+                    loop {
+                        tokio::select! {
+                            r = &mut fut => break r,
+                            _ = tokio::signal::ctrl_c(), if !cancelled => {
+                                budget.cancel();
+                                cancelled = true;
+                                println!("^C — cancelling current command…");
+                            }
+                        }
+                    }
+                };
+
+                match outcome {
                     Ok(Some(output)) => println!("{output}"),
                     Ok(None) => {} // No output needed
                     Err(error) => println!("Error: {error}"),
@@ -405,6 +451,23 @@ mod tests {
         let result = repl.handle_repl_command(".clear");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), CommandResult::ClearedScreen);
+    }
+
+    #[test]
+    fn repl_resets_a_bounded_budget_per_command() {
+        let mut repl = ReplState::new();
+        let first = repl.reset_command_budget();
+        // Each command runs under a wall-clock deadline (per-command), not the
+        // old disabled-deadline session budget.
+        assert!(
+            first.limits().max_duration.is_some(),
+            "per-command budget must carry a deadline"
+        );
+        let second = repl.reset_command_budget();
+        assert!(
+            !std::sync::Arc::ptr_eq(&first, &second),
+            "each command must get a fresh budget instance"
+        );
     }
 
     #[test]
