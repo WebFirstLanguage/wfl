@@ -15,7 +15,7 @@ use wfl::linter::Linter;
 use wfl::parser::Parser;
 use wfl::repl;
 use wfl::transpiler::{TranspilerConfig, TranspilerTarget};
-use wfl::typechecker::TypeChecker;
+use wfl::typechecker::{TypeCheckError, TypeChecker};
 use wfl::wfl_config;
 use wfl::{error, exec_trace, info};
 
@@ -1224,63 +1224,68 @@ async fn run() -> io::Result<()> {
 
                 // Create TypeChecker with the same analyzer to share action parameters
                 let mut tc = TypeChecker::with_analyzer(analyzer);
-                if let Err(errors) = tc.check_types(&program) {
-                    // Filter out errors for action parameters
-                    let action_params = tc.get_action_parameters();
-                    let filtered_errors: Vec<_> = errors
-                        .into_iter()
-                        .filter(|e| {
-                            // Check if this is an undefined variable error for an action parameter
-                            if e.message.starts_with("Variable '")
-                                && e.message.ends_with("' is not defined")
-                            {
-                                let var_name = e
-                                    .message
-                                    .trim_start_matches("Variable '")
-                                    .trim_end_matches("' is not defined");
+                if let Err(failure) = tc.check_types(&program) {
+                    match failure {
+                        // A shared-budget breach during type checking is FATAL —
+                        // the type diagnostics below are otherwise treated as
+                        // non-fatal warnings, which would let an expired deadline
+                        // / cancellation / resource breach slip into execution.
+                        TypeCheckError::Budget(exceeded) => {
+                            eprintln!("Error: {}", exceeded.message());
+                            process::exit(2);
+                        }
+                        TypeCheckError::Types(errors) => {
+                            // Filter out errors for action parameters
+                            let action_params = tc.get_action_parameters();
+                            let filtered_errors: Vec<_> = errors
+                                .into_iter()
+                                .filter(|e| {
+                                    // Check if this is an undefined variable error for an action parameter
+                                    if e.message.starts_with("Variable '")
+                                        && e.message.ends_with("' is not defined")
+                                    {
+                                        let var_name = e
+                                            .message
+                                            .trim_start_matches("Variable '")
+                                            .trim_end_matches("' is not defined");
 
-                                // Skip this error if the variable is an action parameter
-                                if action_params.contains(var_name) {
-                                    return false;
+                                        // Skip this error if the variable is an action parameter
+                                        if action_params.contains(var_name) {
+                                            return false;
+                                        }
+                                    }
+
+                                    // Filter out "Symbol already defined" errors at line 0, column 0
+                                    // These are likely from imported files or standard library definitions
+                                    if e.message.starts_with("Symbol '")
+                                        && e.message.contains("' is already defined in this scope")
+                                        && e.line == 0
+                                        && e.column == 0
+                                    {
+                                        return false;
+                                    }
+
+                                    true
+                                })
+                                .collect();
+
+                            if !filtered_errors.is_empty() {
+                                eprintln!("Type checking warnings:");
+
+                                let mut reporter = DiagnosticReporter::new();
+                                let file_id = reporter.add_file(&file_path, &input);
+
+                                for error in &filtered_errors {
+                                    let diagnostic = reporter.convert_type_error(file_id, error);
+                                    if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic)
+                                    {
+                                        eprintln!("Error displaying diagnostic: {e}");
+                                        eprintln!("{error}"); // Fallback to simple error display
+                                    }
                                 }
-                            }
-
-                            // Filter out "Symbol already defined" errors at line 0, column 0
-                            // These are likely from imported files or standard library definitions
-                            if e.message.starts_with("Symbol '")
-                                && e.message.contains("' is already defined in this scope")
-                                && e.line == 0
-                                && e.column == 0
-                            {
-                                return false;
-                            }
-
-                            true
-                        })
-                        .collect();
-
-                    if !filtered_errors.is_empty() {
-                        eprintln!("Type checking warnings:");
-
-                        let mut reporter = DiagnosticReporter::new();
-                        let file_id = reporter.add_file(&file_path, &input);
-
-                        for error in &filtered_errors {
-                            let diagnostic = reporter.convert_type_error(file_id, error);
-                            if let Err(e) = reporter.report_diagnostic(file_id, &diagnostic) {
-                                eprintln!("Error displaying diagnostic: {e}");
-                                eprintln!("{error}"); // Fallback to simple error display
                             }
                         }
                     }
-                }
-                // A shared-budget breach during type checking is FATAL — the type
-                // errors above are otherwise treated as non-fatal warnings, which
-                // would let an expired deadline / cancellation / resource breach
-                // slip through into execution.
-                if let Some(exceeded) = tc.take_budget_error() {
-                    eprintln!("Error: {}", exceeded.message());
-                    process::exit(2);
                 }
                 exec_trace!("Type checking completed.");
 

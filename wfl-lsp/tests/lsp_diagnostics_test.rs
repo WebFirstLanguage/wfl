@@ -203,7 +203,8 @@ async fn test_lsp_diagnostic_conversion_for_type_errors() {
                     // If type checker is lenient, that's acceptable
                     println!("Note: Type checker might be lenient with type mismatches");
                 }
-                Err(errors) => {
+                Err(failure) => {
+                    let errors = failure.into_diagnostics();
                     assert!(!errors.is_empty(), "Should have type errors");
 
                     // Convert first error to WFL diagnostic

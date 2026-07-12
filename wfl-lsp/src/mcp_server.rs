@@ -465,7 +465,8 @@ impl WflMcpServer {
                             error: None,
                         }
                     }
-                    Err(errors) => {
+                    Err(failure) => {
+                        let errors = failure.into_diagnostics();
                         let error_messages: Vec<String> =
                             errors.iter().map(|e| format!("{:?}", e)).collect();
 

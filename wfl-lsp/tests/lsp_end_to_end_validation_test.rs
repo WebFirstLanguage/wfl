@@ -59,8 +59,8 @@ fn validate_lsp_workflow(document_text: &str, filename: &str) -> LSPWorkflowResu
             let mut type_checker = TypeChecker::new();
             match type_checker.check_types(&program) {
                 Ok(_) => result.type_checking_success = true,
-                Err(errors) => {
-                    result.error_count += errors.len();
+                Err(failure) => {
+                    result.error_count += failure.into_diagnostics().len();
                     result.diagnostics_generated = true;
                 }
             }

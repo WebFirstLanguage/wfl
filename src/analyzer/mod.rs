@@ -228,11 +228,13 @@ pub struct Analyzer {
     /// count loops reusing the same variable name are reported as errors,
     /// while shadowing an ordinary outer variable is allowed.
     active_loop_variables: Vec<String>,
-    /// Set once the shared run budget is exhausted mid-traversal so the
-    /// recursive `analyze_statement` checkpoint records the breach a single
-    /// time and then short-circuits every remaining node, instead of pushing a
-    /// duplicate error per nested statement.
-    budget_exhausted: bool,
+    /// The shared-budget breach hit mid-traversal, if any. Its presence latches
+    /// the recursive `analyze_statement` checkpoint (record once, then
+    /// short-circuit every remaining node instead of pushing a duplicate error
+    /// per nested statement) and lets callers recover the *typed* breach — a
+    /// budget failure is fatal and must never be mistaken for an ordinary
+    /// semantic diagnostic. Reset per `analyze` run.
+    budget_error: Option<crate::exec::budget::BudgetExceeded>,
 }
 
 impl Default for Analyzer {
@@ -437,7 +439,7 @@ impl Analyzer {
             has_includes: false,
             try_depth: 0,
             active_loop_variables: Vec::new(),
-            budget_exhausted: false,
+            budget_error: None,
         }
     }
 
@@ -487,10 +489,10 @@ impl Analyzer {
     }
 
     pub fn analyze(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
-        // Reset the per-run flood guard so a reused analyzer never carries a
-        // stale exhaustion flag from a previous program (matches the direct
-        // assignment of `has_includes` below).
-        self.budget_exhausted = false;
+        // Reset the per-run budget breach so a reused analyzer never carries a
+        // stale one from a previous program (matches the direct assignment of
+        // `has_includes` below).
+        self.budget_error = None;
 
         // Front-end budget checkpoint at the analysis phase boundary. `analyze`
         // backs the type checker and every `load module` / `include` /
@@ -536,6 +538,15 @@ impl Analyzer {
     /// actions in a program that uses `include from`).
     pub fn get_warnings(&self) -> &Vec<SemanticError> {
         &self.warnings
+    }
+
+    /// Take the shared-budget breach recorded during analysis, if any. When
+    /// `analyze` returns `Err`, a caller must consult this to tell a fatal
+    /// deadline/cancellation/resource breach apart from ordinary semantic
+    /// diagnostics — the breach is fatal and its `Vec<SemanticError>` form is
+    /// only a rendering of the same event.
+    pub fn take_budget_error(&mut self) -> Option<crate::exec::budget::BudgetExceeded> {
+        self.budget_error.take()
     }
 
     /// Report an undefined-name reference. Inside a `try` body this is a
@@ -591,15 +602,15 @@ impl Analyzer {
         // with the deadline/cancellation/operation limits. Once exhausted, the
         // flag short-circuits every remaining node so the breach is recorded a
         // single time rather than duplicated per statement.
-        if self.budget_exhausted {
+        if self.budget_error.is_some() {
             return;
         }
         if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
             && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
         {
-            self.budget_exhausted = true;
             self.errors
                 .push(SemanticError::new(exceeded.message(), 0, 0));
+            self.budget_error = Some(exceeded);
             return;
         }
 

@@ -152,7 +152,8 @@ async fn test_wfl_type_checking_errors() {
                     // This might pass if the type checker is lenient
                     println!("Warning: Type checker should catch number + string type mismatch");
                 }
-                Err(errors) => {
+                Err(failure) => {
+                    let errors = failure.into_diagnostics();
                     // Should have type errors
                     assert!(
                         !errors.is_empty(),

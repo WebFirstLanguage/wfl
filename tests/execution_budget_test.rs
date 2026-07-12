@@ -543,8 +543,8 @@ fn analyzer_polls_the_budget_inside_nested_bodies() {
 fn type_checker_polls_the_budget_inside_nested_bodies() {
     // `with_analyzer` skips the analyzer pass, so the breach can only come from
     // the recursive checkpoint in `check_statement_types` — not the analyzer and
-    // not a top-level-only poll. `take_budget_error` returning `Some` proves the
-    // nested type-check recorded the breach on the fatal channel.
+    // not a top-level-only poll. The fatal `TypeCheckError::Budget` variant
+    // proves the nested type-check surfaced the breach on the fatal channel.
     let program = parse_deeply_nested_program();
 
     let mut analyzer = wfl::analyzer::Analyzer::new();
@@ -553,9 +553,30 @@ fn type_checker_polls_the_budget_inside_nested_bodies() {
     let _guard = enter_capped_budget(5);
 
     let mut type_checker = wfl::typechecker::TypeChecker::with_analyzer(analyzer);
-    let _ = type_checker.check_types(&program);
+    let outcome = type_checker.check_types(&program);
     assert!(
-        type_checker.take_budget_error().is_some(),
-        "nested type checking must record the operation-budget breach on the budget_error channel"
+        matches!(outcome, Err(wfl::typechecker::TypeCheckError::Budget(_))),
+        "nested type checking must surface the operation-budget breach as the fatal TypeCheckError::Budget variant; got: {outcome:?}"
+    );
+}
+
+#[test]
+fn analyzer_phase_budget_breach_is_fatal_and_typed() {
+    // `TypeChecker::new()` runs the analyzer internally before type checking. A
+    // breach during that analysis phase must surface as the fatal
+    // `TypeCheckError::Budget` variant — not be silently downgraded to ordinary
+    // `TypeCheckError::Types` diagnostics. This guards the gap the maintainer
+    // flagged: the analyzer's breach used to be rendered as `TypeError`s while
+    // the fatal budget channel stayed empty, so a caller checking it saw nothing.
+    let program = parse_deeply_nested_program();
+    // cap = 1: the analyzer trips on its first statement (before the type-check
+    // loop is even reached), so the breach can only travel out through
+    // `check_types`'s analyzer-propagation path.
+    let _guard = enter_capped_budget(1);
+    let mut type_checker = wfl::typechecker::TypeChecker::new();
+    let outcome = type_checker.check_types(&program);
+    assert!(
+        matches!(outcome, Err(wfl::typechecker::TypeCheckError::Budget(_))),
+        "an analysis-phase budget breach must surface as the fatal TypeCheckError::Budget variant; got: {outcome:?}"
     );
 }

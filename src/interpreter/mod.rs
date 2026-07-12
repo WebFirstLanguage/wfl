@@ -4247,24 +4247,34 @@ impl Interpreter {
                 }
 
                 // 8. Type check
-                use crate::typechecker::TypeChecker;
+                use crate::typechecker::{TypeCheckError, TypeChecker};
 
                 // Use the analyzer with parent scope for type checking
                 let mut tc = TypeChecker::with_analyzer(analyzer);
-                if let Err(type_errors) = tc.check_types(&program) {
-                    // Use the type error's position from the module file, not the load site
-                    let first_error = type_errors.first();
-                    let (error_line, error_column) =
-                        first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
-                    return Err(RuntimeError::new(
-                        format!(
-                            "Type error in module '{}': {}",
-                            resolved_path.display(),
-                            first_error.map(|e| e.to_string()).unwrap_or_default()
-                        ),
-                        error_line,
-                        error_column,
-                    ));
+                if let Err(failure) = tc.check_types(&program) {
+                    match failure {
+                        // A shared-budget breach while type-checking the module is
+                        // fatal: surface it as the catchable resource/timeout
+                        // error rather than a "type error in module".
+                        TypeCheckError::Budget(exceeded) => {
+                            return Err(self.budget_error(exceeded, 0, 0));
+                        }
+                        TypeCheckError::Types(type_errors) => {
+                            // Use the type error's position from the module file, not the load site
+                            let first_error = type_errors.first();
+                            let (error_line, error_column) =
+                                first_error.map(|e| (e.line, e.column)).unwrap_or((1, 1));
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Type error in module '{}': {}",
+                                    resolved_path.display(),
+                                    first_error.map(|e| e.to_string()).unwrap_or_default()
+                                ),
+                                error_line,
+                                error_column,
+                            ));
+                        }
+                    }
                 }
 
                 // 8. Create isolated child environment
@@ -4411,21 +4421,34 @@ impl Interpreter {
                 // strictly than the same code written in the main program
                 // (issues #551/#553).
                 use crate::diagnostics::DiagnosticReporter;
-                use crate::typechecker::TypeChecker;
+                use crate::typechecker::{TypeCheckError, TypeChecker};
 
                 let mut tc = TypeChecker::with_analyzer(analyzer);
-                if let Err(type_errors) = tc.check_types(&program) {
-                    eprintln!(
-                        "Type checking warnings in included file '{}':",
-                        resolved_path.display()
-                    );
-                    let mut reporter = DiagnosticReporter::new();
-                    let file_id =
-                        reporter.add_file(resolved_path.display().to_string(), content.clone());
-                    for error in &type_errors {
-                        let diagnostic = reporter.convert_type_error(file_id, error);
-                        if reporter.report_diagnostic(file_id, &diagnostic).is_err() {
-                            eprintln!("{error}");
+                if let Err(failure) = tc.check_types(&program) {
+                    match failure {
+                        // Ordinary type diagnostics stay non-fatal warnings here
+                        // (included code must never be checked more strictly than
+                        // the same code in the main file). A shared-budget breach
+                        // is the exception: the deadline/cancellation/resource
+                        // limit was hit while checking the included file, so the
+                        // run must stop instead of executing it.
+                        TypeCheckError::Budget(exceeded) => {
+                            return Err(self.budget_error(exceeded, 0, 0));
+                        }
+                        TypeCheckError::Types(type_errors) => {
+                            eprintln!(
+                                "Type checking warnings in included file '{}':",
+                                resolved_path.display()
+                            );
+                            let mut reporter = DiagnosticReporter::new();
+                            let file_id = reporter
+                                .add_file(resolved_path.display().to_string(), content.clone());
+                            for error in &type_errors {
+                                let diagnostic = reporter.convert_type_error(file_id, error);
+                                if reporter.report_diagnostic(file_id, &diagnostic).is_err() {
+                                    eprintln!("{error}");
+                                }
+                            }
                         }
                     }
                 }

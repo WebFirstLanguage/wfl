@@ -8,7 +8,7 @@ use crate::parser::{
     Parser,
     ast::{Program, Statement},
 };
-use crate::typechecker::TypeChecker;
+use crate::typechecker::{TypeCheckError, TypeChecker};
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::Buffer;
 use rustyline::error::ReadlineError;
@@ -254,7 +254,16 @@ impl ReplState {
         }
 
         let mut type_checker = TypeChecker::new();
-        if let Err(errors) = type_checker.check_types(&program) {
+        if let Err(failure) = type_checker.check_types(&program) {
+            // A shared-budget breach (deadline/cancellation/resource) is fatal
+            // for this command and must not be rendered as an ordinary type
+            // diagnostic that the REPL might otherwise shrug off.
+            let errors = match failure {
+                TypeCheckError::Budget(exceeded) => {
+                    return Ok(Some(format!("Error: {}", exceeded.message())));
+                }
+                TypeCheckError::Types(errors) => errors,
+            };
             let mut error_messages = Vec::new();
             for error in &errors {
                 let diagnostic = reporter.convert_type_error(file_id, error);

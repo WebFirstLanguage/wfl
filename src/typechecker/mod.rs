@@ -49,6 +49,47 @@ impl fmt::Display for TypeError {
     }
 }
 
+/// The outcome of [`TypeChecker::check_types`] when it does not succeed.
+///
+/// A shared-budget breach (deadline, cancellation, operation/depth/byte
+/// ceiling) is a **fatal** event: the run must stop, and it must never be
+/// mistaken for — or silently downgraded to — an ordinary type diagnostic.
+/// Encoding it as a distinct variant forces every caller to distinguish the two
+/// at the type level, instead of relying on an optional side channel a caller
+/// can forget to consult. This is why `check_types` returns this enum rather
+/// than a bare `Vec<TypeError>`.
+#[derive(Debug, Clone)]
+pub enum TypeCheckError {
+    /// The shared run budget was exhausted during analysis or type checking.
+    /// Fatal — callers must abort the run (do not execute the program).
+    Budget(crate::exec::budget::BudgetExceeded),
+    /// Ordinary type diagnostics. Callers may report these and, in the
+    /// `include from` path, continue (matching the main-file pipeline).
+    Types(Vec<TypeError>),
+}
+
+impl TypeCheckError {
+    /// Render this failure as type diagnostics: the diagnostics themselves, or a
+    /// budget breach rendered as a single diagnostic. Convenience for callers
+    /// (and tests) that only need to display the failure.
+    pub fn into_diagnostics(self) -> Vec<TypeError> {
+        match self {
+            TypeCheckError::Types(errors) => errors,
+            TypeCheckError::Budget(breach) => {
+                vec![TypeError::new(breach.message(), None, None, 0, 0)]
+            }
+        }
+    }
+
+    /// The budget breach, if this failure was one.
+    pub fn budget_breach(&self) -> Option<&crate::exec::budget::BudgetExceeded> {
+        match self {
+            TypeCheckError::Budget(breach) => Some(breach),
+            TypeCheckError::Types(_) => None,
+        }
+    }
+}
+
 impl std::error::Error for TypeError {}
 
 impl fmt::Display for Type {
@@ -99,8 +140,10 @@ pub struct TypeChecker {
     /// A shared-budget breach hit during type checking. Kept **separate** from
     /// `errors` because callers (the CLI, `include`) print `TypeError`s as
     /// non-fatal warnings and continue — which would erase a real
-    /// deadline/cancellation/resource breach. Callers must consult
-    /// [`TypeChecker::take_budget_error`] and stop when it is `Some`.
+    /// deadline/cancellation/resource breach. This is an internal latch:
+    /// `check_types` surfaces it to callers as the fatal
+    /// [`TypeCheckError::Budget`] variant so the distinction is enforced by the
+    /// type system rather than an optional side channel.
     budget_error: Option<crate::exec::budget::BudgetExceeded>,
 }
 
@@ -137,14 +180,6 @@ impl TypeChecker {
             has_includes: false,
             budget_error: None,
         }
-    }
-
-    /// Take a shared-budget breach recorded during type checking, if any. A
-    /// caller that otherwise treats `TypeError`s as non-fatal warnings **must**
-    /// consult this and abort the run when it is `Some`, so a
-    /// deadline/cancellation/resource breach is never silently ignored.
-    pub fn take_budget_error(&mut self) -> Option<crate::exec::budget::BudgetExceeded> {
-        self.budget_error.take()
     }
 
     /// Get the action parameters from the analyzer
@@ -263,7 +298,7 @@ impl TypeChecker {
         }
     }
 
-    pub fn check_types(&mut self, program: &Program) -> Result<(), Vec<TypeError>> {
+    pub fn check_types(&mut self, program: &Program) -> Result<(), TypeCheckError> {
         // Reset the per-run budget breach so a reused TypeChecker (e.g. an editor
         // session) neither carries a stale breach nor lets the recursive
         // `check_statement_types` short-circuit fire against a previous run's
@@ -281,6 +316,12 @@ impl TypeChecker {
         if !self.analyzer_already_run
             && let Err(semantic_errors) = self.analyzer.analyze(program)
         {
+            // Propagate the analyzer's *typed* breach so an analysis-phase
+            // deadline/cancellation/resource failure stays fatal and is never
+            // mistaken for an ordinary semantic diagnostic.
+            if let Some(breach) = self.analyzer.take_budget_error() {
+                return Err(TypeCheckError::Budget(breach));
+            }
             for error in semantic_errors {
                 self.errors.push(TypeError::new(
                     error.message,
@@ -290,7 +331,7 @@ impl TypeChecker {
                     error.column,
                 ));
             }
-            return Err(self.errors.clone());
+            return Err(TypeCheckError::Types(self.errors.clone()));
         }
 
         for statement in &program.statements {
@@ -304,10 +345,16 @@ impl TypeChecker {
             self.check_statement_types(statement);
         }
 
+        // A budget breach is fatal and takes precedence over any diagnostics
+        // accumulated alongside it.
+        if let Some(breach) = self.budget_error.take() {
+            return Err(TypeCheckError::Budget(breach));
+        }
+
         if self.errors.is_empty() {
             Ok(())
         } else {
-            Err(self.errors.clone())
+            Err(TypeCheckError::Types(self.errors.clone()))
         }
     }
 
@@ -4285,7 +4332,7 @@ mod tests {
         let result = type_checker.check_types(&program);
         assert!(result.is_err(), "Expected type error for mismatched types");
 
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4324,7 +4371,7 @@ mod tests {
             result.is_err(),
             "Expected a type error for non-map response headers"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4393,7 +4440,7 @@ mod tests {
             "Expected type error for incompatible operation"
         );
 
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(errors.iter().any(|e| e.message.contains("Cannot perform")));
     }
 
@@ -4442,7 +4489,7 @@ mod tests {
             "Expected type error for wrong argument type"
         );
 
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(errors.iter().any(|e| e.message.contains("incorrect type")));
     }
 
@@ -4465,7 +4512,7 @@ mod tests {
             "Expected type error for non-boolean condition"
         );
 
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4528,7 +4575,7 @@ mod tests {
             "Expected type error for incompatible operation on loop variable"
         );
 
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors.iter().any(|e| e.message.contains("Cannot perform")),
             "Expected error about invalid operation, got: {:?}",
@@ -4591,7 +4638,7 @@ mod tests {
             result.is_err(),
             "Expected type error for unhandleable signal name (SIGKILL)"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4611,7 +4658,7 @@ mod tests {
         let mut type_checker = TypeChecker::new();
         let result = type_checker.check_types(&undefined_handler);
         assert!(result.is_err(), "Expected type error for undefined handler");
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4643,7 +4690,7 @@ mod tests {
             result.is_err(),
             "Expected type error when handler is not a function"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(errors.iter().any(|e| e.message.contains("not a function")));
 
         // Test case 5: Handler has too many parameters
@@ -4687,7 +4734,7 @@ mod tests {
             result.is_err(),
             "Expected type error when handler has too many parameters"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4726,7 +4773,7 @@ mod tests {
             result.is_err(),
             "Expected type error when handler has wrong parameter type"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(errors.iter().any(|e| {
             e.message
                 .contains("Signal handler parameter must be a Number")
@@ -4798,7 +4845,7 @@ mod tests {
             result.is_err(),
             "Expected type error for invalid server expression"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4831,7 +4878,7 @@ mod tests {
             result.is_err(),
             "Expected type error for invalid timeout expression"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -4882,7 +4929,7 @@ mod tests {
             result.is_err(),
             "Expected type error for invalid list reference in pattern"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(errors.iter().any(|e| e.message.contains("must be a List")));
 
         // Test valid List<Text> reference
@@ -4938,7 +4985,7 @@ mod tests {
             result.is_err(),
             "Expected type error for List<Number> reference in pattern"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors
                 .iter()
@@ -5055,7 +5102,7 @@ mod tests {
             result.is_err(),
             "Action returning Number used as a file path must still be flagged"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors.iter().any(|e| e.found == Some(Type::Number)),
             "Mismatch should report the inferred Number type, got: {errors:?}"
@@ -5177,7 +5224,7 @@ mod tests {
             result.is_err(),
             "Reachable Number return used as a file path must still be flagged"
         );
-        let errors = result.err().unwrap();
+        let errors = result.err().unwrap().into_diagnostics();
         assert!(
             errors.iter().any(|e| e.found == Some(Type::Number)),
             "Inferred type should be precisely Number (not widened to Any), got: {errors:?}"
