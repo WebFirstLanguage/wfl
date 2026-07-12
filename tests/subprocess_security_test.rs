@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -57,6 +58,34 @@ fn wfl_exe() -> &'static str {
         "target/release/wfl.exe"
     } else {
         "target/release/wfl"
+    }
+}
+
+fn escape_wfl_text(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn escape_wfl_string(value: &Path) -> String {
+    escape_wfl_text(value.to_string_lossy().as_ref())
+}
+
+fn absolute_allowlist_config(executable: &Path) -> String {
+    format!(
+        "allow_shell_execution = true\nshell_execution_mode = allowlist_only\nallowed_shell_commands = {}\nwarn_on_shell_execution = false\n",
+        executable.display()
+    )
+}
+
+fn copy_release_binary(destination: &Path) {
+    fs::create_dir_all(destination.parent().unwrap()).unwrap();
+    fs::copy(fs::canonicalize(wfl_exe()).unwrap(), destination).unwrap();
+}
+
+fn test_tool_name() -> &'static str {
+    if cfg!(windows) {
+        "same-name-tool.exe"
+    } else {
+        "same-name-tool"
     }
 }
 
@@ -275,25 +304,145 @@ fn test_allowlist_only_blocks_non_listed_program() {
 }
 
 #[test]
-fn test_allowlist_only_allows_listed_program() {
+fn test_allowlist_only_blocks_shell_command_after_allowed_first_token() {
     #[cfg(not(windows))]
     let code = r#"
-        wait for execute command "echo" with arguments ["allowlisted"] as result
+        wait for execute command "echo allowlisted; echo injected" as result
         display result
     "#;
     #[cfg(windows)]
     let code = r#"
-        wait for execute command "cmd.exe" with arguments ["/C", "echo allowlisted"] as result
+        wait for execute command "cmd.exe /C echo allowlisted & echo injected" as result
         display result
     "#;
 
-    let result = run_wfl_with_config(code, Some(ALLOWLIST_PROGRAM_CONFIG));
+    assert_blocked(
+        run_wfl_with_config(code, Some(ALLOWLIST_PROGRAM_CONFIG)),
+        "Allowlisted first token with shell continuation",
+    );
+}
+
+#[test]
+fn test_allowlist_only_blocks_shell_spawn_after_allowed_first_token() {
+    #[cfg(not(windows))]
+    let code = r#"
+        spawn command "echo allowlisted; echo injected" as proc_id
+        wait for process proc_id to complete
+    "#;
+    #[cfg(windows)]
+    let code = r#"
+        spawn command "cmd.exe /C echo allowlisted & echo injected" as proc_id
+        wait for process proc_id to complete
+    "#;
+
+    assert_blocked(
+        run_wfl_with_config(code, Some(ALLOWLIST_PROGRAM_CONFIG)),
+        "Allowlisted spawn first token with shell continuation",
+    );
+}
+
+#[test]
+fn test_allowlist_only_blocks_explicit_using_shell_execute() {
+    #[cfg(not(windows))]
+    let code = r#"
+        wait for execute command "echo allowlisted" using shell as result
+        display result
+    "#;
+    #[cfg(windows)]
+    let code = r#"
+        wait for execute command "cmd.exe /C echo allowlisted" using shell as result
+        display result
+    "#;
+
+    assert_blocked(
+        run_wfl_with_config(code, Some(ALLOWLIST_PROGRAM_CONFIG)),
+        "Explicit using shell execute under allowlist_only",
+    );
+}
+
+#[test]
+fn test_allowlist_only_blocks_explicit_using_shell_spawn() {
+    #[cfg(not(windows))]
+    let code = r#"
+        spawn command "echo allowlisted" using shell as proc_id
+        wait for process proc_id to complete
+    "#;
+    #[cfg(windows)]
+    let code = r#"
+        spawn command "cmd.exe /C echo allowlisted" using shell as proc_id
+        wait for process proc_id to complete
+    "#;
+
+    assert_blocked(
+        run_wfl_with_config(code, Some(ALLOWLIST_PROGRAM_CONFIG)),
+        "Explicit using shell spawn under allowlist_only",
+    );
+}
+
+#[test]
+fn test_allowlist_only_blocks_same_basename_at_another_absolute_path() {
+    let temp = TempDir::new().unwrap();
+    let allowed = temp.path().join("allowed").join(test_tool_name());
+    let attacker = temp.path().join("attacker").join(test_tool_name());
+    copy_release_binary(&allowed);
+    copy_release_binary(&attacker);
+    let config = absolute_allowlist_config(&allowed);
+    let code = format!(
+        "wait for execute command \"{}\" with arguments [\"--version\"] as result\ndisplay result\n",
+        escape_wfl_string(&attacker)
+    );
+
+    assert_blocked(
+        run_wfl_with_config(&code, Some(&config)),
+        "Same basename at another absolute path",
+    );
+}
+
+#[test]
+fn test_allowlist_only_allows_exact_absolute_program() {
+    let executable = fs::canonicalize(wfl_exe()).unwrap();
+    let config = absolute_allowlist_config(&executable);
+    let code = format!(
+        "wait for execute command \"{}\" with arguments [\"--version\"] as result\ndisplay result\n",
+        escape_wfl_string(&executable)
+    );
+
+    let result = run_wfl_with_config(&code, Some(&config));
     assert!(
         result.is_ok(),
-        "Allowlisted program should run: {:?}",
-        result
+        "Exact absolute executable should run: {result:?}"
     );
-    assert!(result.unwrap().contains("allowlisted"));
+}
+
+#[test]
+fn test_allowlist_only_keeps_metacharacters_literal_in_explicit_args() {
+    let temp = TempDir::new().unwrap();
+    let child_program = temp.path().join("argv_control.wfl");
+    fs::write(&child_program, "display \"ARGUMENT_BOUNDARY_OK\"\n").unwrap();
+    let executable = fs::canonicalize(wfl_exe()).unwrap();
+    let config = absolute_allowlist_config(&executable);
+    let literal_arg = if cfg!(windows) {
+        "literal & echo SHELL_INJECTED"
+    } else {
+        "literal; echo SHELL_INJECTED"
+    };
+    let code = format!(
+        "wait for execute command \"{}\" with arguments [\"{}\", \"{}\"] as result\ndisplay result\n",
+        escape_wfl_string(&executable),
+        escape_wfl_string(&child_program),
+        escape_wfl_text(literal_arg)
+    );
+
+    let output = run_wfl_with_config(&code, Some(&config))
+        .expect("literal metacharacter argv must remain a direct launch");
+    assert!(
+        output.contains("ARGUMENT_BOUNDARY_OK"),
+        "child did not run: {output}"
+    );
+    assert!(
+        !output.lines().any(|line| line.trim() == "SHELL_INJECTED"),
+        "argument data was interpreted by a shell: {output}"
+    );
 }
 
 #[test]

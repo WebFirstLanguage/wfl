@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::config::{ShellExecutionMode, WflConfig};
@@ -6,7 +7,7 @@ use crate::config::{ShellExecutionMode, WflConfig};
 #[derive(Debug, PartialEq)]
 pub enum ValidationResult {
     /// Command is safe and doesn't need shell
-    Safe,
+    Safe { executable: PathBuf },
     /// Command requires shell features
     RequiresShell {
         reason: String,
@@ -24,6 +25,79 @@ pub struct CommandSanitizer {
 impl CommandSanitizer {
     pub fn new(config: Arc<WflConfig>) -> Self {
         Self { config }
+    }
+
+    fn strip_optional_path_quotes(value: &str) -> &str {
+        let trimmed = value.trim();
+        if trimmed.len() >= 2
+            && ((trimmed.starts_with('"') && trimmed.ends_with('"'))
+                || (trimmed.starts_with('\'') && trimmed.ends_with('\'')))
+        {
+            &trimmed[1..trimmed.len() - 1]
+        } else {
+            trimmed
+        }
+    }
+
+    fn canonicalize_absolute_executable(value: &str, label: &str) -> Result<PathBuf, String> {
+        let value = Self::strip_optional_path_quotes(value);
+        let path = Path::new(value);
+        if !path.is_absolute() {
+            return Err(format!(
+                "{label} '{value}' is not an absolute executable path"
+            ));
+        }
+
+        let canonical = std::fs::canonicalize(path).map_err(|error| {
+            format!(
+                "{label} '{}' could not be resolved: {error}",
+                path.display()
+            )
+        })?;
+        if !canonical.is_file() {
+            return Err(format!(
+                "{label} '{}' does not resolve to a file",
+                canonical.display()
+            ));
+        }
+        Ok(canonical)
+    }
+
+    #[cfg(windows)]
+    fn executable_paths_match(left: &Path, right: &Path) -> bool {
+        left.to_string_lossy()
+            .eq_ignore_ascii_case(right.to_string_lossy().as_ref())
+    }
+
+    #[cfg(not(windows))]
+    fn executable_paths_match(left: &Path, right: &Path) -> bool {
+        left == right
+    }
+
+    fn resolve_allowlisted_executable(&self, program: &str) -> Result<PathBuf, String> {
+        let requested = Self::canonicalize_absolute_executable(program, "Requested executable")?;
+        let mut unusable_entries = Vec::new();
+
+        for allowed in &self.config.allowed_shell_commands {
+            match Self::canonicalize_absolute_executable(allowed, "Allowlist entry") {
+                Ok(candidate) if Self::executable_paths_match(&requested, &candidate) => {
+                    return Ok(requested);
+                }
+                Ok(_) => {}
+                Err(reason) => unusable_entries.push(reason),
+            }
+        }
+
+        let unusable = if unusable_entries.is_empty() {
+            String::new()
+        } else {
+            format!(" Unusable entries: {}", unusable_entries.join("; "))
+        };
+        Err(format!(
+            "Executable '{}' resolves to '{}' but is not in allowed_shell_commands.{unusable}",
+            program,
+            requested.display()
+        ))
     }
 
     /// Parse a command string into program and arguments
@@ -184,8 +258,6 @@ impl CommandSanitizer {
             });
         }
 
-        let program_base = Self::program_basename(program);
-
         match self.config.shell_execution_mode {
             ShellExecutionMode::Forbidden => Ok(ValidationResult::Blocked {
                 reason: "Subprocess execution is disabled by security policy \
@@ -193,22 +265,15 @@ impl CommandSanitizer {
                     .to_string(),
             }),
             ShellExecutionMode::AllowlistOnly => {
-                if self.is_program_allowlisted(&program_base) {
-                    if needs_shell {
-                        Ok(ValidationResult::RequiresShell {
-                            reason: "Command is allowlisted".to_string(),
-                            warnings: vec!["Using shell execution (allowlisted)".to_string()],
-                        })
-                    } else {
-                        Ok(ValidationResult::Safe)
-                    }
-                } else {
+                if needs_shell {
                     Ok(ValidationResult::Blocked {
-                        reason: format!(
-                            "Program '{}' is not in the allowlist (allowed_shell_commands)",
-                            program_base
-                        ),
+                        reason: "allowlist_only does not permit shell execution; use direct execution with arguments or deliberately select a shell-capable mode".to_string(),
                     })
+                } else {
+                    match self.resolve_allowlisted_executable(program) {
+                        Ok(executable) => Ok(ValidationResult::Safe { executable }),
+                        Err(reason) => Ok(ValidationResult::Blocked { reason }),
+                    }
                 }
             }
             ShellExecutionMode::Sanitized => {
@@ -219,7 +284,9 @@ impl CommandSanitizer {
                         warnings,
                     })
                 } else {
-                    Ok(ValidationResult::Safe)
+                    Ok(ValidationResult::Safe {
+                        executable: PathBuf::from(program),
+                    })
                 }
             }
             ShellExecutionMode::Unrestricted => {
@@ -229,7 +296,9 @@ impl CommandSanitizer {
                         warnings: vec!["⚠️ Using unrestricted shell execution".to_string()],
                     })
                 } else {
-                    Ok(ValidationResult::Safe)
+                    Ok(ValidationResult::Safe {
+                        executable: PathBuf::from(program),
+                    })
                 }
             }
         }
@@ -242,36 +311,23 @@ impl CommandSanitizer {
     /// raw command line.
     pub fn validate_command(&self, command: &str) -> Result<ValidationResult, String> {
         let has_shell_features = Self::contains_shell_metacharacters(command);
-        let program = match Self::parse_command(command) {
-            Ok((prog, _)) => prog,
-            Err(_) => self.get_command_base(command),
+        let program = if has_shell_features {
+            String::new()
+        } else {
+            Self::parse_command(command)?.0
         };
         self.authorize_process_execution(&program, has_shell_features, command)
     }
 
     /// Check if a program (or command string) is in the allowlist
     pub fn is_allowlisted(&self, command: &str) -> bool {
-        let base_command = Self::program_basename(&self.get_command_base(command));
-        self.is_program_allowlisted(&base_command)
-    }
-
-    fn is_program_allowlisted(&self, program_base: &str) -> bool {
-        self.config.allowed_shell_commands.iter().any(|allowed| {
-            let allowed_base = Self::program_basename(allowed);
-            #[cfg(windows)]
-            {
-                allowed_base.eq_ignore_ascii_case(program_base)
-            }
-            #[cfg(not(windows))]
-            {
-                allowed_base == program_base
-            }
-        })
-    }
-
-    /// Extract the first whitespace-separated token from a command string
-    fn get_command_base(&self, command: &str) -> String {
-        command.split_whitespace().next().unwrap_or("").to_string()
+        if Self::contains_shell_metacharacters(command) {
+            return false;
+        }
+        let Ok((program, _)) = Self::parse_command(command) else {
+            return false;
+        };
+        self.resolve_allowlisted_executable(&program).is_ok()
     }
 
     /// Basename of a program path (`/bin/echo` → `echo`, `C:\\Windows\\cmd.exe` → `cmd.exe`)
@@ -334,6 +390,102 @@ mod tests {
 
     fn default_secure_config() -> Arc<WflConfig> {
         Arc::new(WflConfig::default())
+    }
+
+    fn allowlist_config(allowed_shell_commands: Vec<String>) -> Arc<WflConfig> {
+        Arc::new(WflConfig {
+            allow_shell_execution: true,
+            shell_execution_mode: ShellExecutionMode::AllowlistOnly,
+            allowed_shell_commands,
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn test_allowlist_only_blocks_shell_for_allowed_program() {
+        let executable = std::env::current_exe().unwrap();
+        let sanitizer = CommandSanitizer::new(allowlist_config(vec![
+            executable.to_string_lossy().into_owned(),
+        ]));
+
+        let result = sanitizer
+            .authorize_process_execution(
+                executable.to_str().unwrap(),
+                true,
+                "allowed-tool --version; echo injected",
+            )
+            .unwrap();
+
+        assert!(
+            matches!(&result, ValidationResult::Blocked { reason }
+                if reason.contains("does not permit shell execution")),
+            "allowlist_only must reject shell execution, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_allowlist_only_rejects_bare_program_names() {
+        let sanitizer = CommandSanitizer::new(allowlist_config(vec!["echo".to_string()]));
+
+        let result = sanitizer
+            .authorize_process_execution("echo", false, "echo")
+            .unwrap();
+
+        assert!(
+            matches!(&result, ValidationResult::Blocked { reason }
+                if reason.contains("absolute executable path")),
+            "bare program names must not enter OS path lookup, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_allowlist_only_rejects_different_path_with_same_basename() {
+        let temp = tempfile::tempdir().unwrap();
+        let allowed_dir = temp.path().join("allowed");
+        let attacker_dir = temp.path().join("attacker");
+        std::fs::create_dir_all(&allowed_dir).unwrap();
+        std::fs::create_dir_all(&attacker_dir).unwrap();
+        let allowed = allowed_dir.join("same-name-tool");
+        let attacker = attacker_dir.join("same-name-tool");
+        std::fs::write(&allowed, b"allowed").unwrap();
+        std::fs::write(&attacker, b"attacker").unwrap();
+
+        let sanitizer = CommandSanitizer::new(allowlist_config(vec![
+            allowed.to_string_lossy().into_owned(),
+        ]));
+        let result = sanitizer
+            .authorize_process_execution(attacker.to_str().unwrap(), false, "same-name-tool")
+            .unwrap();
+
+        assert!(
+            matches!(&result, ValidationResult::Blocked { reason }
+                if reason.contains("not in allowed_shell_commands")),
+            "same basename at another path must be blocked, got {result:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_allowlist_only_accepts_symlink_to_same_canonical_executable() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("real-tool");
+        let alias = temp.path().join("alias-tool");
+        std::fs::write(&target, b"allowed").unwrap();
+        symlink(&target, &alias).unwrap();
+        let sanitizer = CommandSanitizer::new(allowlist_config(vec![
+            target.to_string_lossy().into_owned(),
+        ]));
+
+        let result = sanitizer
+            .authorize_process_execution(alias.to_str().unwrap(), false, "alias-tool")
+            .unwrap();
+
+        assert!(
+            matches!(&result, ValidationResult::Safe { .. }),
+            "a symlink to the same canonical file should be allowed, got {result:?}"
+        );
     }
 
     #[test]
@@ -520,7 +672,12 @@ mod tests {
     fn test_validate_command_sanitized_direct_exec_safe() {
         let sanitizer = CommandSanitizer::new(test_config(ShellExecutionMode::Sanitized));
         let result = sanitizer.validate_command("echo hello").unwrap();
-        assert_eq!(result, ValidationResult::Safe);
+        assert_eq!(
+            result,
+            ValidationResult::Safe {
+                executable: PathBuf::from("echo")
+            }
+        );
     }
 
     #[test]
@@ -546,44 +703,46 @@ mod tests {
 
     #[test]
     fn test_authorize_allowlist_only() {
-        let config = WflConfig {
-            allow_shell_execution: true,
-            shell_execution_mode: ShellExecutionMode::AllowlistOnly,
-            allowed_shell_commands: vec!["echo".to_string(), "ls".to_string()],
-            ..Default::default()
-        };
-        let sanitizer = CommandSanitizer::new(Arc::new(config));
+        let requested = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+        let sanitizer = CommandSanitizer::new(allowlist_config(vec![
+            requested.to_string_lossy().into_owned(),
+        ]));
 
         let ok = sanitizer
-            .authorize_process_execution("echo", false, "echo")
+            .authorize_process_execution(requested.to_str().unwrap(), false, "test executable")
             .unwrap();
-        assert_eq!(ok, ValidationResult::Safe);
+        assert_eq!(
+            ok,
+            ValidationResult::Safe {
+                executable: requested
+            }
+        );
 
         let blocked = sanitizer
             .authorize_process_execution("rm", false, "rm")
             .unwrap();
         assert!(matches!(blocked, ValidationResult::Blocked { .. }));
-
-        // Path basename matching
-        let path_ok = sanitizer
-            .authorize_process_execution("/bin/echo", false, "/bin/echo")
-            .unwrap();
-        assert_eq!(path_ok, ValidationResult::Safe);
     }
 
     #[test]
     fn test_is_allowlisted() {
-        let config = WflConfig {
-            allow_shell_execution: true,
-            shell_execution_mode: ShellExecutionMode::AllowlistOnly,
-            allowed_shell_commands: vec!["echo".to_string(), "ls".to_string()],
-            ..Default::default()
-        };
-        let sanitizer = CommandSanitizer::new(Arc::new(config));
+        let current_exe = std::env::current_exe().unwrap();
+        let executable = std::fs::canonicalize(&current_exe).unwrap();
+        let sanitizer = CommandSanitizer::new(allowlist_config(vec![
+            executable.to_string_lossy().into_owned(),
+        ]));
+        let executable_command = current_exe.to_string_lossy().replace('\\', "/");
+        let quoted_executable = format!("\"{executable_command}\"");
 
-        assert!(sanitizer.is_allowlisted("echo hello"));
-        assert!(sanitizer.is_allowlisted("ls -la"));
-        assert!(!sanitizer.is_allowlisted("rm -rf /"));
+        assert!(sanitizer.is_allowlisted(&quoted_executable));
+        assert!(!sanitizer.is_allowlisted(&format!("{quoted_executable}; echo injected")));
+        assert!(!sanitizer.is_allowlisted(executable.file_name().unwrap().to_str().unwrap()));
+
+        let temp = tempfile::tempdir().unwrap();
+        let different = temp.path().join(executable.file_name().unwrap());
+        std::fs::write(&different, b"different executable").unwrap();
+        let different_command = different.to_string_lossy().replace('\\', "/");
+        assert!(!sanitizer.is_allowlisted(&format!("\"{different_command}\"")));
     }
 
     #[test]

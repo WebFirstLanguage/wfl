@@ -770,6 +770,12 @@ pub struct ProcessHandle {
 }
 
 #[allow(dead_code)]
+enum AuthorizedSubprocess {
+    Shell,
+    Direct { executable: PathBuf },
+}
+
+#[allow(dead_code)]
 pub struct IoClient {
     http_client: reqwest::Client,
     file_handles: Mutex<HashMap<String, (PathBuf, tokio::fs::File)>>,
@@ -1313,31 +1319,25 @@ impl IoClient {
         use_shell: bool,
         line: usize,
         column: usize,
-    ) -> Result<bool, String> {
+    ) -> Result<AuthorizedSubprocess, String> {
         use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
 
         let needs_shell = use_shell
             || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
 
-        // Resolve program name for policy (must happen before any Command::new)
-        let program = if args.is_empty() && !needs_shell {
-            CommandSanitizer::parse_command(command)
-                .map(|(p, _)| p)
-                .unwrap_or_else(|_| command.to_string())
-        } else if args.is_empty() && needs_shell {
-            // Shell path: policy uses the first token for allowlist matching
-            command
-                .split_whitespace()
-                .next()
-                .unwrap_or(command)
-                .to_string()
+        let program = if needs_shell {
+            String::new()
+        } else if args.is_empty() {
+            CommandSanitizer::parse_command(command)?.0
         } else {
             command.to_string()
         };
 
         let sanitizer = CommandSanitizer::new(Arc::clone(&self.config));
         match sanitizer.authorize_process_execution(&program, needs_shell, command)? {
-            ValidationResult::Safe => Ok(needs_shell),
+            ValidationResult::Safe { executable } => {
+                Ok(AuthorizedSubprocess::Direct { executable })
+            }
             ValidationResult::RequiresShell { warnings, .. } => {
                 if self.config.warn_on_shell_execution {
                     eprintln!("⚠️  Security Warning (line {}, column {}):", line, column);
@@ -1346,18 +1346,17 @@ impl IoClient {
                         eprintln!("   - {}", warning);
                     }
                     eprintln!(
-                        "   Prefer: execute command \"program\" with arguments [\"arg1\", \"arg2\"] \
-                         after allowing the program in .wflcfg."
+                        "   Prefer direct execution with an argument list when shell syntax is unnecessary."
                     );
                 }
-                Ok(needs_shell)
+                Ok(AuthorizedSubprocess::Shell)
             }
             ValidationResult::Blocked { reason } => Err(format!(
                 "Command blocked by security policy: {}\n\
-                 Subprocess execution is disabled by default. To allow it, update .wflcfg:\n\
+                 Subprocess execution is disabled by default. To allow direct execution, update .wflcfg:\n\
                    allow_shell_execution = true\n\
-                   shell_execution_mode = allowlist_only   # or sanitized / unrestricted\n\
-                   allowed_shell_commands = echo, ls       # required for allowlist_only\n\
+                   shell_execution_mode = allowlist_only\n\
+                   allowed_shell_commands = <absolute executable path>\n\
                  (line {}, column {})",
                 reason, line, column
             )),
@@ -1377,38 +1376,35 @@ impl IoClient {
         use crate::interpreter::command_sanitizer::CommandSanitizer;
         use tokio::process::Command;
 
-        let needs_shell = self.authorize_subprocess(command, args, use_shell, line, column)?;
+        let authorization = self.authorize_subprocess(command, args, use_shell, line, column)?;
 
         // Build the command
-        let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
-            // Shell execution path
-            #[cfg(target_os = "windows")]
-            {
-                let mut cmd = Command::new("cmd.exe");
-                cmd.args(["/C", command]);
+        let mut cmd = match authorization {
+            AuthorizedSubprocess::Shell => {
+                #[cfg(target_os = "windows")]
+                {
+                    let mut cmd = Command::new("cmd.exe");
+                    cmd.args(["/C", command]);
+                    cmd
+                }
+
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let mut cmd = Command::new("sh");
+                    cmd.args(["-c", command]);
+                    cmd
+                }
+            }
+            AuthorizedSubprocess::Direct { executable } => {
+                let parsed_args = if args.is_empty() {
+                    CommandSanitizer::parse_command(command)?.1
+                } else {
+                    args.iter().map(|value| value.to_string()).collect()
+                };
+                let mut cmd = Command::new(executable);
+                cmd.args(parsed_args);
                 cmd
             }
-
-            #[cfg(not(target_os = "windows"))]
-            {
-                let mut cmd = Command::new("sh");
-                cmd.args(["-c", command]);
-                cmd
-            }
-        } else {
-            // Direct-exec path (still policy-gated above)
-            let (program, parsed_args) = if args.is_empty() {
-                CommandSanitizer::parse_command(command)?
-            } else {
-                (
-                    command.to_string(),
-                    args.iter().map(|s| s.to_string()).collect(),
-                )
-            };
-
-            let mut cmd = Command::new(program);
-            cmd.args(parsed_args);
-            cmd
         };
 
         // Execute the command
@@ -1454,38 +1450,35 @@ impl IoClient {
             }
         }
 
-        let needs_shell = self.authorize_subprocess(command, args, use_shell, line, column)?;
+        let authorization = self.authorize_subprocess(command, args, use_shell, line, column)?;
 
         // Build the command
-        let mut cmd = if needs_shell && (use_shell || args.is_empty()) {
-            // Shell execution path
-            #[cfg(target_os = "windows")]
-            {
-                let mut cmd = Command::new("cmd.exe");
-                cmd.args(["/C", command]);
+        let mut cmd = match authorization {
+            AuthorizedSubprocess::Shell => {
+                #[cfg(target_os = "windows")]
+                {
+                    let mut cmd = Command::new("cmd.exe");
+                    cmd.args(["/C", command]);
+                    cmd
+                }
+
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let mut cmd = Command::new("sh");
+                    cmd.args(["-c", command]);
+                    cmd
+                }
+            }
+            AuthorizedSubprocess::Direct { executable } => {
+                let parsed_args = if args.is_empty() {
+                    CommandSanitizer::parse_command(command)?.1
+                } else {
+                    args.iter().map(|value| value.to_string()).collect()
+                };
+                let mut cmd = Command::new(executable);
+                cmd.args(parsed_args);
                 cmd
             }
-
-            #[cfg(not(target_os = "windows"))]
-            {
-                let mut cmd = Command::new("sh");
-                cmd.args(["-c", command]);
-                cmd
-            }
-        } else {
-            // Direct-exec path (still policy-gated above)
-            let (program, parsed_args) = if args.is_empty() {
-                CommandSanitizer::parse_command(command)?
-            } else {
-                (
-                    command.to_string(),
-                    args.iter().map(|s| s.to_string()).collect(),
-                )
-            };
-
-            let mut cmd = Command::new(program);
-            cmd.args(parsed_args);
-            cmd
         };
 
         let mut child = cmd
