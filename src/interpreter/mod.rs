@@ -97,6 +97,36 @@ pub struct WflHttpResponse {
     pub headers: HashMap<String, String>,
 }
 
+/// Ensures an HTTP `respond` always resolves its request. The response sender is
+/// taken out of `pending_responses` (and out of its mutex) up front and held
+/// here; if a fallible step in `respond` returns early before a response is
+/// built, `Drop` answers 500 so the client is resolved deterministically instead
+/// of hanging until the request timeout. A successful `respond` calls
+/// [`ResponseCompletion::take_sender`] to disarm the fallback and deliver the
+/// real response.
+struct ResponseCompletion {
+    sender: Option<oneshot::Sender<WflHttpResponse>>,
+}
+
+impl ResponseCompletion {
+    fn take_sender(&mut self) -> Option<oneshot::Sender<WflHttpResponse>> {
+        self.sender.take()
+    }
+}
+
+impl Drop for ResponseCompletion {
+    fn drop(&mut self) {
+        if let Some(sender) = self.sender.take() {
+            let _ = sender.send(WflHttpResponse {
+                content: b"Internal Server Error\n".to_vec(),
+                status: 500,
+                content_type: "text/plain; charset=utf-8".to_string(),
+                headers: HashMap::new(),
+            });
+        }
+    }
+}
+
 /// Look up an HTTP header by name in a request headers map.
 ///
 /// Header names are case-insensitive (RFC 7230). Warp stores them lowercase,
@@ -174,6 +204,16 @@ fn gateway_timeout_response() -> warp::http::Response<Vec<u8>> {
     )
 }
 
+/// 408 returned when a client does not finish sending its request body within
+/// `web_server_response_timeout_seconds`, so a slow "trickle" upload cannot pin
+/// its in-flight slot indefinitely.
+fn request_timeout_response() -> warp::http::Response<Vec<u8>> {
+    plain_status_response(
+        warp::http::StatusCode::REQUEST_TIMEOUT,
+        "Request Timeout: the request body was not received in time\n",
+    )
+}
+
 /// Error from [`read_body_capped`].
 enum BodyReadError {
     /// The streamed body exceeded the byte ceiling.
@@ -199,12 +239,18 @@ where
         let mut chunk = item.map_err(|_| BodyReadError::Io)?;
         while chunk.has_remaining() {
             let slice = chunk.chunk();
+            // Copy at most enough to reach `max + 1` (one sentinel byte past the
+            // limit), so a single huge transport chunk cannot grow `out` to
+            // `max + chunk_len` before the check — the buffer never exceeds
+            // `max + 1` bytes.
+            let allowance = max.saturating_sub(out.len()).saturating_add(1);
+            if slice.len() >= allowance {
+                out.extend_from_slice(&slice[..allowance]);
+                return Err(BodyReadError::TooLarge);
+            }
             let take = slice.len();
             out.extend_from_slice(slice);
             chunk.advance(take);
-            if out.len() > max {
-                return Err(BodyReadError::TooLarge);
-            }
         }
     }
     Ok(out)
@@ -5763,20 +5809,46 @@ impl Interpreter {
                                 // leak the slot.
                                 let _guard = guard;
 
+                                // One deadline for the whole accepted-request
+                                // lifetime (body read + handler response), set at
+                                // admission. Applying it to the *body read* is
+                                // what stops a slow "trickle" upload (a chunked
+                                // body dribbled under the size cap forever) from
+                                // pinning its global in-flight slot: without this,
+                                // only the response wait was bounded.
+                                let overall_deadline = request_timeout
+                                    .map(|dur| tokio::time::Instant::now() + dur);
+
                                 // Enforce the body limit while streaming so a
-                                // chunked body (no Content-Length) is bounded too.
-                                let body_bytes =
-                                    match read_body_capped(body_stream, max_body_size).await {
-                                        Ok(bytes) => bytes,
-                                        Err(BodyReadError::TooLarge) => {
-                                            return Ok(payload_too_large_response());
+                                // chunked body (no Content-Length) is bounded too,
+                                // and bound the read by the shared deadline.
+                                let read_fut = read_body_capped(body_stream, max_body_size);
+                                let body_read = match overall_deadline {
+                                    Some(dl) => match tokio::time::timeout_at(dl, read_fut).await {
+                                        Ok(r) => r,
+                                        Err(_) => {
+                                            log::warn!(
+                                                "web server request from {} did not finish its body in time; shedding 408",
+                                                remote_addr
+                                                    .map(|a| a.ip().to_string())
+                                                    .unwrap_or_else(|| "unknown".to_string()),
+                                            );
+                                            return Ok(request_timeout_response());
                                         }
-                                        Err(BodyReadError::Io) => {
-                                            return Err(warp::reject::custom(ServerError(
-                                                "Failed to read request body".to_string(),
-                                            )));
-                                        }
-                                    };
+                                    },
+                                    None => read_fut.await,
+                                };
+                                let body_bytes = match body_read {
+                                    Ok(bytes) => bytes,
+                                    Err(BodyReadError::TooLarge) => {
+                                        return Ok(payload_too_large_response());
+                                    }
+                                    Err(BodyReadError::Io) => {
+                                        return Err(warp::reject::custom(ServerError(
+                                            "Failed to read request body".to_string(),
+                                        )));
+                                    }
+                                };
 
                                 // Generate unique request ID
                                 let request_id = uuid::Uuid::new_v4().to_string();
@@ -5837,19 +5909,22 @@ impl Interpreter {
                                 }
 
                                 // Wait for the handler's response, bounded by the
-                                // per-request timeout so a handler that never
-                                // answers frees its in-flight slot with a 504.
-                                let received = match request_timeout {
-                                    Some(dur) => {
-                                        match tokio::time::timeout(dur, response_receiver).await {
+                                // *same* deadline as the body read so a handler
+                                // that never answers frees its in-flight slot with
+                                // a 504. Dropping `response_receiver` here closes
+                                // its oneshot sender, which the interpreter
+                                // observes (`is_closed`) to skip/prune the
+                                // abandoned request rather than run zombie work.
+                                let received = match overall_deadline {
+                                    Some(dl) => {
+                                        match tokio::time::timeout_at(dl, response_receiver).await {
                                             Ok(r) => r,
                                             Err(_) => {
                                                 log::warn!(
-                                                    "web server request from {} timed out after {:?} awaiting handler; shedding 504",
+                                                    "web server request from {} timed out awaiting handler; shedding 504",
                                                     remote_addr
                                                         .map(|a| a.ip().to_string())
                                                         .unwrap_or_else(|| "unknown".to_string()),
-                                                    dur
                                                 );
                                                 return Ok(gateway_timeout_response());
                                             }
@@ -6262,40 +6337,63 @@ impl Interpreter {
                         None
                     };
 
-                    // Wait for request with or without timeout
-                    if let Some(duration) = timeout_duration {
-                        match tokio::time::timeout(duration, receiver.recv()).await {
-                            Ok(Some(req)) => req,
-                            Ok(None) => {
-                                return Err(RuntimeError::new(
-                                    "Request channel closed".to_string(),
-                                    *line,
-                                    *column,
-                                ));
+                    // Wait for request with or without timeout. Loop so a request
+                    // whose client already gave up (its oneshot receiver dropped
+                    // on 408/504/disconnect, closing the sender) is skipped rather
+                    // than handled — otherwise the interpreter would run a handler
+                    // for a dead request and register a dead pending-response
+                    // entry, letting repeated timeouts accumulate zombie work.
+                    loop {
+                        let req = if let Some(duration) = timeout_duration {
+                            match tokio::time::timeout(duration, receiver.recv()).await {
+                                Ok(Some(req)) => req,
+                                Ok(None) => {
+                                    return Err(RuntimeError::new(
+                                        "Request channel closed".to_string(),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
+                                Err(_) => {
+                                    return Err(RuntimeError::new(
+                                        format!(
+                                            "Timeout waiting for request ({} ms)",
+                                            duration.as_millis()
+                                        ),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
                             }
-                            Err(_) => {
-                                return Err(RuntimeError::new(
-                                    format!(
-                                        "Timeout waiting for request ({} ms)",
-                                        duration.as_millis()
-                                    ),
-                                    *line,
-                                    *column,
-                                ));
+                        } else {
+                            // No timeout - wait indefinitely
+                            match receiver.recv().await {
+                                Some(req) => req,
+                                None => {
+                                    return Err(RuntimeError::new(
+                                        "Request channel closed".to_string(),
+                                        *line,
+                                        *column,
+                                    ));
+                                }
                             }
+                        };
+
+                        let abandoned = {
+                            let sender_opt = req.response_sender.lock().await;
+                            sender_opt.as_ref().is_none_or(|s| s.is_closed())
+                        };
+                        if abandoned {
+                            log::debug!(
+                                "skipping abandoned request {} ({} {}) from {}",
+                                req.id,
+                                req.method,
+                                req.path,
+                                req.client_ip
+                            );
+                            continue;
                         }
-                    } else {
-                        // No timeout - wait indefinitely
-                        match receiver.recv().await {
-                            Some(req) => req,
-                            None => {
-                                return Err(RuntimeError::new(
-                                    "Request channel closed".to_string(),
-                                    *line,
-                                    *column,
-                                ));
-                            }
-                        }
+                        break req;
                     }
                 };
 
@@ -6374,6 +6472,15 @@ impl Interpreter {
                 // client hanging instead of failing fast.
                 {
                     let mut pending_responses = self.pending_responses.borrow_mut();
+                    // Prune entries whose client already disconnected/timed out
+                    // (oneshot sender closed) before inserting the new one, so a
+                    // handler that never `respond`s to a since-abandoned request
+                    // cannot let the map grow without bound across many timeouts.
+                    pending_responses.retain(|_, sender_arc| match sender_arc.try_lock() {
+                        Ok(guard) => guard.as_ref().is_some_and(|s| !s.is_closed()),
+                        // Locked right now (being responded to) — keep it.
+                        Err(_) => true,
+                    });
                     pending_responses.insert(request.id.clone(), request.response_sender);
                 }
 
@@ -6413,6 +6520,40 @@ impl Interpreter {
                     }
                 };
 
+                // Take the response sender out of the pending map (and out of its
+                // mutex) up front, into an RAII completion guard, *before* any
+                // fallible response construction below (content/status/type/header
+                // evaluation, byte-cap checks). On an early error the guard's Drop
+                // answers 500, so the request is always resolved instead of
+                // hanging until its timeout; a successful respond disarms it via
+                // `take_sender`.
+                let sender_arc = {
+                    let mut pending = self.pending_responses.borrow_mut();
+                    pending.remove(&request_id)
+                };
+                let mut completion = match sender_arc {
+                    Some(arc) => match arc.lock().await.take() {
+                        Some(sender) => ResponseCompletion {
+                            sender: Some(sender),
+                        },
+                        None => {
+                            return Err(RuntimeError::new(
+                                "Response already sent for this request".to_string(),
+                                *line,
+                                *column,
+                            ));
+                        }
+                    },
+                    None => {
+                        return Err(RuntimeError::new(
+                            "Request ID not found - response may have already been sent"
+                                .to_string(),
+                            *line,
+                            *column,
+                        ));
+                    }
+                };
+
                 // Evaluate response content. Binary values are carried through
                 // as raw bytes so fonts/images/etc. serve losslessly; text and
                 // scalar values keep their existing UTF-8 rendering.
@@ -6438,12 +6579,26 @@ impl Interpreter {
                     Value::Number(n) => n.to_string().into_bytes(),
                     Value::Bool(b) => b.to_string().into_bytes(),
                     Value::Binary(bytes) => bytes.to_vec(),
-                    _ => format!("{content_val:?}").into_bytes(),
+                    Value::Null => Vec::new(),
+                    // Composite/opaque values (lists, objects, functions, …) have
+                    // no meaningful HTTP body rendering, and their `{:?}` form is
+                    // unbounded — materializing it would allocate past the
+                    // response cap before it could be checked. Reject them with a
+                    // clear error instead.
+                    other => {
+                        return Err(RuntimeError::new(
+                            format!(
+                                "Cannot use {} as a response body; respond with text, a number, a boolean, binary data, or nothing",
+                                other.type_name()
+                            ),
+                            *line,
+                            *column,
+                        ));
+                    }
                 };
 
-                // Re-check the materialized length to cover the formatted
-                // fallback variants (Number/Bool/other), which have no cheap
-                // borrowed length.
+                // Re-check the materialized length to cover the small formatted
+                // variants (Number/Bool), which have no cheap borrowed length.
                 if let Err(exceeded) = self.budget.check_response_bytes(content_bytes.len()) {
                     return Err(self.budget_error(exceeded, *line, *column));
                 }
@@ -6553,15 +6708,10 @@ impl Interpreter {
                     headers: custom_headers,
                 };
 
-                // Send response
-                let response_sender = {
-                    let mut pending = self.pending_responses.borrow_mut();
-                    pending.remove(&request_id)
-                };
-
-                if let Some(sender_arc) = response_sender {
-                    let mut sender_opt = sender_arc.lock().await;
-                    if let Some(sender) = sender_opt.take() {
+                // Deliver the response and disarm the guard's 500 fallback. The
+                // sender was taken up front, so this is the sole delivery path.
+                match completion.take_sender() {
+                    Some(sender) => {
                         if sender.send(response).is_err() {
                             return Err(RuntimeError::new(
                                 "Failed to send response - client may have disconnected"
@@ -6570,19 +6720,14 @@ impl Interpreter {
                                 *column,
                             ));
                         }
-                    } else {
+                    }
+                    None => {
                         return Err(RuntimeError::new(
                             "Response already sent for this request".to_string(),
                             *line,
                             *column,
                         ));
                     }
-                } else {
-                    return Err(RuntimeError::new(
-                        "Request ID not found - response may have already been sent".to_string(),
-                        *line,
-                        *column,
-                    ));
                 }
 
                 Ok((Value::Null, ControlFlow::None))
