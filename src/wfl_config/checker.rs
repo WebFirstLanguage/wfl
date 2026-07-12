@@ -504,6 +504,94 @@ impl ConfigChecker {
             },
         );
 
+        // Shared ExecutionBudget limits (see src/exec/budget.rs). Registered so
+        // `--configCheck` accepts them and `--configFix` does not strip them
+        // (which for `max_operations` would silently revert a ceiling to
+        // unlimited). Includes `web_server_request_queue_bound`, which predates
+        // this change but was never registered.
+        {
+            let mut int_setting = |name: &str, default: &str, category: &str, desc: &str| {
+                expected_settings.insert(
+                    name.to_string(),
+                    ExpectedSetting {
+                        name: name.to_string(),
+                        config_type: ConfigType::Integer,
+                        required: false,
+                        default_value: Some(default.to_string()),
+                        description: desc.to_string(),
+                        valid_values: None,
+                        category: category.to_string(),
+                    },
+                );
+            };
+            int_setting(
+                "web_server_request_queue_bound",
+                "256",
+                "Web Server",
+                "Max queued HTTP requests before shedding with 503 (min 1)",
+            );
+            int_setting(
+                "web_server_max_response_size",
+                "67108864",
+                "Web Server",
+                "Maximum HTTP response body size in bytes (default 64 MiB, min 1)",
+            );
+            int_setting(
+                "web_socket_queue_bound",
+                "1024",
+                "Web Server",
+                "Max queued frames/events per WebSocket channel (min 1)",
+            );
+            int_setting(
+                "web_socket_max_connections",
+                "1024",
+                "Web Server",
+                "Max simultaneous live WebSocket connections (min 1)",
+            );
+            int_setting(
+                "max_operations",
+                "0",
+                "Execution Budget",
+                "Hard ceiling on interpreter operations; 0 = unlimited",
+            );
+            int_setting(
+                "max_call_depth",
+                "1000",
+                "Execution Budget",
+                "Maximum WFL call/recursion depth (min 1)",
+            );
+            int_setting(
+                "max_import_depth",
+                "64",
+                "Execution Budget",
+                "Maximum nested load module / include depth (min 1)",
+            );
+            int_setting(
+                "max_execute_file_depth",
+                "4",
+                "Execution Budget",
+                "Maximum execute file nesting depth (min 1)",
+            );
+            int_setting(
+                "max_pattern_steps",
+                "5000000",
+                "Execution Budget",
+                "Maximum pattern-VM transitions per match (ReDoS guard, min 1)",
+            );
+            int_setting(
+                "max_pattern_states",
+                "10000",
+                "Execution Budget",
+                "Maximum simultaneously-active pattern states per match (min 1)",
+            );
+            int_setting(
+                "max_source_size",
+                "67108864",
+                "Execution Budget",
+                "Maximum WFL source-file size in bytes (default 64 MiB, min 1)",
+            );
+        }
+
         Self { expected_settings }
     }
 
@@ -980,6 +1068,59 @@ max_line_length = 80
         let issues = checker.check_config_file(&config_path).unwrap();
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].kind, ConfigIssueKind::MissingFile);
+    }
+
+    #[test]
+    fn test_budget_keys_are_known_and_survive_fix() {
+        // Every ExecutionBudget key must be recognized by --configCheck and left
+        // intact by --configFix (stripping `max_operations` would silently revert
+        // a configured ceiling to unlimited).
+        let keys = [
+            "max_operations",
+            "max_call_depth",
+            "max_import_depth",
+            "max_execute_file_depth",
+            "max_pattern_steps",
+            "max_pattern_states",
+            "max_source_size",
+            "web_server_max_response_size",
+            "web_server_request_queue_bound",
+            "web_socket_queue_bound",
+            "web_socket_max_connections",
+        ];
+        let checker = ConfigChecker::new();
+        let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join(".wflcfg");
+        let config_content = "\
+max_operations = 25000
+max_call_depth = 2000
+max_import_depth = 32
+max_execute_file_depth = 6
+max_pattern_steps = 250000
+max_pattern_states = 5000
+max_source_size = 1048576
+web_server_max_response_size = 5242880
+web_server_request_queue_bound = 512
+web_socket_queue_bound = 2048
+web_socket_max_connections = 256
+";
+        fs::write(&config_path, config_content).unwrap();
+
+        let issues = checker.check_config_file(&config_path).unwrap();
+        assert!(issues.is_empty(), "Expected no issues, got: {issues:?}");
+
+        let after = checker.fix_config_file(&config_path).unwrap();
+        assert!(
+            after.is_empty(),
+            "Expected no issues after fix, got: {after:?}"
+        );
+        let content = fs::read_to_string(&config_path).unwrap();
+        for key in keys {
+            assert!(
+                content.contains(&format!("{key} =")),
+                "--configFix stripped '{key}':\n{content}"
+            );
+        }
     }
 
     #[test]
