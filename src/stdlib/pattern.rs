@@ -1,10 +1,25 @@
+use crate::exec::budget::ExecutionBudget;
 use crate::interpreter::environment::Environment;
-use crate::interpreter::error::RuntimeError;
+use crate::interpreter::error::{ErrorKind, RuntimeError};
 use crate::interpreter::value::Value;
+use crate::pattern::PatternError;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
+
+/// Map a pattern-VM error to a `RuntimeError`. A budget breach (ReDoS
+/// step/state ceiling or cancellation) becomes a catchable `ResourceLimit`
+/// error rather than a silent empty result; other pattern errors are general.
+fn pattern_err(err: PatternError) -> RuntimeError {
+    let kind = match err {
+        PatternError::StepLimitExceeded
+        | PatternError::StateLimitExceeded
+        | PatternError::Cancelled => ErrorKind::ResourceLimit,
+        _ => ErrorKind::General,
+    };
+    RuntimeError::with_kind(err.to_string(), 0, 0, kind)
+}
 
 pub fn register(env: &mut Environment) {
     // Register new pattern functions that work with our pattern system
@@ -49,7 +64,10 @@ pub fn pattern_matches_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
         }
     };
 
-    let matches = compiled_pattern.matches(text_str);
+    let budget = ExecutionBudget::current_or_default();
+    let matches = compiled_pattern
+        .matches_with_budget(text_str, &budget)
+        .map_err(pattern_err)?;
     Ok(Value::Bool(matches))
 }
 
@@ -86,7 +104,11 @@ pub fn pattern_find_native(args: Vec<Value>) -> Result<Value, RuntimeError> {
         }
     };
 
-    match compiled_pattern.find(text_str) {
+    let budget = ExecutionBudget::current_or_default();
+    match compiled_pattern
+        .find_with_budget(text_str, &budget)
+        .map_err(pattern_err)?
+    {
         Some(match_result) => {
             let mut result_map = HashMap::new();
             result_map.insert(
@@ -150,7 +172,10 @@ pub fn pattern_find_all_native(args: Vec<Value>) -> Result<Value, RuntimeError> 
         }
     };
 
-    let matches = compiled_pattern.find_all(text_str);
+    let budget = ExecutionBudget::current_or_default();
+    let matches = compiled_pattern
+        .find_all_with_budget(text_str, &budget)
+        .map_err(pattern_err)?;
     let mut result_list = Vec::new();
 
     for match_result in matches {
@@ -271,7 +296,10 @@ pub fn native_pattern_split(
     };
 
     // Find all matches of the pattern in the text
-    let matches = pattern.find_all(text);
+    let budget = ExecutionBudget::current_or_default();
+    let matches = pattern
+        .find_all_with_budget(text, &budget)
+        .map_err(pattern_err)?;
 
     // If no matches, return the entire text as a single element
     if matches.is_empty() {

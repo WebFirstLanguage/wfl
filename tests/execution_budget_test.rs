@@ -55,7 +55,7 @@ fn budget_keys_use_documented_defaults() {
     assert_eq!(cfg.max_call_depth, 1_000);
     assert_eq!(cfg.max_import_depth, 64);
     assert_eq!(cfg.max_execute_file_depth, 4);
-    assert_eq!(cfg.max_pattern_steps, 100_000);
+    assert_eq!(cfg.max_pattern_steps, 5_000_000);
     assert_eq!(cfg.max_pattern_states, 10_000);
     assert_eq!(cfg.max_source_size, 64 * 1024 * 1024);
     assert_eq!(cfg.web_server_max_response_size, 64 * 1024 * 1024);
@@ -217,6 +217,77 @@ display \"caught \" with caught with \" times\"
     assert!(
         output.status.success(),
         "an all-caught program must exit zero; got:\n{combined}"
+    );
+}
+
+const PATTERN_PROGRAM: &str = "\
+create pattern digits:
+    one or more digit
+end pattern
+check if \"123456789\" matches digits:
+    display \"MATCHED\"
+otherwise:
+    display \"NO-MATCH\"
+end check
+";
+
+#[test]
+fn pattern_step_limit_is_enforced_and_propagated() {
+    // A configured low pattern-step ceiling must surface as a catchable error at
+    // the interpreter's `matches` operator — NOT be swallowed into a non-match.
+    let output = run_with_cfg(Some("max_pattern_steps = 3\n"), PATTERN_PROGRAM);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("step limit"),
+        "a low pattern-step ceiling must trip; got:\n{combined}"
+    );
+    assert!(
+        !combined.contains("NO-MATCH"),
+        "a budget breach must not be reported as a non-match; got:\n{combined}"
+    );
+}
+
+#[test]
+fn pattern_step_limit_is_catchable() {
+    // The propagated pattern budget error is a ResourceLimit, catchable by a
+    // general `try`/`when`.
+    let program = "\
+create pattern digits:
+    one or more digit
+end pattern
+try:
+    check if \"123456789\" matches digits:
+        display \"MATCHED\"
+    end check
+catch:
+    display \"CAUGHT\"
+end try
+";
+    let output = run_with_cfg(Some("max_pattern_steps = 3\n"), program);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("CAUGHT"),
+        "a pattern budget breach must be catchable; got:\n{combined}"
+    );
+}
+
+#[test]
+fn patterns_run_normally_under_default_budget() {
+    // The raised per-instruction default must not trip on an ordinary match.
+    let output = run_with_cfg(None, PATTERN_PROGRAM);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("MATCHED"),
+        "an ordinary pattern must match under the default budget; got:\n{stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 

@@ -144,13 +144,11 @@ impl VMState {
 /// different VM instances concurrently. However, a single VM instance should
 /// not be used from multiple threads simultaneously.
 pub struct PatternVM {
-    /// Count of execution steps to prevent infinite loops
-    step_count: usize,
-    /// Shared execution budget owning the step and active-state ceilings (plus
-    /// cross-cutting cancellation). Each match attempt tracks `step_count` and
-    /// `states.len()` locally and checks them against this budget's limits, so
-    /// the ReDoS guard is now one knob (`max_pattern_steps` / `max_pattern_states`)
-    /// shared with the rest of the runtime.
+    /// Shared execution budget owning the pattern step/active-state ceilings and
+    /// cross-cutting cancellation. Transitions are charged (per instruction)
+    /// into this budget's shared meter, so nested lookaround/lookbehind VMs
+    /// count against the same `max_pattern_steps` / `max_pattern_states` budget
+    /// as the enclosing match — one knob, shared with the rest of the runtime.
     budget: Arc<ExecutionBudget>,
     /// Debug flag for test mode (only available in test builds)
     #[cfg(test)]
@@ -158,12 +156,13 @@ pub struct PatternVM {
 }
 
 impl PatternVM {
-    /// A standalone VM whose pattern ceilings match the historic ReDoS defaults
-    /// (the `max_pattern_steps` / `max_pattern_states` budget limits, 100_000 /
-    /// 10_000). Used by [`super::CompiledPattern`]'s convenience methods and
-    /// stdlib pattern builtins, which have no interpreter budget to share.
+    /// A VM bound to the current-thread run budget (see
+    /// [`ExecutionBudget::current_or_default`]), so stdlib pattern builtins and
+    /// [`super::CompiledPattern`]'s convenience methods honour the run's
+    /// configured `max_pattern_steps` / `max_pattern_states` ceilings — and fall
+    /// back to a bounded default when no run is active.
     pub fn new() -> Self {
-        Self::with_budget(Arc::new(ExecutionBudget::unlimited()))
+        Self::with_budget(ExecutionBudget::current_or_default())
     }
 
     /// A VM that shares an existing [`ExecutionBudget`], so a pattern match
@@ -171,17 +170,19 @@ impl PatternVM {
     /// launched it.
     pub fn with_budget(budget: Arc<ExecutionBudget>) -> Self {
         Self {
-            step_count: 0,
             budget,
             #[cfg(test)]
             debug: false,
         }
     }
 
-    /// Execute a pattern program against input text (just test if it matches)
+    /// Execute a pattern program against input text (just test if it matches).
+    ///
+    /// The transition meter is **not** reset here: the top-level operation
+    /// ([`crate::pattern::CompiledPattern`]) resets it once, so a nested
+    /// lookaround/lookbehind VM that calls `execute` shares the enclosing
+    /// match's budget rather than getting a fresh quota.
     pub fn execute(&mut self, program: &Program, text: &str) -> Result<bool, PatternError> {
-        self.step_count = 0;
-
         // Try matching at each position in the text
         for start_pos in 0..=text.len() {
             if self.execute_at_position(program, text, start_pos)? {
@@ -192,40 +193,37 @@ impl PatternVM {
         Ok(false)
     }
 
-    /// Find the first match in the text
+    /// Find the first match in the text. See [`PatternVM::execute`] on why the
+    /// transition meter is not reset here.
     pub fn find(
         &mut self,
         program: &Program,
         text: &str,
         capture_names: &[String],
-    ) -> Option<MatchResult> {
-        self.step_count = 0;
-
+    ) -> Result<Option<MatchResult>, PatternError> {
         // Try matching at each position in the text
         for start_pos in 0..=text.len() {
-            if let Ok(Some(result)) = self.find_at_position(program, text, start_pos, capture_names)
-            {
-                return Some(result);
+            if let Some(result) = self.find_at_position(program, text, start_pos, capture_names)? {
+                return Ok(Some(result));
             }
         }
 
-        None
+        Ok(None)
     }
 
-    /// Find all matches in the text
+    /// Find all matches in the text. See [`PatternVM::execute`] on why the
+    /// transition meter is not reset here.
     pub fn find_all(
         &mut self,
         program: &Program,
         text: &str,
         capture_names: &[String],
-    ) -> Vec<MatchResult> {
+    ) -> Result<Vec<MatchResult>, PatternError> {
         let mut matches = Vec::new();
         let mut pos = 0;
 
         while pos <= text.len() {
-            self.step_count = 0;
-
-            if let Ok(Some(result)) = self.find_at_position(program, text, pos, capture_names) {
+            if let Some(result) = self.find_at_position(program, text, pos, capture_names)? {
                 pos = if result.end > result.start {
                     result.end // Move past this match
                 } else {
@@ -237,7 +235,7 @@ impl PatternVM {
             }
         }
 
-        matches
+        Ok(matches)
     }
 
     /// Execute pattern starting at a specific position
@@ -254,24 +252,17 @@ impl PatternVM {
         }];
 
         while !states.is_empty() {
-            self.step_count += 1;
-            self.budget
-                .check_pattern_steps(self.step_count)
-                .map_err(budget_to_pattern_error)?;
-            self.budget
-                .check_cancelled()
-                .map_err(budget_to_pattern_error)?;
-
             let mut next_states = Vec::new();
 
             for state in states {
+                // Each transition is charged inside `step()` (per instruction),
+                // so an epsilon-jump cycle is bounded too.
                 match self.step(program, text, state)? {
                     StepResult::Continue(new_states) => {
                         next_states.extend(new_states);
                         // Fail fast on exponential state fan-out: check the cap
                         // after each expansion rather than only once the whole
-                        // next generation is built, so a runaway step cannot
-                        // allocate far past the cap before it trips.
+                        // next generation is built.
                         self.budget
                             .check_pattern_states(next_states.len())
                             .map_err(budget_to_pattern_error)?;
@@ -306,24 +297,14 @@ impl PatternVM {
         }];
 
         while !states.is_empty() {
-            self.step_count += 1;
-            self.budget
-                .check_pattern_steps(self.step_count)
-                .map_err(budget_to_pattern_error)?;
-            self.budget
-                .check_cancelled()
-                .map_err(budget_to_pattern_error)?;
-
             let mut next_states = Vec::new();
 
             for state in states {
+                // Transitions are charged inside `step()` (per instruction).
                 match self.step(program, text, state)? {
                     StepResult::Continue(new_states) => {
                         next_states.extend(new_states);
-                        // Fail fast on exponential state fan-out: check the cap
-                        // after each expansion rather than only once the whole
-                        // next generation is built, so a runaway step cannot
-                        // allocate far past the cap before it trips.
+                        // Fail fast on exponential state fan-out.
                         self.budget
                             .check_pattern_states(next_states.len())
                             .map_err(budget_to_pattern_error)?;
@@ -376,6 +357,15 @@ impl PatternVM {
         let chars: Vec<char> = text.chars().collect();
 
         loop {
+            // Charge one transition per dispatched instruction against the
+            // shared meter. This is the real ReDoS guard: it bounds every
+            // instruction chain (including epsilon-`Jump` cycles that never
+            // consume input) and, because the meter is shared, counts work done
+            // inside nested lookaround/lookbehind VMs against the same budget.
+            self.budget
+                .charge_pattern_step()
+                .map_err(budget_to_pattern_error)?;
+
             let instruction = match program.get(state.pc) {
                 Some(inst) => inst,
                 None => return Ok(StepResult::Fail), // Invalid PC
@@ -651,6 +641,11 @@ impl PatternVM {
                             }
                         }
 
+                        // Bound the negative-lookahead state fan-out too; the
+                        // inner `self.step()` calls already charge transitions.
+                        self.budget
+                            .check_pattern_states(next_states.len())
+                            .map_err(budget_to_pattern_error)?;
                         current_states = next_states;
                     }
 
@@ -719,14 +714,12 @@ impl PatternVM {
                             let text_slice: String =
                                 text_chars[start_pos..state.pos].iter().collect();
 
-                            // Try to match the entire slice
-                            if let Ok(result) =
-                                lookbehind_vm.execute(lookbehind_program, &text_slice)
-                                && result
-                            {
+                            // Try to match the entire slice. `?` propagates a
+                            // budget breach (shared meter) from the nested VM.
+                            if lookbehind_vm.execute(lookbehind_program, &text_slice)? {
                                 // Check if the match uses the entire slice
                                 let matches =
-                                    lookbehind_vm.find_all(lookbehind_program, &text_slice, &[]);
+                                    lookbehind_vm.find_all(lookbehind_program, &text_slice, &[])?;
                                 if let Some(first_match) = matches.first()
                                     && first_match.start == 0
                                     && first_match.end == text_slice.len()
@@ -765,14 +758,12 @@ impl PatternVM {
                             let text_slice: String =
                                 text_chars[start_pos..state.pos].iter().collect();
 
-                            // Try to match the entire slice
-                            if let Ok(result) =
-                                lookbehind_vm.execute(lookbehind_program, &text_slice)
-                                && result
-                            {
+                            // Try to match the entire slice. `?` propagates a
+                            // budget breach (shared meter) from the nested VM.
+                            if lookbehind_vm.execute(lookbehind_program, &text_slice)? {
                                 // Check if the match uses the entire slice
                                 let matches =
-                                    lookbehind_vm.find_all(lookbehind_program, &text_slice, &[]);
+                                    lookbehind_vm.find_all(lookbehind_program, &text_slice, &[])?;
                                 if let Some(first_match) = matches.first()
                                     && first_match.start == 0
                                     && first_match.end == text_slice.len()

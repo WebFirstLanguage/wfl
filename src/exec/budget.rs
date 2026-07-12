@@ -132,8 +132,10 @@ impl Default for BudgetLimits {
             max_import_depth: 64,
             // Preserves the previous `MAX_EXECUTE_FILE_DEPTH` constant exactly.
             max_execute_file_depth: 4,
-            // Preserves the previous pattern-VM `MAX_STEPS` constant exactly.
-            max_pattern_steps: 100_000,
+            // Per-instruction charging (not per-wave), so this is far above the
+            // old per-wave `MAX_STEPS` (100_000) while still catching runaway
+            // (e.g. ReDoS) matches that blow past millions of transitions.
+            max_pattern_steps: 5_000_000,
             // Active-state fan-out was unbounded before; 10_000 is generous for
             // any non-pathological pattern.
             max_pattern_states: 10_000,
@@ -187,7 +189,7 @@ impl BudgetLimits {
             max_call_depth: usize::MAX,
             max_import_depth: usize::MAX,
             max_execute_file_depth: usize::MAX,
-            max_pattern_steps: 100_000,
+            max_pattern_steps: 5_000_000,
             max_pattern_states: 10_000,
             max_source_bytes: usize::MAX,
             max_request_body_bytes: usize::MAX,
@@ -300,6 +302,10 @@ pub struct ExecutionBudget {
     pending_requests: AtomicUsize,
     /// Live WebSocket connections currently registered.
     ws_connections: AtomicUsize,
+    /// Pattern-VM transitions charged for the *current* match operation. One
+    /// shared meter so nested lookaround VMs count against the same budget
+    /// (they don't reset it); the top-level operation resets it to zero.
+    pattern_steps: AtomicU64,
 }
 
 impl ExecutionBudget {
@@ -312,6 +318,7 @@ impl ExecutionBudget {
             operations: AtomicU64::new(0),
             pending_requests: AtomicUsize::new(0),
             ws_connections: AtomicUsize::new(0),
+            pattern_steps: AtomicU64::new(0),
         }
     }
 
@@ -474,6 +481,31 @@ impl ExecutionBudget {
     /// The per-match active-state ceiling for the pattern VM.
     pub fn pattern_state_limit(&self) -> usize {
         self.limits.max_pattern_states
+    }
+
+    /// Reset the shared pattern-transition meter. Called once at the start of a
+    /// top-level pattern operation (`matches`/`find`/`find_all`/…); nested
+    /// lookaround VMs deliberately do **not** reset it, so their work counts
+    /// against the same budget as the enclosing match.
+    pub fn reset_pattern_steps(&self) {
+        self.pattern_steps.store(0, Ordering::Relaxed);
+    }
+
+    /// Charge one pattern-VM transition (one instruction dispatched, or one
+    /// negative-lookahead loop iteration) against the shared meter, failing once
+    /// the per-operation ceiling is exceeded. Also honours cancellation on a
+    /// throttled stride so a runaway match can be aborted.
+    pub fn charge_pattern_step(&self) -> Result<(), BudgetExceeded> {
+        let n = self.pattern_steps.fetch_add(1, Ordering::Relaxed);
+        if n >= self.limits.max_pattern_steps as u64 {
+            return Err(BudgetExceeded::PatternSteps {
+                limit: self.limits.max_pattern_steps,
+            });
+        }
+        if n & (CLOCK_SAMPLE_STRIDE - 1) == 0 && self.cancelled.load(Ordering::Relaxed) {
+            return Err(BudgetExceeded::Cancelled);
+        }
+        Ok(())
     }
 
     /// Fail if a pattern match has taken more transitions than allowed.
@@ -646,6 +678,51 @@ impl Default for ExecutionBudget {
     }
 }
 
+thread_local! {
+    /// The budget in effect on this thread, set for the duration of a run so
+    /// leaf helpers with no budget parameter (notably the stdlib pattern
+    /// builtins, whose native signature is `fn(Vec<Value>) -> ...`) still match
+    /// under the run's configured ceilings and shared meters. `None` outside a
+    /// run.
+    static CURRENT_BUDGET: std::cell::RefCell<Option<Arc<ExecutionBudget>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+impl ExecutionBudget {
+    /// Install `budget` as the current-thread budget for the lifetime of the
+    /// returned guard (restoring the previous one on drop). Nesting is
+    /// supported. Used by the interpreter to scope a run.
+    pub fn enter(budget: Arc<ExecutionBudget>) -> CurrentBudgetGuard {
+        let previous = CURRENT_BUDGET.with(|c| c.borrow_mut().replace(budget));
+        CurrentBudgetGuard { previous }
+    }
+
+    /// The current-thread budget, if a run has installed one via
+    /// [`ExecutionBudget::enter`].
+    pub fn current() -> Option<Arc<ExecutionBudget>> {
+        CURRENT_BUDGET.with(|c| c.borrow().clone())
+    }
+
+    /// The current-thread budget, or a fresh unlimited one (which still carries
+    /// the pattern ReDoS ceilings) when no run is active — so a bare
+    /// [`crate::pattern::PatternVM::new`] is always bounded.
+    pub fn current_or_default() -> Arc<ExecutionBudget> {
+        Self::current().unwrap_or_else(|| Arc::new(Self::unlimited()))
+    }
+}
+
+/// Restores the previous current-thread budget when dropped.
+#[must_use]
+pub struct CurrentBudgetGuard {
+    previous: Option<Arc<ExecutionBudget>>,
+}
+
+impl Drop for CurrentBudgetGuard {
+    fn drop(&mut self) {
+        CURRENT_BUDGET.with(|c| *c.borrow_mut() = self.previous.take());
+    }
+}
+
 /// RAII slot for one in-flight HTTP request; releases on drop.
 #[derive(Debug)]
 pub struct RequestGuard {
@@ -775,6 +852,35 @@ mod tests {
             budget.check_pattern_states(5),
             Err(BudgetExceeded::PatternStates { limit: 4 })
         );
+    }
+
+    #[test]
+    fn pattern_step_meter_charges_and_resets() {
+        let budget = ExecutionBudget::new(tiny_limits()); // max_pattern_steps = 5
+        // Charging is shared across (simulated) nested VMs without resetting; the
+        // sixth charge (index 5 >= limit 5) trips.
+        for _ in 0..5 {
+            budget.charge_pattern_step().expect("within pattern budget");
+        }
+        assert_eq!(
+            budget.charge_pattern_step(),
+            Err(BudgetExceeded::PatternSteps { limit: 5 })
+        );
+        // A top-level operation resets the shared meter for the next match.
+        budget.reset_pattern_steps();
+        assert!(budget.charge_pattern_step().is_ok());
+    }
+
+    #[test]
+    fn current_budget_scope_is_restored() {
+        assert!(ExecutionBudget::current().is_none());
+        let outer = Arc::new(ExecutionBudget::new(tiny_limits()));
+        {
+            let _g = ExecutionBudget::enter(Arc::clone(&outer));
+            assert!(Arc::ptr_eq(&ExecutionBudget::current().unwrap(), &outer));
+        }
+        // Guard dropped: the thread-local is cleared again.
+        assert!(ExecutionBudget::current().is_none());
     }
 
     #[test]

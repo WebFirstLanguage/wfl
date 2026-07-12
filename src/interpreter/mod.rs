@@ -2265,6 +2265,26 @@ impl Interpreter {
         RuntimeError::with_kind(exceeded.message(), line, column, kind)
     }
 
+    /// Map a pattern-VM error onto a `RuntimeError`. Budget breaches (step/state
+    /// ceilings, cancellation) surface as catchable `ResourceLimit` errors so a
+    /// ReDoS/cancellation during matching is not silently collapsed into a
+    /// non-match; structural pattern errors surface as general runtime errors.
+    fn pattern_error(
+        &self,
+        err: crate::pattern::PatternError,
+        line: usize,
+        column: usize,
+    ) -> RuntimeError {
+        use crate::pattern::PatternError;
+        let kind = match err {
+            PatternError::StepLimitExceeded
+            | PatternError::StateLimitExceeded
+            | PatternError::Cancelled => ErrorKind::ResourceLimit,
+            _ => ErrorKind::General,
+        };
+        RuntimeError::with_kind(err.to_string(), line, column, kind)
+    }
+
     /// Read a WFL source file (`load module`, `include from`, `execute file`)
     /// under the shared source-size ceiling. Reads at most `max_source_size + 1`
     /// bytes, so an oversized file is refused without ever allocating the whole
@@ -2348,6 +2368,12 @@ impl Interpreter {
         self.call_depth.set(0);
         self.assert_invariants();
         self.call_stack.borrow_mut().clear();
+
+        // Install this run's budget as the current-thread budget so leaf helpers
+        // with no budget parameter — the stdlib pattern builtins in particular —
+        // match under the run's configured ceilings and shared meters. Restored
+        // when this guard drops at the end of the run.
+        let _budget_guard = ExecutionBudget::enter(Arc::clone(&self.budget));
 
         // Set up script arguments in the global environment
         {
@@ -8775,8 +8801,11 @@ impl Interpreter {
                 };
 
                 // Perform the match under the shared budget so a pathological
-                // pattern is bounded by the run's step/state ceilings.
-                let matches = compiled_pattern.matches_with_budget(text_str, &self.budget);
+                // pattern is bounded by the run's step/state ceilings; a breach
+                // surfaces as a catchable error, not a silent non-match.
+                let matches = compiled_pattern
+                    .matches_with_budget(text_str, &self.budget)
+                    .map_err(|e| self.pattern_error(e, *_line, *_column))?;
                 Ok(Value::Bool(matches))
             }
 
@@ -8813,8 +8842,12 @@ impl Interpreter {
                     }
                 };
 
-                // Find the first match under the shared budget.
-                match compiled_pattern.find_with_budget(text_str, &self.budget) {
+                // Find the first match under the shared budget (a breach is a
+                // catchable error rather than a silent non-match).
+                let found = compiled_pattern
+                    .find_with_budget(text_str, &self.budget)
+                    .map_err(|e| self.pattern_error(e, *_line, *_column))?;
+                match found {
                     Some(match_result) => {
                         // Return an object with match information
                         let mut result_map = std::collections::HashMap::new();

@@ -219,11 +219,11 @@ impl CompiledPattern {
     /// ```
     ///
     /// # Note
-    /// Execution errors are silently converted to `false`. For error details,
-    /// use the VM directly.
+    /// Execution errors (including a ReDoS/budget breach) are silently converted
+    /// to `false`. Use [`CompiledPattern::matches_with_budget`] to observe them.
     pub fn matches(&self, text: &str) -> bool {
-        let mut vm = PatternVM::new();
-        vm.execute(&self.program, text).unwrap_or(false)
+        self.matches_with_budget(text, &ExecutionBudget::current_or_default())
+            .unwrap_or(false)
     }
 
     /// Find the first match in the text with position and capture information.
@@ -250,8 +250,8 @@ impl CompiledPattern {
     /// }
     /// ```
     pub fn find(&self, text: &str) -> Option<MatchResult> {
-        let mut vm = PatternVM::new();
-        vm.find(&self.program, text, &self.capture_names)
+        self.find_with_budget(text, &ExecutionBudget::current_or_default())
+            .unwrap_or(None)
     }
 
     /// Find all non-overlapping matches in the text.
@@ -279,38 +279,44 @@ impl CompiledPattern {
     /// For patterns that may match many times, consider using iterative
     /// approaches if memory usage is a concern.
     pub fn find_all(&self, text: &str) -> Vec<MatchResult> {
-        let mut vm = PatternVM::new();
-        vm.find_all(&self.program, text, &self.capture_names)
+        self.find_all_with_budget(text, &ExecutionBudget::current_or_default())
+            .unwrap_or_default()
     }
 
-    /// [`CompiledPattern::matches`], but sharing an existing [`ExecutionBudget`]
-    /// so the match respects the run's pattern step/state ceilings and
-    /// cooperative cancellation.
+    /// [`CompiledPattern::matches`], sharing an existing [`ExecutionBudget`] so
+    /// the match respects the run's pattern step/state ceilings and cooperative
+    /// cancellation, and **propagating** a budget breach instead of hiding it as
+    /// a non-match. Resets the shared transition meter for this operation.
     pub fn matches_with_budget(
         &self,
         text: &str,
         budget: &std::sync::Arc<ExecutionBudget>,
-    ) -> bool {
+    ) -> Result<bool, PatternError> {
+        budget.reset_pattern_steps();
         let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
-        vm.execute(&self.program, text).unwrap_or(false)
+        vm.execute(&self.program, text)
     }
 
-    /// [`CompiledPattern::find`], sharing an existing [`ExecutionBudget`].
+    /// [`CompiledPattern::find`], sharing an existing [`ExecutionBudget`] and
+    /// propagating budget breaches.
     pub fn find_with_budget(
         &self,
         text: &str,
         budget: &std::sync::Arc<ExecutionBudget>,
-    ) -> Option<MatchResult> {
+    ) -> Result<Option<MatchResult>, PatternError> {
+        budget.reset_pattern_steps();
         let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
         vm.find(&self.program, text, &self.capture_names)
     }
 
-    /// [`CompiledPattern::find_all`], sharing an existing [`ExecutionBudget`].
+    /// [`CompiledPattern::find_all`], sharing an existing [`ExecutionBudget`] and
+    /// propagating budget breaches.
     pub fn find_all_with_budget(
         &self,
         text: &str,
         budget: &std::sync::Arc<ExecutionBudget>,
-    ) -> Vec<MatchResult> {
+    ) -> Result<Vec<MatchResult>, PatternError> {
+        budget.reset_pattern_steps();
         let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
         vm.find_all(&self.program, text, &self.capture_names)
     }

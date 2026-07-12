@@ -71,8 +71,8 @@ pub struct WflConfig {
     /// re-enters the whole interpreter recursively. Feeds `ExecutionBudget`.
     /// Default 4.
     pub max_execute_file_depth: usize,
-    /// Maximum pattern-VM transitions per match attempt (ReDoS guard). Feeds
-    /// `ExecutionBudget`. Default 100000.
+    /// Maximum pattern-VM transitions (instructions) per match operation (ReDoS
+    /// guard). Feeds `ExecutionBudget`. Default 5000000.
     pub max_pattern_steps: usize,
     /// Maximum simultaneously-active pattern-VM states per match attempt. Feeds
     /// `ExecutionBudget`. Default 10000.
@@ -178,7 +178,7 @@ impl Default for WflConfig {
             max_call_depth: 1_000,
             max_import_depth: 64,
             max_execute_file_depth: 4,
-            max_pattern_steps: 100_000,
+            max_pattern_steps: 5_000_000,
             max_pattern_states: 10_000,
             max_source_size: 64 * 1024 * 1024,
             web_socket_queue_bound: 1_024,
