@@ -763,17 +763,25 @@ async fn run() -> io::Result<()> {
         return Ok(());
     }
 
-    let input = fs::read_to_string(&file_path)?;
     let script_dir = Path::new(&file_path).parent().unwrap_or(Path::new("."));
     let config = config::load_config(script_dir);
 
-    // Enforce the shared source-size ceiling before doing any lexing/parsing.
-    // Uses the same ExecutionBudget the interpreter will run under, so the
+    // Enforce the shared source-size ceiling *before* reading the file into
+    // memory, so an oversized source is refused without ever allocating for it.
+    // Built from the same config the interpreter will run under, so the
     // `max_source_size` .wflcfg knob governs every entry point (run, lint,
-    // analyze, dump) from one place.
-    if let Err(exceeded) =
-        wfl::exec::budget::ExecutionBudget::from_config(&config).check_source_bytes(input.len())
+    // analyze, dump) from one place. Fall back to the post-read length if the
+    // file's metadata is unavailable.
+    let source_budget = wfl::exec::budget::ExecutionBudget::from_config(&config);
+    if let Ok(meta) = fs::metadata(&file_path)
+        && let Err(exceeded) = source_budget.check_source_bytes(meta.len() as usize)
     {
+        eprintln!("Error: {}", exceeded.message());
+        process::exit(2);
+    }
+
+    let input = fs::read_to_string(&file_path)?;
+    if let Err(exceeded) = source_budget.check_source_bytes(input.len()) {
         eprintln!("Error: {}", exceeded.message());
         process::exit(2);
     }

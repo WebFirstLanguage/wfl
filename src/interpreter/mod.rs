@@ -2188,24 +2188,51 @@ impl Interpreter {
         }
     }
 
-    /// Map a [`BudgetExceeded`] onto a `RuntimeError`, releasing interpreter
-    /// resources first (mirroring the historic timeout path, which cleared the
-    /// call stack and any active count loop before returning).
+    /// Map a [`BudgetExceeded`] onto a `RuntimeError`.
+    ///
+    /// The deadline keeps its historic `[Timeout]` kind (and verbatim message)
+    /// so existing timeout handling still matches; every other budget breach is
+    /// a resource-limit error.
+    ///
+    /// The deadline is terminal, so it force-releases the call stack exactly as
+    /// the historic timeout path did. A `ResourceLimit` (e.g. the recursion
+    /// ceiling) is **catchable** by `try`/`when`, so we must *not* clear the
+    /// stack: `call_function` pops each frame as the error unwinds, leaving the
+    /// depth counter (`call_stack.len()`) correct at the catch point. Clearing
+    /// here would drop the frames outside the `try` and make later depth checks
+    /// under-count.
     fn budget_error(&self, exceeded: BudgetExceeded, line: usize, column: usize) -> RuntimeError {
         if *self.in_count_loop.borrow() {
             *self.in_count_loop.borrow_mut() = false;
             *self.current_count.borrow_mut() = None;
         }
-        self.call_stack.borrow_mut().clear();
 
-        // The deadline keeps its historic `[Timeout]` kind (and verbatim
-        // message) so existing timeout handling still matches; every other
-        // budget breach is a resource-limit error.
         let kind = match exceeded {
-            BudgetExceeded::Deadline { .. } => ErrorKind::Timeout,
+            BudgetExceeded::Deadline { .. } => {
+                self.call_stack.borrow_mut().clear();
+                ErrorKind::Timeout
+            }
             _ => ErrorKind::ResourceLimit,
         };
         RuntimeError::with_kind(exceeded.message(), line, column, kind)
+    }
+
+    /// Enforce the shared source-size ceiling on a WFL file before it is read
+    /// into memory (`load module`, `include from`, `execute file`), so an
+    /// oversized nested source is refused without ever allocating for it — the
+    /// same guarantee the CLI gives the top-level file.
+    async fn enforce_source_size(
+        &self,
+        path: &std::path::Path,
+        line: usize,
+        column: usize,
+    ) -> Result<(), RuntimeError> {
+        if let Ok(meta) = tokio::fs::metadata(path).await
+            && let Err(exceeded) = self.budget.check_source_bytes(meta.len() as usize)
+        {
+            return Err(self.budget_error(exceeded, line, column));
+        }
+        Ok(())
     }
 
     fn assert_invariants(&self) {
@@ -3743,7 +3770,9 @@ impl Interpreter {
                     return Err(self.budget_error(exceeded, *line, *column));
                 }
 
-                // 4. Read file content
+                // 4. Read file content (source-size ceiling first)
+                self.enforce_source_size(&resolved_path, *line, *column)
+                    .await?;
                 let content = tokio::fs::read_to_string(&resolved_path)
                     .await
                     .map_err(|e| {
@@ -3910,7 +3939,9 @@ impl Interpreter {
                     return Err(self.budget_error(exceeded, *line, *column));
                 }
 
-                // 4. Read file content
+                // 4. Read file content (source-size ceiling first)
+                self.enforce_source_size(&resolved_path, *line, *column)
+                    .await?;
                 let content = tokio::fs::read_to_string(&resolved_path)
                     .await
                     .map_err(|e| {
@@ -6860,6 +6891,8 @@ impl Interpreter {
                 let resolved_path = tokio::fs::canonicalize(&joined)
                     .await
                     .map_err(map_io_error)?;
+                self.enforce_source_size(&resolved_path, *line, *column)
+                    .await?;
                 let content = tokio::fs::read_to_string(&resolved_path)
                     .await
                     .map_err(map_io_error)?;
@@ -6978,6 +7011,10 @@ impl Interpreter {
                 let mut child = Interpreter::with_config(Arc::clone(&self.config));
                 child.set_source_file(resolved_path.clone());
                 child.execute_depth = self.execute_depth + 1;
+                // Share the parent's budget so the deadline, operation ceiling,
+                // and cancellation span the whole run — otherwise splitting work
+                // across `execute file` calls would reset them and evade the cap.
+                child.budget = Arc::clone(&self.budget);
 
                 {
                     let mut child_env = child.global_env().borrow_mut();

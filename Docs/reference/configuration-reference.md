@@ -216,12 +216,12 @@ All keys currently loaded from config files, with defaults.
 | `web_socket_queue_bound` | integer ≥ 1 | `1024` | Max queued frames/events per WebSocket channel before shedding |
 | `web_socket_max_connections` | integer ≥ 1 | `1024` | Max simultaneous live WebSocket connections |
 
-### Execution budget (resource limits)
+### Execution budget keys (summary)
 
 A single [`ExecutionBudget`](#execution-budget-resource-limits) governs every
-resource ceiling as one coherent mechanism. These keys tune it. Each is chosen
-so ordinary programs never trip it while runaway behavior gets a clean,
-catchable error instead of a crash or unbounded memory growth.
+resource ceiling as one coherent mechanism. These keys tune it (detailed below).
+Each is chosen so ordinary programs never trip it while runaway behavior gets a
+clean, catchable error instead of a crash or unbounded memory growth.
 
 | Key | Type | Default | Purpose |
 |---|---|---|---|

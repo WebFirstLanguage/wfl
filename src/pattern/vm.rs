@@ -12,12 +12,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Translate a shared-budget breach into the pattern VM's error type.
+///
+/// The VM enforces the pattern step ceiling, the active-state ceiling, and
+/// cooperative cancellation; it does not sample the wall-clock deadline itself
+/// (a match is already bounded by the step ceiling). The catch-all maps any
+/// other breach to the historic step-limit error so existing ReDoS handling
+/// keeps matching.
 fn budget_to_pattern_error(exceeded: BudgetExceeded) -> PatternError {
     match exceeded {
         BudgetExceeded::PatternStates { .. } => PatternError::StateLimitExceeded,
         BudgetExceeded::Cancelled => PatternError::Cancelled,
-        // The step ceiling and any deadline both surface as the historic
-        // step-limit error so existing ReDoS handling keeps matching.
         _ => PatternError::StepLimitExceeded,
     }
 }
@@ -155,9 +159,9 @@ pub struct PatternVM {
 
 impl PatternVM {
     /// A standalone VM whose pattern ceilings match the historic ReDoS defaults
-    /// (`MAX_STEPS` = 100_000, plus an active-state cap). Used by
-    /// [`super::CompiledPattern`]'s convenience methods and stdlib pattern
-    /// builtins, which have no interpreter budget to share.
+    /// (the `max_pattern_steps` / `max_pattern_states` budget limits, 100_000 /
+    /// 10_000). Used by [`super::CompiledPattern`]'s convenience methods and
+    /// stdlib pattern builtins, which have no interpreter budget to share.
     pub fn new() -> Self {
         Self::with_budget(Arc::new(ExecutionBudget::unlimited()))
     }
@@ -264,6 +268,13 @@ impl PatternVM {
                 match self.step(program, text, state)? {
                     StepResult::Continue(new_states) => {
                         next_states.extend(new_states);
+                        // Fail fast on exponential state fan-out: check the cap
+                        // after each expansion rather than only once the whole
+                        // next generation is built, so a runaway step cannot
+                        // allocate far past the cap before it trips.
+                        self.budget
+                            .check_pattern_states(next_states.len())
+                            .map_err(budget_to_pattern_error)?;
                     }
                     StepResult::Match(_) => {
                         return Ok(true);
@@ -273,12 +284,6 @@ impl PatternVM {
                     }
                 }
             }
-
-            // Guard against exponential state fan-out: a pathological pattern
-            // can otherwise grow the active-state set without bound.
-            self.budget
-                .check_pattern_states(next_states.len())
-                .map_err(budget_to_pattern_error)?;
 
             states = next_states;
         }
@@ -315,6 +320,13 @@ impl PatternVM {
                 match self.step(program, text, state)? {
                     StepResult::Continue(new_states) => {
                         next_states.extend(new_states);
+                        // Fail fast on exponential state fan-out: check the cap
+                        // after each expansion rather than only once the whole
+                        // next generation is built, so a runaway step cannot
+                        // allocate far past the cap before it trips.
+                        self.budget
+                            .check_pattern_states(next_states.len())
+                            .map_err(budget_to_pattern_error)?;
                     }
                     StepResult::Match(final_state) => {
                         // Found a match, construct result with captures
@@ -346,11 +358,6 @@ impl PatternVM {
                     }
                 }
             }
-
-            // Guard against exponential state fan-out (see execute_at_position).
-            self.budget
-                .check_pattern_states(next_states.len())
-                .map_err(budget_to_pattern_error)?;
 
             states = next_states;
         }

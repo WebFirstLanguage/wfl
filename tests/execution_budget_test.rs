@@ -185,3 +185,92 @@ display recurse of 100
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn nested_execute_file_source_is_size_checked() {
+    // The source-size ceiling must cover nested sources, not only the top-level
+    // file: a small main file that `execute file`s an oversized source is
+    // refused when the nested file trips the cap.
+    let dir = tempfile::tempdir().expect("create temp dir");
+    // main.wfl fits under the cap; big.wfl does not.
+    fs::write(dir.path().join(".wflcfg"), "max_source_size = 400\n").expect("cfg");
+    let big = dir.path().join("big.wfl");
+    fs::write(&big, format!("// {}\ndisplay \"hi\"\n", "x".repeat(500))).expect("big");
+    let main = dir.path().join("program.wfl");
+    fs::write(
+        &main,
+        format!(
+            "execute file at \"{}\" and read output as out\n",
+            big.display()
+        ),
+    )
+    .expect("main");
+
+    let output = Command::new(test_helpers::get_wfl_binary_path())
+        .arg(&main)
+        .output()
+        .expect("run wfl");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("Source file too large"),
+        "nested execute-file source must be size-checked; got:\n{combined}"
+    );
+}
+
+#[test]
+fn execute_file_shares_the_parent_operation_budget() {
+    // The child interpreter created for `execute file` must share the parent's
+    // budget, so work cannot be split across executed files to evade the
+    // operation ceiling.
+    //
+    // Two runs pin the behavior without depending on an exact op count: a
+    // ~50-iteration loop costs on the order of ~125 operations, so under a
+    // 200-op ceiling the loop *alone* passes, but the loop plus an executed
+    // child that runs the same loop (~250 ops total) must fail — which only
+    // happens if the child shares the parent's budget rather than resetting it.
+    let dir = tempfile::tempdir().expect("create temp dir");
+    fs::write(dir.path().join(".wflcfg"), "max_operations = 200\n").expect("cfg");
+    let loop_body =
+        "store total as 0\ncount from 1 to 50:\n    change total to total plus 1\nend count\n";
+
+    let child = dir.path().join("child.wfl");
+    fs::write(&child, format!("{loop_body}display total\n")).expect("child");
+
+    let run = |name: &str, body: String| -> String {
+        let path = dir.path().join(name);
+        fs::write(&path, body).expect("write program");
+        let output = Command::new(test_helpers::get_wfl_binary_path())
+            .arg(&path)
+            .output()
+            .expect("run wfl");
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    };
+
+    // Anchor: the loop alone stays under the 200-op ceiling.
+    let alone = run("alone.wfl", format!("{loop_body}display total\n"));
+    assert!(
+        !alone.contains("operation budget"),
+        "the loop alone should stay under the ceiling; got:\n{alone}"
+    );
+
+    // The loop plus the executed child crosses the shared ceiling.
+    let combined = run(
+        "program.wfl",
+        format!(
+            "{loop_body}execute file at \"{}\" and read output as out\ndisplay out\n",
+            child.display()
+        ),
+    );
+    assert!(
+        combined.contains("operation budget"),
+        "the operation ceiling must span parent + executed child; got:\n{combined}"
+    );
+}

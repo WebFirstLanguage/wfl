@@ -136,6 +136,33 @@ ceiling above.
   `web_queue_bound_test`, `websocket_test`, `execute_file_test`, and the
   `TestPrograms/` integration run all pass.
 
+## Review follow-ups (automated PR review)
+
+Addressed in the same PR after the first round of automated review:
+
+- **Budget spans `execute file`.** The nested interpreter now clones the
+  parent's `Arc<ExecutionBudget>` instead of building a fresh one, so the
+  deadline, operation ceiling, and cancellation cover the whole run — work can't
+  be split across executed files to evade them. Regression test:
+  `execute_file_shares_the_parent_operation_budget`.
+- **Nested source sizes are checked.** `load module`, `include from`, and
+  `execute file` enforce `max_source_size` via file metadata *before* reading,
+  matching the top-level guarantee (which now also checks metadata pre-read).
+  Regression test: `nested_execute_file_source_is_size_checked`.
+- **Catchable errors keep the call stack.** `budget_error` only force-clears the
+  call stack for the terminal deadline; a `ResourceLimit` (e.g. the recursion
+  ceiling) is catchable by `try`/`when`, so the stack is left for
+  `call_function` to unwind frame-by-frame — otherwise the depth counter
+  (`call_stack.len()`) would under-count after a caught recursion error.
+- **Pattern state cap fails fast.** The active-state ceiling is now checked after
+  each expansion inside the step loop, not only once the whole next generation is
+  built, so a runaway step can't allocate far past the cap.
+- Doc/comment accuracy fixes: `PatternVM::new` no longer references the removed
+  `MAX_STEPS`; the VM error-mapping comment no longer implies it samples the
+  deadline; the CLI comment says "same config", not "same budget instance"; and
+  the duplicate "Execution budget (resource limits)" doc heading was renamed so
+  the anchor stays unique.
+
 ## Notes / Follow-ups
 
 - Stdlib pattern builtins (`pattern_replace`, `pattern_split`, and the
@@ -143,6 +170,13 @@ ceiling above.
   ceilings, because native-function signatures have no interpreter handle. A
   future refactor could thread the run budget through them for deadline
   awareness; the ReDoS/state protection is already in place.
+- `CompiledPattern::find`/`find_all`/`matches` still fold a VM error (step/state
+  ceiling *or* cancellation) into "no match" rather than propagating it — the
+  pre-existing swallow-`Err` contract. The DoS protection still holds (matching
+  halts), and nothing triggers `budget.cancel()` in the current CLI flow, so a
+  cancelled pattern reporting "no match" is latent. Surfacing it would mean
+  changing those methods' return types (rippling through stdlib and the
+  interpreter's pattern arms) and is left as a follow-up.
 - The outbound `reqwest` client still has no per-request timeout or in-flight
   cap; that is a separate audit item (the budget's `max_pending_requests`
   covers the *inbound* accepted-request queue).
