@@ -276,7 +276,7 @@ impl TypeChecker {
             // during type checking (via the current-thread budget), so a large
             // program's type-check phase can be aborted rather than only measured.
             if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
-                && let Err(exceeded) = budget.charge_operation(true)
+                && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
             {
                 self.errors
                     .push(TypeError::new(exceeded.message(), None, None, 0, 0));

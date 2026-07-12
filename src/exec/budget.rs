@@ -337,12 +337,16 @@ pub struct ExecutionBudget {
     /// `limits.max_ws_queued_bytes`; each queued frame holds a [`WsBytePermit`]
     /// that releases its bytes when the frame is consumed or shed.
     ws_queued_bytes: AtomicUsize,
-    /// Whether the wall-clock deadline is currently *exempt* — set by the
-    /// interpreter while executing inside a `main loop` (a long-lived server
-    /// must not time out on its own uptime). Pattern matching reads this so a
-    /// match launched from within a `main loop` uses the same exemption as
-    /// ordinary operations (see [`ExecutionBudget::charge_operation`]).
-    deadline_exempt: AtomicBool,
+    /// Number of `main loop`s currently active (a *depth*, not a flag). The
+    /// wall-clock deadline is exempt while this is `> 0` — a long-lived server
+    /// must not time out on its own uptime. A **depth counter** (rather than a
+    /// bool) makes the exemption nestable and correct under `execute file`: a
+    /// child interpreter that shares this budget inherits the parent's active
+    /// main loop, and an [`MainLoopGuard`] restores the depth on *every* exit,
+    /// including a caught error. Pattern matching reads this live so a match
+    /// launched inside a `main loop` gets the same exemption as ordinary
+    /// operations (see [`ExecutionBudget::charge_operation`]).
+    main_loop_depth: AtomicUsize,
 }
 
 // NOTE: per-match pattern accounting (transitions + active states) lives on a
@@ -363,7 +367,7 @@ impl ExecutionBudget {
             pending_requests: AtomicUsize::new(0),
             ws_connections: AtomicUsize::new(0),
             ws_queued_bytes: AtomicUsize::new(0),
-            deadline_exempt: AtomicBool::new(false),
+            main_loop_depth: AtomicUsize::new(0),
         }
     }
 
@@ -411,17 +415,29 @@ impl ExecutionBudget {
         }
     }
 
-    /// Mark (or clear) the wall-clock deadline as exempt for the current region.
-    /// The interpreter sets this while executing inside a `main loop` so a
-    /// long-lived server is not killed by its own uptime; pattern matching reads
-    /// it to apply the same exemption ordinary operations get.
-    pub fn set_deadline_exempt(&self, exempt: bool) {
-        self.deadline_exempt.store(exempt, Ordering::Relaxed);
+    /// Enter a `main loop`: bump the main-loop depth and return an
+    /// [`MainLoopGuard`] that restores it on drop — on *every* exit path,
+    /// including a caught error or a nested loop, so the wall-clock exemption is
+    /// never leaked or cleared early. While the depth is `> 0` the deadline is
+    /// exempt (a long-lived server must not time out on its own uptime).
+    pub fn enter_main_loop(self: &Arc<Self>) -> MainLoopGuard {
+        self.main_loop_depth.fetch_add(1, Ordering::AcqRel);
+        MainLoopGuard {
+            budget: Arc::clone(self),
+        }
     }
 
-    /// Whether the wall-clock deadline is currently exempt (inside a `main loop`).
+    /// Whether the wall-clock deadline is currently exempt — i.e. at least one
+    /// `main loop` is active on this (shared) budget. Read live, so a match or
+    /// operation launched inside a `main loop` is exempt and one launched after
+    /// it exits is not.
     pub fn is_deadline_exempt(&self) -> bool {
-        self.deadline_exempt.load(Ordering::Relaxed)
+        self.main_loop_depth.load(Ordering::Acquire) > 0
+    }
+
+    /// The number of `main loop`s currently active on this budget.
+    pub fn main_loop_depth(&self) -> usize {
+        self.main_loop_depth.load(Ordering::Acquire)
     }
 
     /// Fail if the wall-clock deadline has elapsed. Reads the clock every call;
@@ -845,6 +861,23 @@ impl Drop for WsBytePermit {
     }
 }
 
+/// RAII marker for one active `main loop`; decrements the shared main-loop depth
+/// on drop. Because it restores on *every* exit — normal, early `return`, a
+/// caught error unwinding through the loop, or a nested loop — the wall-clock
+/// exemption can never leak past the loop or be cleared while an outer loop is
+/// still active.
+#[derive(Debug)]
+#[must_use]
+pub struct MainLoopGuard {
+    budget: Arc<ExecutionBudget>,
+}
+
+impl Drop for MainLoopGuard {
+    fn drop(&mut self) {
+        self.budget.main_loop_depth.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// Per-top-level-match pattern metering.
 ///
 /// A fresh `PatternMeter` is created for each top-level pattern operation
@@ -866,21 +899,15 @@ pub struct PatternMeter {
     /// State slots reserved live across every frontier (current + next
     /// generation + any suspended nested lookaround/lookbehind frontiers).
     active_states: AtomicUsize,
-    /// Whether this match samples the wall-clock deadline. Captured at creation
-    /// from [`ExecutionBudget::is_deadline_exempt`] so a match launched inside a
-    /// `main loop` is exempt exactly like ordinary operations.
-    enforce_deadline: bool,
 }
 
 impl PatternMeter {
     /// A fresh per-match meter bound to `budget`.
     pub fn new(budget: Arc<ExecutionBudget>) -> Arc<Self> {
-        let enforce_deadline = !budget.is_deadline_exempt();
         Arc::new(Self {
             budget,
             steps: AtomicU64::new(0),
             active_states: AtomicUsize::new(0),
-            enforce_deadline,
         })
     }
 
@@ -904,6 +931,12 @@ impl PatternMeter {
     /// single synchronous match cannot run past `timeout_seconds`. A deadline
     /// breach surfaces as [`BudgetExceeded::Deadline`] (a timeout), not a step
     /// limit.
+    ///
+    /// The deadline exemption is read **live** from the shared budget's
+    /// main-loop depth on each sampled stride (not snapshotted at construction),
+    /// so reusing one `PatternVM` across a `main loop` boundary is always correct
+    /// — a match that enters a `main loop` region stops enforcing the deadline
+    /// and one that leaves it resumes enforcing.
     pub fn charge_step(&self) -> Result<(), BudgetExceeded> {
         let n = self.steps.fetch_add(1, Ordering::Relaxed);
         if n >= self.budget.limits.max_pattern_steps as u64 {
@@ -915,7 +948,7 @@ impl PatternMeter {
             if self.budget.cancelled.load(Ordering::Relaxed) {
                 return Err(BudgetExceeded::Cancelled);
             }
-            if self.enforce_deadline
+            if !self.budget.is_deadline_exempt()
                 && let Some(limit) = self.budget.limits.max_duration
                 && self.budget.started.elapsed() > limit
             {
@@ -1146,21 +1179,46 @@ mod tests {
     }
 
     #[test]
-    fn pattern_meter_deadline_exemption_follows_budget() {
+    fn pattern_meter_deadline_exemption_is_read_live() {
         let mut limits = tiny_limits();
         limits.max_duration = Some(Duration::from_secs(0));
         let budget = Arc::new(ExecutionBudget::new(limits));
+        // ONE meter reused across a main-loop boundary (the VM-reuse case);
+        // `reset()` runs per top-level op, so each op's first charge (index 0) is
+        // a sample point.
+        let meter = PatternMeter::new(Arc::clone(&budget));
         // Exempt (inside a `main loop`): a zero-second deadline is not enforced.
-        budget.set_deadline_exempt(true);
-        let exempt = PatternMeter::new(Arc::clone(&budget));
-        assert!(exempt.charge_step().is_ok());
-        // Not exempt: the elapsed zero-second deadline trips as a timeout.
-        budget.set_deadline_exempt(false);
-        let enforced = PatternMeter::new(Arc::clone(&budget));
+        let guard = budget.enter_main_loop();
+        assert!(budget.is_deadline_exempt());
+        meter.reset();
+        assert!(meter.charge_step().is_ok());
+        // Leaving the main loop: the same meter now enforces the elapsed
+        // deadline (the exemption is read live, not snapshotted at creation).
+        drop(guard);
+        assert!(!budget.is_deadline_exempt());
+        meter.reset();
         assert_eq!(
-            enforced.charge_step(),
+            meter.charge_step(),
             Err(BudgetExceeded::Deadline { limit_secs: 0 })
         );
+    }
+
+    #[test]
+    fn main_loop_guard_nests_and_restores_on_drop() {
+        let budget = Arc::new(ExecutionBudget::new(tiny_limits()));
+        assert!(!budget.is_deadline_exempt());
+        let outer = budget.enter_main_loop();
+        assert_eq!(budget.main_loop_depth(), 1);
+        {
+            let _inner = budget.enter_main_loop();
+            assert_eq!(budget.main_loop_depth(), 2);
+        }
+        // Inner dropped: still exempt because the outer loop is active.
+        assert_eq!(budget.main_loop_depth(), 1);
+        assert!(budget.is_deadline_exempt());
+        drop(outer);
+        assert_eq!(budget.main_loop_depth(), 0);
+        assert!(!budget.is_deadline_exempt());
     }
 
     #[test]

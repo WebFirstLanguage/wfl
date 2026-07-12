@@ -961,7 +961,15 @@ pub struct Interpreter {
     global_env: Rc<RefCell<Environment>>,
     current_count: RefCell<Option<f64>>,
     in_count_loop: RefCell<bool>,
-    in_main_loop: RefCell<bool>, // Track if we're in a main loop (disables timeout)
+    // Main-loop state (deadline exemption) now lives on the shared budget as a
+    // depth counter with an RAII guard (see `ExecutionBudget::enter_main_loop`),
+    // so it restores on every exit and nests correctly across `execute file`.
+    /// Monotonic per-statement counter driving the cooperative-yield stride.
+    /// Increments on every executed statement regardless of the deadline
+    /// exemption (unlike the operation counter, which a `main loop` skips), so a
+    /// CPU-bound `main loop` body still yields to the runtime and lets a
+    /// `select!` deliver cooperative cancellation (the REPL's Ctrl-C).
+    sched_counter: Cell<u64>,
     /// The single shared execution budget: deadline/cancellation, operation
     /// ceiling, recursion/import/execute-file depth, pattern steps/states, byte
     /// caps, pending-request and WebSocket limits. Held behind `Arc` so the
@@ -2046,7 +2054,7 @@ impl Interpreter {
             global_env,
             current_count: RefCell::new(None),
             in_count_loop: RefCell::new(false),
-            in_main_loop: RefCell::new(false),
+            sched_counter: Cell::new(0),
             budget,
             call_stack: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
@@ -2450,21 +2458,15 @@ impl Interpreter {
     /// be stopped. Clock reads stay throttled to one per 1024 operations inside
     /// the budget, matching the previous `op_count & 1023` optimization.
     fn check_time(&self) -> Result<(), RuntimeError> {
-        let enforce_limits = !*self.in_main_loop.borrow();
+        // Deadline/operation-ceiling exemption is driven by the shared budget's
+        // main-loop depth (see `ExecutionBudget::enter_main_loop`): exempt while
+        // any `main loop` is active on this run, so a long-lived server never
+        // times out on its own uptime; cancellation still applies everywhere.
+        let enforce_limits = !self.budget.is_deadline_exempt();
         match self.budget.charge_operation(enforce_limits) {
             Ok(()) => Ok(()),
             Err(exceeded) => Err(self.budget_error(exceeded, 0, 0)),
         }
-    }
-
-    /// Enter or leave the `main loop` deadline exemption. Keeps the interpreter
-    /// flag and the shared budget's `deadline_exempt` in lockstep so pattern
-    /// matching launched from inside a `main loop` gets the same wall-clock
-    /// exemption as ordinary operations (a long-lived server must not time out
-    /// on its own uptime), while cancellation still applies everywhere.
-    fn set_in_main_loop(&self, in_main_loop: bool) {
-        *self.in_main_loop.borrow_mut() = in_main_loop;
-        self.budget.set_deadline_exempt(in_main_loop);
     }
 
     /// Map a [`BudgetExceeded`] onto a `RuntimeError`.
@@ -2608,9 +2610,11 @@ impl Interpreter {
         // accounting spans the execute-file boundary instead of granting the
         // child a fresh full allowance.
         self.call_depth.set(self.base_call_depth);
-        // Clear any stale `main loop` deadline exemption (and its budget flag)
-        // left by a prior run that unwound mid-loop, so this run starts enforced.
-        self.set_in_main_loop(false);
+        // NOTE: do NOT touch the shared budget's main-loop depth here. It is
+        // managed entirely by the RAII `MainLoopGuard`, so it never leaks (a
+        // mid-loop unwind drops the guard); and for an `execute file` child that
+        // shares the parent's budget, clearing it would wrongly cancel the
+        // parent's still-active main-loop exemption.
         self.assert_invariants();
         self.call_stack.borrow_mut().clear();
 
@@ -2870,11 +2874,13 @@ impl Interpreter {
         // Cooperatively yield to the async runtime on a throttled stride so a
         // tight CPU-bound loop periodically returns control to the executor,
         // letting a `select!` deliver cooperative cancellation (e.g. the REPL's
-        // Ctrl-C → `budget.cancel()`). Skipped inside a `main loop`, whose body
-        // already awaits real work and whose operation counter is exempt.
-        if !*self.in_main_loop.borrow()
-            && self.budget.operations_charged() & (COOP_YIELD_STRIDE - 1) == 0
-        {
+        // Ctrl-C → `budget.cancel()`). Driven by a dedicated per-statement
+        // counter that advances even inside a `main loop` (whose operation
+        // counter is exempt and whose body is not guaranteed to await anything
+        // that returns `Pending`), so a CPU-only main loop still yields.
+        let sched = self.sched_counter.get().wrapping_add(1);
+        self.sched_counter.set(sched);
+        if sched & (COOP_YIELD_STRIDE - 1) == 0 {
             tokio::task::yield_now().await;
         }
 
@@ -3564,15 +3570,19 @@ impl Interpreter {
                 #[cfg(debug_assertions)]
                 exec_trace!("Executing main loop (timeout disabled)");
 
-                // Set the main loop flag to disable timeout (and exempt pattern
-                // matching launched inside the loop from the wall-clock deadline)
-                self.set_in_main_loop(true);
+                // Enter the main loop's deadline exemption via an RAII guard on
+                // the shared budget. The guard restores the depth on EVERY exit —
+                // a normal end, an early `return` below, a caught error unwinding
+                // through `?`, or a nested main loop — so the exemption is never
+                // leaked or cleared while an outer loop is still active. A child
+                // `execute file` sharing this budget inherits the exemption too.
+                let _main_loop_guard = self.budget.enter_main_loop();
 
                 let mut _last_value = Value::Null;
                 let mut loop_env_recycle = None;
 
                 loop {
-                    // Note: check_time() will skip timeout check when in_main_loop is true
+                    // check_time() skips the deadline while the main-loop depth > 0
                     self.check_time()?;
 
                     // OPTIMIZATION: Recycle environment if possible
@@ -3597,22 +3607,19 @@ impl Interpreter {
                         ControlFlow::Exit => {
                             #[cfg(debug_assertions)]
                             exec_trace!("Exiting from main loop");
-                            self.set_in_main_loop(false);
+                            // `_main_loop_guard` drops here, restoring the depth.
                             return Ok((_last_value, ControlFlow::Exit));
                         }
                         ControlFlow::Return(val) => {
                             #[cfg(debug_assertions)]
                             exec_trace!("Returning from main loop with value: {:?}", val);
-                            self.set_in_main_loop(false);
                             return Ok((val.clone(), ControlFlow::Return(val)));
                         }
                         ControlFlow::None => {}
                     }
                 }
 
-                // Reset the main loop flag when exiting normally
-                self.set_in_main_loop(false);
-
+                // `_main_loop_guard` drops here on normal exit.
                 Ok((_last_value, ControlFlow::None))
             }
 
@@ -7569,13 +7576,11 @@ impl Interpreter {
                 let capture_buffer = variable_name
                     .as_ref()
                     .map(|_| Rc::new(RefCell::new(String::new())));
-                // The child shares this budget, and its `interpret()` resets the
-                // shared `deadline_exempt` flag to `false`. Save the parent's
-                // exemption so we can restore it after the child returns —
-                // otherwise a parent still inside its own `main loop` would start
-                // enforcing the wall-clock deadline on pattern matches again (and
-                // could time out spuriously) once control comes back.
-                let saved_deadline_exempt = self.budget.is_deadline_exempt();
+                // The child shares this budget, so the parent's active main-loop
+                // exemption (a depth counter, not a flag) naturally covers the
+                // child and the nested front end — `execute file` from inside a
+                // server's `main loop` handler inherits the exemption instead of
+                // spuriously timing out, and the RAII guard needs no save/restore.
                 let run_result = {
                     let _guard = capture_buffer
                         .as_ref()
@@ -7584,7 +7589,6 @@ impl Interpreter {
                     // full nested interpret), keeping the future finitely sized
                     Box::pin(child.interpret(&program)).await
                 };
-                self.budget.set_deadline_exempt(saved_deadline_exempt);
 
                 if let Err(errors) = run_result {
                     let first = errors.into_iter().next().unwrap_or_else(|| {

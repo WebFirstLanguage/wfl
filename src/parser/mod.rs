@@ -54,7 +54,7 @@ impl<'a> Parser<'a> {
             // parsing — not merely measured for later interpretation — and a
             // pathological or oversized parse can be aborted cleanly.
             if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
-                && let Err(exceeded) = budget.charge_operation(true)
+                && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
                 && let Some(token) = self.cursor.peek()
             {
                 // `peek()` is `Some` here (the loop condition), so a position is

@@ -395,7 +395,7 @@ impl StaticAnalyzer for Analyzer {
         // that has already blown its deadline during parsing/lexing is refused
         // here instead of proceeding — `--analyze` consults the budget too.
         if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
-            && let Err(exceeded) = budget.charge_operation(true)
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
         {
             diagnostics.push(WflDiagnostic::error(exceeded.message()));
             return diagnostics;
