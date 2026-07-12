@@ -76,7 +76,7 @@ use warp::Filter;
 const COOP_YIELD_STRIDE: u64 = 1024;
 
 // Web server data structures
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WflHttpRequest {
     pub id: String,
     pub method: String,
@@ -92,6 +92,12 @@ pub struct WflHttpRequest {
     pub body: Vec<u8>,
     pub headers: HashMap<String, String>,
     pub response_sender: Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>,
+    /// The global in-flight admission slot, carried *with* the queued request so
+    /// its body counts against the pending ceiling until the interpreter
+    /// dequeues (and drops) it — not merely until the route future ends. On a
+    /// timeout the route future returns, but this keeps the still-queued body
+    /// accounted so a stale-full listener cannot hide queued bodies from the cap.
+    _admission: Option<crate::exec::budget::RequestGuard>,
 }
 
 #[derive(Debug, Clone)]
@@ -161,6 +167,18 @@ pub struct WflWebServer {
     pub request_receiver: Arc<tokio::sync::Mutex<mpsc::Receiver<WflHttpRequest>>>,
     pub request_sender: mpsc::Sender<WflHttpRequest>,
     pub server_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for WflWebServer {
+    fn drop(&mut self) {
+        // Safety net for every non-`close server` teardown (interpreter drop, map
+        // replacement, a caught setup error): abort the accept task so a bound
+        // listener is never orphaned. `close server` moves `server_handle` out
+        // first, so this does not double-abort.
+        if let Some(handle) = self.server_handle.take() {
+            handle.abort();
+        }
+    }
 }
 
 /// Build the 503 response returned when the transport→interpreter request queue
@@ -344,6 +362,19 @@ struct WflWebSocketServer {
     close_tx: tokio::sync::watch::Sender<bool>,
 }
 
+impl Drop for WflWebSocketServer {
+    fn drop(&mut self) {
+        // Safety net for every non-`close server` teardown (interpreter drop, map
+        // replacement, a caught setup error): wake connections and abort the
+        // accept task so a bound listener is never orphaned. `close server` moves
+        // `server_handle` out first, so this does not double-abort.
+        let _ = self.close_tx.send(true);
+        if let Some(handle) = self.server_handle.take() {
+            handle.abort();
+        }
+    }
+}
+
 /// Drives one upgraded WebSocket connection: registers its outbound channel,
 /// emits connect/message/disconnect events, and forwards queued frames to the
 /// socket. Runs as an independent tokio task per connection.
@@ -392,6 +423,12 @@ async fn handle_ws_connection(
         ids.push(conn_id.clone());
     }
 
+    // The connect event MUST be delivered before this socket is allowed to emit
+    // messages: it runs the `on websocket connect` handler (app init/auth). If it
+    // cannot be admitted (queue full or closed), fail closed — unregister the
+    // connection and close the socket — rather than leaving a live socket whose
+    // connect handler never ran but which could still emit Message events once
+    // the queue drains.
     if let Err(err) = events.try_send(WflWsEvent {
         kind: WsEventKind::Connect,
         connection_id: conn_id.clone(),
@@ -399,7 +436,18 @@ async fn handle_ws_connection(
         content: None,
         _permit: None,
     }) {
-        log::warn!("WebSocket event queue full; dropping connect event for {conn_id}: {err}");
+        log::warn!(
+            "WebSocket connect event for {conn_id} could not be admitted ({err}); closing the connection"
+        );
+        if let Ok(mut map) = connections.lock() {
+            map.remove(&conn_id);
+        }
+        if let Ok(mut ids) = connection_ids.lock() {
+            ids.retain(|c| c != &conn_id);
+        }
+        let _ = ws_tx.send(warp::ws::Message::close()).await;
+        let _ = ws_tx.flush().await;
+        return; // `_conn_guard` drops here, releasing the connection slot.
     }
 
     // Writer task: drains queued frames to the socket until an explicit close,
@@ -5912,13 +5960,13 @@ impl Interpreter {
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
                             async move {
-                                // `guard` is held for the whole handler future:
-                                // the in-flight slot is released when this future
-                                // completes (response, timeout, or client
-                                // disconnect drops the future), so a
-                                // dequeued-but-unanswered request can no longer
-                                // leak the slot.
-                                let _guard = guard;
+                                // `guard` stays alive as a local until it is moved
+                                // *into* the queued `WflHttpRequest` on enqueue, so
+                                // the in-flight slot is held during the body read
+                                // and then travels with the queued body until the
+                                // interpreter dequeues/drops it. On any early
+                                // return before enqueue (408/413/Io) the local
+                                // drops here and releases the slot.
 
                                 // One deadline for the whole accepted-request
                                 // lifetime (body read + handler response), set at
@@ -5981,7 +6029,9 @@ impl Interpreter {
                                 let (response_sender, response_receiver) =
                                     oneshot::channel::<WflHttpResponse>();
 
-                                // Create WFL request
+                                // Create WFL request, moving the admission guard
+                                // in so the in-flight slot travels with the queued
+                                // body until the interpreter dequeues/drops it.
                                 let wfl_request = WflHttpRequest {
                                     id: request_id,
                                     method: method.to_string(),
@@ -5993,6 +6043,7 @@ impl Interpreter {
                                     response_sender: Arc::new(tokio::sync::Mutex::new(Some(
                                         response_sender,
                                     ))),
+                                    _admission: Some(guard),
                                 };
 
                                 // Send request to WFL interpreter. The queue is
@@ -6925,7 +6976,7 @@ impl Interpreter {
                     && name.starts_with("WebSocketServer::")
                 {
                     let key = name.to_string();
-                    if let Some(ws_server) = self.web_socket_servers.borrow_mut().remove(&key) {
+                    if let Some(mut ws_server) = self.web_socket_servers.borrow_mut().remove(&key) {
                         // Wake every live connection's reader so it stops waiting
                         // on the peer and tears down (releasing its slot), even if
                         // the peer never answers the close handshake.
@@ -6942,7 +6993,7 @@ impl Interpreter {
                                 }
                             }
                         }
-                        if let Some(handle) = ws_server.server_handle {
+                        if let Some(handle) = ws_server.server_handle.take() {
                             // Give queued close frames a moment to flush before
                             // the accept task is torn down.
                             tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
@@ -7004,10 +7055,10 @@ impl Interpreter {
 
                 // Close the server
                 let mut web_servers = self.web_servers.borrow_mut();
-                if let Some(wfl_server) = web_servers.remove(&server_name) {
+                if let Some(mut wfl_server) = web_servers.remove(&server_name) {
                     // Graceful shutdown: Give in-flight responses time to complete transmission
                     // before forcefully aborting the server task
-                    if let Some(handle) = wfl_server.server_handle {
+                    if let Some(handle) = wfl_server.server_handle.take() {
                         // Allow 50ms for pending HTTP responses to be transmitted
                         // This prevents race condition where abort() closes the TCP connection
                         // before response bytes reach the client, causing IncompleteMessage errors
@@ -7062,6 +7113,12 @@ impl Interpreter {
                 let budget_task = Arc::clone(&self.budget);
                 let close_rx_task = close_rx.clone();
 
+                // Cap the transport's own message/frame assembly at the budget's
+                // per-message limit *before* upgrade, so a fragmented text frame
+                // or an ignored binary frame cannot allocate up to Tungstenite's
+                // independent defaults on the receive side. The queued-byte permit
+                // in the reader loop is then the second (global) layer.
+                let max_ws_message = self.budget.max_ws_message_bytes();
                 let route = warp::ws().and(warp::addr::remote()).map(
                     move |ws: warp::ws::Ws, remote: Option<std::net::SocketAddr>| {
                         let events = event_sender_task.clone();
@@ -7069,17 +7126,19 @@ impl Interpreter {
                         let ids = Arc::clone(&connection_ids_task);
                         let budget = Arc::clone(&budget_task);
                         let cancel = close_rx_task.clone();
-                        ws.on_upgrade(move |socket| {
-                            handle_ws_connection(
-                                socket,
-                                remote,
-                                events,
-                                connections,
-                                ids,
-                                budget,
-                                cancel,
-                            )
-                        })
+                        ws.max_message_size(max_ws_message)
+                            .max_frame_size(max_ws_message)
+                            .on_upgrade(move |socket| {
+                                handle_ws_connection(
+                                    socket,
+                                    remote,
+                                    events,
+                                    connections,
+                                    ids,
+                                    budget,
+                                    cancel,
+                                )
+                            })
                     },
                 );
 
@@ -7173,7 +7232,8 @@ impl Interpreter {
                 column,
             } => {
                 let message_val = self.evaluate_expression(message, Rc::clone(&env)).await?;
-                let text = Self::ws_message_text(&message_val, *line, *column)?;
+                // Measure the payload from the borrowed value first (no clone).
+                let msg_len = Self::ws_message_byte_len(&message_val, *line, *column)?;
 
                 let target_val = self.evaluate_expression(target, Rc::clone(&env)).await?;
                 let conn_id = Self::ws_connection_id(&target_val, *line, *column)?;
@@ -7186,12 +7246,12 @@ impl Interpreter {
 
                 match sender {
                     Some(tx) => {
-                        // Bound the outbound frame: reject oversized payloads and
-                        // reserve its bytes against the global queued-byte budget
-                        // (released when the writer sends or sheds it), so the
-                        // per-connection queue holds bounded memory.
-                        match self.budget.try_reserve_ws_bytes(text.len()) {
+                        // Reserve the frame's bytes against the per-message and
+                        // global queued-byte budget *before* materializing the
+                        // payload, so an oversized value is never cloned first.
+                        match self.budget.try_reserve_ws_bytes(msg_len) {
                             Some(permit) => {
+                                let text = Self::ws_message_text(&message_val, *line, *column)?;
                                 // A closed writer task is indistinguishable from a
                                 // live one here; a dropped frame simply means the
                                 // peer left (or the bounded queue is saturated).
@@ -7206,8 +7266,7 @@ impl Interpreter {
                             }
                             None => {
                                 log::warn!(
-                                    "WebSocket outbound frame for {conn_id} ({} bytes) exceeds the per-message or global queued-byte limit; dropping frame",
-                                    text.len()
+                                    "WebSocket outbound frame for {conn_id} ({msg_len} bytes) exceeds the per-message or global queued-byte limit; dropping frame"
                                 );
                             }
                         }
@@ -7227,6 +7286,15 @@ impl Interpreter {
                 column,
             } => {
                 let message_val = self.evaluate_expression(message, Rc::clone(&env)).await?;
+                // Measure first; reject an oversized broadcast payload before it
+                // is materialized (and then cloned per recipient).
+                let msg_len = Self::ws_message_byte_len(&message_val, *line, *column)?;
+                if msg_len > self.budget.max_ws_message_bytes() {
+                    log::warn!(
+                        "WebSocket broadcast payload ({msg_len} bytes) exceeds the per-message limit; dropping broadcast"
+                    );
+                    return Ok((Value::Null, ControlFlow::None));
+                }
                 let text = Self::ws_message_text(&message_val, *line, *column)?;
 
                 let server_key = self
@@ -7249,9 +7317,9 @@ impl Interpreter {
                     for id in ids {
                         if let Some(tx) = map.get(&id) {
                             // Reserve each recipient's copy against the global
-                            // queued-byte budget; shed oversized/over-budget
-                            // frames rather than buffering them without bound.
-                            match self.budget.try_reserve_ws_bytes(text.len()) {
+                            // queued-byte budget; shed over-budget frames rather
+                            // than buffering them without bound.
+                            match self.budget.try_reserve_ws_bytes(msg_len) {
                                 Some(permit) => {
                                     if let Err(err) = tx.try_send(WsOutbound::Text {
                                         text: text.clone(),
@@ -7264,8 +7332,7 @@ impl Interpreter {
                                 }
                                 None => {
                                     log::warn!(
-                                        "WebSocket broadcast frame for {id} ({} bytes) exceeds the per-message or global queued-byte limit; dropping frame",
-                                        text.len()
+                                        "WebSocket broadcast frame for {id} ({msg_len} bytes) exceeds the global queued-byte limit; dropping frame"
                                     );
                                 }
                             }
@@ -8055,6 +8122,26 @@ impl Interpreter {
                 line,
                 column,
             )),
+        }
+    }
+
+    /// The byte length a `send`/`broadcast` value would serialize to, computed
+    /// from the *borrowed* value — for `Value::Text` (`Arc<str>`) this is
+    /// `t.len()` with no allocation. Lets the queued-byte permit be reserved
+    /// (and an oversized message rejected) *before* the payload is cloned into a
+    /// `String`, so an oversized runtime value is never fully duplicated first.
+    fn ws_message_byte_len(
+        value: &Value,
+        line: usize,
+        column: usize,
+    ) -> Result<usize, RuntimeError> {
+        match value {
+            Value::Text(t) => Ok(t.len()),
+            // Small, bounded scalars — measuring == materializing cost.
+            Value::Number(n) => Ok(format!("{n}").len()),
+            Value::Bool(b) => Ok(if *b { 3 } else { 2 }),
+            // Reuse `ws_message_text`'s errors for the unsupported cases.
+            _ => Self::ws_message_text(value, line, column).map(|s| s.len()),
         }
     }
 
