@@ -106,7 +106,19 @@ pub fn lex_wfl(input: &str) -> Vec<Token> {
     tokens
 }
 
-pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
+/// Tokenize `input` (with positions), consulting `checkpoint` every
+/// [`LEX_CHECKPOINT_STRIDE`] tokens. The checkpoint returns `Err(BudgetExceeded)`
+/// to abort tokenization with a typed, fatal outcome — the lexer never returns a
+/// silently truncated token stream as a success. The two public entry points
+/// below supply either a no-op checkpoint (non-budgeted callers: the LSP,
+/// tooling, and tests) or a budget-enforcing one (production execution paths).
+fn lex_positions_core<F>(
+    input: &str,
+    mut checkpoint: F,
+) -> Result<Vec<TokenWithPosition>, crate::exec::budget::BudgetExceeded>
+where
+    F: FnMut() -> Result<(), crate::exec::budget::BudgetExceeded>,
+{
     // Bolt: We no longer normalize line endings globally to avoid allocation.
     // Token::Newline now matches \r\n, \n, and \r.
     let mut lexer = Token::lexer(input);
@@ -135,19 +147,13 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
     let mut lexed_tokens: u64 = 0;
 
     while let Some(token_result) = lexer.next() {
-        // Every `LEX_CHECKPOINT_STRIDE` tokens, consult the run budget and stop
-        // tokenizing cooperatively on a deadline / cancellation / operation
-        // breach. The lexer returns `Vec` (no `Result`), so this returns the
-        // tokens gathered so far; the truncated stream then trips the parser's
-        // (and analyzer/type-checker's) checkpoints, which surface the breach.
+        // Every `LEX_CHECKPOINT_STRIDE` tokens, consult the checkpoint. On a
+        // budget breach it returns `Err`, and `?` aborts tokenization with a
+        // typed, fatal outcome — the lexer never returns a truncated stream as a
+        // success that a later phase could mistake for a complete program.
         lexed_tokens = lexed_tokens.wrapping_add(1);
-        if lexed_tokens & (LEX_CHECKPOINT_STRIDE - 1) == 0
-            && let Some(budget) = crate::exec::budget::ExecutionBudget::current()
-            && budget
-                .charge_operation(!budget.is_deadline_exempt())
-                .is_err()
-        {
-            break;
+        if lexed_tokens & (LEX_CHECKPOINT_STRIDE - 1) == 0 {
+            checkpoint()?;
         }
         let span = lexer.span();
 
@@ -362,5 +368,51 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
             current_id_byte_end,
         ));
     }
-    tokens
+    Ok(tokens)
+}
+
+/// Tokenize `input` **without** budget enforcement. Used by the LSP, tooling,
+/// and tests that run outside a run budget. Its checkpoint is a no-op, so it
+/// never truncates and cannot fail — the silent-truncation footgun that a
+/// budget breach used to create in this path no longer exists here.
+pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
+    match lex_positions_core(input, || Ok(())) {
+        Ok(tokens) => tokens,
+        // The no-op checkpoint never returns `Err`, so this arm is unreachable.
+        Err(_) => unreachable!("the no-op lexer checkpoint never breaches the budget"),
+    }
+}
+
+/// Tokenize `input` under the current [`crate::exec::budget::ExecutionBudget`],
+/// returning a typed [`crate::exec::budget::BudgetExceeded`] on a deadline /
+/// cancellation / operation-ceiling breach instead of a silently truncated
+/// token stream. Production execution paths (the CLI run and `--lex`, nested
+/// `execute file` / `include` / `load module` loading, and the REPL) use this
+/// and propagate the error, so a breach can never let a source *prefix* be
+/// parsed, analyzed, or executed as if it were the whole program.
+///
+/// At each stride the deadline and cancellation are checked **directly** — not
+/// through `charge_operation`'s 1024-operation sampling, which (nested inside
+/// the 4096-token stride) could postpone those checks by millions of tokens —
+/// and the operation ceiling is charged separately.
+pub fn lex_wfl_with_positions_checked(
+    input: &str,
+) -> Result<Vec<TokenWithPosition>, crate::exec::budget::BudgetExceeded> {
+    use crate::exec::budget::ExecutionBudget;
+    lex_positions_core(input, || {
+        let Some(budget) = ExecutionBudget::current() else {
+            return Ok(());
+        };
+        // Direct, every-stride deadline/cancellation checks so a breach is
+        // observed within one stride rather than after `charge_operation`'s
+        // sampling would next fire.
+        budget.check_cancelled()?;
+        let exempt = budget.is_deadline_exempt();
+        if !exempt {
+            budget.check_deadline()?;
+        }
+        // Charge the operation ceiling separately (skipped while a `main loop`
+        // is active, mirroring the interpreter's exemption).
+        budget.charge_operation(!exempt)
+    })
 }

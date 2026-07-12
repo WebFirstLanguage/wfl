@@ -671,3 +671,207 @@ fn analyzer_phase_budget_breach_is_fatal_and_typed() {
         "an analysis-phase budget breach must surface as the fatal TypeCheckError::Budget variant; got: {outcome:?}"
     );
 }
+
+#[test]
+fn analyzer_entry_budget_breach_is_fatal_and_typed() {
+    // Companion to the test above, targeting the analysis PHASE BOUNDARY: a
+    // budget already cancelled/exhausted when `analyze` is entered trips its
+    // entry checkpoint *before* any statement is visited. That branch must still
+    // record the typed breach on `budget_error`, so `TypeChecker::new()`'s
+    // `take_budget_error()` reclassifies it as the fatal `Budget` variant rather
+    // than misreading the rendered `SemanticError` as ordinary type errors. A
+    // cancelled budget guarantees the entry checkpoint (not `analyze_statement`)
+    // is what fires.
+    use wfl::exec::budget::{BudgetLimits, ExecutionBudget};
+    let program = parse_deeply_nested_program();
+    let budget = std::sync::Arc::new(ExecutionBudget::new(BudgetLimits::default()));
+    budget.cancel();
+    let _guard = ExecutionBudget::enter(budget);
+    let mut type_checker = wfl::typechecker::TypeChecker::new();
+    let outcome = type_checker.check_types(&program);
+    assert!(
+        matches!(outcome, Err(wfl::typechecker::TypeCheckError::Budget(_))),
+        "an entry-time budget breach must surface as the fatal TypeCheckError::Budget variant; got: {outcome:?}"
+    );
+}
+
+// --- lexer: a typed fatal outcome, never a truncated success (P1-1) ---------
+
+/// A source with well over `LEX_CHECKPOINT_STRIDE` (4096) raw tokens, so the
+/// lexer's strided budget checkpoint fires several times. Each `display 1` line
+/// is three raw tokens (`display`, `1`, newline), so 4000 lines ≈ 12k tokens →
+/// checkpoints near 4096, 8192, and 12288.
+fn big_lexer_source() -> String {
+    "display 1\n".repeat(4000)
+}
+
+#[test]
+fn checked_lexer_reports_cancellation_not_a_partial_stream() {
+    use wfl::exec::budget::{BudgetExceeded, BudgetLimits, ExecutionBudget};
+    let budget = std::sync::Arc::new(ExecutionBudget::new(BudgetLimits::default()));
+    budget.cancel();
+    let _guard = ExecutionBudget::enter(std::sync::Arc::clone(&budget));
+    let result = wfl::lexer::lex_wfl_with_positions_checked(&big_lexer_source());
+    assert_eq!(
+        result.err(),
+        Some(BudgetExceeded::Cancelled),
+        "a cancelled run must abort lexing with a typed Cancelled, not a truncated stream"
+    );
+}
+
+#[test]
+fn checked_lexer_reports_deadline() {
+    use wfl::exec::budget::{BudgetExceeded, BudgetLimits, ExecutionBudget};
+    let limits = BudgetLimits {
+        max_duration: Some(std::time::Duration::from_secs(0)),
+        ..Default::default()
+    };
+    let budget = std::sync::Arc::new(ExecutionBudget::new(limits));
+    let _guard = ExecutionBudget::enter(budget);
+    let result = wfl::lexer::lex_wfl_with_positions_checked(&big_lexer_source());
+    assert!(
+        matches!(result, Err(BudgetExceeded::Deadline { .. })),
+        "an elapsed deadline must abort lexing with a typed Deadline; got: {result:?}"
+    );
+}
+
+#[test]
+fn checked_lexer_reports_operation_exhaustion() {
+    use wfl::exec::budget::{BudgetExceeded, BudgetLimits, ExecutionBudget};
+    // One operation is allowed; the second strided checkpoint (~token 8192)
+    // charges index 1 >= 1 and trips. `big_lexer_source` spans past two strides.
+    let limits = BudgetLimits {
+        max_operations: Some(1),
+        max_duration: None,
+        ..Default::default()
+    };
+    let budget = std::sync::Arc::new(ExecutionBudget::new(limits));
+    let _guard = ExecutionBudget::enter(budget);
+    let result = wfl::lexer::lex_wfl_with_positions_checked(&big_lexer_source());
+    assert!(
+        matches!(result, Err(BudgetExceeded::Operations { .. })),
+        "an exhausted operation budget must abort lexing with a typed Operations; got: {result:?}"
+    );
+}
+
+#[test]
+fn checked_lexer_returns_the_complete_stream_within_budget() {
+    // A generous budget lexes the whole source: the checked variant returns the
+    // FULL token stream (same length as the unbudgeted lexer), never a prefix.
+    use wfl::exec::budget::{BudgetLimits, ExecutionBudget};
+    let src = big_lexer_source();
+    let full = wfl::lexer::lex_wfl_with_positions(&src).len();
+    let budget = std::sync::Arc::new(ExecutionBudget::new(BudgetLimits::default()));
+    let _guard = ExecutionBudget::enter(budget);
+    let checked = wfl::lexer::lex_wfl_with_positions_checked(&src).expect("within budget");
+    assert_eq!(
+        checked.len(),
+        full,
+        "a within-budget checked lex must return the complete stream"
+    );
+}
+
+#[test]
+fn plain_lexer_never_truncates_even_under_a_breached_budget() {
+    // The plain (non-budgeted) lexer must NEVER return a truncated stream — the
+    // silent-truncation footgun is gone. Even with a cancelled budget installed,
+    // it tokenizes the whole source (its checkpoint is a no-op), so a caller that
+    // deliberately uses it (the LSP, tooling, tests) is unaffected by run state.
+    use wfl::exec::budget::{BudgetLimits, ExecutionBudget};
+    let src = big_lexer_source();
+    let without = wfl::lexer::lex_wfl_with_positions(&src).len();
+    let budget = std::sync::Arc::new(ExecutionBudget::new(BudgetLimits::default()));
+    budget.cancel();
+    let _guard = ExecutionBudget::enter(budget);
+    let with = wfl::lexer::lex_wfl_with_positions(&src).len();
+    assert_eq!(
+        with, without,
+        "the plain lexer must not truncate under any budget state"
+    );
+}
+
+#[test]
+fn cli_lex_dump_fails_on_a_budget_breach_instead_of_a_partial_dump() {
+    // `wfl --lex` must NOT write a partial token dump and exit 0 when the run
+    // budget is breached during lexing. With `max_operations = 1` and a source
+    // past two lexer strides, tokenization trips and the CLI exits non-zero with
+    // the breach message, writing no `.lex.txt`.
+    let dir = tempfile::tempdir().expect("temp dir");
+    fs::write(dir.path().join(".wflcfg"), "max_operations = 1\n").expect("cfg");
+    let script = dir.path().join("big.wfl");
+    fs::write(&script, big_lexer_source()).expect("program");
+    let output = Command::new(test_helpers::get_wfl_binary_path())
+        .arg("--lex")
+        .arg(&script)
+        .output()
+        .expect("run wfl --lex");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !output.status.success(),
+        "--lex must fail on a budget breach; got:\n{combined}"
+    );
+    assert!(
+        combined.contains("operation budget"),
+        "--lex must report the budget breach; got:\n{combined}"
+    );
+    assert!(
+        !dir.path().join("big.wfl.lex.txt").exists(),
+        "--lex must not write a partial token dump on a breach"
+    );
+}
+
+// --- default public interpreter path is stack-safe (P2-5) -------------------
+
+#[test]
+fn default_public_interpreter_path_is_stack_safe_on_an_ordinary_stack() {
+    // An embedder using the DEFAULT public path — `Interpreter::new()` — on an
+    // ordinary 8 MiB thread stack must get a catchable call-depth resource error
+    // from runaway recursion, NOT a native stack overflow. `new()` caps recursion
+    // at the conservative `DEFAULT_EMBED_CALL_DEPTH`, so the guard fires well
+    // before the ~40-frame debug overflow point on such a stack. (The CLI reaches
+    // the full 1000 only on its dedicated 1 GiB stack.) A regression that let the
+    // default path use depth 1000 here would overflow this 8 MiB stack and abort.
+    // The interpreter's `Value`/`RuntimeError` are `!Send`, so reduce the outcome
+    // to a `Send` summary INSIDE the thread and return only that.
+    let handle = std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| -> Result<(), String> {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+            rt.block_on(async {
+                // No base case: recurses until the depth guard fires.
+                let program = "\
+define action called deep with parameters n:
+    return deep of (n plus 1)
+end action
+display deep of 0
+";
+                let tokens = wfl::lexer::lex_wfl_with_positions(program);
+                let ast = wfl::parser::Parser::new(&tokens).parse().expect("parses");
+                match wfl::Interpreter::new().interpret(&ast).await {
+                    Ok(_) => Err("runaway recursion unexpectedly succeeded".to_string()),
+                    Err(errors)
+                        if errors
+                            .iter()
+                            .any(|e| e.message.contains("Maximum call depth")) =>
+                    {
+                        Ok(())
+                    }
+                    Err(errors) => Err(format!(
+                        "unexpected error (not a call-depth breach): {errors:?}"
+                    )),
+                }
+            })
+        })
+        .expect("spawn ordinary-stack thread");
+    let summary = handle
+        .join()
+        .expect("the default path must not abort with a native stack overflow");
+    summary.expect("the default public path must return a call-depth resource error");
+}

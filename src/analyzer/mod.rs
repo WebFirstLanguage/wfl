@@ -502,7 +502,16 @@ impl Analyzer {
         if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
             && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
         {
-            return Err(vec![SemanticError::new(exceeded.message(), 0, 0)]);
+            // Record the typed breach on the fatal channel BEFORE returning, so a
+            // caller that consults `take_budget_error()` (e.g. `TypeChecker::new()`
+            // entering with an already-exhausted/cancelled budget) sees an
+            // entry-time breach as the fatal `Budget` variant rather than
+            // misclassifying its rendered `SemanticError` as ordinary type errors.
+            // `analyze_statement` sets this on the recursive path; the phase
+            // boundary must too.
+            let rendered = SemanticError::new(exceeded.message(), 0, 0);
+            self.budget_error = Some(exceeded);
+            return Err(vec![rendered]);
         }
 
         // Detect include statements up front. Includes are resolved at runtime

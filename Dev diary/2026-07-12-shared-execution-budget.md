@@ -397,6 +397,64 @@ All seven items landed on this PR (one commit each):
   that embedders must use it (or a low `max_call_depth`) so the depth limit fires
   before a native stack overflow.
 
+## Sixth review round (issue #611)
+
+A final deep review found two P1 merge blockers in the fifth round's own
+remediation, plus three correctness/API residuals. All five are fixed here, each
+with a regression test.
+
+- **The lexer returns a typed fatal outcome, never a truncated success.** The
+  fifth round's strided lexer checkpoint `break`'d on a budget breach and
+  returned the tokens gathered so far — so `wfl --lex` wrote a partial dump and
+  exited 0, and a prefix that happened to end at a statement boundary could
+  parse and even execute. The loop body is now a private `lex_positions_core`
+  parameterised by a checkpoint closure: `lex_wfl_with_positions` supplies a
+  no-op (it can no longer truncate under any budget state — LSP/tooling/tests are
+  safe), and the new `lex_wfl_with_positions_checked` returns
+  `Result<_, BudgetExceeded>`. Every production execution caller (CLI run and
+  `--lex`, nested `execute file` / `include` / `load module`, and the REPL)
+  propagates it. At each stride the deadline and cancellation are checked
+  **directly** — not through `charge_operation`'s 1024-op sampling, which nested
+  inside the 4096-token stride could postpone them by millions of tokens — and
+  the operation ceiling is charged separately.
+- **A timed-out pending HTTP request no longer wedges admission.** The fifth
+  round parked the admission guard in the interpreter's `pending_responses` map,
+  where a closed entry was pruned only when a *later* dequeued request was
+  inserted. Once the cap filled with dequeued-but-unanswered requests, every
+  route task timed out but no new request could be admitted to trigger the
+  prune, so the slots stayed pinned forever. The guard now rides with the warp
+  transport future, which stays alive awaiting the response even after the
+  interpreter dequeues the request — so the slot is held through handling and
+  released when that future ends (respond, response timeout, or client
+  disconnect), independently of any future admission. The bounded request mpsc
+  still caps still-queued bodies. A live-server regression fills the cap with
+  unanswered requests, waits for the timeout, and proves admission reopens with
+  no new request first.
+- **An analyzer entry-time breach is recorded on the typed channel.** A breach at
+  `analyze`'s phase-boundary checkpoint rendered a `SemanticError` but left
+  `budget_error` unset, so `TypeChecker::new()`'s `take_budget_error()` saw
+  nothing and misclassified it as `TypeCheckError::Types`. The entry branch now
+  stores the typed breach before returning, matching `analyze_statement`. Tested
+  with an already-cancelled budget so the entry (not a statement) fires.
+- **Unicode lookbehind stays in character indices.** The refactored VM made
+  `MatchResult::end` a character index, but the full-slice lookbehind test still
+  compared it against `text_slice.len()` (bytes), inverting positive/negative
+  lookbehind the moment the window held a multibyte char. It now compares against
+  the slice's character length (`start_offset`). The public `CompiledPattern::find`
+  doc example, which sliced `&text[m.start..m.end]` with those character offsets,
+  is fixed to extract by chars. Positive and negative Unicode lookbehind tests
+  pin both directions over a 2-byte `é`.
+- **The default public interpreter path is stack-safe.** `Interpreter::new()` — the
+  zero-config path that promises nothing about its thread stack — capped
+  recursion at the config default of 1000, which only stays catchable on the
+  CLI's 1 GiB stack; on an ordinary stack a deep program aborted before the guard
+  could fire. `new()` now caps at the conservative `DEFAULT_EMBED_CALL_DEPTH`
+  (12, verified to fire cleanly below the debug overflow point on an 8 MiB stack),
+  while `with_config`/`with_config_and_budget` honor the configured depth so the
+  CLI still reaches 1000 on its large stack. An ordinary-stack embedding test
+  proves the default path returns a catchable call-depth error instead of
+  aborting.
+
 ## Notes / Follow-ups
 
 - The outbound `reqwest` client still has no per-request timeout or in-flight

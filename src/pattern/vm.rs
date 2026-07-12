@@ -856,9 +856,15 @@ impl PatternVM {
                                     &text_slice,
                                     &[],
                                 )?;
+                                // `first_match.end` is a CHARACTER index (like
+                                // every `MatchResult` offset), while
+                                // `text_slice.len()` is a BYTE count — they
+                                // diverge on multibyte UTF-8, inverting the
+                                // full-slice test. The slice spans exactly
+                                // `start_offset` characters, so compare with that.
                                 if let Some(first_match) = matches.first()
                                     && first_match.start == 0
-                                    && first_match.end == text_slice.len()
+                                    && first_match.end == start_offset
                                 {
                                     matched = true;
                                     break;
@@ -904,9 +910,15 @@ impl PatternVM {
                                     &text_slice,
                                     &[],
                                 )?;
+                                // `first_match.end` is a CHARACTER index (like
+                                // every `MatchResult` offset), while
+                                // `text_slice.len()` is a BYTE count — they
+                                // diverge on multibyte UTF-8, inverting the
+                                // full-slice test. The slice spans exactly
+                                // `start_offset` characters, so compare with that.
                                 if let Some(first_match) = matches.first()
                                     && first_match.start == 0
-                                    && first_match.end == text_slice.len()
+                                    && first_match.end == start_offset
                                 {
                                     matched = true;
                                     break;
@@ -1106,5 +1118,64 @@ mod tests {
         let result2 = vm.execute(&program, "59").unwrap();
         println!("Result: {result2}");
         assert!(!result2);
+    }
+}
+
+#[cfg(test)]
+mod unicode_lookbehind_tests {
+    //! Lookbehind must keep its full-slice test entirely in CHARACTER indices.
+    //! The lookbehind slice is built from a `Vec<char>`, and `MatchResult::end`
+    //! is a character index; comparing it against the slice's BYTE length
+    //! (`String::len()`) diverges the moment the window holds a multibyte char,
+    //! inverting the assertion. These pin both directions over a 2-byte `é`.
+    use crate::parser::ast::PatternExpression;
+    use crate::pattern::CompiledPattern;
+
+    fn matches(pattern: &PatternExpression, text: &str) -> bool {
+        CompiledPattern::compile(pattern)
+            .expect("pattern compiles")
+            .matches(text)
+    }
+
+    fn lit(s: &str) -> PatternExpression {
+        PatternExpression::Literal(s.to_string())
+    }
+
+    #[test]
+    fn positive_lookbehind_spans_a_multibyte_window() {
+        // (?<=café)!  — the "café" window ends at character index 4 but byte
+        // index 5, so a byte-length comparison would never see a full-slice
+        // match and the assertion would wrongly fail.
+        let pattern = PatternExpression::Sequence(vec![
+            PatternExpression::Lookbehind(Box::new(lit("café"))),
+            lit("!"),
+        ]);
+        assert!(
+            matches(&pattern, "café!"),
+            "positive lookbehind must span the multibyte 'é' window"
+        );
+        assert!(
+            !matches(&pattern, "cafe!"),
+            "a window that does not match must not satisfy the lookbehind"
+        );
+    }
+
+    #[test]
+    fn negative_lookbehind_spans_a_multibyte_window() {
+        // (?<!café)!  — must FAIL on "café!" because the forbidden multibyte
+        // window IS present. A byte/char mix-up under-detects it and would let
+        // the negative assertion wrongly succeed.
+        let pattern = PatternExpression::Sequence(vec![
+            PatternExpression::NegativeLookbehind(Box::new(lit("café"))),
+            lit("!"),
+        ]);
+        assert!(
+            !matches(&pattern, "café!"),
+            "negative lookbehind must detect the multibyte forbidden window"
+        );
+        assert!(
+            matches(&pattern, "cafe!"),
+            "absent forbidden window → the negative assertion matches"
+        );
     }
 }

@@ -10,7 +10,7 @@ use wfl::config;
 use wfl::debug_report;
 use wfl::diagnostics::{DiagnosticReporter, Severity};
 use wfl::fixer::{CodeFixer, FixerOutputMode};
-use wfl::lexer::lex_wfl_with_positions;
+use wfl::lexer::lex_wfl_with_positions_checked;
 use wfl::linter::Linter;
 use wfl::parser::Parser;
 use wfl::repl;
@@ -830,9 +830,22 @@ async fn run() -> io::Result<()> {
     // allocating the whole thing (this holds even if metadata is unavailable).
     let input = read_source_bounded(&file_path, &budget)?;
 
+    // Lex under the shared run budget (installed above): a deadline /
+    // cancellation / operation-ceiling breach during tokenization surfaces as a
+    // fatal error and exits, instead of returning a silently truncated token
+    // stream that a later phase could parse, analyze, or execute as if it were
+    // the whole program. Used by every source-lexing mode below.
+    let lex_checked = |source: &str| match lex_wfl_with_positions_checked(source) {
+        Ok(tokens) => tokens,
+        Err(exceeded) => {
+            eprintln!("Error: {}", exceeded.message());
+            process::exit(2);
+        }
+    };
+
     // Handle lexer and AST dump flags
     if lex_dump || ast_dump {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
 
         // Function to write data to a file with appropriate error handling
         fn write_to_file(path: &str, content: &str) -> io::Result<()> {
@@ -943,7 +956,7 @@ async fn run() -> io::Result<()> {
 
     // Handle transpile mode
     if transpile_mode {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
         match Parser::new(&tokens_with_pos).parse() {
             Ok(program) => {
                 // Configure the transpiler
@@ -1015,7 +1028,7 @@ async fn run() -> io::Result<()> {
     }
 
     if lint_mode {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
         match Parser::new(&tokens_with_pos).parse() {
             Ok(program) => {
                 let mut linter = Linter::new();
@@ -1076,7 +1089,7 @@ async fn run() -> io::Result<()> {
             }
         }
     } else if analyze_mode {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
         match Parser::new(&tokens_with_pos).parse() {
             Ok(program) => {
                 let mut analyzer = Analyzer::new();
@@ -1122,7 +1135,7 @@ async fn run() -> io::Result<()> {
             }
         }
     } else if fix_mode {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
         match Parser::new(&tokens_with_pos).parse() {
             Ok(_program) => {
                 let mut fixer = CodeFixer::new();
@@ -1169,7 +1182,7 @@ async fn run() -> io::Result<()> {
             }
         }
     } else {
-        let tokens_with_pos = lex_wfl_with_positions(&input);
+        let tokens_with_pos = lex_checked(&input);
 
         // Initialize both regular and execution logging first so debug output goes to log
         let log_path = script_dir.join("wfl.log");

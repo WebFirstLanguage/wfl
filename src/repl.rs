@@ -3,7 +3,7 @@ use crate::analyzer::static_analyzer::StaticAnalyzer;
 use crate::diagnostics::DiagnosticReporter;
 use crate::exec::budget::ExecutionBudget;
 use crate::interpreter::Interpreter;
-use crate::lexer::{lex_wfl_with_positions, token::TokenWithPosition};
+use crate::lexer::{lex_wfl_with_positions_checked, token::TokenWithPosition};
 use crate::parser::{
     Parser,
     ast::{Program, Statement},
@@ -113,7 +113,10 @@ impl ReplState {
         self.input_buffer.push_str(line);
 
         let input = self.input_buffer.clone();
-        let tokens = lex_wfl_with_positions(&input);
+        // Lex under the command's scoped budget: a Ctrl-C cancellation (or a
+        // deadline breach) mid-paste surfaces as a typed error instead of a
+        // truncated stream that multiline detection would misread as incomplete.
+        let tokens = lex_wfl_with_positions_checked(&input).map_err(|e| e.message())?;
 
         if self.is_input_incomplete(&tokens) {
             self.in_multiline = true;
@@ -186,7 +189,7 @@ impl ReplState {
             return Err(exceeded.message());
         }
 
-        let tokens = lex_wfl_with_positions(input);
+        let tokens = lex_wfl_with_positions_checked(input).map_err(|e| e.message())?;
 
         let mut parser = Parser::new(&tokens);
         let program = match parser.parse() {

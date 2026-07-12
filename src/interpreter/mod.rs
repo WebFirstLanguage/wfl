@@ -67,16 +67,16 @@ type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHt
 
 /// A dequeued HTTP request parked in `pending_responses` awaiting a `respond`.
 ///
-/// It holds both the response channel and the request's in-flight admission
-/// slot, so the global admission gate reopens only when the response completes
-/// (`respond`), the client is pruned (disconnect/timeout), or the server shuts
-/// down — not the moment the interpreter dequeues the request. Otherwise a
-/// handler could dequeue requests in a loop without responding, immediately
-/// reopening admission while every route task and pending sender stayed
-/// unfinished until its timeout.
+/// Holds only the response channel. The request's in-flight admission slot is
+/// **not** parked here — it lives with the warp transport task, which stays
+/// alive awaiting this response, so the slot is released when that task
+/// completes (a delivered response, a response timeout, or a client
+/// disconnect) independently of any later admitted request. Parking the slot in
+/// this map instead pinned it until a *future* dequeued request pruned it, which
+/// permanently wedged admission once the cap was full (all route tasks timed out
+/// but no new request could be admitted to trigger the prune).
 struct PendingResponse {
     sender: PendingResponseSender,
-    _admission: Option<crate::exec::budget::RequestGuard>,
 }
 use uuid;
 use warp::Filter;
@@ -106,12 +106,6 @@ pub struct WflHttpRequest {
     pub body: Vec<u8>,
     pub headers: HashMap<String, String>,
     pub response_sender: Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>,
-    /// The global in-flight admission slot, carried *with* the queued request so
-    /// its body counts against the pending ceiling until the interpreter
-    /// dequeues (and drops) it — not merely until the route future ends. On a
-    /// timeout the route future returns, but this keeps the still-queued body
-    /// accounted so a stale-full listener cannot hide queued bodies from the cap.
-    _admission: Option<crate::exec::budget::RequestGuard>,
 }
 
 #[derive(Debug, Clone)]
@@ -134,10 +128,6 @@ pub struct WflHttpResponse {
 /// real response.
 struct ResponseCompletion {
     sender: Option<oneshot::Sender<WflHttpResponse>>,
-    /// The in-flight admission slot for this request, carried from the pending
-    /// entry so it is released only when the response actually completes (here,
-    /// on success or on the `Drop` 500 fallback) — never merely at dequeue.
-    _admission: Option<crate::exec::budget::RequestGuard>,
 }
 
 impl ResponseCompletion {
@@ -1044,14 +1034,21 @@ use tokio::sync::Mutex;
 ///
 /// The interpreter recurses through several async frames per WFL call, so deep
 /// WFL recursion is stack-heavy: an ordinary 8 MiB thread stack overflows near
-/// depth ~40 in debug builds — well before the budget's `max_call_depth`
-/// (default 1000) can turn runaway recursion into a clean, catchable
-/// `ResourceLimit` error. The depth limit only protects a stack large enough to
-/// reach it. A binary embedding this interpreter should therefore drive
-/// [`interpret`](Interpreter::interpret) inside
-/// [`crate::run_with_interpreter_stack`] (as the WFL CLI does), or configure a
-/// conservatively low `max_call_depth`; otherwise a deep WFL program can crash
-/// the host process with a native stack overflow that no depth limit can catch.
+/// depth ~40 in debug builds. The budget's `max_call_depth` only turns runaway
+/// recursion into a clean, catchable `ResourceLimit` error when the stack is
+/// large enough to *reach* that limit first.
+///
+/// The default public path is therefore **safe by default**:
+/// [`Interpreter::new`] — which promises nothing about the thread stack it runs
+/// on — caps recursion at the conservative [`Interpreter::DEFAULT_EMBED_CALL_DEPTH`]
+/// (not the config-file default of 1000), so a deep WFL program returns a
+/// catchable depth error instead of aborting the host process on an ordinary
+/// stack. To recurse deeper, opt into both a higher `max_call_depth` (via
+/// [`Interpreter::with_config`] / [`Interpreter::with_config_and_budget`]) **and**
+/// the large stack from [`crate::run_with_interpreter_stack`] — the combination
+/// the WFL CLI uses to reach the full configured 1000. Those config-taking
+/// constructors honor the caller's `max_call_depth` verbatim precisely so the
+/// CLI (and any embedder that has arranged the stack) can raise it.
 pub struct Interpreter {
     global_env: Rc<RefCell<Environment>>,
     current_count: RefCell<Option<f64>>,
@@ -2117,8 +2114,29 @@ fn lexical_abspath(path: &std::path::Path, cwd: &std::path::Path) -> String {
 }
 
 impl Interpreter {
+    /// Conservative WFL call/recursion ceiling for an interpreter built via
+    /// [`Interpreter::new`], the zero-config default path that makes no promise
+    /// about the thread stack it runs on. WFL's async tree-walker costs enough
+    /// debug stack per WFL call that an ordinary (e.g. 8 MiB) thread overflows
+    /// after only a few dozen frames, so this default is kept well below that so
+    /// the budget's catchable "maximum call depth exceeded" error fires *before*
+    /// a native stack overflow on such a stack. It is deliberately shallow:
+    /// programs that recurse deeper must opt into both a higher `max_call_depth`
+    /// and [`crate::run_with_interpreter_stack`] (see the type-level "Stack
+    /// safety" docs); the config-taking constructors honor the configured depth,
+    /// so the CLI reaches the full 1000 on its dedicated 1 GiB stack.
+    pub const DEFAULT_EMBED_CALL_DEPTH: usize = 12;
+
     pub fn new() -> Self {
-        Self::with_config(Arc::new(WflConfig::default()))
+        // The default path makes no stack guarantee, so cap recursion
+        // conservatively (see `DEFAULT_EMBED_CALL_DEPTH`) rather than inheriting
+        // the config-file default of 1000, which only stays catchable on the
+        // CLI's dedicated large stack.
+        let config = WflConfig {
+            max_call_depth: Self::DEFAULT_EMBED_CALL_DEPTH,
+            ..WflConfig::default()
+        };
+        Self::with_config(Arc::new(config))
     }
 
     pub fn with_config(config: Arc<WflConfig>) -> Self {
@@ -4257,10 +4275,15 @@ impl Interpreter {
                     .await?;
 
                 // 6. Parse module
-                use crate::lexer::lex_wfl_with_positions;
+                use crate::lexer::lex_wfl_with_positions_checked;
                 use crate::parser::Parser;
 
-                let tokens = lex_wfl_with_positions(&content);
+                // Lex under the shared run budget: a deadline / cancellation /
+                // operation breach during nested source loading surfaces as a
+                // typed, catchable runtime error instead of a truncated token
+                // stream that could execute as if it were the whole file.
+                let tokens = lex_wfl_with_positions_checked(&content)
+                    .map_err(|exceeded| self.budget_error(exceeded, *line, *column))?;
                 let mut parser = Parser::new(&tokens);
                 let program = parser.parse().map_err(|errors| {
                     // Use the parse error's position from the module file, not the load site
@@ -4428,10 +4451,15 @@ impl Interpreter {
                     .await?;
 
                 // 5. Parse included file
-                use crate::lexer::lex_wfl_with_positions;
+                use crate::lexer::lex_wfl_with_positions_checked;
                 use crate::parser::Parser;
 
-                let tokens = lex_wfl_with_positions(&content);
+                // Lex under the shared run budget: a deadline / cancellation /
+                // operation breach during nested source loading surfaces as a
+                // typed, catchable runtime error instead of a truncated token
+                // stream that could execute as if it were the whole file.
+                let tokens = lex_wfl_with_positions_checked(&content)
+                    .map_err(|exceeded| self.budget_error(exceeded, *line, *column))?;
                 let mut parser = Parser::new(&tokens);
                 let program = parser.parse().map_err(|errors| {
                     let first_error = errors.first();
@@ -6037,13 +6065,24 @@ impl Interpreter {
                               remote_addr: Option<std::net::SocketAddr>| {
                             let sender = request_sender_clone.clone();
                             async move {
-                                // `guard` stays alive as a local until it is moved
-                                // *into* the queued `WflHttpRequest` on enqueue, so
-                                // the in-flight slot is held during the body read
-                                // and then travels with the queued body until the
-                                // interpreter dequeues/drops it. On any early
-                                // return before enqueue (408/413/Io) the local
-                                // drops here and releases the slot.
+                                // Hold the admission slot for this request's WHOLE
+                                // transport lifetime by binding the guard into this
+                                // future: it drops when the future completes — on a
+                                // delivered response, a response/body timeout, or a
+                                // client disconnect (warp cancels the future) —
+                                // releasing the in-flight slot INDEPENDENTLY of any
+                                // later admitted request. This future stays alive
+                                // awaiting the response (below) even after the
+                                // interpreter dequeues the request, so the slot is
+                                // still held during handling — it is not released at
+                                // dequeue. Parking the guard in the interpreter's
+                                // pending map instead pinned it until a *future*
+                                // dequeued request pruned it, which could never
+                                // happen once the cap was full — permanently wedging
+                                // admission. The bounded request mpsc separately
+                                // caps still-queued bodies, so releasing here does
+                                // not let queued-body memory grow unbounded.
+                                let _admission_guard = guard;
 
                                 // One deadline for the whole accepted-request
                                 // lifetime (body read + handler response), set at
@@ -6106,9 +6145,12 @@ impl Interpreter {
                                 let (response_sender, response_receiver) =
                                     oneshot::channel::<WflHttpResponse>();
 
-                                // Create WFL request, moving the admission guard
-                                // in so the in-flight slot travels with the queued
-                                // body until the interpreter dequeues/drops it.
+                                // Create the WFL request. The admission guard is
+                                // NOT moved in — it stays bound to this transport
+                                // future (see `_admission_guard` above), which
+                                // outlives the enqueue and awaits the response, so
+                                // the slot is held through handling and released
+                                // when this future ends (respond/timeout/disconnect).
                                 let wfl_request = WflHttpRequest {
                                     id: request_id,
                                     method: method.to_string(),
@@ -6120,7 +6162,6 @@ impl Interpreter {
                                     response_sender: Arc::new(tokio::sync::Mutex::new(Some(
                                         response_sender,
                                     ))),
-                                    _admission: Some(guard),
                                 };
 
                                 // Send request to WFL interpreter. The queue is
@@ -6715,19 +6756,17 @@ impl Interpreter {
                     // (oneshot sender closed) before inserting the new one, so a
                     // handler that never `respond`s to a since-abandoned request
                     // cannot let the map grow without bound across many timeouts.
-                    // Dropping a pruned entry also releases its admission slot.
+                    // (The admission slot itself is released by the transport task,
+                    // not this prune — see `PendingResponse`.)
                     pending_responses.retain(|_, pending| match pending.sender.try_lock() {
                         Ok(guard) => guard.as_ref().is_some_and(|s| !s.is_closed()),
                         // Locked right now (being responded to) — keep it.
                         Err(_) => true,
                     });
-                    // Carry the admission slot with the parked response so it is
-                    // released on respond/prune/shutdown, not at dequeue.
                     pending_responses.insert(
                         request.id.clone(),
                         PendingResponse {
                             sender: request.response_sender,
-                            _admission: request._admission,
                         },
                     );
                 }
@@ -6780,13 +6819,12 @@ impl Interpreter {
                     pending.remove(&request_id)
                 };
                 let mut completion = match pending_entry {
-                    // Move the admission slot into the completion guard so it is
-                    // released exactly when the response is delivered (or the 500
-                    // fallback fires on drop), spanning the full request lifetime.
+                    // The admission slot is released by the transport task when it
+                    // finishes delivering this response (or on its timeout), so the
+                    // completion guard carries only the response channel.
                     Some(entry) => match entry.sender.lock().await.take() {
                         Some(sender) => ResponseCompletion {
                             sender: Some(sender),
-                            _admission: entry._admission,
                         },
                         None => {
                             return Err(RuntimeError::new(
@@ -7658,10 +7696,15 @@ impl Interpreter {
                 };
 
                 // Parse the file; errors are catchable in the parent
-                use crate::lexer::lex_wfl_with_positions;
+                use crate::lexer::lex_wfl_with_positions_checked;
                 use crate::parser::Parser;
 
-                let tokens = lex_wfl_with_positions(&content);
+                // Lex under the shared run budget: a deadline / cancellation /
+                // operation breach during nested source loading surfaces as a
+                // typed, catchable runtime error instead of a truncated token
+                // stream that could execute as if it were the whole file.
+                let tokens = lex_wfl_with_positions_checked(&content)
+                    .map_err(|exceeded| self.budget_error(exceeded, *line, *column))?;
                 let mut parser = Parser::new(&tokens);
                 let program = parser.parse().map_err(|errors| {
                     let first_error = errors.first();

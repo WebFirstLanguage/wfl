@@ -258,7 +258,11 @@ impl CompiledPattern {
     /// # let pattern = CompiledPattern::compile(&pattern).unwrap();
     /// let text = "say hello world";
     /// if let Some(m) = pattern.find(text) {
-    ///     println!("Match: '{}' at {}-{}", &text[m.start..m.end], m.start, m.end);
+    ///     // `m.start`/`m.end` are CHARACTER indices, not byte offsets, so
+    ///     // extract by chars — slicing `&text[m.start..m.end]` would panic on
+    ///     // any index that is not a UTF-8 byte boundary.
+    ///     let matched: String = text.chars().skip(m.start).take(m.end - m.start).collect();
+    ///     println!("Match: '{}' at {}-{}", matched, m.start, m.end);
     /// }
     /// ```
     pub fn find(&self, text: &str) -> Option<MatchResult> {
