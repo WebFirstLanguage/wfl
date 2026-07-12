@@ -492,3 +492,70 @@ fn analyze_mode_consults_the_budget_in_the_front_end() {
         "--analyze must consult the shared budget during the front end; got:\n{combined}"
     );
 }
+
+/// Build a program whose single top-level statement (a `count` loop) holds many
+/// nested statements, and parse it. Parsing happens BEFORE any budget is
+/// installed so the parser's own checkpoint cannot consume the operation cap —
+/// a later breach must therefore come from the phase under test recursing into
+/// the nested body.
+fn parse_deeply_nested_program() -> wfl::parser::ast::Program {
+    let mut body = String::from("count from 1 to 3:\n");
+    for _ in 0..64 {
+        body.push_str("    display 1\n");
+    }
+    body.push_str("end count\n");
+
+    let tokens = wfl::lexer::lex_wfl_with_positions(&body);
+    wfl::parser::Parser::new(&tokens)
+        .parse()
+        .expect("nested program parses")
+}
+
+/// Install a run budget with a small operation cap for the lifetime of the
+/// returned guard.
+fn enter_capped_budget(max_operations: u64) -> wfl::exec::budget::CurrentBudgetGuard {
+    let limits = wfl::exec::budget::BudgetLimits {
+        max_operations: Some(max_operations),
+        ..Default::default()
+    };
+    let budget = std::sync::Arc::new(wfl::exec::budget::ExecutionBudget::new(limits));
+    wfl::exec::budget::ExecutionBudget::enter(budget)
+}
+
+#[test]
+fn analyzer_polls_the_budget_inside_nested_bodies() {
+    // The entry checkpoint in `analyze` fires once, before traversal. Only the
+    // recursive checkpoint in `analyze_statement` can trip the operation cap
+    // from inside the loop body, so tripping it here proves nested analysis
+    // honors the budget rather than only the phase boundary.
+    let program = parse_deeply_nested_program();
+    let _guard = enter_capped_budget(5);
+
+    let result = wfl::analyzer::Analyzer::new().analyze(&program);
+    let errors = result.expect_err("nested analysis must trip the operation cap");
+    assert!(
+        format!("{errors:?}").contains("operation budget"),
+        "analyzer must surface the operation-budget breach from a nested body; got: {errors:?}"
+    );
+}
+
+#[test]
+fn type_checker_polls_the_budget_inside_nested_bodies() {
+    // `with_analyzer` skips the analyzer pass, so the breach can only come from
+    // the recursive checkpoint in `check_statement_types` — not the analyzer and
+    // not a top-level-only poll. `take_budget_error` returning `Some` proves the
+    // nested type-check recorded the breach on the fatal channel.
+    let program = parse_deeply_nested_program();
+
+    let mut analyzer = wfl::analyzer::Analyzer::new();
+    wfl::stdlib::typechecker::register_stdlib_types(&mut analyzer);
+
+    let _guard = enter_capped_budget(5);
+
+    let mut type_checker = wfl::typechecker::TypeChecker::with_analyzer(analyzer);
+    let _ = type_checker.check_types(&program);
+    assert!(
+        type_checker.take_budget_error().is_some(),
+        "nested type checking must record the operation-budget breach on the budget_error channel"
+    );
+}

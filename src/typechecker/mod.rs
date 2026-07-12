@@ -264,6 +264,12 @@ impl TypeChecker {
     }
 
     pub fn check_types(&mut self, program: &Program) -> Result<(), Vec<TypeError>> {
+        // Reset the per-run budget breach so a reused TypeChecker (e.g. an editor
+        // session) neither carries a stale breach nor lets the recursive
+        // `check_statement_types` short-circuit fire against a previous run's
+        // state.
+        self.budget_error = None;
+
         // Detect includes: their exposed actions are only known at runtime.
         // Assign directly so a reused TypeChecker (e.g. an editor session) does
         // not carry a stale flag from a program that used includes.
@@ -288,17 +294,11 @@ impl TypeChecker {
         }
 
         for statement in &program.statements {
-            // Front-end budget checkpoint: honor the run's deadline/cancellation
-            // during type checking (via the current-thread budget), so a large
-            // program's type-check phase can be aborted rather than only measured.
-            if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
-                && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
-            {
-                // Record the breach on the fatal channel (callers must stop) AND
-                // as a diagnostic so `Err` still short-circuits normal reporting.
-                self.errors
-                    .push(TypeError::new(exceeded.message(), None, None, 0, 0));
-                self.budget_error = Some(exceeded);
+            // The budget is polled inside `check_statement_types` (below), which
+            // runs for every top-level statement and recurses into nested bodies.
+            // Stop iterating the moment a breach is recorded there — including one
+            // surfaced deep inside a previous statement's nested body.
+            if self.budget_error.is_some() {
                 break;
             }
             self.check_statement_types(statement);
@@ -399,6 +399,27 @@ impl TypeChecker {
     }
 
     fn check_statement_types(&mut self, statement: &Statement) {
+        // Recursive front-end checkpoint. This method recurses into `if`/loop/
+        // `try`/action/container-method bodies, so polling the run budget here
+        // (mirroring the parser's per-`parse_statement` placement) keeps deeply
+        // nested type-checking cooperative with the deadline/cancellation/
+        // operation limits — not just the top-level statement boundary. Once a
+        // breach is recorded, short-circuit so it is captured a single time
+        // rather than re-charged per nested node. The breach is kept on the
+        // dedicated `budget_error` channel (callers must stop) AND pushed as a
+        // diagnostic so `Err` still short-circuits normal reporting.
+        if self.budget_error.is_some() {
+            return;
+        }
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+        {
+            self.errors
+                .push(TypeError::new(exceeded.message(), None, None, 0, 0));
+            self.budget_error = Some(exceeded);
+            return;
+        }
+
         match statement {
             Statement::PushStatement {
                 list,

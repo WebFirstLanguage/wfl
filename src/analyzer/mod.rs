@@ -228,6 +228,11 @@ pub struct Analyzer {
     /// count loops reusing the same variable name are reported as errors,
     /// while shadowing an ordinary outer variable is allowed.
     active_loop_variables: Vec<String>,
+    /// Set once the shared run budget is exhausted mid-traversal so the
+    /// recursive `analyze_statement` checkpoint records the breach a single
+    /// time and then short-circuits every remaining node, instead of pushing a
+    /// duplicate error per nested statement.
+    budget_exhausted: bool,
 }
 
 impl Default for Analyzer {
@@ -432,6 +437,7 @@ impl Analyzer {
             has_includes: false,
             try_depth: 0,
             active_loop_variables: Vec::new(),
+            budget_exhausted: false,
         }
     }
 
@@ -481,6 +487,11 @@ impl Analyzer {
     }
 
     pub fn analyze(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
+        // Reset the per-run flood guard so a reused analyzer never carries a
+        // stale exhaustion flag from a previous program (matches the direct
+        // assignment of `has_includes` below).
+        self.budget_exhausted = false;
+
         // Front-end budget checkpoint at the analysis phase boundary. `analyze`
         // backs the type checker and every `load module` / `include` /
         // `execute file`, so consulting the run budget here (deadline/
@@ -571,6 +582,27 @@ impl Analyzer {
     }
 
     fn analyze_statement(&mut self, statement: &Statement) {
+        // Recursive front-end checkpoint. The entry poll in `analyze` fires once,
+        // but this method recurses through every nested block, loop, `try`,
+        // action, and container-method body — so a single deeply nested
+        // top-level statement could otherwise run the analyzer to completion
+        // without honoring the run budget. Polling here (mirroring the parser's
+        // per-`parse_statement` placement) keeps the whole traversal cooperative
+        // with the deadline/cancellation/operation limits. Once exhausted, the
+        // flag short-circuits every remaining node so the breach is recorded a
+        // single time rather than duplicated per statement.
+        if self.budget_exhausted {
+            return;
+        }
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+        {
+            self.budget_exhausted = true;
+            self.errors
+                .push(SemanticError::new(exceeded.message(), 0, 0));
+            return;
+        }
+
         match statement {
             Statement::VariableDeclaration {
                 name,

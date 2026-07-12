@@ -313,6 +313,46 @@ PR (three commits):
   through the VM's position/step signatures — a delicate change to a
   heavily-tested subsystem. Tracked as a follow-up.
 
+## Fourth review round (automated: recursive front-end coverage)
+
+The round-3 front-end checkpoints closed the *entry* gap but a bot reviewer
+correctly noted they were only partial: `Analyzer::analyze` polled the budget
+once at the phase boundary, and `TypeChecker::check_types` polled once per
+*top-level* statement — but both then recurse (`analyze_statement`,
+`check_statement_types`) into every nested block, loop, `try`, action, and
+container-method body without re-checking. A single deeply nested top-level
+statement could therefore run the analyzer or type checker to completion without
+honoring the run's deadline/cancellation/operation budget, unlike the parser
+whose checkpoint already lives inside the recursively-called `parse_statement`.
+
+Fixed by moving the poll into the recursive methods, mirroring the parser:
+
+- **Analyzer** — `analyze_statement` now polls the budget at its top. A new
+  `budget_exhausted` flag (reset per `analyze` run) records the breach once and
+  short-circuits every remaining node, so a large nested body yields a single
+  `SemanticError` rather than one per statement. The phase-boundary poll in
+  `analyze` is retained.
+- **Type checker** — `check_statement_types` now polls at its top, guarded by the
+  existing `budget_error` channel (reset per `check_types` run) as the
+  record-once / short-circuit latch. The top-level loop no longer charges
+  separately; it just stops iterating once `budget_error` is set — including a
+  breach surfaced deep inside a prior statement's nested body.
+
+Both polls stay exemption-aware (`charge_operation(!is_deadline_exempt())`), and
+because `max_operations` defaults to `None`, ordinary programs are unaffected —
+the extra per-statement charging only bites when a user opts into an operation
+cap, which is exactly the pathological-input protection the review asked for.
+
+Two library-level regression tests isolate the new behavior
+(`tests/execution_budget_test.rs`): a program whose single top-level `count` loop
+holds 64 nested statements is parsed *before* any budget is installed (so the
+parser's own checkpoint can't consume the cap), then run under `max_operations = 5`.
+`analyzer_polls_the_budget_inside_nested_bodies` asserts `analyze` returns the
+operation-budget breach (its entry poll alone charges only index 0, so the breach
+can only come from the nested traversal); `type_checker_polls_the_budget_inside_nested_bodies`
+uses `with_analyzer` to skip the analyzer pass, proving the breach comes from the
+recursive `check_statement_types` poll and lands on the `budget_error` channel.
+
 ## Notes / Follow-ups
 
 - The outbound `reqwest` client still has no per-request timeout or in-flight
