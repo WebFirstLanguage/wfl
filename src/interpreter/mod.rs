@@ -2679,6 +2679,19 @@ impl Interpreter {
     }
 
     pub async fn interpret(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
+        // Scope this run's budget as the TASK-local current budget, so leaf
+        // helpers with no budget parameter (the stdlib pattern builtins in
+        // particular) match under the run's configured ceilings and shared
+        // meters — and, crucially, so a library embedder that interleaves two
+        // interpreter futures on one thread never sees the other's budget or
+        // restores stale state across an `.await`. An `execute file` child that
+        // calls `interpret` again nests its own scope (same or child budget).
+        ExecutionBudget::scope(Arc::clone(&self.budget), self.interpret_inner(program)).await
+    }
+
+    /// The interpreter run body, executed inside the task-local budget scope
+    /// established by [`Interpreter::interpret`].
+    async fn interpret_inner(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
         // Reset per-run enforcement/loop state first, so a prior *terminal*
         // budget breach (e.g. an uncaught timeout that unwound to the top) can't
         // leak stale count-loop or depth state into this run — matters when one
@@ -2698,12 +2711,6 @@ impl Interpreter {
         // parent's still-active main-loop exemption.
         self.assert_invariants();
         self.call_stack.borrow_mut().clear();
-
-        // Install this run's budget as the current-thread budget so leaf helpers
-        // with no budget parameter — the stdlib pattern builtins in particular —
-        // match under the run's configured ceilings and shared meters. Restored
-        // when this guard drops at the end of the run.
-        let _budget_guard = ExecutionBudget::enter(Arc::clone(&self.budget));
 
         // Set up script arguments in the global environment
         {

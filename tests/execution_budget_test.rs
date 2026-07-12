@@ -560,6 +560,48 @@ fn type_checker_polls_the_budget_inside_nested_bodies() {
     );
 }
 
+#[tokio::test]
+async fn task_local_budget_is_isolated_across_interleaved_runs() {
+    // The regression that motivated task-local scoping: two runs with DISTINCT
+    // budgets interleaved on ONE thread (a library embedder `join!`ing two
+    // `!Send` interpreter futures) must each keep seeing their OWN budget across
+    // an `.await`. A thread-local held across the await would let the second run
+    // overwrite the first's current budget and corrupt it. `#[tokio::test]`
+    // defaults to a current-thread runtime, so `join!` genuinely interleaves the
+    // two futures at the `yield_now` points on a single thread.
+    use std::sync::Arc;
+    use wfl::exec::budget::{BudgetLimits, ExecutionBudget};
+
+    fn budget_with_ops(n: u64) -> Arc<ExecutionBudget> {
+        Arc::new(ExecutionBudget::new(BudgetLimits {
+            max_operations: Some(n),
+            ..Default::default()
+        }))
+    }
+
+    async fn observe_across_await() -> (Option<u64>, Option<u64>) {
+        let first = ExecutionBudget::current().and_then(|b| b.limits().max_operations);
+        tokio::task::yield_now().await; // hand control to the sibling run
+        let second = ExecutionBudget::current().and_then(|b| b.limits().max_operations);
+        (first, second)
+    }
+
+    let run_a = ExecutionBudget::scope(budget_with_ops(11), observe_across_await());
+    let run_b = ExecutionBudget::scope(budget_with_ops(22), observe_across_await());
+    let (a, b) = tokio::join!(run_a, run_b);
+
+    assert_eq!(
+        a,
+        (Some(11), Some(11)),
+        "run A must see only its own budget"
+    );
+    assert_eq!(
+        b,
+        (Some(22), Some(22)),
+        "run B must see only its own budget"
+    );
+}
+
 #[test]
 fn analyzer_phase_budget_breach_is_fatal_and_typed() {
     // `TypeChecker::new()` runs the analyzer internally before type checking. A

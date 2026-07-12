@@ -420,15 +420,19 @@ pub async fn run_repl() -> RustylineResult<()> {
                 // *during execution* cancels cooperatively. Ctrl-C while waiting
                 // for input is still handled by rustyline (below).
                 let budget = repl_state.reset_command_budget();
-                // Install the command's budget as the current-thread budget for
-                // the WHOLE pipeline — lexing, parsing, analysis, type checking,
-                // and interpretation — not just interpretation. Otherwise the
-                // front-end phases (which run before `interpret()` installs its
-                // own guard) would see `ExecutionBudget::current() == None` and
-                // skip every deadline/cancellation checkpoint.
-                let _budget_guard = ExecutionBudget::enter(std::sync::Arc::clone(&budget));
                 let outcome = {
-                    let fut = repl_state.process_line(&line);
+                    // Scope the command's budget as the TASK-local current budget
+                    // for the WHOLE pipeline — lexing, parsing, analysis, type
+                    // checking, and interpretation all run inside `process_line`,
+                    // so each front-end phase sees `ExecutionBudget::current()`.
+                    // Task-local (not a thread-local guard held across `.await`)
+                    // so an interleaved task can never observe this command's
+                    // budget or restore stale state; `budget` itself is retained
+                    // so the Ctrl-C arm can still cancel it cooperatively.
+                    let fut = ExecutionBudget::scope(
+                        std::sync::Arc::clone(&budget),
+                        repl_state.process_line(&line),
+                    );
                     tokio::pin!(fut);
                     let mut cancelled = false;
                     loop {

@@ -776,40 +776,68 @@ impl Default for ExecutionBudget {
     }
 }
 
+tokio::task_local! {
+    /// The budget in effect for the current async **task** — an interpreter run
+    /// or a REPL command. Task-local, NOT thread-local, so two interpreter
+    /// futures interleaved on one thread (a library embedder that `join!`s or
+    /// `spawn_local`s two `Interpreter`s — both are re-exported from the crate
+    /// root and are `!Send`, so this is legal) never observe each other's budget
+    /// or restore stale state across an `.await`. Any async run establishes this
+    /// scope, so it always takes precedence over the synchronous fallback below.
+    static CURRENT_BUDGET_TASK: Arc<ExecutionBudget>;
+}
+
 thread_local! {
-    /// The budget in effect on this thread, set for the duration of a run so
-    /// leaf helpers with no budget parameter (notably the stdlib pattern
-    /// builtins, whose native signature is `fn(Vec<Value>) -> ...`) still match
-    /// under the run's configured ceilings and shared meters. `None` outside a
-    /// run.
-    static CURRENT_BUDGET: std::cell::RefCell<Option<Arc<ExecutionBudget>>> =
+    /// Synchronous fallback current budget, consulted only when no task-local
+    /// scope is active. It exists for code that runs to completion **without
+    /// awaiting** and cannot interleave — specifically the CLI front-end
+    /// (lex/parse/analyze/type-check) installed by `main`, which runs on a
+    /// single-future runtime. Because every async run (`interpret`, REPL
+    /// `process_line`) wraps itself in a [`ExecutionBudget::scope`] that shadows
+    /// this, the fallback can never cross-contaminate an interleaved run.
+    static CURRENT_BUDGET_THREAD: std::cell::RefCell<Option<Arc<ExecutionBudget>>> =
         const { std::cell::RefCell::new(None) };
 }
 
 impl ExecutionBudget {
-    /// Install `budget` as the current-thread budget for the lifetime of the
-    /// returned guard (restoring the previous one on drop). Nesting is
-    /// supported. Used by the interpreter to scope a run.
+    /// Run `future` with `budget` installed as the task-local current budget,
+    /// restoring the previous task-local (if any) when it completes. This is the
+    /// interleaving-safe way to scope a run; prefer it for every async run.
+    /// Nesting (e.g. an `execute file` child) is supported.
+    pub async fn scope<F>(budget: Arc<ExecutionBudget>, future: F) -> F::Output
+    where
+        F: std::future::Future,
+    {
+        CURRENT_BUDGET_TASK.scope(budget, future).await
+    }
+
+    /// Install `budget` as the synchronous thread-local fallback for the
+    /// lifetime of the returned guard (restoring the previous one on drop). Use
+    /// this ONLY for synchronous, non-interleaving contexts (the CLI front-end);
+    /// async runs must use [`ExecutionBudget::scope`], which takes precedence.
     pub fn enter(budget: Arc<ExecutionBudget>) -> CurrentBudgetGuard {
-        let previous = CURRENT_BUDGET.with(|c| c.borrow_mut().replace(budget));
+        let previous = CURRENT_BUDGET_THREAD.with(|c| c.borrow_mut().replace(budget));
         CurrentBudgetGuard { previous }
     }
 
-    /// The current-thread budget, if a run has installed one via
-    /// [`ExecutionBudget::enter`].
+    /// The current budget: the task-local scope if one is active (an async run),
+    /// otherwise the synchronous thread-local fallback (the CLI front-end).
     pub fn current() -> Option<Arc<ExecutionBudget>> {
-        CURRENT_BUDGET.with(|c| c.borrow().clone())
+        CURRENT_BUDGET_TASK
+            .try_with(Arc::clone)
+            .ok()
+            .or_else(|| CURRENT_BUDGET_THREAD.with(|c| c.borrow().clone()))
     }
 
-    /// The current-thread budget, or a fresh unlimited one (which still carries
-    /// the pattern ReDoS ceilings) when no run is active — so a bare
+    /// The current budget, or a fresh unlimited one (which still carries the
+    /// pattern ReDoS ceilings) when no run is active — so a bare
     /// [`crate::pattern::PatternVM::new`] is always bounded.
     pub fn current_or_default() -> Arc<ExecutionBudget> {
         Self::current().unwrap_or_else(|| Arc::new(Self::unlimited()))
     }
 }
 
-/// Restores the previous current-thread budget when dropped.
+/// Restores the previous synchronous thread-local fallback budget when dropped.
 #[must_use]
 pub struct CurrentBudgetGuard {
     previous: Option<Arc<ExecutionBudget>>,
@@ -817,7 +845,7 @@ pub struct CurrentBudgetGuard {
 
 impl Drop for CurrentBudgetGuard {
     fn drop(&mut self) {
-        CURRENT_BUDGET.with(|c| *c.borrow_mut() = self.previous.take());
+        CURRENT_BUDGET_THREAD.with(|c| *c.borrow_mut() = self.previous.take());
     }
 }
 
