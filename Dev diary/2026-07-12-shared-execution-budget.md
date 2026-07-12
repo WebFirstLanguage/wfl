@@ -266,6 +266,53 @@ Addressed after the round-2 bot review:
   `budget_error` doc that claimed the deadline force-clears the call stack was
   corrected to match the no-mutation behavior.
 
+## Third deep review round (maintainer P1×10 + P2×6)
+
+A third maintainer review found the round-2 exemption/yield fixes only partial
+and raised further concurrency/lifecycle/peak-allocation gaps. Addressed on this
+PR (three commits):
+
+- **Main-loop exemption is now a shared depth counter + RAII guard.** Replaced
+  the interpreter `in_main_loop` bool and budget `deadline_exempt` bool with one
+  `main_loop_depth: AtomicUsize` and a `MainLoopGuard`. It restores on *every*
+  exit — normal, early return, a caught error unwinding through `?`, and nested
+  loops — so the exemption never leaks or clears an outer loop; an `execute file`
+  child sharing the budget inherits the parent's active exemption (the front-end
+  checkpoints are exemption-aware, so the nested parse no longer times out); and
+  the pattern meter reads the exemption **live** (no snapshot), so reusing one VM
+  across a main-loop boundary is correct. The cooperative yield now uses a
+  dedicated per-statement counter that advances even inside a `main loop`.
+- **WebSocket + HTTP lifecycle hardened.** Transport-level WS message/frame caps
+  (`Ws::max_message_size`/`max_frame_size`) before upgrade; connect events
+  fail-closed (unregister + close) so a live socket can't skip its connect
+  handler; per-message reservation on the *borrowed* length before cloning
+  (send + broadcast); `Drop` cleanup that aborts the accept task for both server
+  kinds; and the global HTTP admission guard now travels *inside* the queued
+  request so a queued body counts until dequeue/drop, not merely until the route
+  future ends.
+- **Budget scoped across the whole REPL/front-end pipeline**, a type-check budget
+  breach is fatal (not a warning), and more front-end checkpoints
+  (`Analyzer::analyze`, recursive `parse_statement`) keep nested parses/analysis
+  interruptible. The REPL source cap is checked on the prospective length before
+  `push_str`.
+
+### Deferred (with rationale)
+
+- **Task-local budget (interleaving two-budget case).** WFL runs exactly one
+  interpreter future per thread: the CLI runs one program; the web server
+  processes requests serially on a single interpreter via the event channel; the
+  REPL runs one command at a time. Two interpreter futures never interleave on
+  one thread (no `join!`/`spawn_local` of interpreter runs), and the thread-local
+  budget guard correctly save/restores for *nested* runs (`execute file`). The
+  interleaving hazard therefore does not occur in the current architecture; a
+  `tokio::task_local!` conversion is defense-in-depth that would require
+  restructuring every run entry point. Tracked as a follow-up.
+- **Collect pattern text once per top-level match.** Total pattern work is
+  already bounded by `max_pattern_steps` and the source-size cap; the per-`step`
+  `chars` re-collection is a real inefficiency but the fix threads `&[char]`
+  through the VM's position/step signatures — a delicate change to a
+  heavily-tested subsystem. Tracked as a follow-up.
+
 ## Notes / Follow-ups
 
 - The outbound `reqwest` client still has no per-request timeout or in-flight
