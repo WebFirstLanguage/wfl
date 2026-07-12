@@ -64,6 +64,20 @@ use tokio::sync::{mpsc, oneshot};
 
 // Type alias for complex pending response type
 type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHttpResponse>>>>;
+
+/// A dequeued HTTP request parked in `pending_responses` awaiting a `respond`.
+///
+/// It holds both the response channel and the request's in-flight admission
+/// slot, so the global admission gate reopens only when the response completes
+/// (`respond`), the client is pruned (disconnect/timeout), or the server shuts
+/// down — not the moment the interpreter dequeues the request. Otherwise a
+/// handler could dequeue requests in a loop without responding, immediately
+/// reopening admission while every route task and pending sender stayed
+/// unfinished until its timeout.
+struct PendingResponse {
+    sender: PendingResponseSender,
+    _admission: Option<crate::exec::budget::RequestGuard>,
+}
 use uuid;
 use warp::Filter;
 
@@ -120,6 +134,10 @@ pub struct WflHttpResponse {
 /// real response.
 struct ResponseCompletion {
     sender: Option<oneshot::Sender<WflHttpResponse>>,
+    /// The in-flight admission slot for this request, carried from the pending
+    /// entry so it is released only when the response actually completes (here,
+    /// on success or on the `Drop` 500 fallback) — never merely at dequeue.
+    _admission: Option<crate::exec::budget::RequestGuard>,
 }
 
 impl ResponseCompletion {
@@ -1045,7 +1063,7 @@ pub struct Interpreter {
     web_servers: RefCell<HashMap<String, WflWebServer>>, // Web servers by name
     web_socket_servers: RefCell<HashMap<String, WflWebSocketServer>>, // WebSocket servers keyed by address
     ws_connections: WsConnectionRegistry, // Outbound senders for all live WebSocket connections
-    pending_responses: RefCell<HashMap<String, PendingResponseSender>>, // Pending response senders by request ID
+    pending_responses: RefCell<HashMap<String, PendingResponse>>, // Pending responses (channel + admission slot) by request ID
     #[allow(dead_code)] // Used for future security features
     config: Arc<WflConfig>, // Configuration for security and other settings
     current_source_file: RefCell<Option<PathBuf>>, // Currently executing source file (for path resolution)
@@ -6661,12 +6679,21 @@ impl Interpreter {
                     // (oneshot sender closed) before inserting the new one, so a
                     // handler that never `respond`s to a since-abandoned request
                     // cannot let the map grow without bound across many timeouts.
-                    pending_responses.retain(|_, sender_arc| match sender_arc.try_lock() {
+                    // Dropping a pruned entry also releases its admission slot.
+                    pending_responses.retain(|_, pending| match pending.sender.try_lock() {
                         Ok(guard) => guard.as_ref().is_some_and(|s| !s.is_closed()),
                         // Locked right now (being responded to) — keep it.
                         Err(_) => true,
                     });
-                    pending_responses.insert(request.id.clone(), request.response_sender);
+                    // Carry the admission slot with the parked response so it is
+                    // released on respond/prune/shutdown, not at dequeue.
+                    pending_responses.insert(
+                        request.id.clone(),
+                        PendingResponse {
+                            sender: request.response_sender,
+                            _admission: request._admission,
+                        },
+                    );
                 }
 
                 Ok((Value::Null, ControlFlow::None))
@@ -6712,14 +6739,18 @@ impl Interpreter {
                 // answers 500, so the request is always resolved instead of
                 // hanging until its timeout; a successful respond disarms it via
                 // `take_sender`.
-                let sender_arc = {
+                let pending_entry = {
                     let mut pending = self.pending_responses.borrow_mut();
                     pending.remove(&request_id)
                 };
-                let mut completion = match sender_arc {
-                    Some(arc) => match arc.lock().await.take() {
+                let mut completion = match pending_entry {
+                    // Move the admission slot into the completion guard so it is
+                    // released exactly when the response is delivered (or the 500
+                    // fallback fires on drop), spanning the full request lifetime.
+                    Some(entry) => match entry.sender.lock().await.take() {
                         Some(sender) => ResponseCompletion {
                             sender: Some(sender),
+                            _admission: entry._admission,
                         },
                         None => {
                             return Err(RuntimeError::new(
