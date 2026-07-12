@@ -27,6 +27,7 @@ pub mod config;
 pub mod debug_report;
 pub mod diagnostics;
 pub mod env_dump;
+pub mod exec;
 pub mod fixer;
 pub mod interpreter;
 pub mod lexer;

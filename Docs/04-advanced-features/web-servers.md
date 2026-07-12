@@ -1027,8 +1027,11 @@ end check
 - **Single request handling:** Each `wait for request` handles one request
 - **Blocking:** Server handles requests sequentially (TLS handshakes are concurrent, but your responses are serialized)
 - **Bounded accept queue:** Because handlers are serial, incoming requests queue up behind the one being handled. That queue is bounded (default 256, configurable via `web_server_request_queue_bound`). When it is full, the server sheds new requests with a `503 Service Unavailable` (plus a `Retry-After` header) and logs a warning, rather than growing memory without bound. See [Configuration Reference](../reference/configuration-reference.md#web_server_request_queue_bound).
+- **Bounded response size:** A handler cannot `respond with` a body larger than `web_server_max_response_size` (default 64 MiB); an oversized response is refused with a runtime error rather than streamed unbounded. See [Configuration Reference](../reference/configuration-reference.md#web_server_max_response_size).
 - **No middleware system** (yet) - Implement manually
 - **No built-in session management** - Implement yourself
+
+All of these ceilings, together with the request timeout and body-size limits, are part of one shared [execution budget](../reference/configuration-reference.md#execution-budget-resource-limits).
 
 ### Workarounds
 
@@ -1158,6 +1161,20 @@ end on
 wait for 3600 seconds
 close server chat_server
 ```
+
+### WebSocket resource limits
+
+WebSocket queues and connections are bounded so a flood or a slow client cannot
+grow memory without bound:
+
+- **Queue bound** (`web_socket_queue_bound`, default 1024): the per-connection
+  outbound frame queue and the per-server event queue are bounded. When a queue
+  is full, the extra frame/event is dropped and a warning is logged.
+- **Connection limit** (`web_socket_max_connections`, default 1024): a
+  connection attempt beyond the limit is refused with a close frame and a logged
+  warning.
+
+Both are part of the shared [execution budget](../reference/configuration-reference.md#execution-budget-resource-limits).
 
 ## Security Considerations
 

@@ -211,7 +211,31 @@ All keys currently loaded from config files, with defaults.
 | `web_server_tls_cert_file` | path | *(none)* | Default PEM cert for bare `listen … secured` |
 | `web_server_tls_key_file` | path | *(none)* | Default PEM key for bare `listen … secured` |
 | `web_server_max_body_size` | integer ≥ 1 | `1048576` (1 MiB) | Max HTTP request body size (bytes) |
+| `web_server_max_response_size` | integer ≥ 1 | `67108864` (64 MiB) | Max HTTP response body size (bytes) |
 | `web_server_request_queue_bound` | integer ≥ 1 | `256` | Max queued HTTP requests before shedding with 503 |
+| `web_socket_queue_bound` | integer ≥ 1 | `1024` | Max queued frames/events per WebSocket channel before shedding |
+| `web_socket_max_connections` | integer ≥ 1 | `1024` | Max simultaneous live WebSocket connections |
+
+### Execution budget (resource limits)
+
+A single [`ExecutionBudget`](#execution-budget-resource-limits) governs every
+resource ceiling as one coherent mechanism. These keys tune it. Each is chosen
+so ordinary programs never trip it while runaway behavior gets a clean,
+catchable error instead of a crash or unbounded memory growth.
+
+| Key | Type | Default | Purpose |
+|---|---|---|---|
+| `max_operations` | integer ≥ 0 | `0` (unlimited) | Hard ceiling on interpreter operations; `0` disables it |
+| `max_call_depth` | integer ≥ 1 | `1000` | Max WFL call/recursion depth |
+| `max_import_depth` | integer ≥ 1 | `64` | Max nested `load module` / `include` depth |
+| `max_execute_file_depth` | integer ≥ 1 | `4` | Max `execute file` nesting depth |
+| `max_pattern_steps` | integer ≥ 1 | `100000` | Max pattern-matching transitions per match (ReDoS guard) |
+| `max_pattern_states` | integer ≥ 1 | `10000` | Max simultaneously-active pattern states per match |
+| `max_source_size` | integer ≥ 1 | `67108864` (64 MiB) | Max WFL source-file size (bytes) |
+
+The wall-clock deadline (`timeout_seconds`), request body/response ceilings, and
+the HTTP/WebSocket queue and connection bounds above are all part of the same
+budget.
 
 ---
 
@@ -494,6 +518,101 @@ Maximum number of accepted-but-not-yet-handled HTTP requests held in the queue b
 - **Example:** `web_server_request_queue_bound = 512`
 
 Because request handlers run one at a time (see [Web Servers → Limitations](../04-advanced-features/web-servers.md#limitations--notes)), a burst of traffic queues up behind the handler. Without a bound, that queue could grow until the process runs out of memory. When the queue is full, the server **sheds** further requests with a `503 Service Unavailable` (and a `Retry-After` header) and logs a warning, instead of buffering unbounded work. Raise it to absorb larger bursts at the cost of more memory; lower it to shed sooner under load. A value of `0` is rejected (the default is kept).
+
+#### `web_server_max_response_size`
+
+Maximum HTTP response body a handler may `respond with`, in bytes. A larger response is refused (the handler gets a runtime error) rather than streaming an unbounded payload to the client.
+
+- **Type:** Integer (bytes, at least 1)
+- **Default:** `67108864` (64 MiB)
+- **Example:** `web_server_max_response_size = 5242880`  # 5 MiB
+
+#### `web_socket_queue_bound`
+
+Maximum number of queued frames (per outbound connection) and lifecycle events (per server) held for a WebSocket before shedding. Bounds WebSocket memory the same way `web_server_request_queue_bound` bounds HTTP requests: when a channel is full, the extra frame/event is dropped and a warning is logged, instead of growing memory without bound.
+
+- **Type:** Integer (at least 1)
+- **Default:** `1024`
+- **Example:** `web_socket_queue_bound = 4096`
+
+#### `web_socket_max_connections`
+
+Maximum number of simultaneous live WebSocket connections. A connection attempt beyond the limit is refused (the server sends a close frame and logs a warning) instead of registering unbounded connections.
+
+- **Type:** Integer (at least 1)
+- **Default:** `1024`
+- **Example:** `web_socket_max_connections = 256`
+
+### Execution budget (resource limits)
+
+WFL enforces every resource ceiling through a single shared **execution budget**
+object that travels with a run through parsing, evaluation, pattern matching, web
+handling, and module loading. Consolidating these caps in one place means they
+behave consistently and are tuned from one section of `.wflcfg`. The wall-clock
+deadline is `timeout_seconds` (above); the byte and queue ceilings are the
+`web_server_*` / `web_socket_*` keys (above). The remaining knobs:
+
+#### `max_operations`
+
+Hard ceiling on the number of interpreter operations a run may execute. This is a belt-and-suspenders guard against a program that spins without ever awaiting (which the wall-clock `timeout_seconds` may not catch promptly inside a tight loop).
+
+- **Type:** Integer (0 or more)
+- **Default:** `0` (unlimited — matches historic behavior)
+- **Example:** `max_operations = 500000000`
+
+A value of `0` disables the ceiling. Like `timeout_seconds`, this ceiling is **not** enforced inside a `main loop` (a long-lived server would otherwise stop after N operations); cooperative cancellation still applies.
+
+#### `max_call_depth`
+
+Maximum WFL call/recursion depth. When exceeded, the run stops with a clean, catchable *“Maximum call depth (N) exceeded — possible infinite recursion”* error instead of a native stack overflow that would abort the whole process.
+
+- **Type:** Integer (at least 1)
+- **Default:** `1000`
+- **Example:** `max_call_depth = 2000`
+
+WFL runs the interpreter on a large (1 GiB) stack so this depth is reached safely; if you raise the ceiling substantially and rely on very deep recursion, prefer an iterative formulation where practical.
+
+#### `max_import_depth`
+
+Maximum nesting depth of `load module` / `include from`. Circular imports are already detected separately; this bounds a legitimately deep — but likely accidental — dependency chain.
+
+- **Type:** Integer (at least 1)
+- **Default:** `64`
+- **Example:** `max_import_depth = 128`
+
+#### `max_execute_file_depth`
+
+Maximum nesting depth of `execute file` runs. Kept small because each level re-enters the whole interpreter recursively.
+
+- **Type:** Integer (at least 1)
+- **Default:** `4`
+- **Example:** `max_execute_file_depth = 6`
+
+#### `max_pattern_steps`
+
+Maximum number of pattern-VM transitions a single match attempt may take (Regular-expression Denial-of-Service, “ReDoS”, guard). A pathological pattern that would otherwise run away stops with a pattern step-limit error.
+
+- **Type:** Integer (at least 1)
+- **Default:** `100000`
+- **Example:** `max_pattern_steps = 250000`
+
+#### `max_pattern_states`
+
+Maximum number of simultaneously-active states a single pattern match may hold. Bounds exponential state fan-out that step-counting alone does not catch.
+
+- **Type:** Integer (at least 1)
+- **Default:** `10000`
+- **Example:** `max_pattern_states = 50000`
+
+#### `max_source_size`
+
+Maximum size, in bytes, of a WFL source file. A larger file is refused before it is lexed or parsed.
+
+- **Type:** Integer (bytes, at least 1)
+- **Default:** `67108864` (64 MiB)
+- **Example:** `max_source_size = 1048576`  # 1 MiB
+
+Each of these positive-integer keys rejects `0` and non-numeric values, keeping the default and logging a warning.
 
 ---
 

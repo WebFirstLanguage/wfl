@@ -100,8 +100,35 @@ fn parse_create_project_args(args: &[String]) -> Option<String> {
     }
 }
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
+/// Stack size for the thread that runs the interpreter.
+///
+/// WFL's tree-walking interpreter recurses through several async frames per WFL
+/// call, so deep WFL recursion is very stack-heavy (a debug build overflows an
+/// 8 MiB stack near depth ~40, and each WFL level costs on the order of a
+/// megabyte of debug stack). Running everything on a dedicated large-stack
+/// thread lets the shared `ExecutionBudget`'s `max_call_depth` (default 1000)
+/// turn runaway recursion into a clean, catchable error instead of the OS
+/// killing the whole process with a stack overflow. 1 GiB is reserved
+/// virtually and committed lazily, so normal programs pay nothing for it.
+const INTERPRETER_STACK_SIZE: usize = 1024 * 1024 * 1024;
+
+fn main() -> io::Result<()> {
+    let child = std::thread::Builder::new()
+        .name("wfl-main".to_string())
+        .stack_size(INTERPRETER_STACK_SIZE)
+        .spawn(|| {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            // `block_on` drives the root future on *this* (large-stack) thread,
+            // so the interpreter and any WFL recursion run here; only spawned
+            // transport tasks use tokio's default-stack worker threads.
+            runtime.block_on(run())
+        })?;
+    child.join().expect("wfl-main thread panicked")
+}
+
+async fn run() -> io::Result<()> {
     // Initialize dhat profiler if enabled
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
@@ -739,6 +766,17 @@ async fn main() -> io::Result<()> {
     let input = fs::read_to_string(&file_path)?;
     let script_dir = Path::new(&file_path).parent().unwrap_or(Path::new("."));
     let config = config::load_config(script_dir);
+
+    // Enforce the shared source-size ceiling before doing any lexing/parsing.
+    // Uses the same ExecutionBudget the interpreter will run under, so the
+    // `max_source_size` .wflcfg knob governs every entry point (run, lint,
+    // analyze, dump) from one place.
+    if let Err(exceeded) =
+        wfl::exec::budget::ExecutionBudget::from_config(&config).check_source_bytes(input.len())
+    {
+        eprintln!("Error: {}", exceeded.message());
+        process::exit(2);
+    }
 
     // Handle lexer and AST dump flags
     if lex_dump || ast_dump {

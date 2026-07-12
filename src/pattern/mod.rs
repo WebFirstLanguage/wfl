@@ -46,6 +46,8 @@ pub mod compiler;
 pub mod instruction;
 pub mod vm;
 
+use crate::exec::budget::ExecutionBudget;
+
 pub use compiler::PatternCompiler;
 pub use instruction::{Instruction, Program as PatternProgram};
 pub use vm::{MatchResult, PatternVM};
@@ -65,6 +67,11 @@ pub enum PatternError {
     RuntimeError(String),
     /// Pattern execution exceeded the maximum allowed steps (prevents ReDoS)
     StepLimitExceeded,
+    /// Pattern execution exceeded the maximum allowed simultaneously-active
+    /// states (guards against exponential state fan-out)
+    StateLimitExceeded,
+    /// Pattern execution was cancelled via the shared `ExecutionBudget`
+    Cancelled,
     /// Referenced capture group does not exist
     InvalidCapture(String),
     /// Invalid bytecode instruction encountered
@@ -77,6 +84,10 @@ impl std::fmt::Display for PatternError {
             PatternError::CompileError(msg) => write!(f, "Pattern compile error: {msg}"),
             PatternError::RuntimeError(msg) => write!(f, "Pattern runtime error: {msg}"),
             PatternError::StepLimitExceeded => write!(f, "Pattern execution step limit exceeded"),
+            PatternError::StateLimitExceeded => {
+                write!(f, "Pattern execution active-state limit exceeded")
+            }
+            PatternError::Cancelled => write!(f, "Pattern execution was cancelled"),
             PatternError::InvalidCapture(name) => write!(f, "Invalid capture group: {name}"),
             PatternError::InvalidInstruction(msg) => write!(f, "Invalid instruction: {msg}"),
         }
@@ -269,6 +280,38 @@ impl CompiledPattern {
     /// approaches if memory usage is a concern.
     pub fn find_all(&self, text: &str) -> Vec<MatchResult> {
         let mut vm = PatternVM::new();
+        vm.find_all(&self.program, text, &self.capture_names)
+    }
+
+    /// [`CompiledPattern::matches`], but sharing an existing [`ExecutionBudget`]
+    /// so the match respects the run's pattern step/state ceilings and
+    /// cooperative cancellation.
+    pub fn matches_with_budget(
+        &self,
+        text: &str,
+        budget: &std::sync::Arc<ExecutionBudget>,
+    ) -> bool {
+        let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
+        vm.execute(&self.program, text).unwrap_or(false)
+    }
+
+    /// [`CompiledPattern::find`], sharing an existing [`ExecutionBudget`].
+    pub fn find_with_budget(
+        &self,
+        text: &str,
+        budget: &std::sync::Arc<ExecutionBudget>,
+    ) -> Option<MatchResult> {
+        let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
+        vm.find(&self.program, text, &self.capture_names)
+    }
+
+    /// [`CompiledPattern::find_all`], sharing an existing [`ExecutionBudget`].
+    pub fn find_all_with_budget(
+        &self,
+        text: &str,
+        budget: &std::sync::Arc<ExecutionBudget>,
+    ) -> Vec<MatchResult> {
+        let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
         vm.find_all(&self.program, text, &self.capture_names)
     }
 }

@@ -28,6 +28,7 @@ use self::value::{
 use crate::builtins::get_function_arity;
 use crate::config::WflConfig;
 use crate::debug_report::CallFrame;
+use crate::exec::budget::{BudgetExceeded, ExecutionBudget};
 #[cfg(debug_assertions)]
 use crate::exec_block_enter;
 #[cfg(debug_assertions)]
@@ -51,7 +52,7 @@ use crate::parser::ast::{
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::net::IpAddr;
@@ -176,8 +177,10 @@ struct WflWsEvent {
 }
 
 /// Outbound-sender registry keyed by connection id, shared with warp tasks.
-type WsConnectionRegistry =
-    Arc<std::sync::Mutex<HashMap<String, mpsc::UnboundedSender<WsOutbound>>>>;
+/// Each sender is a *bounded* channel (sized from the shared budget's
+/// `ws_queue_bound`), so a slow client cannot make the server buffer frames
+/// without bound — sends `try_send` and shed on `Full`.
+type WsConnectionRegistry = Arc<std::sync::Mutex<HashMap<String, mpsc::Sender<WsOutbound>>>>;
 
 /// A registered `on websocket ...` handler block plus its captured environment.
 struct WsRegisteredHandler {
@@ -197,7 +200,7 @@ struct WsHandlerSet {
 /// A running WebSocket server: an event stream in, the set of live connection
 /// ids (for broadcast), the registered handler blocks, and the server task.
 struct WflWebSocketServer {
-    event_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflWsEvent>>>,
+    event_receiver: Arc<tokio::sync::Mutex<mpsc::Receiver<WflWsEvent>>>,
     connection_ids: Arc<std::sync::Mutex<Vec<String>>>,
     handlers: RefCell<WsHandlerSet>,
     server_handle: Option<tokio::task::JoinHandle<()>>,
@@ -209,19 +212,39 @@ struct WflWebSocketServer {
 async fn handle_ws_connection(
     socket: warp::ws::WebSocket,
     remote_addr: Option<std::net::SocketAddr>,
-    events: mpsc::UnboundedSender<WflWsEvent>,
+    events: mpsc::Sender<WflWsEvent>,
     connections: WsConnectionRegistry,
     connection_ids: Arc<std::sync::Mutex<Vec<String>>>,
+    budget: Arc<ExecutionBudget>,
 ) {
     use futures_util::{SinkExt, StreamExt};
 
-    let conn_id = uuid::Uuid::new_v4().to_string();
     let client_ip = remote_addr
         .map(|addr| addr.ip().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
+    // Enforce the shared connection ceiling before doing any per-connection
+    // work. The guard releases the slot when this task ends (any exit path).
+    let _conn_guard = match budget.try_acquire_ws_connection() {
+        Some(guard) => guard,
+        None => {
+            log::warn!(
+                "WebSocket connection limit ({}) reached; refusing connection from {client_ip}",
+                budget.limits().max_ws_connections
+            );
+            let (mut ws_tx, _ws_rx) = socket.split();
+            let _ = ws_tx.send(warp::ws::Message::close()).await;
+            let _ = ws_tx.flush().await;
+            return;
+        }
+    };
+
+    let conn_id = uuid::Uuid::new_v4().to_string();
+
     let (mut ws_tx, mut ws_rx) = socket.split();
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<WsOutbound>();
+    // Bounded outbound queue (sized from the budget): a slow client sheds
+    // frames on `Full` instead of growing memory without bound.
+    let (out_tx, mut out_rx) = mpsc::channel::<WsOutbound>(budget.ws_queue_bound());
 
     if let Ok(mut map) = connections.lock() {
         map.insert(conn_id.clone(), out_tx);
@@ -230,12 +253,14 @@ async fn handle_ws_connection(
         ids.push(conn_id.clone());
     }
 
-    let _ = events.send(WflWsEvent {
+    if let Err(err) = events.try_send(WflWsEvent {
         kind: WsEventKind::Connect,
         connection_id: conn_id.clone(),
         client_ip: client_ip.clone(),
         content: None,
-    });
+    }) {
+        log::warn!("WebSocket event queue full; dropping connect event for {conn_id}: {err}");
+    }
 
     // Writer task: drains queued frames to the socket until the channel closes
     // or the peer goes away.
@@ -261,13 +286,17 @@ async fn handle_ws_connection(
         match result {
             Ok(msg) => {
                 if msg.is_text() {
-                    if let Ok(text) = msg.to_str() {
-                        let _ = events.send(WflWsEvent {
+                    if let Ok(text) = msg.to_str()
+                        && let Err(err) = events.try_send(WflWsEvent {
                             kind: WsEventKind::Message,
                             connection_id: conn_id.clone(),
                             client_ip: client_ip.clone(),
                             content: Some(text.to_string()),
-                        });
+                        })
+                    {
+                        log::warn!(
+                            "WebSocket event queue full; dropping message event for {conn_id}: {err}"
+                        );
                     }
                 } else if msg.is_close() {
                     break;
@@ -284,12 +313,14 @@ async fn handle_ws_connection(
     if let Ok(mut ids) = connection_ids.lock() {
         ids.retain(|c| c != &conn_id);
     }
-    let _ = events.send(WflWsEvent {
+    if let Err(err) = events.try_send(WflWsEvent {
         kind: WsEventKind::Disconnect,
         connection_id: conn_id.clone(),
         client_ip,
         content: None,
-    });
+    }) {
+        log::warn!("WebSocket event queue full; dropping disconnect event for {conn_id}: {err}");
+    }
     writer.abort();
 }
 
@@ -702,21 +733,19 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 // use self::value::FutureValue;
 
-/// Maximum nesting depth for `execute file` runs, guarding against a file
-/// that (directly or indirectly) executes itself. Kept small because each
-/// nesting level polls through the full interpreter recursively, so deep
-/// nesting would exhaust the thread stack (debug builds overflow near a
-/// depth of 8) before a larger guard could fire.
-const MAX_EXECUTE_FILE_DEPTH: usize = 4;
-
 pub struct Interpreter {
     global_env: Rc<RefCell<Environment>>,
     current_count: RefCell<Option<f64>>,
     in_count_loop: RefCell<bool>,
     in_main_loop: RefCell<bool>, // Track if we're in a main loop (disables timeout)
-    op_count: Cell<usize>,       // Instruction counter for optimized timeout checks
-    started: Instant,
-    max_duration: Duration,
+    /// The single shared execution budget: deadline/cancellation, operation
+    /// ceiling, recursion/import/execute-file depth, pattern steps/states, byte
+    /// caps, pending-request and WebSocket limits. Held behind `Arc` so the
+    /// multi-threaded web transport (warp accept tasks, per-connection
+    /// WebSocket tasks) can read it without any `Rc`/`RefCell` crossing a
+    /// thread boundary. Replaces the old `op_count`/`started`/`max_duration`
+    /// fields and the scattered per-subsystem constants.
+    budget: Arc<ExecutionBudget>,
     call_stack: RefCell<Vec<CallFrame>>,
     #[allow(dead_code)]
     io_client: Rc<IoClient>,
@@ -1772,9 +1801,7 @@ impl Interpreter {
             current_count: RefCell::new(None),
             in_count_loop: RefCell::new(false),
             in_main_loop: RefCell::new(false),
-            op_count: Cell::new(0),
-            started: Instant::now(),
-            max_duration: Duration::from_secs(config.timeout_seconds),
+            budget: Arc::new(ExecutionBudget::from_config(&config)),
             call_stack: RefCell::new(Vec::new()),
             io_client: Rc::new(IoClient::new(Arc::clone(&config))),
             step_mode: false,                          // Default to non-step mode
@@ -2146,43 +2173,39 @@ impl Interpreter {
         &self.global_env
     }
 
+    /// Charge one interpreter operation against the shared budget. This counts
+    /// the operation, honours cooperative cancellation, and — outside a
+    /// `main loop` — enforces the operation ceiling and wall-clock deadline. The
+    /// `main loop` exemption preserves the historic rule that a long-lived
+    /// server loop never times out; cancellation still applies so a server can
+    /// be stopped. Clock reads stay throttled to one per 1024 operations inside
+    /// the budget, matching the previous `op_count & 1023` optimization.
     fn check_time(&self) -> Result<(), RuntimeError> {
-        // Skip timeout check if we're in a main loop
-        if *self.in_main_loop.borrow() {
-            return Ok(());
+        let enforce_limits = !*self.in_main_loop.borrow();
+        match self.budget.charge_operation(enforce_limits) {
+            Ok(()) => Ok(()),
+            Err(exceeded) => Err(self.budget_error(exceeded, 0, 0)),
         }
+    }
 
-        // Optimization: Only check system time every 1024 operations
-        // This avoids expensive syscalls/hardware clock reads in tight loops
-        let count = self.op_count.get();
-        self.op_count.set(count.wrapping_add(1));
-
-        if count & 1023 != 0 {
-            return Ok(());
+    /// Map a [`BudgetExceeded`] onto a `RuntimeError`, releasing interpreter
+    /// resources first (mirroring the historic timeout path, which cleared the
+    /// call stack and any active count loop before returning).
+    fn budget_error(&self, exceeded: BudgetExceeded, line: usize, column: usize) -> RuntimeError {
+        if *self.in_count_loop.borrow() {
+            *self.in_count_loop.borrow_mut() = false;
+            *self.current_count.borrow_mut() = None;
         }
+        self.call_stack.borrow_mut().clear();
 
-        if self.started.elapsed() > self.max_duration {
-            if *self.in_count_loop.borrow() {
-                *self.in_count_loop.borrow_mut() = false;
-                *self.current_count.borrow_mut() = None;
-            }
-
-            // Force all resources to be released
-            self.call_stack.borrow_mut().clear();
-
-            // Terminate with a timeout error
-            Err(RuntimeError::with_kind(
-                format!(
-                    "Execution exceeded timeout ({}s)",
-                    self.max_duration.as_secs()
-                ),
-                0,
-                0,
-                ErrorKind::Timeout,
-            ))
-        } else {
-            Ok(())
-        }
+        // The deadline keeps its historic `[Timeout]` kind (and verbatim
+        // message) so existing timeout handling still matches; every other
+        // budget breach is a resource-limit error.
+        let kind = match exceeded {
+            BudgetExceeded::Deadline { .. } => ErrorKind::Timeout,
+            _ => ErrorKind::ResourceLimit,
+        };
+        RuntimeError::with_kind(exceeded.message(), line, column, kind)
     }
 
     fn assert_invariants(&self) {
@@ -3710,8 +3733,15 @@ impl Interpreter {
                 // 2. Resolve absolute path
                 let resolved_path = self.resolve_module_path(&path_str, *line, *column).await?;
 
-                // 3. Check circular dependencies
+                // 3. Check circular dependencies and the shared import-depth
+                // ceiling (loading_stack length is the depth already entered).
                 self.check_circular_dependency(&resolved_path, *line, *column)?;
+                if let Err(exceeded) = self
+                    .budget
+                    .check_import_depth(self.loading_stack.borrow().len())
+                {
+                    return Err(self.budget_error(exceeded, *line, *column));
+                }
 
                 // 4. Read file content
                 let content = tokio::fs::read_to_string(&resolved_path)
@@ -3870,8 +3900,15 @@ impl Interpreter {
                 // 2. Resolve absolute path
                 let resolved_path = self.resolve_module_path(&path_str, *line, *column).await?;
 
-                // 3. Check circular dependencies
+                // 3. Check circular dependencies and the shared import-depth
+                // ceiling (loading_stack length is the depth already entered).
                 self.check_circular_dependency(&resolved_path, *line, *column)?;
+                if let Err(exceeded) = self
+                    .budget
+                    .check_import_depth(self.loading_stack.borrow().len())
+                {
+                    return Err(self.budget_error(exceeded, *line, *column));
+                }
 
                 // 4. Read file content
                 let content = tokio::fs::read_to_string(&resolved_path)
@@ -5414,7 +5451,7 @@ impl Interpreter {
                 // Create request/response channels. The request queue is bounded
                 // (Phase 0, PR-0c) so a flood of accepted-but-unhandled requests
                 // sheds with 503 instead of growing memory without bound.
-                let queue_bound = self.config.web_server_request_queue_bound.max(1);
+                let queue_bound = self.budget.max_pending_requests();
                 let (request_sender, request_receiver) =
                     mpsc::channel::<WflHttpRequest>(queue_bound);
                 let request_receiver = Arc::new(tokio::sync::Mutex::new(request_receiver));
@@ -5435,7 +5472,7 @@ impl Interpreter {
                 // Limit is configurable via `.wflcfg` `web_server_max_body_size`
                 // (default 1 MB).
                 let request_sender_clone = request_sender.clone();
-                let max_body_size = self.config.web_server_max_body_size;
+                let max_body_size = self.budget.max_request_body_bytes();
                 let max_body_size_u64 = max_body_size as u64;
                 let routes = warp::any()
                     .and(warp::method())
@@ -6147,6 +6184,13 @@ impl Interpreter {
                     _ => format!("{content_val:?}").into_bytes(),
                 };
 
+                // Enforce the shared response-body ceiling before handing the
+                // payload to the transport, so a handler cannot emit an
+                // unbounded response.
+                if let Err(exceeded) = self.budget.check_response_bytes(content_bytes.len()) {
+                    return Err(self.budget_error(exceeded, *line, *column));
+                }
+
                 // Evaluate status code (optional)
                 let status_code = if let Some(status_expr) = status {
                     let status_val = self
@@ -6377,7 +6421,7 @@ impl Interpreter {
                         if let Ok(mut map) = self.ws_connections.lock() {
                             for id in ids {
                                 if let Some(tx) = map.remove(&id) {
-                                    let _ = tx.send(WsOutbound::Close);
+                                    let _ = tx.try_send(WsOutbound::Close);
                                 }
                             }
                         }
@@ -6483,7 +6527,11 @@ impl Interpreter {
                     }
                 };
 
-                let (event_sender, event_receiver) = mpsc::unbounded_channel::<WflWsEvent>();
+                // Bounded lifecycle-event channel (sized from the shared budget):
+                // a flood of connect/message/disconnect events sheds on `Full`
+                // rather than growing memory without bound.
+                let (event_sender, event_receiver) =
+                    mpsc::channel::<WflWsEvent>(self.budget.ws_queue_bound());
                 let event_receiver = Arc::new(tokio::sync::Mutex::new(event_receiver));
                 let connection_ids = Arc::new(std::sync::Mutex::new(Vec::new()));
 
@@ -6491,14 +6539,16 @@ impl Interpreter {
                 let ws_connections = Arc::clone(&self.ws_connections);
                 let connection_ids_task = Arc::clone(&connection_ids);
                 let event_sender_task = event_sender.clone();
+                let budget_task = Arc::clone(&self.budget);
 
                 let route = warp::ws().and(warp::addr::remote()).map(
                     move |ws: warp::ws::Ws, remote: Option<std::net::SocketAddr>| {
                         let events = event_sender_task.clone();
                         let connections = Arc::clone(&ws_connections);
                         let ids = Arc::clone(&connection_ids_task);
+                        let budget = Arc::clone(&budget_task);
                         ws.on_upgrade(move |socket| {
-                            handle_ws_connection(socket, remote, events, connections, ids)
+                            handle_ws_connection(socket, remote, events, connections, ids, budget)
                         })
                     },
                 );
@@ -6606,8 +6656,9 @@ impl Interpreter {
                 match sender {
                     Some(tx) => {
                         // A closed writer task is indistinguishable from a live
-                        // one here; a dropped frame simply means the peer left.
-                        let _ = tx.send(WsOutbound::Text(text));
+                        // one here; a dropped frame simply means the peer left
+                        // (or the bounded outbound queue is saturated).
+                        let _ = tx.try_send(WsOutbound::Text(text));
                         Ok((Value::Null, ControlFlow::None))
                     }
                     None => Err(RuntimeError::new(
@@ -6645,7 +6696,7 @@ impl Interpreter {
                 if let Ok(map) = self.ws_connections.lock() {
                     for id in ids {
                         if let Some(tx) = map.get(&id) {
-                            let _ = tx.send(WsOutbound::Text(text.clone()));
+                            let _ = tx.try_send(WsOutbound::Text(text.clone()));
                         }
                     }
                 }
@@ -6753,15 +6804,10 @@ impl Interpreter {
                 line,
                 column,
             } => {
-                // Guard against a file that (directly or indirectly) executes itself
-                if self.execute_depth >= MAX_EXECUTE_FILE_DEPTH {
-                    return Err(RuntimeError::new(
-                        format!(
-                            "Maximum execute file nesting depth ({MAX_EXECUTE_FILE_DEPTH}) exceeded - possible circular execution"
-                        ),
-                        *line,
-                        *column,
-                    ));
+                // Guard against a file that (directly or indirectly) executes
+                // itself, using the shared budget's execute-file depth ceiling.
+                if let Err(exceeded) = self.budget.check_execute_file_depth(self.execute_depth) {
+                    return Err(self.budget_error(exceeded, *line, *column));
                 }
 
                 // Evaluate path expression to string
@@ -7455,15 +7501,12 @@ impl Interpreter {
 
             // Snapshot the receivers with a short borrow; dispatch below must not
             // hold a borrow of web_socket_servers across handler execution.
-            let receivers: Vec<(
-                String,
-                Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<WflWsEvent>>>,
-            )> = self
-                .web_socket_servers
-                .borrow()
-                .iter()
-                .map(|(key, srv)| (key.clone(), Arc::clone(&srv.event_receiver)))
-                .collect();
+            let receivers: Vec<(String, Arc<tokio::sync::Mutex<mpsc::Receiver<WflWsEvent>>>)> =
+                self.web_socket_servers
+                    .borrow()
+                    .iter()
+                    .map(|(key, srv)| (key.clone(), Arc::clone(&srv.event_receiver)))
+                    .collect();
 
             if receivers.is_empty() {
                 tokio::time::sleep(remaining).await;
@@ -8622,8 +8665,9 @@ impl Interpreter {
                     }
                 };
 
-                // Perform the match
-                let matches = compiled_pattern.matches(text_str);
+                // Perform the match under the shared budget so a pathological
+                // pattern is bounded by the run's step/state ceilings.
+                let matches = compiled_pattern.matches_with_budget(text_str, &self.budget);
                 Ok(Value::Bool(matches))
             }
 
@@ -8660,8 +8704,8 @@ impl Interpreter {
                     }
                 };
 
-                // Find the first match
-                match compiled_pattern.find(text_str) {
+                // Find the first match under the shared budget.
+                match compiled_pattern.find_with_budget(text_str, &self.budget) {
                     Some(match_result) => {
                         // Return an object with match information
                         let mut result_map = std::collections::HashMap::new();
@@ -9333,6 +9377,14 @@ impl Interpreter {
             // present in a parent scope) would otherwise leave the parameter
             // unbound and let the body resolve to the global instead (#582).
             let _ = call_env.borrow_mut().define_direct(param, arg.clone());
+        }
+
+        // Enforce the shared recursion ceiling before descending another level,
+        // turning runaway recursion into a clean error instead of a native
+        // stack overflow. The current stack length is the depth already entered.
+        let depth = self.call_stack.borrow().len();
+        if let Err(exceeded) = self.budget.check_call_depth(depth) {
+            return Err(self.budget_error(exceeded, line, column));
         }
 
         let frame = CallFrame::new(

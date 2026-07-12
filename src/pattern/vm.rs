@@ -7,11 +7,20 @@
 
 use super::PatternError;
 use super::instruction::{Instruction, Program};
+use crate::exec::budget::{BudgetExceeded, ExecutionBudget};
 use std::collections::HashMap;
+use std::sync::Arc;
 
-/// Maximum number of execution steps to prevent ReDoS (Regular Expression Denial of Service) attacks.
-/// This limit ensures that malicious or poorly designed patterns cannot cause infinite loops.
-const MAX_STEPS: usize = 100_000;
+/// Translate a shared-budget breach into the pattern VM's error type.
+fn budget_to_pattern_error(exceeded: BudgetExceeded) -> PatternError {
+    match exceeded {
+        BudgetExceeded::PatternStates { .. } => PatternError::StateLimitExceeded,
+        BudgetExceeded::Cancelled => PatternError::Cancelled,
+        // The step ceiling and any deadline both surface as the historic
+        // step-limit error so existing ReDoS handling keeps matching.
+        _ => PatternError::StepLimitExceeded,
+    }
+}
 
 /// Result of a pattern match operation.
 ///
@@ -133,15 +142,33 @@ impl VMState {
 pub struct PatternVM {
     /// Count of execution steps to prevent infinite loops
     step_count: usize,
+    /// Shared execution budget owning the step and active-state ceilings (plus
+    /// cross-cutting cancellation). Each match attempt tracks `step_count` and
+    /// `states.len()` locally and checks them against this budget's limits, so
+    /// the ReDoS guard is now one knob (`max_pattern_steps` / `max_pattern_states`)
+    /// shared with the rest of the runtime.
+    budget: Arc<ExecutionBudget>,
     /// Debug flag for test mode (only available in test builds)
     #[cfg(test)]
     debug: bool,
 }
 
 impl PatternVM {
+    /// A standalone VM whose pattern ceilings match the historic ReDoS defaults
+    /// (`MAX_STEPS` = 100_000, plus an active-state cap). Used by
+    /// [`super::CompiledPattern`]'s convenience methods and stdlib pattern
+    /// builtins, which have no interpreter budget to share.
     pub fn new() -> Self {
+        Self::with_budget(Arc::new(ExecutionBudget::unlimited()))
+    }
+
+    /// A VM that shares an existing [`ExecutionBudget`], so a pattern match
+    /// respects the same step/state ceilings and cancellation as the run that
+    /// launched it.
+    pub fn with_budget(budget: Arc<ExecutionBudget>) -> Self {
         Self {
             step_count: 0,
+            budget,
             #[cfg(test)]
             debug: false,
         }
@@ -224,9 +251,12 @@ impl PatternVM {
 
         while !states.is_empty() {
             self.step_count += 1;
-            if self.step_count > MAX_STEPS {
-                return Err(PatternError::StepLimitExceeded);
-            }
+            self.budget
+                .check_pattern_steps(self.step_count)
+                .map_err(budget_to_pattern_error)?;
+            self.budget
+                .check_cancelled()
+                .map_err(budget_to_pattern_error)?;
 
             let mut next_states = Vec::new();
 
@@ -243,6 +273,12 @@ impl PatternVM {
                     }
                 }
             }
+
+            // Guard against exponential state fan-out: a pathological pattern
+            // can otherwise grow the active-state set without bound.
+            self.budget
+                .check_pattern_states(next_states.len())
+                .map_err(budget_to_pattern_error)?;
 
             states = next_states;
         }
@@ -266,9 +302,12 @@ impl PatternVM {
 
         while !states.is_empty() {
             self.step_count += 1;
-            if self.step_count > MAX_STEPS {
-                return Err(PatternError::StepLimitExceeded);
-            }
+            self.budget
+                .check_pattern_steps(self.step_count)
+                .map_err(budget_to_pattern_error)?;
+            self.budget
+                .check_cancelled()
+                .map_err(budget_to_pattern_error)?;
 
             let mut next_states = Vec::new();
 
@@ -307,6 +346,11 @@ impl PatternVM {
                     }
                 }
             }
+
+            // Guard against exponential state fan-out (see execute_at_position).
+            self.budget
+                .check_pattern_states(next_states.len())
+                .map_err(budget_to_pattern_error)?;
 
             states = next_states;
         }
@@ -520,7 +564,7 @@ impl PatternVM {
                     }
 
                     // Try to match the lookahead pattern at the current position
-                    let mut lookahead_vm = PatternVM::new();
+                    let mut lookahead_vm = PatternVM::with_budget(Arc::clone(&self.budget));
                     #[cfg(test)]
                     {
                         lookahead_vm.debug = self.debug;
@@ -661,7 +705,8 @@ impl PatternVM {
                             let start_pos = state.pos - start_offset;
 
                             // Create a new VM to execute the lookbehind pattern
-                            let mut lookbehind_vm = PatternVM::new();
+                            let mut lookbehind_vm =
+                                PatternVM::with_budget(Arc::clone(&self.budget));
 
                             // Create a slice of text to match against
                             let text_slice: String =
@@ -706,7 +751,8 @@ impl PatternVM {
                             let start_pos = state.pos - start_offset;
 
                             // Create a new VM to execute the lookbehind pattern
-                            let mut lookbehind_vm = PatternVM::new();
+                            let mut lookbehind_vm =
+                                PatternVM::with_budget(Arc::clone(&self.budget));
 
                             // Create a slice of text to match against
                             let text_slice: String =
