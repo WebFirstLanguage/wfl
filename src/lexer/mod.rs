@@ -144,6 +144,12 @@ where
     // with no budget call, so a large (source-size-capped) input would tokenize
     // fully even after the run's deadline, and a same-task Ctrl-C could not
     // interrupt lexing.
+    // Consult the budget at the boundary BEFORE the first token, so an already
+    // cancelled or expired budget is observed even for a short input that never
+    // reaches a full `LEX_CHECKPOINT_STRIDE`. Without this, `--lex` (which has no
+    // later parser/analyzer checkpoint) could dump a short source and exit 0
+    // under an already-breached run budget.
+    checkpoint()?;
     let mut lexed_tokens: u64 = 0;
 
     while let Some(token_result) = lexer.next() {
@@ -358,6 +364,11 @@ where
         }
     }
 
+    // Final boundary check: catch a breach that occurred while lexing the last
+    // partial stride (the tokens after the highest `LEX_CHECKPOINT_STRIDE`
+    // multiple), which the in-loop strided check would otherwise miss.
+    checkpoint()?;
+
     if let Some(id) = current_id.take() {
         tokens.push(TokenWithPosition::with_span(
             Token::Identifier(id),
@@ -391,10 +402,14 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
 /// and propagate the error, so a breach can never let a source *prefix* be
 /// parsed, analyzed, or executed as if it were the whole program.
 ///
-/// At each stride the deadline and cancellation are checked **directly** — not
-/// through `charge_operation`'s 1024-operation sampling, which (nested inside
-/// the 4096-token stride) could postpone those checks by millions of tokens —
-/// and the operation ceiling is charged separately.
+/// The budget is consulted at the lexing boundary — before the first token and
+/// after the last — and every `LEX_CHECKPOINT_STRIDE` tokens in between, so even
+/// a short source under an already-cancelled or already-expired budget aborts
+/// (there is no later `--lex` phase to catch it). The deadline and cancellation
+/// are checked **directly** — not through `charge_operation`'s 1024-operation
+/// sampling, which (nested inside the 4096-token stride) could postpone those
+/// checks by millions of tokens — and the operation ceiling is charged
+/// separately.
 pub fn lex_wfl_with_positions_checked(
     input: &str,
 ) -> Result<Vec<TokenWithPosition>, crate::exec::budget::BudgetExceeded> {

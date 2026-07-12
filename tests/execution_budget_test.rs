@@ -755,6 +755,44 @@ fn checked_lexer_reports_operation_exhaustion() {
 }
 
 #[test]
+fn checked_lexer_reports_cancellation_on_a_short_input() {
+    // A source far shorter than one `LEX_CHECKPOINT_STRIDE` (here ~3 tokens) must
+    // still observe an already-cancelled budget: the boundary checkpoint runs
+    // before the first token, so the breach is caught even though no strided
+    // checkpoint (token 4096+) is ever reached. This is the `--lex` gap — that
+    // path has no later phase to catch the breach.
+    use wfl::exec::budget::{BudgetExceeded, BudgetLimits, ExecutionBudget};
+    let budget = std::sync::Arc::new(ExecutionBudget::new(BudgetLimits::default()));
+    budget.cancel();
+    let _guard = ExecutionBudget::enter(budget);
+    let result = wfl::lexer::lex_wfl_with_positions_checked("display 1\n");
+    assert_eq!(
+        result.err(),
+        Some(BudgetExceeded::Cancelled),
+        "a short input under an already-cancelled budget must abort at the entry checkpoint"
+    );
+}
+
+#[test]
+fn checked_lexer_reports_expired_deadline_on_a_short_input() {
+    // Companion to the cancellation case: an already-expired deadline must abort
+    // a short lex at the entry checkpoint, not slip through because the input is
+    // too short to reach a strided checkpoint.
+    use wfl::exec::budget::{BudgetExceeded, BudgetLimits, ExecutionBudget};
+    let limits = BudgetLimits {
+        max_duration: Some(std::time::Duration::from_secs(0)),
+        ..Default::default()
+    };
+    let budget = std::sync::Arc::new(ExecutionBudget::new(limits));
+    let _guard = ExecutionBudget::enter(budget);
+    let result = wfl::lexer::lex_wfl_with_positions_checked("display 1\n");
+    assert!(
+        matches!(result, Err(BudgetExceeded::Deadline { .. })),
+        "a short input under an already-expired deadline must abort at the entry checkpoint; got: {result:?}"
+    );
+}
+
+#[test]
 fn checked_lexer_returns_the_complete_stream_within_budget() {
     // A generous budget lexes the whole source: the checked variant returns the
     // FULL token stream (same length as the unbudgeted lexer), never a prefix.
