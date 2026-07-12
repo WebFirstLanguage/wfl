@@ -603,6 +603,29 @@ async fn task_local_budget_is_isolated_across_interleaved_runs() {
 }
 
 #[test]
+fn run_with_interpreter_stack_provides_a_large_stack() {
+    // The public helper embedders use to get the CLI's stack safety must run its
+    // work on a genuinely large stack: recursion deep enough to overflow the
+    // default (2 MiB) test-thread stack completes when driven through the helper.
+    fn deep(n: u64) -> u64 {
+        // ~4 KiB per frame, so ~20k frames need ~80 MiB — far past 2 MiB, far
+        // under the reserved 1 GiB. `black_box` blocks tail-call/dead-code
+        // optimization so these are real stack frames.
+        let filler = [0u8; 4096];
+        std::hint::black_box(&filler);
+        if n == 0 {
+            0
+        } else {
+            deep(n - 1).wrapping_add(u64::from(filler[0]))
+        }
+    }
+
+    let result =
+        wfl::run_with_interpreter_stack(|| deep(20_000)).expect("large stack should spawn");
+    assert_eq!(result, 0);
+}
+
+#[test]
 fn parser_polls_the_budget_inside_one_huge_expression() {
     // A single statement whose expression is a giant list literal. The
     // statement-boundary checkpoint fires only once (there is one statement), so

@@ -1038,6 +1038,20 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 // use self::value::FutureValue;
 
+/// The WFL tree-walking interpreter.
+///
+/// # Stack safety (embedders)
+///
+/// The interpreter recurses through several async frames per WFL call, so deep
+/// WFL recursion is stack-heavy: an ordinary 8 MiB thread stack overflows near
+/// depth ~40 in debug builds — well before the budget's `max_call_depth`
+/// (default 1000) can turn runaway recursion into a clean, catchable
+/// `ResourceLimit` error. The depth limit only protects a stack large enough to
+/// reach it. A binary embedding this interpreter should therefore drive
+/// [`interpret`](Interpreter::interpret) inside
+/// [`crate::run_with_interpreter_stack`] (as the WFL CLI does), or configure a
+/// conservatively low `max_call_depth`; otherwise a deep WFL program can crash
+/// the host process with a native stack overflow that no depth limit can catch.
 pub struct Interpreter {
     global_env: Rc<RefCell<Environment>>,
     current_count: RefCell<Option<f64>>,

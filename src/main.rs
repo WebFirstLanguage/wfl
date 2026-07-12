@@ -102,16 +102,6 @@ fn parse_create_project_args(args: &[String]) -> Option<String> {
 
 /// Stack size for the thread that runs the interpreter.
 ///
-/// WFL's tree-walking interpreter recurses through several async frames per WFL
-/// call, so deep WFL recursion is very stack-heavy (a debug build overflows an
-/// 8 MiB stack near depth ~40, and each WFL level costs on the order of a
-/// megabyte of debug stack). Running everything on a dedicated large-stack
-/// thread lets the shared `ExecutionBudget`'s `max_call_depth` (default 1000)
-/// turn runaway recursion into a clean, catchable error instead of the OS
-/// killing the whole process with a stack overflow. 1 GiB is reserved
-/// virtually and committed lazily, so normal programs pay nothing for it.
-const INTERPRETER_STACK_SIZE: usize = 1024 * 1024 * 1024;
-
 fn build_runtime() -> io::Result<tokio::runtime::Runtime> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -132,17 +122,15 @@ fn main() -> io::Result<()> {
         return build_runtime()?.block_on(run());
     }
 
-    // Otherwise run on a dedicated large-stack thread so the shared budget's
-    // `max_call_depth` turns runaway recursion into a clean, catchable error
-    // instead of a native stack overflow. If that reservation fails (tight
-    // RLIMIT_AS / 32-bit), fall back to the default stack rather than refusing
-    // to start — shallow programs and non-interpreting commands still work.
-    match std::thread::Builder::new()
-        .name("wfl-main".to_string())
-        .stack_size(INTERPRETER_STACK_SIZE)
-        .spawn(|| build_runtime()?.block_on(run()))
-    {
-        Ok(child) => child.join().expect("wfl-main thread panicked"),
+    // Otherwise run on a dedicated large-stack thread (the shared
+    // `wfl::run_with_interpreter_stack` helper, also intended for library
+    // embedders) so the shared budget's `max_call_depth` turns runaway recursion
+    // into a clean, catchable error instead of a native stack overflow. If that
+    // reservation fails (tight RLIMIT_AS / 32-bit), fall back to the default
+    // stack rather than refusing to start — shallow programs and non-interpreting
+    // commands still work.
+    match wfl::run_with_interpreter_stack(|| build_runtime()?.block_on(run())) {
+        Ok(result) => result,
         Err(e) => {
             eprintln!(
                 "warning: could not reserve a large interpreter stack ({e}); \

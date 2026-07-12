@@ -77,6 +77,58 @@ pub fn init_loggers(log_path: &Path, script_dir: &Path) {
 
 pub use interpreter::{Interpreter, TestFailure, TestResults};
 
+/// Dedicated interpreter thread stack size (1 GiB), reserved virtually and
+/// committed lazily. See [`run_with_interpreter_stack`].
+pub const INTERPRETER_STACK_SIZE: usize = 1024 * 1024 * 1024;
+
+/// Run `work` on a dedicated large-stack thread ([`INTERPRETER_STACK_SIZE`]) and
+/// return its result.
+///
+/// WFL's async tree-walking interpreter recurses through several frames per WFL
+/// call, so deep WFL recursion is very stack-heavy — a debug build overflows an
+/// ordinary 8 MiB thread stack near depth ~40, long before the shared
+/// [`exec::budget::ExecutionBudget`]'s `max_call_depth` (default 1000) can turn
+/// runaway recursion into a clean, catchable `ResourceLimit` error. The CLI runs
+/// its whole runtime on such a thread; **a library embedder that drives
+/// [`Interpreter`] directly should do the same** — otherwise a deep WFL program
+/// can crash the host process with a native stack overflow that no depth limit
+/// can catch, because the limit only protects a stack large enough to reach it.
+///
+/// Wrap the runtime + interpreter call in this helper, e.g.:
+///
+/// ```no_run
+/// let exit = wfl::run_with_interpreter_stack(|| {
+///     let rt = tokio::runtime::Builder::new_current_thread()
+///         .enable_all()
+///         .build()
+///         .expect("runtime");
+///     rt.block_on(async {
+///         // build an Interpreter and call `interpret(...)` here
+///     })
+/// })
+/// .expect("reserve interpreter stack");
+/// # let _ = exit;
+/// ```
+///
+/// Returns `Err` only if the large-stack thread cannot be spawned (e.g. a tight
+/// `RLIMIT_AS` or a 32-bit target); a caller may then fall back to running the
+/// work on the current stack (accepting that deep recursion may hit the OS limit
+/// before `max_call_depth`), or set a conservatively low `max_call_depth`. A
+/// panic inside `work` is propagated to the caller.
+pub fn run_with_interpreter_stack<F, T>(work: F) -> std::io::Result<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let handle = std::thread::Builder::new()
+        .name("wfl-interpreter".to_string())
+        .stack_size(INTERPRETER_STACK_SIZE)
+        .spawn(work)?;
+    Ok(handle
+        .join()
+        .unwrap_or_else(|payload| std::panic::resume_unwind(payload)))
+}
+
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }
