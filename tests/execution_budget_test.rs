@@ -173,6 +173,54 @@ fn oversized_source_is_refused() {
 }
 
 #[test]
+fn catching_a_recursion_limit_leaves_a_consistent_interpreter() {
+    // A caught call-depth ResourceLimit must not corrupt the interpreter: the
+    // enclosing `count` loop keeps running, its `count` variable stays readable,
+    // and re-recursing after the catch stays bounded (no native stack overflow,
+    // no depth under-count). Guards the dedicated call_depth counter and the
+    // "don't mutate state in budget_error" contract.
+    let program = "\
+define action called deep with parameters n:
+    return deep of (n plus 1)
+end action
+
+store caught as 0
+count from 1 to 3:
+    try:
+        store dummy as deep of 0
+    catch:
+        change caught to caught plus 1
+        display \"iteration \" with count
+    end try
+end count
+display \"caught \" with caught with \" times\"
+";
+    let output = run_with_cfg(Some("max_call_depth = 20\n"), program);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("caught 3 times"),
+        "the count loop must survive 3 caught recursion errors; got:\n{combined}"
+    );
+    // `count` stays readable inside the loop after a caught error.
+    assert!(
+        combined.contains("iteration 1") && combined.contains("iteration 3"),
+        "the count variable must remain valid after a caught error; got:\n{combined}"
+    );
+    assert!(
+        !combined.contains("stack overflow"),
+        "catch-and-recurse must stay bounded; got:\n{combined}"
+    );
+    assert!(
+        output.status.success(),
+        "an all-caught program must exit zero; got:\n{combined}"
+    );
+}
+
+#[test]
 fn program_within_budget_still_runs() {
     // A shallow program under default limits runs normally (no false positives).
     let program = "\

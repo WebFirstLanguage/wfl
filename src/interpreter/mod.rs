@@ -52,7 +52,7 @@ use crate::parser::ast::{
 };
 use crate::pattern::CompiledPattern;
 use crate::stdlib;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::net::IpAddr;
@@ -456,6 +456,27 @@ fn validate_tls_pem_files(cert_path: &str, key_path: &str) -> Result<(), String>
     Ok(())
 }
 
+/// RAII guard for the interpreter's live recursion depth. Increments on
+/// `enter`, decrements on drop (normal return *or* error unwind), so the depth
+/// counter always reflects the real call nesting — independent of the
+/// diagnostic `call_stack`, which may be force-cleared on a terminal timeout.
+struct CallDepthGuard<'a> {
+    cell: &'a Cell<usize>,
+}
+
+impl<'a> CallDepthGuard<'a> {
+    fn enter(cell: &'a Cell<usize>) -> Self {
+        cell.set(cell.get() + 1);
+        Self { cell }
+    }
+}
+
+impl Drop for CallDepthGuard<'_> {
+    fn drop(&mut self) {
+        self.cell.set(self.cell.get().saturating_sub(1));
+    }
+}
+
 /// RAII guard that ensures module loading context is restored on scope exit.
 /// Automatically pops loading_stack and restores current_source_file when dropped.
 struct ModuleLoadGuard<'a> {
@@ -747,6 +768,11 @@ pub struct Interpreter {
     /// fields and the scattered per-subsystem constants.
     budget: Arc<ExecutionBudget>,
     call_stack: RefCell<Vec<CallFrame>>,
+    /// Live recursion depth for enforcement, kept **separate** from `call_stack`
+    /// (which is diagnostic and gets force-cleared on a terminal timeout). A
+    /// dedicated RAII counter means a caught `ResourceLimit` can never leave the
+    /// enforcement depth under-counted, so catch-and-recurse stays bounded.
+    call_depth: Cell<usize>,
     #[allow(dead_code)]
     io_client: Rc<IoClient>,
     step_mode: bool,          // Controls single-step execution mode
@@ -1814,6 +1840,7 @@ impl Interpreter {
             in_main_loop: RefCell::new(false),
             budget,
             call_stack: RefCell::new(Vec::new()),
+            call_depth: Cell::new(0),
             io_client: Rc::new(IoClient::new(Arc::clone(&config))),
             step_mode: false,                          // Default to non-step mode
             script_args: Vec::new(),                   // Initialize empty, will be set later
@@ -2221,16 +2248,18 @@ impl Interpreter {
     /// here would drop the frames outside the `try` and make later depth checks
     /// under-count.
     fn budget_error(&self, exceeded: BudgetExceeded, line: usize, column: usize) -> RuntimeError {
-        if *self.in_count_loop.borrow() {
-            *self.in_count_loop.borrow_mut() = false;
-            *self.current_count.borrow_mut() = None;
-        }
-
+        // Do NOT mutate interpreter state here. Every budget breach — deadline,
+        // operation ceiling, recursion/import/execute-file depth, byte caps — is
+        // catchable by a general `try`/`when`, so the call stack, count-loop
+        // flags, and recursion depth must unwind *naturally* to leave a
+        // consistent, resumable interpreter when the error is caught:
+        // `call_function` pops each frame and the RAII `CallDepthGuard` restores
+        // `call_depth` as the error propagates. Force-clearing that state (as the
+        // historic timeout path did) corrupts an enclosing count loop or
+        // under-counts depth after a catch. `interpret()` resets everything for
+        // the next top-level run, so an *uncaught* terminal breach is fine too.
         let kind = match exceeded {
-            BudgetExceeded::Deadline { .. } => {
-                self.call_stack.borrow_mut().clear();
-                ErrorKind::Timeout
-            }
+            BudgetExceeded::Deadline { .. } => ErrorKind::Timeout,
             _ => ErrorKind::ResourceLimit,
         };
         RuntimeError::with_kind(exceeded.message(), line, column, kind)
@@ -2309,6 +2338,14 @@ impl Interpreter {
     }
 
     pub async fn interpret(&mut self, program: &Program) -> Result<Value, Vec<RuntimeError>> {
+        // Reset per-run enforcement/loop state first, so a prior *terminal*
+        // budget breach (e.g. an uncaught timeout that unwound to the top) can't
+        // leak stale count-loop or depth state into this run — matters when one
+        // interpreter is reused (the REPL). Done before `assert_invariants` so
+        // the invariant holds regardless of how the previous run ended.
+        *self.in_count_loop.borrow_mut() = false;
+        *self.current_count.borrow_mut() = None;
+        self.call_depth.set(0);
         self.assert_invariants();
         self.call_stack.borrow_mut().clear();
 
@@ -9452,12 +9489,16 @@ impl Interpreter {
         }
 
         // Enforce the shared recursion ceiling before descending another level,
-        // turning runaway recursion into a clean error instead of a native
-        // stack overflow. The current stack length is the depth already entered.
-        let depth = self.call_stack.borrow().len();
-        if let Err(exceeded) = self.budget.check_call_depth(depth) {
+        // turning runaway recursion into a clean error instead of a native stack
+        // overflow. The dedicated `call_depth` counter (not `call_stack.len()`)
+        // is the enforcement source of truth: it is decremented by the RAII
+        // guard below as the call unwinds — including when a `try`/`when`
+        // catches a `ResourceLimit` — so catch-and-recurse cannot under-count
+        // and pile onto still-live native frames.
+        if let Err(exceeded) = self.budget.check_call_depth(self.call_depth.get()) {
             return Err(self.budget_error(exceeded, line, column));
         }
+        let _depth_guard = CallDepthGuard::enter(&self.call_depth);
 
         let frame = CallFrame::new(
             func.name
