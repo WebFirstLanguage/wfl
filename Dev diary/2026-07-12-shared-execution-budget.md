@@ -353,11 +353,55 @@ can only come from the nested traversal); `type_checker_polls_the_budget_inside_
 uses `with_analyzer` to skip the analyzer pass, proving the breach comes from the
 recursive `check_statement_types` poll and lands on the `budget_error` channel.
 
+## Fifth review round (maintainer P1×5 + P2 — the two deferrals recalled)
+
+A fourth maintainer pass verified the round-3/round-4 fixes but did **not**
+accept the two documented deferrals and flagged three fixes as still partial.
+All seven items landed on this PR (one commit each):
+
+- **Type-check budget breach is now a fatal typed result, not a side channel.**
+  `check_types` returns `Result<(), TypeCheckError>` where `Budget` (fatal) is a
+  distinct variant from `Types` (ordinary diagnostics), so every caller must
+  distinguish them at the type level. The analyzer records its breach on a typed
+  `budget_error` latch that `check_types` propagates, closing the gap where an
+  analysis-phase breach was rendered as `TypeError`s and the budget channel
+  stayed empty. The `include from` caller now aborts on a budget breach instead
+  of printing it as a warning and executing the included program.
+- **Pattern input is collected once, with a checkpoint before preprocessing.**
+  `PatternVM::step` re-ran `text.chars().collect()` on every transition — O(text)
+  per step for unbounded runtime input (`max_source_size` bounds *source*, not
+  pattern subjects). The `Vec<char>` is now materialized once per runner and the
+  `&[char]` threaded through `step`; the budget is charged before that collection
+  so a cancelled/expired run aborts without materializing a large input.
+- **The HTTP admission slot spans the full request lifetime.** The guard used to
+  drop when `WaitForRequest` returned (reopening the gate at dequeue). It now
+  rides with the parked response (`PendingResponse`) and moves into the
+  `ResponseCompletion`, releasing only on respond / prune / shutdown.
+- **Every admitted WebSocket Connect gets a paired Disconnect.** The disconnect
+  event is delivered with a blocking `send().await` (was a lossy `try_send`), so
+  a momentarily-full queue can't drop the only per-connection cleanup event.
+- **The run budget is task-local, not thread-local.** `Interpreter` is a public,
+  `!Send` re-export, so an embedder can `join!`/`spawn_local` two runs on one
+  thread; a thread-local held across `.await` cross-contaminated them. A
+  `tokio::task_local!` scope (`ExecutionBudget::scope`) wraps each run and each
+  REPL command; the retained thread-local `enter` is only a synchronous fallback
+  for the single-future CLI front-end, always shadowed by an async scope.
+- **The lexer and recursive expression work are checkpointed.** The lexer polls
+  every 4096 tokens (cooperative early-stop); the parser polls at every
+  primary-expression parse (strided); `analyze_expression` and
+  `infer_expression_type` poll per node (latched) — so one huge expression is
+  interruptible, not just statement boundaries.
+- **The large interpreter stack is a public embedder helper.**
+  `wfl::run_with_interpreter_stack` (and `INTERPRETER_STACK_SIZE`) encapsulate the
+  1 GiB stack the CLI uses; the CLI now shares it, and `Interpreter` documents
+  that embedders must use it (or a low `max_call_depth`) so the depth limit fires
+  before a native stack overflow.
+
 ## Notes / Follow-ups
 
 - The outbound `reqwest` client still has no per-request timeout or in-flight
   cap; that is a separate audit item (the budget's `max_pending_requests`
   covers the *inbound* accepted-request queue).
-- The 1 GiB interpreter stack is a pragmatic fix for the interpreter's
-  async-recursion stack cost; the deeper fix (trampolining the eval loop) is out
-  of scope here.
+- The 1 GiB interpreter stack (now exposed via `run_with_interpreter_stack`) is a
+  pragmatic fix for the interpreter's async-recursion stack cost; the deeper fix
+  (trampolining the eval loop) is still out of scope here.
