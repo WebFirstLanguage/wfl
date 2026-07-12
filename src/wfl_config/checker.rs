@@ -1096,7 +1096,9 @@ fn is_valid_ip_address(addr: &str) -> bool {
 fn integer_min_for_key(key: &str) -> Option<u64> {
     match key {
         "max_operations" | "web_server_response_timeout_seconds" => Some(0),
-        "web_server_request_queue_bound"
+        "timeout_seconds"
+        | "web_server_max_body_size"
+        | "web_server_request_queue_bound"
         | "web_server_max_response_size"
         | "web_socket_queue_bound"
         | "web_socket_max_connections"
@@ -1237,6 +1239,23 @@ web_socket_max_queued_bytes = 33554432
         assert!(
             !bad.contains("max_source_size"),
             "a valid max_source_size must not be flagged; issues: {issues:?}"
+        );
+
+        // The pre-existing positive-only keys the loader clamps/rejects at 0 are
+        // now enforced by the checker too.
+        fs::write(
+            &config_path,
+            "timeout_seconds = 0\nweb_server_max_body_size = 0\n",
+        )
+        .unwrap();
+        let issues = checker.check_config_file(&config_path).unwrap();
+        let bad: std::collections::HashSet<_> = issues
+            .iter()
+            .filter_map(|i| i.setting_name.as_deref())
+            .collect();
+        assert!(
+            bad.contains("timeout_seconds") && bad.contains("web_server_max_body_size"),
+            "zero timeout_seconds / web_server_max_body_size must be rejected; issues: {issues:?}"
         );
 
         // 0 is valid for max_operations (unlimited); a large u64 above i64::MAX

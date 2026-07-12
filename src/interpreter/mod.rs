@@ -67,6 +67,14 @@ type PendingResponseSender = Arc<tokio::sync::Mutex<Option<oneshot::Sender<WflHt
 use uuid;
 use warp::Filter;
 
+/// How often (in charged operations) execution cooperatively yields to the async
+/// runtime. A tight CPU-bound `count`/`while`/`repeat` loop otherwise never
+/// returns control to the executor, so a `select!` waiting to deliver
+/// cooperative cancellation (e.g. the REPL's Ctrl-C → `budget.cancel()`) could
+/// not be polled until the run happened to hit real async work. Power of two so
+/// `count & (STRIDE - 1)` is exact; large enough that the yield is negligible.
+const COOP_YIELD_STRIDE: u64 = 1024;
+
 // Web server data structures
 #[derive(Debug, Clone)]
 pub struct WflHttpRequest {
@@ -2465,13 +2473,14 @@ impl Interpreter {
     /// so existing timeout handling still matches; every other budget breach is
     /// a resource-limit error.
     ///
-    /// The deadline is terminal, so it force-releases the call stack exactly as
-    /// the historic timeout path did. A `ResourceLimit` (e.g. the recursion
-    /// ceiling) is **catchable** by `try`/`when`, so we must *not* clear the
-    /// stack: `call_function` pops each frame as the error unwinds, leaving the
-    /// depth counter (`call_stack.len()`) correct at the catch point. Clearing
-    /// here would drop the frames outside the `try` and make later depth checks
-    /// under-count.
+    /// This maps the breach to a kind but intentionally performs **no** state
+    /// mutation. Every budget breach — including the deadline — is catchable by
+    /// a general `try`/`when`, so the call stack, count-loop flags, and recursion
+    /// depth must unwind *naturally*: `call_function` pops each frame as the
+    /// error propagates and the RAII `CallDepthGuard` restores `call_depth`.
+    /// Force-clearing state here would corrupt an enclosing count loop or
+    /// under-count depth after a catch; `interpret()` resets everything for the
+    /// next top-level run, so an uncaught terminal breach is fine too.
     fn budget_error(&self, exceeded: BudgetExceeded, line: usize, column: usize) -> RuntimeError {
         // Do NOT mutate interpreter state here. Every budget breach — deadline,
         // operation ceiling, recursion/import/execute-file depth, byte caps — is
@@ -2857,6 +2866,17 @@ impl Interpreter {
         env: Rc<RefCell<Environment>>,
     ) -> Result<(Value, ControlFlow), RuntimeError> {
         self.check_time()?;
+
+        // Cooperatively yield to the async runtime on a throttled stride so a
+        // tight CPU-bound loop periodically returns control to the executor,
+        // letting a `select!` deliver cooperative cancellation (e.g. the REPL's
+        // Ctrl-C → `budget.cancel()`). Skipped inside a `main loop`, whose body
+        // already awaits real work and whose operation counter is exempt.
+        if !*self.in_main_loop.borrow()
+            && self.budget.operations_charged() & (COOP_YIELD_STRIDE - 1) == 0
+        {
+            tokio::task::yield_now().await;
+        }
 
         let env_before = if self.step_mode {
             self.global_env.borrow().values.clone()
@@ -7549,6 +7569,13 @@ impl Interpreter {
                 let capture_buffer = variable_name
                     .as_ref()
                     .map(|_| Rc::new(RefCell::new(String::new())));
+                // The child shares this budget, and its `interpret()` resets the
+                // shared `deadline_exempt` flag to `false`. Save the parent's
+                // exemption so we can restore it after the child returns —
+                // otherwise a parent still inside its own `main loop` would start
+                // enforcing the wall-clock deadline on pattern matches again (and
+                // could time out spuriously) once control comes back.
+                let saved_deadline_exempt = self.budget.is_deadline_exempt();
                 let run_result = {
                     let _guard = capture_buffer
                         .as_ref()
@@ -7557,6 +7584,7 @@ impl Interpreter {
                     // full nested interpret), keeping the future finitely sized
                     Box::pin(child.interpret(&program)).await
                 };
+                self.budget.set_deadline_exempt(saved_deadline_exempt);
 
                 if let Err(errors) = run_result {
                     let first = errors.into_iter().next().unwrap_or_else(|| {

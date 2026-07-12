@@ -248,6 +248,24 @@ findings were addressed on this PR:
   `Execution Budget` category is included in the config wizard, and the two new
   WebSocket byte keys are registered.
 
+### Automated-review follow-ups (round 2)
+
+Addressed after the round-2 bot review:
+
+- **`deadline_exempt` survives nested `execute file`.** The child shares the
+  parent's budget and its `interpret()` clears the shared exemption; the parent
+  now saves and restores `deadline_exempt` around the nested run, so a parent
+  still inside its own `main loop` doesn't start enforcing the wall-clock
+  deadline on pattern matches (and time out spuriously) after the child returns.
+- **Cooperative yield in the loop hot path.** `_execute_statement` yields to the
+  async runtime on a throttled stride (outside a `main loop`) so a tight
+  CPU-bound `count`/`while`/`repeat` loop returns control to the executor,
+  letting the REPL's Ctrl-C → `budget.cancel()` actually fire.
+- **Config checker minimums** now include `timeout_seconds` and
+  `web_server_max_body_size` (both `>= 1` in the loader), and the stale
+  `budget_error` doc that claimed the deadline force-clears the call stack was
+  corrected to match the no-mutation behavior.
+
 ## Notes / Follow-ups
 
 - The outbound `reqwest` client still has no per-request timeout or in-flight
