@@ -90,6 +90,16 @@ pub struct WflConfig {
     /// Maximum simultaneous live WebSocket connections. Feeds `ExecutionBudget`.
     /// Default 1024; must be at least 1.
     pub web_socket_max_connections: usize,
+    /// Maximum size in bytes of a single WebSocket text message (inbound or
+    /// outbound); larger frames are dropped rather than queued. Feeds
+    /// `ExecutionBudget`. Default 1 MiB; must be at least 1.
+    pub web_socket_max_message_size: usize,
+    /// Global ceiling in bytes on WebSocket payloads queued across every
+    /// connection's inbound event and outbound frame channels; reservations are
+    /// released as frames are consumed or shed, so a slow/absent consumer cannot
+    /// buffer without bound. Feeds `ExecutionBudget`. Default 16 MiB; must be at
+    /// least 1.
+    pub web_socket_max_queued_bytes: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,6 +200,8 @@ impl Default for WflConfig {
             max_source_size: 64 * 1024 * 1024,
             web_socket_queue_bound: 1_024,
             web_socket_max_connections: 1_024,
+            web_socket_max_message_size: 1_048_576,
+            web_socket_max_queued_bytes: 16 * 1_048_576,
         }
     }
 }
@@ -855,6 +867,18 @@ fn parse_config_text(config: &mut WflConfig, text: &str, file: &Path) {
                 "web_socket_max_connections" => set_positive_usize(
                     &mut config.web_socket_max_connections,
                     "web_socket_max_connections",
+                    value,
+                    file,
+                ),
+                "web_socket_max_message_size" => set_positive_usize(
+                    &mut config.web_socket_max_message_size,
+                    "web_socket_max_message_size",
+                    value,
+                    file,
+                ),
+                "web_socket_max_queued_bytes" => set_positive_usize(
+                    &mut config.web_socket_max_queued_bytes,
+                    "web_socket_max_queued_bytes",
                     value,
                     file,
                 ),

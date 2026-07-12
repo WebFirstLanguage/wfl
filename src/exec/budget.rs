@@ -117,6 +117,12 @@ pub struct BudgetLimits {
     /// Maximum simultaneous live WebSocket connections. Mapped from `.wflcfg`
     /// `web_socket_max_connections`.
     pub max_ws_connections: usize,
+    /// Maximum size in bytes of a single WebSocket text message (inbound or
+    /// outbound). Mapped from `.wflcfg` `web_socket_max_message_size`.
+    pub max_ws_message_bytes: usize,
+    /// Global ceiling in bytes on WebSocket payloads queued across every
+    /// connection. Mapped from `.wflcfg` `web_socket_max_queued_bytes`.
+    pub max_ws_queued_bytes: usize,
 }
 
 impl Default for BudgetLimits {
@@ -160,6 +166,12 @@ impl Default for BudgetLimits {
             max_ws_queue: 1_024,
             // Connection count was uncapped before; 1_024 clears normal use.
             max_ws_connections: 1_024,
+            // Per-message size was unbounded (only frame count was capped); 1 MiB
+            // clears normal chat/JSON traffic while bounding a single frame.
+            max_ws_message_bytes: 1_048_576,
+            // Global queued-byte ceiling across all WS channels; 16 MiB bounds
+            // total buffered payload regardless of connection/frame counts.
+            max_ws_queued_bytes: 16 * 1_048_576,
         }
     }
 }
@@ -188,6 +200,8 @@ impl BudgetLimits {
             },
             max_ws_queue: config.web_socket_queue_bound.max(1),
             max_ws_connections: config.web_socket_max_connections.max(1),
+            max_ws_message_bytes: config.web_socket_max_message_size.max(1),
+            max_ws_queued_bytes: config.web_socket_max_queued_bytes.max(1),
         }
     }
 
@@ -211,6 +225,8 @@ impl BudgetLimits {
             max_request_duration: None,
             max_ws_queue: usize::MAX,
             max_ws_connections: usize::MAX,
+            max_ws_message_bytes: usize::MAX,
+            max_ws_queued_bytes: usize::MAX,
         }
     }
 }
@@ -316,6 +332,11 @@ pub struct ExecutionBudget {
     pending_requests: AtomicUsize,
     /// Live WebSocket connections currently registered.
     ws_connections: AtomicUsize,
+    /// WebSocket payload bytes currently queued across every connection's
+    /// inbound event and outbound frame channels. Bounded by
+    /// `limits.max_ws_queued_bytes`; each queued frame holds a [`WsBytePermit`]
+    /// that releases its bytes when the frame is consumed or shed.
+    ws_queued_bytes: AtomicUsize,
     /// Whether the wall-clock deadline is currently *exempt* — set by the
     /// interpreter while executing inside a `main loop` (a long-lived server
     /// must not time out on its own uptime). Pattern matching reads this so a
@@ -341,6 +362,7 @@ impl ExecutionBudget {
             operations: AtomicU64::new(0),
             pending_requests: AtomicUsize::new(0),
             ws_connections: AtomicUsize::new(0),
+            ws_queued_bytes: AtomicUsize::new(0),
             deadline_exempt: AtomicBool::new(false),
         }
     }
@@ -657,6 +679,49 @@ impl ExecutionBudget {
         self.limits.max_ws_queue
     }
 
+    /// The maximum size in bytes of a single WebSocket text message; larger
+    /// frames are dropped rather than queued.
+    pub fn max_ws_message_bytes(&self) -> usize {
+        self.limits.max_ws_message_bytes
+    }
+
+    /// Try to reserve `bytes` of the global WebSocket queued-byte budget for one
+    /// frame, returning an RAII [`WsBytePermit`] that releases them when the
+    /// frame is consumed or shed. `None` when the frame alone exceeds
+    /// `max_ws_message_bytes`, or when reserving would exceed the global
+    /// `max_ws_queued_bytes` ceiling — in which case the transport sheds it.
+    pub fn try_reserve_ws_bytes(self: &Arc<Self>, bytes: usize) -> Option<WsBytePermit> {
+        if bytes > self.limits.max_ws_message_bytes {
+            return None;
+        }
+        let limit = self.limits.max_ws_queued_bytes;
+        let mut current = self.ws_queued_bytes.load(Ordering::Acquire);
+        loop {
+            if current.saturating_add(bytes) > limit {
+                return None;
+            }
+            match self.ws_queued_bytes.compare_exchange_weak(
+                current,
+                current + bytes,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    return Some(WsBytePermit {
+                        budget: Arc::clone(self),
+                        bytes,
+                    });
+                }
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    /// WebSocket payload bytes currently queued across every connection.
+    pub fn ws_queued_bytes(&self) -> usize {
+        self.ws_queued_bytes.load(Ordering::Relaxed)
+    }
+
     /// Try to reserve a WebSocket connection slot, returning an RAII guard that
     /// releases it when the connection ends. `None` when already at the
     /// ceiling, in which case the transport should refuse the connection.
@@ -761,6 +826,22 @@ pub struct WsConnectionGuard {
 impl Drop for WsConnectionGuard {
     fn drop(&mut self) {
         self.budget.ws_connections.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// RAII reservation of global WebSocket queued bytes for one queued frame;
+/// releases the bytes when the frame is consumed (dequeued and dropped) or shed.
+#[derive(Debug)]
+pub struct WsBytePermit {
+    budget: Arc<ExecutionBudget>,
+    bytes: usize,
+}
+
+impl Drop for WsBytePermit {
+    fn drop(&mut self) {
+        self.budget
+            .ws_queued_bytes
+            .fetch_sub(self.bytes, Ordering::AcqRel);
     }
 }
 
@@ -927,6 +1008,8 @@ mod tests {
             max_request_duration: None,
             max_ws_queue: 2,
             max_ws_connections: 2,
+            max_ws_message_bytes: 8,
+            max_ws_queued_bytes: 16,
         }
     }
 
@@ -1131,6 +1214,25 @@ mod tests {
         assert_eq!(budget.pending_requests(), 1);
         // A freed slot can be reacquired.
         let _c = budget.try_acquire_request().expect("slot reused");
+        drop(b);
+    }
+
+    #[test]
+    fn ws_byte_permit_bounds_queued_payload() {
+        // tiny_limits: max_ws_message_bytes = 8, max_ws_queued_bytes = 16.
+        let budget = Arc::new(ExecutionBudget::new(tiny_limits()));
+        // A single frame larger than the per-message cap is refused outright.
+        assert!(budget.try_reserve_ws_bytes(9).is_none());
+        // Two 8-byte frames fill the 16-byte global ceiling.
+        let a = budget.try_reserve_ws_bytes(8).expect("first frame");
+        let b = budget.try_reserve_ws_bytes(8).expect("second frame");
+        assert_eq!(budget.ws_queued_bytes(), 16);
+        // A third frame exceeds the global ceiling and is shed.
+        assert!(budget.try_reserve_ws_bytes(1).is_none());
+        // Consuming a frame frees its bytes for reuse.
+        drop(a);
+        assert_eq!(budget.ws_queued_bytes(), 8);
+        let _c = budget.try_reserve_ws_bytes(8).expect("bytes freed on drop");
         drop(b);
     }
 

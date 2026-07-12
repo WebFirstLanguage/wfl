@@ -267,10 +267,16 @@ where
 // `wait for <duration>`, so all WFL code still executes on one thread.
 // ---------------------------------------------------------------------------
 
-/// An outbound frame queued for a single connection's writer task.
+/// An outbound frame queued for a single connection's writer task. A `Text`
+/// frame carries a [`WsBytePermit`] reserving its payload against the global
+/// WebSocket queued-byte budget; the permit releases when the frame is sent
+/// (consumed) or shed on a full/closed queue (dropped).
 #[derive(Debug)]
 enum WsOutbound {
-    Text(String),
+    Text {
+        text: String,
+        _permit: crate::exec::budget::WsBytePermit,
+    },
     Close,
 }
 
@@ -290,6 +296,10 @@ struct WflWsEvent {
     client_ip: String,
     /// Text payload for `Message` events; `None` for connect/disconnect.
     content: Option<String>,
+    /// For `Message` events, the reservation of this payload's bytes against
+    /// the global WebSocket queued-byte budget; released when the interpreter
+    /// consumes (drops) the event. `None` for the payloadless connect/disconnect.
+    _permit: Option<crate::exec::budget::WsBytePermit>,
 }
 
 /// Outbound-sender registry keyed by connection id, shared with warp tasks.
@@ -320,6 +330,10 @@ struct WflWebSocketServer {
     connection_ids: Arc<std::sync::Mutex<Vec<String>>>,
     handlers: RefCell<WsHandlerSet>,
     server_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Per-server cancellation: flipping (or dropping) this wakes every live
+    /// connection's reader `select!` so `close server` terminates each socket
+    /// task even if the peer ignores the close handshake.
+    close_tx: tokio::sync::watch::Sender<bool>,
 }
 
 /// Drives one upgraded WebSocket connection: registers its outbound channel,
@@ -332,6 +346,7 @@ async fn handle_ws_connection(
     connections: WsConnectionRegistry,
     connection_ids: Arc<std::sync::Mutex<Vec<String>>>,
     budget: Arc<ExecutionBudget>,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
 ) {
     use futures_util::{SinkExt, StreamExt};
 
@@ -374,17 +389,20 @@ async fn handle_ws_connection(
         connection_id: conn_id.clone(),
         client_ip: client_ip.clone(),
         content: None,
+        _permit: None,
     }) {
         log::warn!("WebSocket event queue full; dropping connect event for {conn_id}: {err}");
     }
 
     // Writer task: drains queued frames to the socket until an explicit close,
     // the peer going away, or the channel closing.
-    let writer = tokio::spawn(async move {
+    let mut writer = tokio::spawn(async move {
         let mut peer_gone = false;
         while let Some(out) = out_rx.recv().await {
             match out {
-                WsOutbound::Text(text) => {
+                // `_permit` drops at the end of this arm, releasing the frame's
+                // reserved bytes back to the global queued-byte budget once sent.
+                WsOutbound::Text { text, _permit } => {
                     if ws_tx.send(warp::ws::Message::text(text)).await.is_err() {
                         peer_gone = true;
                         break;
@@ -407,21 +425,53 @@ async fn handle_ws_connection(
     });
 
     // Reader loop: forward inbound text frames as Message events; stop on close.
-    while let Some(result) = ws_rx.next().await {
+    // A `select!` on the per-server cancellation receiver means `close server`
+    // (which flips/drops the watch channel) wakes a reader that would otherwise
+    // block on `ws_rx.next()` forever waiting on a peer that ignores the close
+    // handshake — so the task and its connection slot always terminate.
+    loop {
+        let result = tokio::select! {
+            biased;
+            changed = cancel.changed() => {
+                // Ok(()) => close requested; Err(_) => the server (its watch
+                // sender) was dropped. Either way, stop reading.
+                let _ = changed;
+                break;
+            }
+            next = ws_rx.next() => match next {
+                Some(r) => r,
+                None => break,
+            },
+        };
         match result {
             Ok(msg) => {
                 if msg.is_text() {
-                    if let Ok(text) = msg.to_str()
-                        && let Err(err) = events.try_send(WflWsEvent {
-                            kind: WsEventKind::Message,
-                            connection_id: conn_id.clone(),
-                            client_ip: client_ip.clone(),
-                            content: Some(text.to_string()),
-                        })
-                    {
-                        log::warn!(
-                            "WebSocket event queue full; dropping message event for {conn_id}: {err}"
-                        );
+                    if let Ok(text) = msg.to_str() {
+                        // Bound the frame: reject oversized payloads and reserve
+                        // this payload's bytes against the global queued-byte
+                        // budget, so the event queue holds bounded memory, not
+                        // `ws_queue_bound` arbitrarily-large messages.
+                        match budget.try_reserve_ws_bytes(text.len()) {
+                            Some(permit) => {
+                                if let Err(err) = events.try_send(WflWsEvent {
+                                    kind: WsEventKind::Message,
+                                    connection_id: conn_id.clone(),
+                                    client_ip: client_ip.clone(),
+                                    content: Some(text.to_string()),
+                                    _permit: Some(permit),
+                                }) {
+                                    log::warn!(
+                                        "WebSocket event queue full; dropping message event for {conn_id}: {err}"
+                                    );
+                                }
+                            }
+                            None => {
+                                log::warn!(
+                                    "WebSocket message from {conn_id} ({} bytes) exceeds the per-message or global queued-byte limit; dropping frame",
+                                    text.len()
+                                );
+                            }
+                        }
                     }
                 } else if msg.is_close() {
                     break;
@@ -443,10 +493,20 @@ async fn handle_ws_connection(
         connection_id: conn_id.clone(),
         client_ip,
         content: None,
+        _permit: None,
     }) {
         log::warn!("WebSocket event queue full; dropping disconnect event for {conn_id}: {err}");
     }
-    writer.abort();
+    // Bounded close handshake: give the writer a moment to flush its close frame,
+    // then force teardown so a peer that ignores the handshake cannot keep this
+    // task alive. The writer exits once its channel drains/closes; on timeout we
+    // abort it (dropping a JoinHandle would only detach, not stop, the task).
+    if tokio::time::timeout(Duration::from_millis(250), &mut writer)
+        .await
+        .is_err()
+    {
+        writer.abort();
+    }
 }
 
 impl WsEventKind {
@@ -6815,6 +6875,10 @@ impl Interpreter {
                 {
                     let key = name.to_string();
                     if let Some(ws_server) = self.web_socket_servers.borrow_mut().remove(&key) {
+                        // Wake every live connection's reader so it stops waiting
+                        // on the peer and tears down (releasing its slot), even if
+                        // the peer never answers the close handshake.
+                        let _ = ws_server.close_tx.send(true);
                         let ids = ws_server
                             .connection_ids
                             .lock()
@@ -6936,12 +7000,16 @@ impl Interpreter {
                     mpsc::channel::<WflWsEvent>(self.budget.ws_queue_bound());
                 let event_receiver = Arc::new(tokio::sync::Mutex::new(event_receiver));
                 let connection_ids = Arc::new(std::sync::Mutex::new(Vec::new()));
+                // Per-server cancellation channel. Each connection clones the
+                // receiver; `close server` flips/drops the sender to wake them.
+                let (close_tx, close_rx) = tokio::sync::watch::channel(false);
 
                 // Clones handed to warp's per-connection tasks.
                 let ws_connections = Arc::clone(&self.ws_connections);
                 let connection_ids_task = Arc::clone(&connection_ids);
                 let event_sender_task = event_sender.clone();
                 let budget_task = Arc::clone(&self.budget);
+                let close_rx_task = close_rx.clone();
 
                 let route = warp::ws().and(warp::addr::remote()).map(
                     move |ws: warp::ws::Ws, remote: Option<std::net::SocketAddr>| {
@@ -6949,8 +7017,17 @@ impl Interpreter {
                         let connections = Arc::clone(&ws_connections);
                         let ids = Arc::clone(&connection_ids_task);
                         let budget = Arc::clone(&budget_task);
+                        let cancel = close_rx_task.clone();
                         ws.on_upgrade(move |socket| {
-                            handle_ws_connection(socket, remote, events, connections, ids, budget)
+                            handle_ws_connection(
+                                socket,
+                                remote,
+                                events,
+                                connections,
+                                ids,
+                                budget,
+                                cancel,
+                            )
                         })
                     },
                 );
@@ -6979,6 +7056,7 @@ impl Interpreter {
                             connection_ids,
                             handlers: RefCell::new(WsHandlerSet::default()),
                             server_handle: Some(server_handle),
+                            close_tx,
                         };
                         self.web_socket_servers
                             .borrow_mut()
@@ -7057,13 +7135,30 @@ impl Interpreter {
 
                 match sender {
                     Some(tx) => {
-                        // A closed writer task is indistinguishable from a live
-                        // one here; a dropped frame simply means the peer left
-                        // (or the bounded outbound queue is saturated).
-                        if let Err(err) = tx.try_send(WsOutbound::Text(text)) {
-                            log::warn!(
-                                "WebSocket outbound queue full/closed for {conn_id}; dropping frame: {err}"
-                            );
+                        // Bound the outbound frame: reject oversized payloads and
+                        // reserve its bytes against the global queued-byte budget
+                        // (released when the writer sends or sheds it), so the
+                        // per-connection queue holds bounded memory.
+                        match self.budget.try_reserve_ws_bytes(text.len()) {
+                            Some(permit) => {
+                                // A closed writer task is indistinguishable from a
+                                // live one here; a dropped frame simply means the
+                                // peer left (or the bounded queue is saturated).
+                                if let Err(err) = tx.try_send(WsOutbound::Text {
+                                    text,
+                                    _permit: permit,
+                                }) {
+                                    log::warn!(
+                                        "WebSocket outbound queue full/closed for {conn_id}; dropping frame: {err}"
+                                    );
+                                }
+                            }
+                            None => {
+                                log::warn!(
+                                    "WebSocket outbound frame for {conn_id} ({} bytes) exceeds the per-message or global queued-byte limit; dropping frame",
+                                    text.len()
+                                );
+                            }
                         }
                         Ok((Value::Null, ControlFlow::None))
                     }
@@ -7101,12 +7196,28 @@ impl Interpreter {
 
                 if let Ok(map) = self.ws_connections.lock() {
                     for id in ids {
-                        if let Some(tx) = map.get(&id)
-                            && let Err(err) = tx.try_send(WsOutbound::Text(text.clone()))
-                        {
-                            log::warn!(
-                                "WebSocket broadcast: outbound queue full/closed for {id}; dropping frame: {err}"
-                            );
+                        if let Some(tx) = map.get(&id) {
+                            // Reserve each recipient's copy against the global
+                            // queued-byte budget; shed oversized/over-budget
+                            // frames rather than buffering them without bound.
+                            match self.budget.try_reserve_ws_bytes(text.len()) {
+                                Some(permit) => {
+                                    if let Err(err) = tx.try_send(WsOutbound::Text {
+                                        text: text.clone(),
+                                        _permit: permit,
+                                    }) {
+                                        log::warn!(
+                                            "WebSocket broadcast: outbound queue full/closed for {id}; dropping frame: {err}"
+                                        );
+                                    }
+                                }
+                                None => {
+                                    log::warn!(
+                                        "WebSocket broadcast frame for {id} ({} bytes) exceeds the per-message or global queued-byte limit; dropping frame",
+                                        text.len()
+                                    );
+                                }
+                            }
                         }
                     }
                 }
