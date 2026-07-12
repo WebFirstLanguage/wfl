@@ -216,6 +216,81 @@ impl CommandSanitizer {
         Ok((program, args))
     }
 
+    #[cfg(windows)]
+    fn split_allowlisted_windows_program(command: &str) -> Result<(String, &str), String> {
+        let trimmed = command.trim();
+        if trimmed.is_empty() {
+            return Err("Empty command".to_string());
+        }
+
+        let first = trimmed.chars().next().unwrap();
+        if first == '"' || first == '\'' {
+            let content = &trimmed[first.len_utf8()..];
+            let Some(end) = content.find(first) else {
+                return Err(if first == '"' {
+                    "Unclosed double quote".to_string()
+                } else {
+                    "Unclosed single quote".to_string()
+                });
+            };
+            let program = content[..end].to_string();
+            let remainder = &content[end + first.len_utf8()..];
+            if remainder
+                .chars()
+                .next()
+                .is_some_and(|ch| !ch.is_whitespace())
+                && !Self::contains_shell_metacharacters(remainder)
+            {
+                return Err("Expected whitespace after quoted program".to_string());
+            }
+            Ok((program, remainder))
+        } else {
+            let end = trimmed
+                .find(|ch: char| ch.is_whitespace())
+                .unwrap_or(trimmed.len());
+            Ok((trimmed[..end].to_string(), &trimmed[end..]))
+        }
+    }
+
+    /// Parse a strict-allowlist direct command without treating native Windows
+    /// executable path separators (including the `\\?\` canonical prefix) as
+    /// shell escapes. Argument parsing retains the existing command grammar.
+    pub(crate) fn parse_allowlisted_command(
+        command: &str,
+    ) -> Result<(String, Vec<String>), String> {
+        #[cfg(windows)]
+        {
+            let (program, remainder) = Self::split_allowlisted_windows_program(command)?;
+            let args = if remainder.trim().is_empty() {
+                Vec::new()
+            } else {
+                let synthetic = format!("allowlisted-program {remainder}");
+                Self::parse_command(&synthetic)?.1
+            };
+            Ok((program, args))
+        }
+
+        #[cfg(not(windows))]
+        {
+            Self::parse_command(command)
+        }
+    }
+
+    /// Detect shell syntax for strict allowlisting while excluding a native
+    /// Windows executable token whose separators are path data, not syntax.
+    pub(crate) fn allowlisted_command_requires_shell(command: &str) -> Result<bool, String> {
+        #[cfg(windows)]
+        {
+            let (_, remainder) = Self::split_allowlisted_windows_program(command)?;
+            Ok(Self::contains_shell_metacharacters(remainder))
+        }
+
+        #[cfg(not(windows))]
+        {
+            Ok(Self::contains_shell_metacharacters(command))
+        }
+    }
+
     /// Check if command contains shell metacharacters
     pub fn contains_shell_metacharacters(command: &str) -> bool {
         const SHELL_METACHARACTERS: &[char] = &[
@@ -310,9 +385,19 @@ impl CommandSanitizer {
     /// [`authorize_process_execution`]. Kept for callers that only have the
     /// raw command line.
     pub fn validate_command(&self, command: &str) -> Result<ValidationResult, String> {
-        let has_shell_features = Self::contains_shell_metacharacters(command);
+        let allowlist_only = matches!(
+            self.config.shell_execution_mode,
+            ShellExecutionMode::AllowlistOnly
+        );
+        let has_shell_features = if allowlist_only {
+            Self::allowlisted_command_requires_shell(command)?
+        } else {
+            Self::contains_shell_metacharacters(command)
+        };
         let program = if has_shell_features {
             String::new()
+        } else if allowlist_only {
+            Self::parse_allowlisted_command(command)?.0
         } else {
             Self::parse_command(command)?.0
         };
@@ -321,10 +406,13 @@ impl CommandSanitizer {
 
     /// Check if a program (or command string) is in the allowlist
     pub fn is_allowlisted(&self, command: &str) -> bool {
-        if Self::contains_shell_metacharacters(command) {
+        let Ok(requires_shell) = Self::allowlisted_command_requires_shell(command) else {
+            return false;
+        };
+        if requires_shell {
             return false;
         }
-        let Ok((program, _)) = Self::parse_command(command) else {
+        let Ok((program, _)) = Self::parse_allowlisted_command(command) else {
             return false;
         };
         self.resolve_allowlisted_executable(&program).is_ok()
@@ -461,6 +549,47 @@ mod tests {
             matches!(&result, ValidationResult::Blocked { reason }
                 if reason.contains("not in allowed_shell_commands")),
             "same basename at another path must be blocked, got {result:?}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_allowlist_only_windows_path_validate_command_accepts_native() {
+        let requested = std::env::current_exe().unwrap();
+        let canonical = std::fs::canonicalize(&requested).unwrap();
+        let sanitizer = CommandSanitizer::new(allowlist_config(vec![
+            canonical.to_string_lossy().into_owned(),
+        ]));
+        let command = format!("\"{}\"", requested.display());
+
+        let result = sanitizer.validate_command(&command).unwrap();
+
+        assert_eq!(
+            result,
+            ValidationResult::Safe {
+                executable: canonical
+            },
+            "ordinary native Windows path must remain a direct executable"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_allowlist_only_windows_path_validate_command_accepts_canonical() {
+        let canonical = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+        let sanitizer = CommandSanitizer::new(allowlist_config(vec![
+            canonical.to_string_lossy().into_owned(),
+        ]));
+        let command = format!("\"{}\"", canonical.display());
+
+        let result = sanitizer.validate_command(&command).unwrap();
+
+        assert_eq!(
+            result,
+            ValidationResult::Safe {
+                executable: canonical
+            },
+            "Rust-canonical Windows path must remain a direct executable"
         );
     }
 
@@ -731,18 +860,18 @@ mod tests {
         let sanitizer = CommandSanitizer::new(allowlist_config(vec![
             executable.to_string_lossy().into_owned(),
         ]));
-        let executable_command = current_exe.to_string_lossy().replace('\\', "/");
-        let quoted_executable = format!("\"{executable_command}\"");
+        let quoted_executable = format!("\"{}\"", current_exe.display());
+        let quoted_canonical = format!("\"{}\"", executable.display());
 
         assert!(sanitizer.is_allowlisted(&quoted_executable));
+        assert!(sanitizer.is_allowlisted(&quoted_canonical));
         assert!(!sanitizer.is_allowlisted(&format!("{quoted_executable}; echo injected")));
         assert!(!sanitizer.is_allowlisted(executable.file_name().unwrap().to_str().unwrap()));
 
         let temp = tempfile::tempdir().unwrap();
         let different = temp.path().join(executable.file_name().unwrap());
         std::fs::write(&different, b"different executable").unwrap();
-        let different_command = different.to_string_lossy().replace('\\', "/");
-        assert!(!sanitizer.is_allowlisted(&format!("\"{different_command}\"")));
+        assert!(!sanitizer.is_allowlisted(&format!("\"{}\"", different.display())));
     }
 
     #[test]

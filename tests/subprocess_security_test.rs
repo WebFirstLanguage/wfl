@@ -89,6 +89,22 @@ fn test_tool_name() -> &'static str {
     }
 }
 
+#[cfg(windows)]
+fn native_windows_zero_argument_tool(temp: &TempDir) -> std::path::PathBuf {
+    let system_root = std::env::var_os("SystemRoot").expect("SystemRoot must be defined");
+    let source = Path::new(&system_root).join("System32").join("whoami.exe");
+    assert!(
+        source.is_file(),
+        "missing Windows test tool: {}",
+        source.display()
+    );
+
+    let destination = temp.path().join("tools").join("whoami.exe");
+    fs::create_dir_all(destination.parent().unwrap()).unwrap();
+    fs::copy(source, &destination).unwrap();
+    destination
+}
+
 fn run_wfl(code: &str) -> Result<String, String> {
     run_wfl_with_config(code, None)
 }
@@ -411,6 +427,44 @@ fn test_allowlist_only_allows_exact_absolute_program() {
     assert!(
         result.is_ok(),
         "Exact absolute executable should run: {result:?}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn test_allowlist_only_windows_path_zero_argument_execute() {
+    let temp = TempDir::new().unwrap();
+    let executable = native_windows_zero_argument_tool(&temp);
+    let allowed = fs::canonicalize(&executable).unwrap();
+    let config = absolute_allowlist_config(&allowed);
+    let code = format!(
+        "wait for execute command \"{}\" as result\ndisplay result\n",
+        escape_wfl_string(&executable)
+    );
+
+    let result = run_wfl_with_config(&code, Some(&config));
+    assert!(
+        result.is_ok(),
+        "zero-argument native Windows executable should run: {result:?}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn test_allowlist_only_windows_path_zero_argument_spawn() {
+    let temp = TempDir::new().unwrap();
+    let executable = native_windows_zero_argument_tool(&temp);
+    let allowed = fs::canonicalize(&executable).unwrap();
+    let config = absolute_allowlist_config(&allowed);
+    let code = format!(
+        "spawn command \"{}\" as proc_id\nwait for process proc_id to complete\n",
+        escape_wfl_string(&executable)
+    );
+
+    let result = run_wfl_with_config(&code, Some(&config));
+    assert!(
+        result.is_ok(),
+        "zero-argument native Windows spawn should run: {result:?}"
     );
 }
 

@@ -1322,13 +1322,26 @@ impl IoClient {
     ) -> Result<AuthorizedSubprocess, String> {
         use crate::interpreter::command_sanitizer::{CommandSanitizer, ValidationResult};
 
+        let allowlist_only = matches!(
+            self.config.shell_execution_mode,
+            crate::config::ShellExecutionMode::AllowlistOnly
+        );
         let needs_shell = use_shell
-            || (args.is_empty() && CommandSanitizer::contains_shell_metacharacters(command));
+            || (args.is_empty()
+                && if allowlist_only {
+                    CommandSanitizer::allowlisted_command_requires_shell(command)?
+                } else {
+                    CommandSanitizer::contains_shell_metacharacters(command)
+                });
 
         let program = if needs_shell {
             String::new()
         } else if args.is_empty() {
-            CommandSanitizer::parse_command(command)?.0
+            if allowlist_only {
+                CommandSanitizer::parse_allowlisted_command(command)?.0
+            } else {
+                CommandSanitizer::parse_command(command)?.0
+            }
         } else {
             command.to_string()
         };
@@ -1397,7 +1410,14 @@ impl IoClient {
             }
             AuthorizedSubprocess::Direct { executable } => {
                 let parsed_args = if args.is_empty() {
-                    CommandSanitizer::parse_command(command)?.1
+                    if matches!(
+                        self.config.shell_execution_mode,
+                        crate::config::ShellExecutionMode::AllowlistOnly
+                    ) {
+                        CommandSanitizer::parse_allowlisted_command(command)?.1
+                    } else {
+                        CommandSanitizer::parse_command(command)?.1
+                    }
                 } else {
                     args.iter().map(|value| value.to_string()).collect()
                 };
@@ -1471,7 +1491,14 @@ impl IoClient {
             }
             AuthorizedSubprocess::Direct { executable } => {
                 let parsed_args = if args.is_empty() {
-                    CommandSanitizer::parse_command(command)?.1
+                    if matches!(
+                        self.config.shell_execution_mode,
+                        crate::config::ShellExecutionMode::AllowlistOnly
+                    ) {
+                        CommandSanitizer::parse_allowlisted_command(command)?.1
+                    } else {
+                        CommandSanitizer::parse_command(command)?.1
+                    }
                 } else {
                     args.iter().map(|value| value.to_string()).collect()
                 };
