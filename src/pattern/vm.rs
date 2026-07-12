@@ -103,6 +103,28 @@ impl MatchResult {
             captures,
         }
     }
+
+    /// Create a match result from the already-materialized character slice,
+    /// avoiding a fresh `text.chars().collect()`. Used on the hot path where the
+    /// VM has collected the input once up front (see [`PatternVM`] runners).
+    fn from_chars(
+        start: usize,
+        end: usize,
+        chars: &[char],
+        captures: HashMap<String, String>,
+    ) -> Self {
+        let matched_text = if start <= end && end <= chars.len() {
+            chars[start..end].iter().collect()
+        } else {
+            String::new()
+        };
+        Self {
+            start,
+            end,
+            matched_text,
+            captures,
+        }
+    }
 }
 
 /// Virtual machine state for pattern execution
@@ -247,9 +269,18 @@ impl PatternVM {
     /// meter, so nested lookaround/lookbehind VMs share the enclosing match's
     /// budget rather than getting a fresh quota.
     fn run_execute(&mut self, program: &Program, text: &str) -> Result<bool, PatternError> {
-        // Try matching at each position in the text
-        for start_pos in 0..=text.len() {
-            if self.execute_at_position(program, text, start_pos)? {
+        // Checkpoint *before* the O(text) preprocessing: pattern input is a
+        // runtime value that is not bounded by `max_source_size` (it can be an
+        // unbounded file read, client data, or a constructed string), so an
+        // already-expired deadline or cancelled run must not pay to materialize
+        // a large input first. Then collect the input into `Vec<char>` exactly
+        // once and reuse the slice for every position and every step, instead of
+        // re-collecting O(text) on each transition.
+        self.meter.charge_step().map_err(budget_to_pattern_error)?;
+        let chars: Vec<char> = text.chars().collect();
+        // Try matching at each character position in the text.
+        for start_pos in 0..=chars.len() {
+            if self.execute_at_position(program, &chars, start_pos)? {
                 return Ok(true);
             }
         }
@@ -265,9 +296,14 @@ impl PatternVM {
         text: &str,
         capture_names: &[String],
     ) -> Result<Option<MatchResult>, PatternError> {
-        // Try matching at each position in the text
-        for start_pos in 0..=text.len() {
-            if let Some(result) = self.find_at_position(program, text, start_pos, capture_names)? {
+        // Checkpoint before preprocessing, then collect once (see `run_execute`).
+        self.meter.charge_step().map_err(budget_to_pattern_error)?;
+        let chars: Vec<char> = text.chars().collect();
+        // Try matching at each character position in the text.
+        for start_pos in 0..=chars.len() {
+            if let Some(result) =
+                self.find_at_position(program, &chars, start_pos, capture_names)?
+            {
                 return Ok(Some(result));
             }
         }
@@ -283,11 +319,14 @@ impl PatternVM {
         text: &str,
         capture_names: &[String],
     ) -> Result<Vec<MatchResult>, PatternError> {
+        // Checkpoint before preprocessing, then collect once (see `run_execute`).
+        self.meter.charge_step().map_err(budget_to_pattern_error)?;
+        let chars: Vec<char> = text.chars().collect();
         let mut matches = Vec::new();
         let mut pos = 0;
 
-        while pos <= text.len() {
-            if let Some(result) = self.find_at_position(program, text, pos, capture_names)? {
+        while pos <= chars.len() {
+            if let Some(result) = self.find_at_position(program, &chars, pos, capture_names)? {
                 pos = if result.end > result.start {
                     result.end // Move past this match
                 } else {
@@ -306,7 +345,7 @@ impl PatternVM {
     fn execute_at_position(
         &mut self,
         program: &Program,
-        text: &str,
+        chars: &[char],
         start_pos: usize,
     ) -> Result<bool, PatternError> {
         let initial_state = VMState::new(program.num_captures, program.num_saves);
@@ -332,7 +371,7 @@ impl PatternVM {
             for state in states {
                 // Each transition is charged inside `step()` (per instruction),
                 // so an epsilon-jump cycle is bounded too.
-                match self.step(program, text, state)? {
+                match self.step(program, chars, state)? {
                     StepResult::Continue(new_states) => {
                         // Fail fast on exponential state fan-out: reserve slots
                         // for the new states as the generation is built, not
@@ -361,7 +400,7 @@ impl PatternVM {
     fn find_at_position(
         &mut self,
         program: &Program,
-        text: &str,
+        chars: &[char],
         start_pos: usize,
         capture_names: &[String],
     ) -> Result<Option<MatchResult>, PatternError> {
@@ -383,7 +422,7 @@ impl PatternVM {
 
             for state in states {
                 // Transitions are charged inside `step()` (per instruction).
-                match self.step(program, text, state)? {
+                match self.step(program, chars, state)? {
                     StepResult::Continue(new_states) => {
                         // Fail fast on exponential state fan-out.
                         res.grow(new_states.len())
@@ -394,24 +433,23 @@ impl PatternVM {
                         // Found a match, construct result with captures
                         let mut captures: HashMap<String, String> = HashMap::new();
 
-                        // Extract captures from the final state
-                        let text_chars: Vec<char> = text.chars().collect();
+                        // Extract captures from the final state, reusing the
+                        // already-collected character slice (no re-collect).
                         for (i, name) in capture_names.iter().enumerate() {
                             if let Some((start, end)) = final_state.captures[i] {
-                                let captured_text: String =
-                                    if start <= end && end <= text_chars.len() {
-                                        text_chars[start..end].iter().collect()
-                                    } else {
-                                        String::new()
-                                    };
+                                let captured_text: String = if start <= end && end <= chars.len() {
+                                    chars[start..end].iter().collect()
+                                } else {
+                                    String::new()
+                                };
                                 captures.insert(name.clone(), captured_text);
                             }
                         }
 
-                        return Ok(Some(MatchResult::with_captures(
+                        return Ok(Some(MatchResult::from_chars(
                             start_pos,
                             final_state.pos,
-                            text,
+                            chars,
                             captures,
                         )));
                     }
@@ -428,16 +466,18 @@ impl PatternVM {
         Ok(None)
     }
 
-    /// Execute one step of the virtual machine
+    /// Execute one step of the virtual machine.
+    ///
+    /// `chars` is the input already materialized once by the calling runner, so
+    /// this hot path performs no per-step `text.chars().collect()` (which would
+    /// be O(text) on every transition for unbounded runtime input).
     #[allow(clippy::only_used_in_recursion)]
     fn step(
         &mut self,
         program: &Program,
-        text: &str,
+        chars: &[char],
         mut state: VMState,
     ) -> Result<StepResult, PatternError> {
-        let chars: Vec<char> = text.chars().collect();
-
         loop {
             // Charge one transition per dispatched instruction against the
             // per-match meter. This is the real ReDoS guard: it bounds every
@@ -652,7 +692,7 @@ impl PatternVM {
                     }
 
                     let lookahead_matched =
-                        lookahead_vm.execute_at_position(&lookahead_program, text, state.pos)?;
+                        lookahead_vm.execute_at_position(&lookahead_program, chars, state.pos)?;
 
                     if lookahead_matched {
                         #[cfg(test)]
@@ -719,7 +759,7 @@ impl PatternVM {
                                 _ => {}
                             }
 
-                            match self.step(program, text, lookahead_state)? {
+                            match self.step(program, chars, lookahead_state)? {
                                 StepResult::Fail => {
                                     // Good - this path failed
                                 }
@@ -787,7 +827,6 @@ impl PatternVM {
 
                     // Try matching at different positions before current position
                     let mut matched = false;
-                    let text_chars: Vec<char> = text.chars().collect();
 
                     // Get the text before current position
                     if state.pos > 0 {
@@ -803,9 +842,9 @@ impl PatternVM {
                             // per-match ceilings.
                             let mut lookbehind_vm = PatternVM::with_meter(Arc::clone(&self.meter));
 
-                            // Create a slice of text to match against
-                            let text_slice: String =
-                                text_chars[start_pos..state.pos].iter().collect();
+                            // Create a slice of text to match against, from the
+                            // already-materialized character slice.
+                            let text_slice: String = chars[start_pos..state.pos].iter().collect();
 
                             // Try to match the entire slice with the non-resetting
                             // runners, so the shared per-match meter is not reset.
@@ -838,7 +877,6 @@ impl PatternVM {
                 Instruction::CheckNegativeLookbehind(lookbehind_program) => {
                     // Similar to CheckLookbehind but expects the pattern to NOT match
                     let mut matched = false;
-                    let text_chars: Vec<char> = text.chars().collect();
 
                     if state.pos > 0 {
                         // Try to match the pattern ending at current position
@@ -852,9 +890,9 @@ impl PatternVM {
                             // per-match ceilings.
                             let mut lookbehind_vm = PatternVM::with_meter(Arc::clone(&self.meter));
 
-                            // Create a slice of text to match against
-                            let text_slice: String =
-                                text_chars[start_pos..state.pos].iter().collect();
+                            // Create a slice of text to match against, from the
+                            // already-materialized character slice.
+                            let text_slice: String = chars[start_pos..state.pos].iter().collect();
 
                             // Try to match the entire slice with the non-resetting
                             // runners, so the shared per-match meter is not reset.
@@ -975,6 +1013,52 @@ mod tests {
         assert!(vm.execute(&program, "a").unwrap());
         assert!(vm.execute(&program, "b").unwrap());
         assert!(!vm.execute(&program, "c").unwrap());
+    }
+
+    #[test]
+    fn find_uses_char_indices_across_multibyte_input() {
+        // The input is materialized into `Vec<char>` once up front and matched by
+        // CHARACTER index. A digit after multibyte characters must be located at
+        // its char index (not a byte offset), and the matched text must be that
+        // one character — guarding the single up-front collection and the
+        // `chars.len()` position bound.
+        let mut program = Program::new();
+        program.push(Instruction::CharClass(CharClassType::Digit));
+        program.push(Instruction::Match);
+
+        let mut vm = PatternVM::new();
+        // "café☕7": c a f é ☕ 7 → the digit is at character index 5.
+        let result = vm
+            .find(&program, "café☕7", &[])
+            .expect("the digit should be found");
+        assert_eq!(result.matched_text, "7");
+        assert_eq!(result.start, 5);
+        assert_eq!(result.end, 6);
+    }
+
+    #[test]
+    fn cancellation_is_observed_before_materializing_large_input() {
+        use crate::exec::budget::ExecutionBudget;
+        use std::sync::Arc;
+
+        // Pattern input is a runtime value not bounded by `max_source_size`. The
+        // runner checkpoints the budget *before* collecting the input, so an
+        // already-cancelled run aborts without paying the O(text) materialization
+        // (and without the old per-step re-collection).
+        let mut program = Program::new();
+        program.push(Instruction::Char('z'));
+        program.push(Instruction::Match);
+
+        let budget = Arc::new(ExecutionBudget::default());
+        budget.cancel();
+        let mut vm = PatternVM::with_budget(budget);
+
+        let big = "a".repeat(1_000_000);
+        let result = vm.try_find(&program, &big, &[]);
+        assert!(
+            result.is_err(),
+            "a cancelled run must abort before matching a large input"
+        );
     }
 
     #[test]
