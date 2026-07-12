@@ -383,18 +383,22 @@ impl ExecutionBudget {
     /// preserving the historic rule that a long-lived server loop is exempt from
     /// the timeout — cancellation still applies so a server can be stopped.
     pub fn charge_operation(&self, enforce_limits: bool) -> Result<(), BudgetExceeded> {
+        // `main loop` exemption: do not consume the operation budget or read the
+        // clock (a long-lived server would otherwise exhaust the ceiling), but
+        // still honour cooperative cancellation so the loop can be stopped. The
+        // operation counter is left untouched so exempt work cannot later push a
+        // post-loop `Operations` breach.
+        if !enforce_limits {
+            if self.cancelled.load(Ordering::Relaxed) {
+                return Err(BudgetExceeded::Cancelled);
+            }
+            return Ok(());
+        }
+
         // `fetch_add` returns the previous value; use it as this op's index so
         // the very first op (index 0) is a sample point, matching the old code.
         let index = self.operations.fetch_add(1, Ordering::Relaxed);
         let sample = index & (CLOCK_SAMPLE_STRIDE - 1) == 0;
-
-        if sample && self.cancelled.load(Ordering::Relaxed) {
-            return Err(BudgetExceeded::Cancelled);
-        }
-
-        if !enforce_limits {
-            return Ok(());
-        }
 
         if let Some(limit) = self.limits.max_operations
             && index >= limit
@@ -402,13 +406,17 @@ impl ExecutionBudget {
             return Err(BudgetExceeded::Operations { limit });
         }
 
-        if sample
-            && let Some(limit) = self.limits.max_duration
-            && self.started.elapsed() > limit
-        {
-            return Err(BudgetExceeded::Deadline {
-                limit_secs: limit.as_secs(),
-            });
+        if sample {
+            if self.cancelled.load(Ordering::Relaxed) {
+                return Err(BudgetExceeded::Cancelled);
+            }
+            if let Some(limit) = self.limits.max_duration
+                && self.started.elapsed() > limit
+            {
+                return Err(BudgetExceeded::Deadline {
+                    limit_secs: limit.as_secs(),
+                });
+            }
         }
 
         Ok(())
@@ -491,6 +499,25 @@ impl ExecutionBudget {
     }
 
     // ----- Byte ceilings ----------------------------------------------------
+
+    /// The source-file byte ceiling. A bounded loader reads at most this many
+    /// bytes (plus one) so an oversized file is refused without allocating it.
+    pub fn max_source_bytes(&self) -> usize {
+        self.limits.max_source_bytes
+    }
+
+    /// Fail if a source file exceeds the byte ceiling. `len` is a raw file
+    /// length (`u64`); a value that does not fit in `usize` (huge file on a
+    /// 32-bit target) is treated as over the limit rather than truncated.
+    pub fn check_source_len(&self, len: u64) -> Result<(), BudgetExceeded> {
+        match usize::try_from(len) {
+            Ok(len) => self.check_source_bytes(len),
+            Err(_) => Err(BudgetExceeded::SourceBytes {
+                limit: self.limits.max_source_bytes,
+                actual: usize::MAX,
+            }),
+        }
+    }
 
     /// Fail if a source file exceeds the byte ceiling.
     pub fn check_source_bytes(&self, len: usize) -> Result<(), BudgetExceeded> {

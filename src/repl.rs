@@ -132,6 +132,12 @@ impl ReplState {
     }
 
     async fn process_complete_input(&mut self, input: &str) -> Result<Option<String>, String> {
+        // Apply the same source-size ceiling the CLI uses, so pasting an
+        // oversized blob into the REPL is refused before it is lexed/parsed.
+        if let Err(exceeded) = self.interpreter.budget().check_source_bytes(input.len()) {
+            return Err(exceeded.message());
+        }
+
         let tokens = lex_wfl_with_positions(input);
 
         let mut parser = Parser::new(&tokens);

@@ -1784,6 +1784,17 @@ impl Interpreter {
     }
 
     pub fn with_config(config: Arc<WflConfig>) -> Self {
+        let budget = Arc::new(ExecutionBudget::from_config(&config));
+        Self::with_config_and_budget(config, budget)
+    }
+
+    /// Construct an interpreter that shares a caller-supplied
+    /// [`ExecutionBudget`], so one budget can govern a whole run — the CLI's
+    /// pre-parse source check, lexing/parsing, interpretation, and any nested
+    /// `execute file` all charge the same deadline, operation ceiling, and
+    /// cancellation flag. Use [`Interpreter::budget`] to obtain the handle for
+    /// cancellation.
+    pub fn with_config_and_budget(config: Arc<WflConfig>, budget: Arc<ExecutionBudget>) -> Self {
         let global_env = Environment::new_global();
 
         {
@@ -1801,7 +1812,7 @@ impl Interpreter {
             current_count: RefCell::new(None),
             in_count_loop: RefCell::new(false),
             in_main_loop: RefCell::new(false),
-            budget: Arc::new(ExecutionBudget::from_config(&config)),
+            budget,
             call_stack: RefCell::new(Vec::new()),
             io_client: Rc::new(IoClient::new(Arc::clone(&config))),
             step_mode: false,                          // Default to non-step mode
@@ -1832,6 +1843,14 @@ impl Interpreter {
 
     pub fn set_step_mode(&mut self, step_mode: bool) {
         self.step_mode = step_mode;
+    }
+
+    /// The shared [`ExecutionBudget`] governing this run. Clone the handle to
+    /// observe usage or to request cooperative cancellation via
+    /// [`ExecutionBudget::cancel`] from another task/thread (the budget is
+    /// `Send + Sync`).
+    pub fn budget(&self) -> Arc<ExecutionBudget> {
+        Arc::clone(&self.budget)
     }
 
     pub fn set_script_args(&mut self, args: Vec<String>) {
@@ -2217,22 +2236,55 @@ impl Interpreter {
         RuntimeError::with_kind(exceeded.message(), line, column, kind)
     }
 
-    /// Enforce the shared source-size ceiling on a WFL file before it is read
-    /// into memory (`load module`, `include from`, `execute file`), so an
-    /// oversized nested source is refused without ever allocating for it — the
-    /// same guarantee the CLI gives the top-level file.
-    async fn enforce_source_size(
+    /// Read a WFL source file (`load module`, `include from`, `execute file`)
+    /// under the shared source-size ceiling. Reads at most `max_source_size + 1`
+    /// bytes, so an oversized file is refused without ever allocating the whole
+    /// thing — this holds even when the file's metadata is unavailable, stale,
+    /// or reports `0` (special files), which a metadata-only check would miss.
+    async fn read_source_bounded(
         &self,
         path: &std::path::Path,
         line: usize,
         column: usize,
-    ) -> Result<(), RuntimeError> {
-        if let Ok(meta) = tokio::fs::metadata(path).await
-            && let Err(exceeded) = self.budget.check_source_bytes(meta.len() as usize)
-        {
+    ) -> Result<String, RuntimeError> {
+        use tokio::io::AsyncReadExt;
+
+        let io_err = |e: std::io::Error| {
+            let kind = match e.kind() {
+                std::io::ErrorKind::NotFound => ErrorKind::FileNotFound,
+                std::io::ErrorKind::PermissionDenied => ErrorKind::PermissionDenied,
+                _ => ErrorKind::General,
+            };
+            RuntimeError::with_kind(
+                format!("Cannot read source file '{}': {e}", path.display()),
+                line,
+                column,
+                kind,
+            )
+        };
+
+        let max = self.budget.max_source_bytes();
+        // Read one byte past the limit so exceeding it is detectable; the buffer
+        // never grows beyond `max + 1`.
+        let read_cap = (max as u64).saturating_add(1);
+        let file = tokio::fs::File::open(path).await.map_err(io_err)?;
+        let mut buf = Vec::new();
+        file.take(read_cap)
+            .read_to_end(&mut buf)
+            .await
+            .map_err(io_err)?;
+
+        if let Err(exceeded) = self.budget.check_source_bytes(buf.len()) {
             return Err(self.budget_error(exceeded, line, column));
         }
-        Ok(())
+
+        String::from_utf8(buf).map_err(|_| {
+            RuntimeError::new(
+                format!("Source file '{}' is not valid UTF-8", path.display()),
+                line,
+                column,
+            )
+        })
     }
 
     fn assert_invariants(&self) {
@@ -3770,18 +3822,10 @@ impl Interpreter {
                     return Err(self.budget_error(exceeded, *line, *column));
                 }
 
-                // 4. Read file content (source-size ceiling first)
-                self.enforce_source_size(&resolved_path, *line, *column)
+                // 4. Read file content under the shared source-size ceiling.
+                let content = self
+                    .read_source_bounded(&resolved_path, *line, *column)
                     .await?;
-                let content = tokio::fs::read_to_string(&resolved_path)
-                    .await
-                    .map_err(|e| {
-                        RuntimeError::new(
-                            format!("Cannot load module '{}': {}", path_str, e),
-                            *line,
-                            *column,
-                        )
-                    })?;
 
                 // 6. Parse module
                 use crate::lexer::lex_wfl_with_positions;
@@ -3939,18 +3983,10 @@ impl Interpreter {
                     return Err(self.budget_error(exceeded, *line, *column));
                 }
 
-                // 4. Read file content (source-size ceiling first)
-                self.enforce_source_size(&resolved_path, *line, *column)
+                // 4. Read file content under the shared source-size ceiling.
+                let content = self
+                    .read_source_bounded(&resolved_path, *line, *column)
                     .await?;
-                let content = tokio::fs::read_to_string(&resolved_path)
-                    .await
-                    .map_err(|e| {
-                        RuntimeError::new(
-                            format!("Cannot include file '{}': {}", path_str, e),
-                            *line,
-                            *column,
-                        )
-                    })?;
 
                 // 5. Parse included file
                 use crate::lexer::lex_wfl_with_positions;
@@ -6891,11 +6927,10 @@ impl Interpreter {
                 let resolved_path = tokio::fs::canonicalize(&joined)
                     .await
                     .map_err(map_io_error)?;
-                self.enforce_source_size(&resolved_path, *line, *column)
+                // Read under the shared source-size ceiling (bounded read).
+                let content = self
+                    .read_source_bounded(&resolved_path, *line, *column)
                     .await?;
-                let content = tokio::fs::read_to_string(&resolved_path)
-                    .await
-                    .map_err(map_io_error)?;
 
                 // Evaluate the optional request context and extract the variables
                 // that `wait for request` defines, so the executed file sees the

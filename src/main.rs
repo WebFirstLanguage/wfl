@@ -112,20 +112,72 @@ fn parse_create_project_args(args: &[String]) -> Option<String> {
 /// virtually and committed lazily, so normal programs pay nothing for it.
 const INTERPRETER_STACK_SIZE: usize = 1024 * 1024 * 1024;
 
+fn build_runtime() -> io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+}
+
 fn main() -> io::Result<()> {
-    let child = std::thread::Builder::new()
+    // Trivial, non-interpreting invocations (`--help`, `--version`) never
+    // recurse, so run them on the ordinary stack — don't make printing help
+    // depend on reserving a large stack (which can fail under a tight
+    // address-space limit or on a 32-bit target).
+    let arg1 = std::env::args().nth(1);
+    let trivial = matches!(
+        arg1.as_deref(),
+        Some("--help" | "-h" | "--version" | "-v" | "-V")
+    );
+    if trivial {
+        return build_runtime()?.block_on(run());
+    }
+
+    // Otherwise run on a dedicated large-stack thread so the shared budget's
+    // `max_call_depth` turns runaway recursion into a clean, catchable error
+    // instead of a native stack overflow. If that reservation fails (tight
+    // RLIMIT_AS / 32-bit), fall back to the default stack rather than refusing
+    // to start — shallow programs and non-interpreting commands still work.
+    match std::thread::Builder::new()
         .name("wfl-main".to_string())
         .stack_size(INTERPRETER_STACK_SIZE)
-        .spawn(|| {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()?;
-            // `block_on` drives the root future on *this* (large-stack) thread,
-            // so the interpreter and any WFL recursion run here; only spawned
-            // transport tasks use tokio's default-stack worker threads.
-            runtime.block_on(run())
-        })?;
-    child.join().expect("wfl-main thread panicked")
+        .spawn(|| build_runtime()?.block_on(run()))
+    {
+        Ok(child) => child.join().expect("wfl-main thread panicked"),
+        Err(e) => {
+            eprintln!(
+                "warning: could not reserve a large interpreter stack ({e}); \
+                 using the default stack (deep recursion may hit the OS limit \
+                 before max_call_depth)"
+            );
+            build_runtime()?.block_on(run())
+        }
+    }
+}
+
+/// Read a WFL source file under the shared source-size ceiling. Reads at most
+/// `max_source_size + 1` bytes so an oversized file is refused (exit code 2)
+/// without ever allocating the whole thing — even when the file's metadata is
+/// unavailable, stale, or reports `0` (special files).
+fn read_source_bounded(
+    path: &str,
+    budget: &wfl::exec::budget::ExecutionBudget,
+) -> io::Result<String> {
+    use std::io::Read;
+    let max = budget.max_source_bytes();
+    let read_cap = (max as u64).saturating_add(1);
+    let file = fs::File::open(path)?;
+    let mut buf = Vec::new();
+    file.take(read_cap).read_to_end(&mut buf)?;
+    if let Err(exceeded) = budget.check_source_bytes(buf.len()) {
+        eprintln!("Error: {}", exceeded.message());
+        process::exit(2);
+    }
+    String::from_utf8(buf).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("source file '{path}' is not valid UTF-8"),
+        )
+    })
 }
 
 async fn run() -> io::Result<()> {
@@ -766,25 +818,19 @@ async fn run() -> io::Result<()> {
     let script_dir = Path::new(&file_path).parent().unwrap_or(Path::new("."));
     let config = config::load_config(script_dir);
 
-    // Enforce the shared source-size ceiling *before* reading the file into
-    // memory, so an oversized source is refused without ever allocating for it.
-    // Built from the same config the interpreter will run under, so the
-    // `max_source_size` .wflcfg knob governs every entry point (run, lint,
-    // analyze, dump) from one place. Fall back to the post-read length if the
-    // file's metadata is unavailable.
-    let source_budget = wfl::exec::budget::ExecutionBudget::from_config(&config);
-    if let Ok(meta) = fs::metadata(&file_path)
-        && let Err(exceeded) = source_budget.check_source_bytes(meta.len() as usize)
-    {
-        eprintln!("Error: {}", exceeded.message());
-        process::exit(2);
-    }
+    // Build the ONE execution budget for this run up front, from the same
+    // (timeout-capped) config the interpreter will use, so a single budget
+    // governs the pre-parse source check, lexing/parsing/analysis, and
+    // interpretation — its deadline clock starts here and covers the whole run.
+    let mut run_config = config.clone();
+    run_config.timeout_seconds = run_config.timeout_seconds.min(300);
+    let run_config = std::sync::Arc::new(run_config);
+    let budget = std::sync::Arc::new(wfl::exec::budget::ExecutionBudget::from_config(&run_config));
 
-    let input = fs::read_to_string(&file_path)?;
-    if let Err(exceeded) = source_budget.check_source_bytes(input.len()) {
-        eprintln!("Error: {}", exceeded.message());
-        process::exit(2);
-    }
+    // Read the source under the shared source-size ceiling: read at most
+    // `max_source_size + 1` bytes so an oversized file is refused without ever
+    // allocating the whole thing (this holds even if metadata is unavailable).
+    let input = read_source_bounded(&file_path, &budget)?;
 
     // Handle lexer and AST dump flags
     if lex_dump || ast_dump {
@@ -1226,18 +1272,17 @@ async fn run() -> io::Result<()> {
                 // Log execution start if execution logging is enabled
                 exec_trace!("Starting execution of script: {}", &file_path);
 
-                // Pass the full loaded configuration (not just the timeout) so that
-                // settings like `web_server_bind_address` from `.wflcfg` actually reach
-                // the interpreter. `config.clone()` is needed because `config` is read
-                // again later (e.g. `if config.logging_enabled`). See issue #466.
-                //
-                // Preserve the 300-second execution-timeout safety cap that the previous
-                // `Interpreter::with_timeout` path enforced, so this change only *adds*
-                // config propagation without altering timeout semantics. (The cap never
-                // affects web servers: `check_time` skips the timeout inside a main loop.)
-                let mut run_config = config.clone();
-                run_config.timeout_seconds = run_config.timeout_seconds.min(300);
-                let mut interpreter = Interpreter::with_config(std::sync::Arc::new(run_config));
+                // Reuse the single budget (and the timeout-capped `run_config`)
+                // built at the top of the run, so the source check and the
+                // interpreter share one deadline/operation/cancellation budget.
+                // `run_config` carries the full `.wflcfg` (e.g.
+                // `web_server_bind_address`) with the 300s timeout cap applied
+                // (see issue #466); the cap never affects web servers because
+                // `check_time` skips the deadline inside a main loop.
+                let mut interpreter = Interpreter::with_config_and_budget(
+                    std::sync::Arc::clone(&run_config),
+                    std::sync::Arc::clone(&budget),
+                );
                 interpreter.set_step_mode(step_mode); // Set step mode from CLI flag
                 interpreter.set_test_mode(test_mode); // Set test mode from CLI flag
                 interpreter.set_script_args(script_args); // Pass script arguments
