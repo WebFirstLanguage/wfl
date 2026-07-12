@@ -70,6 +70,13 @@ pub enum PatternError {
     /// Pattern execution exceeded the maximum allowed simultaneously-active
     /// states (guards against exponential state fan-out)
     StateLimitExceeded,
+    /// Pattern execution exceeded the run's wall-clock deadline. Carries the
+    /// configured limit in seconds so it can surface as the historic timeout
+    /// error rather than a ReDoS step-limit error.
+    Timeout {
+        /// The configured wall-clock limit, in seconds.
+        limit_secs: u64,
+    },
     /// Pattern execution was cancelled via the shared `ExecutionBudget`
     Cancelled,
     /// Referenced capture group does not exist
@@ -86,6 +93,11 @@ impl std::fmt::Display for PatternError {
             PatternError::StepLimitExceeded => write!(f, "Pattern execution step limit exceeded"),
             PatternError::StateLimitExceeded => {
                 write!(f, "Pattern execution active-state limit exceeded")
+            }
+            // Reuse the interpreter's historic timeout wording so a pattern that
+            // outruns the deadline reports the same message as any other timeout.
+            PatternError::Timeout { limit_secs } => {
+                write!(f, "Execution exceeded timeout ({limit_secs}s)")
             }
             PatternError::Cancelled => write!(f, "Pattern execution was cancelled"),
             PatternError::InvalidCapture(name) => write!(f, "Invalid capture group: {name}"),
@@ -284,40 +296,39 @@ impl CompiledPattern {
     }
 
     /// [`CompiledPattern::matches`], sharing an existing [`ExecutionBudget`] so
-    /// the match respects the run's pattern step/state ceilings and cooperative
-    /// cancellation, and **propagating** a budget breach instead of hiding it as
-    /// a non-match. Resets the shared transition meter for this operation.
+    /// the match respects the run's pattern step/state ceilings, wall-clock
+    /// deadline, and cooperative cancellation, and **propagating** a budget
+    /// breach instead of hiding it as a non-match. Each call runs on a fresh
+    /// per-match meter, so concurrent matches under one run budget never
+    /// interfere.
     pub fn matches_with_budget(
         &self,
         text: &str,
         budget: &std::sync::Arc<ExecutionBudget>,
     ) -> Result<bool, PatternError> {
-        budget.reset_pattern_steps();
         let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
         vm.execute(&self.program, text)
     }
 
     /// [`CompiledPattern::find`], sharing an existing [`ExecutionBudget`] and
-    /// propagating budget breaches.
+    /// propagating budget breaches on a fresh per-match meter.
     pub fn find_with_budget(
         &self,
         text: &str,
         budget: &std::sync::Arc<ExecutionBudget>,
     ) -> Result<Option<MatchResult>, PatternError> {
-        budget.reset_pattern_steps();
         let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
-        vm.find(&self.program, text, &self.capture_names)
+        vm.try_find(&self.program, text, &self.capture_names)
     }
 
     /// [`CompiledPattern::find_all`], sharing an existing [`ExecutionBudget`] and
-    /// propagating budget breaches.
+    /// propagating budget breaches on a fresh per-match meter.
     pub fn find_all_with_budget(
         &self,
         text: &str,
         budget: &std::sync::Arc<ExecutionBudget>,
     ) -> Result<Vec<MatchResult>, PatternError> {
-        budget.reset_pattern_steps();
         let mut vm = PatternVM::with_budget(std::sync::Arc::clone(budget));
-        vm.find_all(&self.program, text, &self.capture_names)
+        vm.try_find_all(&self.program, text, &self.capture_names)
     }
 }

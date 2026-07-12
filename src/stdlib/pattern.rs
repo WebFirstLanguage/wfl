@@ -13,6 +13,8 @@ use std::sync::Arc;
 /// error rather than a silent empty result; other pattern errors are general.
 fn pattern_err(err: PatternError) -> RuntimeError {
     let kind = match err {
+        // A pattern that outruns the wall-clock deadline is a timeout.
+        PatternError::Timeout { .. } => ErrorKind::Timeout,
         PatternError::StepLimitExceeded
         | PatternError::StateLimitExceeded
         | PatternError::Cancelled => ErrorKind::ResourceLimit,

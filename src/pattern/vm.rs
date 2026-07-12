@@ -7,20 +7,21 @@
 
 use super::PatternError;
 use super::instruction::{Instruction, Program};
-use crate::exec::budget::{BudgetExceeded, ExecutionBudget};
+use crate::exec::budget::{BudgetExceeded, ExecutionBudget, PatternMeter};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Translate a shared-budget breach into the pattern VM's error type.
+/// Translate a per-match meter breach into the pattern VM's error type.
 ///
-/// The VM enforces the pattern step ceiling, the active-state ceiling, and
-/// cooperative cancellation; it does not sample the wall-clock deadline itself
-/// (a match is already bounded by the step ceiling). The catch-all maps any
-/// other breach to the historic step-limit error so existing ReDoS handling
-/// keeps matching.
+/// The meter enforces the pattern step ceiling, the active-state ceiling,
+/// cooperative cancellation, and — unless the match is exempt (inside a
+/// `main loop`) — the wall-clock deadline. A deadline breach is mapped to the
+/// timeout variant (so it surfaces as the historic `[Timeout]` error), not the
+/// step-limit error.
 fn budget_to_pattern_error(exceeded: BudgetExceeded) -> PatternError {
     match exceeded {
         BudgetExceeded::PatternStates { .. } => PatternError::StateLimitExceeded,
+        BudgetExceeded::Deadline { limit_secs } => PatternError::Timeout { limit_secs },
         BudgetExceeded::Cancelled => PatternError::Cancelled,
         _ => PatternError::StepLimitExceeded,
     }
@@ -144,12 +145,14 @@ impl VMState {
 /// different VM instances concurrently. However, a single VM instance should
 /// not be used from multiple threads simultaneously.
 pub struct PatternVM {
-    /// Shared execution budget owning the pattern step/active-state ceilings and
-    /// cross-cutting cancellation. Transitions are charged (per instruction)
-    /// into this budget's shared meter, so nested lookaround/lookbehind VMs
-    /// count against the same `max_pattern_steps` / `max_pattern_states` budget
-    /// as the enclosing match — one knob, shared with the rest of the runtime.
-    budget: Arc<ExecutionBudget>,
+    /// The per-match meter owning this match's transition and active-state
+    /// counters. It borrows the run's ceilings, wall-clock deadline, and
+    /// cancellation flag from the shared [`ExecutionBudget`], but its counters
+    /// are private to this top-level match — nested lookaround/lookbehind VMs
+    /// clone the *same* meter (via [`PatternVM::with_meter`]) so their work
+    /// counts against the enclosing match, while a second, unrelated match under
+    /// the same run budget gets an independent meter.
+    meter: Arc<PatternMeter>,
     /// Debug flag for test mode (only available in test builds)
     #[cfg(test)]
     debug: bool,
@@ -165,24 +168,85 @@ impl PatternVM {
         Self::with_budget(ExecutionBudget::current_or_default())
     }
 
-    /// A VM that shares an existing [`ExecutionBudget`], so a pattern match
-    /// respects the same step/state ceilings and cancellation as the run that
-    /// launched it.
+    /// A VM that shares an existing [`ExecutionBudget`], on a fresh per-match
+    /// meter, so a pattern match respects the same step/state ceilings, deadline,
+    /// and cancellation as the run that launched it.
     pub fn with_budget(budget: Arc<ExecutionBudget>) -> Self {
+        Self::with_meter(PatternMeter::new(budget))
+    }
+
+    /// A VM that shares an existing per-match [`PatternMeter`]. Used to spawn
+    /// nested lookaround/lookbehind VMs so their transitions and active states
+    /// count against the enclosing match's ceilings.
+    pub(crate) fn with_meter(meter: Arc<PatternMeter>) -> Self {
         Self {
-            budget,
+            meter,
             #[cfg(test)]
             debug: false,
         }
     }
 
-    /// Execute a pattern program against input text (just test if it matches).
-    ///
-    /// The transition meter is **not** reset here: the top-level operation
-    /// ([`crate::pattern::CompiledPattern`]) resets it once, so a nested
-    /// lookaround/lookbehind VM that calls `execute` shares the enclosing
-    /// match's budget rather than getting a fresh quota.
+    /// Execute a pattern program against input text (just test if it matches),
+    /// resetting this VM's per-match meter first so a reused VM does not carry
+    /// transitions from an unrelated prior match.
     pub fn execute(&mut self, program: &Program, text: &str) -> Result<bool, PatternError> {
+        self.meter.reset();
+        self.run_execute(program, text)
+    }
+
+    /// Find the first match in the text — **backward-compatible** wrapper that
+    /// returns `Option` and silently converts a budget/ReDoS breach to `None`.
+    /// Use [`PatternVM::try_find`] to observe breaches.
+    pub fn find(
+        &mut self,
+        program: &Program,
+        text: &str,
+        capture_names: &[String],
+    ) -> Option<MatchResult> {
+        self.try_find(program, text, capture_names).unwrap_or(None)
+    }
+
+    /// Find all matches in the text — **backward-compatible** wrapper that
+    /// returns `Vec` and silently converts a budget/ReDoS breach to an empty
+    /// result. Use [`PatternVM::try_find_all`] to observe breaches.
+    pub fn find_all(
+        &mut self,
+        program: &Program,
+        text: &str,
+        capture_names: &[String],
+    ) -> Vec<MatchResult> {
+        self.try_find_all(program, text, capture_names)
+            .unwrap_or_default()
+    }
+
+    /// Find the first match, resetting this VM's per-match meter first and
+    /// **propagating** a budget/ReDoS breach.
+    pub fn try_find(
+        &mut self,
+        program: &Program,
+        text: &str,
+        capture_names: &[String],
+    ) -> Result<Option<MatchResult>, PatternError> {
+        self.meter.reset();
+        self.run_find(program, text, capture_names)
+    }
+
+    /// Find all matches, resetting this VM's per-match meter first and
+    /// **propagating** a budget/ReDoS breach.
+    pub fn try_find_all(
+        &mut self,
+        program: &Program,
+        text: &str,
+        capture_names: &[String],
+    ) -> Result<Vec<MatchResult>, PatternError> {
+        self.meter.reset();
+        self.run_find_all(program, text, capture_names)
+    }
+
+    /// Position-loop for [`PatternVM::execute`] that does **not** reset the
+    /// meter, so nested lookaround/lookbehind VMs share the enclosing match's
+    /// budget rather than getting a fresh quota.
+    fn run_execute(&mut self, program: &Program, text: &str) -> Result<bool, PatternError> {
         // Try matching at each position in the text
         for start_pos in 0..=text.len() {
             if self.execute_at_position(program, text, start_pos)? {
@@ -193,9 +257,9 @@ impl PatternVM {
         Ok(false)
     }
 
-    /// Find the first match in the text. See [`PatternVM::execute`] on why the
-    /// transition meter is not reset here.
-    pub fn find(
+    /// Position-loop for [`PatternVM::try_find`]; does not reset the meter (see
+    /// [`PatternVM::run_execute`]).
+    fn run_find(
         &mut self,
         program: &Program,
         text: &str,
@@ -211,9 +275,9 @@ impl PatternVM {
         Ok(None)
     }
 
-    /// Find all matches in the text. See [`PatternVM::execute`] on why the
-    /// transition meter is not reset here.
-    pub fn find_all(
+    /// Position-loop for [`PatternVM::try_find_all`]; does not reset the meter
+    /// (see [`PatternVM::run_execute`]).
+    fn run_find_all(
         &mut self,
         program: &Program,
         text: &str,
@@ -250,8 +314,19 @@ impl PatternVM {
             pos: start_pos,
             ..initial_state
         }];
+        // Reserve state slots against the per-match meter. The current and the
+        // next generation coexist in memory during the inner loop, and nested
+        // lookaround/lookbehind frontiers (which share this meter) stack on top,
+        // so `res` counts *all* simultaneously-live states. One reservation is
+        // grown as the next generation is built and shrunk when the consumed
+        // generation is released, so it drops correctly on every exit path.
+        let mut res = self
+            .meter
+            .reserve_states(states.len())
+            .map_err(budget_to_pattern_error)?;
 
         while !states.is_empty() {
+            let consumed = states.len();
             let mut next_states = Vec::new();
 
             for state in states {
@@ -259,13 +334,12 @@ impl PatternVM {
                 // so an epsilon-jump cycle is bounded too.
                 match self.step(program, text, state)? {
                     StepResult::Continue(new_states) => {
-                        next_states.extend(new_states);
-                        // Fail fast on exponential state fan-out: check the cap
-                        // after each expansion rather than only once the whole
-                        // next generation is built.
-                        self.budget
-                            .check_pattern_states(next_states.len())
+                        // Fail fast on exponential state fan-out: reserve slots
+                        // for the new states as the generation is built, not
+                        // once it is complete.
+                        res.grow(new_states.len())
                             .map_err(budget_to_pattern_error)?;
+                        next_states.extend(new_states);
                     }
                     StepResult::Match(_) => {
                         return Ok(true);
@@ -276,6 +350,7 @@ impl PatternVM {
                 }
             }
 
+            res.release(consumed); // the previous generation is now consumed
             states = next_states;
         }
 
@@ -295,19 +370,25 @@ impl PatternVM {
             pos: start_pos,
             ..initial_state
         }];
+        // See `execute_at_position`: one reservation counts all live states
+        // across current + next + nested frontiers, grown/shrunk per generation.
+        let mut res = self
+            .meter
+            .reserve_states(states.len())
+            .map_err(budget_to_pattern_error)?;
 
         while !states.is_empty() {
+            let consumed = states.len();
             let mut next_states = Vec::new();
 
             for state in states {
                 // Transitions are charged inside `step()` (per instruction).
                 match self.step(program, text, state)? {
                     StepResult::Continue(new_states) => {
-                        next_states.extend(new_states);
                         // Fail fast on exponential state fan-out.
-                        self.budget
-                            .check_pattern_states(next_states.len())
+                        res.grow(new_states.len())
                             .map_err(budget_to_pattern_error)?;
+                        next_states.extend(new_states);
                     }
                     StepResult::Match(final_state) => {
                         // Found a match, construct result with captures
@@ -340,6 +421,7 @@ impl PatternVM {
                 }
             }
 
+            res.release(consumed); // the previous generation is now consumed
             states = next_states;
         }
 
@@ -358,13 +440,13 @@ impl PatternVM {
 
         loop {
             // Charge one transition per dispatched instruction against the
-            // shared meter. This is the real ReDoS guard: it bounds every
+            // per-match meter. This is the real ReDoS guard: it bounds every
             // instruction chain (including epsilon-`Jump` cycles that never
-            // consume input) and, because the meter is shared, counts work done
-            // inside nested lookaround/lookbehind VMs against the same budget.
-            self.budget
-                .charge_pattern_step()
-                .map_err(budget_to_pattern_error)?;
+            // consume input) and, because nested lookaround/lookbehind VMs share
+            // this meter, counts their work against the same match. It also
+            // samples the wall-clock deadline (unless exempt), so a single
+            // synchronous match cannot run past `timeout_seconds`.
+            self.meter.charge_step().map_err(budget_to_pattern_error)?;
 
             let instruction = match program.get(state.pc) {
                 Some(inst) => inst,
@@ -560,8 +642,10 @@ impl PatternVM {
                         );
                     }
 
-                    // Try to match the lookahead pattern at the current position
-                    let mut lookahead_vm = PatternVM::with_budget(Arc::clone(&self.budget));
+                    // Try to match the lookahead pattern at the current position.
+                    // The nested VM shares this match's meter, so its transitions
+                    // and active states count against the same ceilings.
+                    let mut lookahead_vm = PatternVM::with_meter(Arc::clone(&self.meter));
                     #[cfg(test)]
                     {
                         lookahead_vm.debug = self.debug;
@@ -603,8 +687,16 @@ impl PatternVM {
                     let mut depth = 1;
                     let mut current_states = vec![lookahead_state];
                     let mut any_matched = false;
+                    // Reserve the negative-lookahead frontier against the same
+                    // per-match meter, so its states add to (rather than escape)
+                    // the enclosing match's active-state ceiling.
+                    let mut res = self
+                        .meter
+                        .reserve_states(current_states.len())
+                        .map_err(budget_to_pattern_error)?;
 
                     'outer: while depth > 0 && !current_states.is_empty() {
+                        let consumed = current_states.len();
                         let mut next_states = Vec::new();
 
                         for lookahead_state in current_states.drain(..) {
@@ -632,6 +724,9 @@ impl PatternVM {
                                     // Good - this path failed
                                 }
                                 StepResult::Continue(states) => {
+                                    // Fail fast on fan-out; the inner `self.step()`
+                                    // calls already charge transitions.
+                                    res.grow(states.len()).map_err(budget_to_pattern_error)?;
                                     next_states.extend(states);
                                 }
                                 StepResult::Match(_) => {
@@ -641,13 +736,10 @@ impl PatternVM {
                             }
                         }
 
-                        // Bound the negative-lookahead state fan-out too; the
-                        // inner `self.step()` calls already charge transitions.
-                        self.budget
-                            .check_pattern_states(next_states.len())
-                            .map_err(budget_to_pattern_error)?;
+                        res.release(consumed); // the previous generation is consumed
                         current_states = next_states;
                     }
+                    drop(res); // release the negative-lookahead frontier
 
                     if !any_matched && current_states.is_empty() {
                         // All paths failed - which is what we want for negative lookahead
@@ -706,20 +798,25 @@ impl PatternVM {
                         for start_offset in 1..=max_lookback {
                             let start_pos = state.pos - start_offset;
 
-                            // Create a new VM to execute the lookbehind pattern
-                            let mut lookbehind_vm =
-                                PatternVM::with_budget(Arc::clone(&self.budget));
+                            // Create a nested VM sharing this match's meter, so
+                            // its transitions/states count against the same
+                            // per-match ceilings.
+                            let mut lookbehind_vm = PatternVM::with_meter(Arc::clone(&self.meter));
 
                             // Create a slice of text to match against
                             let text_slice: String =
                                 text_chars[start_pos..state.pos].iter().collect();
 
-                            // Try to match the entire slice. `?` propagates a
-                            // budget breach (shared meter) from the nested VM.
-                            if lookbehind_vm.execute(lookbehind_program, &text_slice)? {
+                            // Try to match the entire slice with the non-resetting
+                            // runners, so the shared per-match meter is not reset.
+                            // `?` propagates a budget breach from the nested VM.
+                            if lookbehind_vm.run_execute(lookbehind_program, &text_slice)? {
                                 // Check if the match uses the entire slice
-                                let matches =
-                                    lookbehind_vm.find_all(lookbehind_program, &text_slice, &[])?;
+                                let matches = lookbehind_vm.run_find_all(
+                                    lookbehind_program,
+                                    &text_slice,
+                                    &[],
+                                )?;
                                 if let Some(first_match) = matches.first()
                                     && first_match.start == 0
                                     && first_match.end == text_slice.len()
@@ -750,20 +847,25 @@ impl PatternVM {
                         for start_offset in 1..=max_lookback {
                             let start_pos = state.pos - start_offset;
 
-                            // Create a new VM to execute the lookbehind pattern
-                            let mut lookbehind_vm =
-                                PatternVM::with_budget(Arc::clone(&self.budget));
+                            // Create a nested VM sharing this match's meter, so
+                            // its transitions/states count against the same
+                            // per-match ceilings.
+                            let mut lookbehind_vm = PatternVM::with_meter(Arc::clone(&self.meter));
 
                             // Create a slice of text to match against
                             let text_slice: String =
                                 text_chars[start_pos..state.pos].iter().collect();
 
-                            // Try to match the entire slice. `?` propagates a
-                            // budget breach (shared meter) from the nested VM.
-                            if lookbehind_vm.execute(lookbehind_program, &text_slice)? {
+                            // Try to match the entire slice with the non-resetting
+                            // runners, so the shared per-match meter is not reset.
+                            // `?` propagates a budget breach from the nested VM.
+                            if lookbehind_vm.run_execute(lookbehind_program, &text_slice)? {
                                 // Check if the match uses the entire slice
-                                let matches =
-                                    lookbehind_vm.find_all(lookbehind_program, &text_slice, &[])?;
+                                let matches = lookbehind_vm.run_find_all(
+                                    lookbehind_program,
+                                    &text_slice,
+                                    &[],
+                                )?;
                                 if let Some(first_match) = matches.first()
                                     && first_match.start == 0
                                     && first_match.end == text_slice.len()

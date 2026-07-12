@@ -316,11 +316,20 @@ pub struct ExecutionBudget {
     pending_requests: AtomicUsize,
     /// Live WebSocket connections currently registered.
     ws_connections: AtomicUsize,
-    /// Pattern-VM transitions charged for the *current* match operation. One
-    /// shared meter so nested lookaround VMs count against the same budget
-    /// (they don't reset it); the top-level operation resets it to zero.
-    pattern_steps: AtomicU64,
+    /// Whether the wall-clock deadline is currently *exempt* — set by the
+    /// interpreter while executing inside a `main loop` (a long-lived server
+    /// must not time out on its own uptime). Pattern matching reads this so a
+    /// match launched from within a `main loop` uses the same exemption as
+    /// ordinary operations (see [`ExecutionBudget::charge_operation`]).
+    deadline_exempt: AtomicBool,
 }
+
+// NOTE: per-match pattern accounting (transitions + active states) lives on a
+// separate per-match [`PatternMeter`], *not* on the shared run budget. Two
+// matches that share one `Arc<ExecutionBudget>` (e.g. concurrent web handlers)
+// must never reset or share a single transition counter, or one could grant the
+// other unbounded extra quota. The budget owns only the *limits* and the
+// cross-cutting deadline/cancellation the meter samples.
 
 impl ExecutionBudget {
     /// Build a budget from explicit limits, starting the deadline clock now.
@@ -332,7 +341,7 @@ impl ExecutionBudget {
             operations: AtomicU64::new(0),
             pending_requests: AtomicUsize::new(0),
             ws_connections: AtomicUsize::new(0),
-            pattern_steps: AtomicU64::new(0),
+            deadline_exempt: AtomicBool::new(false),
         }
     }
 
@@ -378,6 +387,19 @@ impl ExecutionBudget {
         } else {
             Ok(())
         }
+    }
+
+    /// Mark (or clear) the wall-clock deadline as exempt for the current region.
+    /// The interpreter sets this while executing inside a `main loop` so a
+    /// long-lived server is not killed by its own uptime; pattern matching reads
+    /// it to apply the same exemption ordinary operations get.
+    pub fn set_deadline_exempt(&self, exempt: bool) {
+        self.deadline_exempt.store(exempt, Ordering::Relaxed);
+    }
+
+    /// Whether the wall-clock deadline is currently exempt (inside a `main loop`).
+    pub fn is_deadline_exempt(&self) -> bool {
+        self.deadline_exempt.load(Ordering::Relaxed)
     }
 
     /// Fail if the wall-clock deadline has elapsed. Reads the clock every call;
@@ -495,31 +517,6 @@ impl ExecutionBudget {
     /// The per-match active-state ceiling for the pattern VM.
     pub fn pattern_state_limit(&self) -> usize {
         self.limits.max_pattern_states
-    }
-
-    /// Reset the shared pattern-transition meter. Called once at the start of a
-    /// top-level pattern operation (`matches`/`find`/`find_all`/…); nested
-    /// lookaround VMs deliberately do **not** reset it, so their work counts
-    /// against the same budget as the enclosing match.
-    pub fn reset_pattern_steps(&self) {
-        self.pattern_steps.store(0, Ordering::Relaxed);
-    }
-
-    /// Charge one pattern-VM transition (one instruction dispatched, or one
-    /// negative-lookahead loop iteration) against the shared meter, failing once
-    /// the per-operation ceiling is exceeded. Also honours cancellation on a
-    /// throttled stride so a runaway match can be aborted.
-    pub fn charge_pattern_step(&self) -> Result<(), BudgetExceeded> {
-        let n = self.pattern_steps.fetch_add(1, Ordering::Relaxed);
-        if n >= self.limits.max_pattern_steps as u64 {
-            return Err(BudgetExceeded::PatternSteps {
-                limit: self.limits.max_pattern_steps,
-            });
-        }
-        if n & (CLOCK_SAMPLE_STRIDE - 1) == 0 && self.cancelled.load(Ordering::Relaxed) {
-            return Err(BudgetExceeded::Cancelled);
-        }
-        Ok(())
     }
 
     /// Fail if a pattern match has taken more transitions than allowed.
@@ -767,6 +764,149 @@ impl Drop for WsConnectionGuard {
     }
 }
 
+/// Per-top-level-match pattern metering.
+///
+/// A fresh `PatternMeter` is created for each top-level pattern operation
+/// (`matches`/`find`/`find_all`) and cloned (as an `Arc`) **only** into nested
+/// lookaround/lookbehind VMs, so their transitions and active states count
+/// against the *same* per-match ceilings as the enclosing match. It borrows the
+/// run's limits, wall-clock deadline, and cancellation flag from the shared
+/// [`ExecutionBudget`], but keeps its own transition counter and active-state
+/// accounting — so two matches sharing one run budget (e.g. concurrent web
+/// handlers) never reset or share each other's meter.
+///
+/// Kept atomic (rather than `Cell`) so a [`crate::pattern::PatternVM`] stays
+/// `Send`; a single match runs on one thread, so the atomics are uncontended.
+#[derive(Debug)]
+pub struct PatternMeter {
+    budget: Arc<ExecutionBudget>,
+    /// Transitions charged for this match (all frontiers, all nested VMs).
+    steps: AtomicU64,
+    /// State slots reserved live across every frontier (current + next
+    /// generation + any suspended nested lookaround/lookbehind frontiers).
+    active_states: AtomicUsize,
+    /// Whether this match samples the wall-clock deadline. Captured at creation
+    /// from [`ExecutionBudget::is_deadline_exempt`] so a match launched inside a
+    /// `main loop` is exempt exactly like ordinary operations.
+    enforce_deadline: bool,
+}
+
+impl PatternMeter {
+    /// A fresh per-match meter bound to `budget`.
+    pub fn new(budget: Arc<ExecutionBudget>) -> Arc<Self> {
+        let enforce_deadline = !budget.is_deadline_exempt();
+        Arc::new(Self {
+            budget,
+            steps: AtomicU64::new(0),
+            active_states: AtomicUsize::new(0),
+            enforce_deadline,
+        })
+    }
+
+    /// The shared run budget this meter borrows limits/deadline/cancellation from.
+    pub fn budget(&self) -> &Arc<ExecutionBudget> {
+        &self.budget
+    }
+
+    /// Reset the per-match counters. Called once at the start of each *direct*
+    /// top-level VM operation so reusing one VM does not accumulate transitions
+    /// from an unrelated prior match; nested lookaround VMs share the meter and
+    /// deliberately do **not** reset it.
+    pub fn reset(&self) {
+        self.steps.store(0, Ordering::Relaxed);
+        self.active_states.store(0, Ordering::Relaxed);
+    }
+
+    /// Charge one pattern-VM transition (one dispatched instruction). Fails once
+    /// the per-match transition ceiling is exceeded, and — on a throttled stride
+    /// — honours cancellation and (unless exempt) the wall-clock deadline, so a
+    /// single synchronous match cannot run past `timeout_seconds`. A deadline
+    /// breach surfaces as [`BudgetExceeded::Deadline`] (a timeout), not a step
+    /// limit.
+    pub fn charge_step(&self) -> Result<(), BudgetExceeded> {
+        let n = self.steps.fetch_add(1, Ordering::Relaxed);
+        if n >= self.budget.limits.max_pattern_steps as u64 {
+            return Err(BudgetExceeded::PatternSteps {
+                limit: self.budget.limits.max_pattern_steps,
+            });
+        }
+        if n & (CLOCK_SAMPLE_STRIDE - 1) == 0 {
+            if self.budget.cancelled.load(Ordering::Relaxed) {
+                return Err(BudgetExceeded::Cancelled);
+            }
+            if self.enforce_deadline
+                && let Some(limit) = self.budget.limits.max_duration
+                && self.budget.started.elapsed() > limit
+            {
+                return Err(BudgetExceeded::Deadline {
+                    limit_secs: limit.as_secs(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Reserve `n` active-state slots, returning an RAII [`StateReservation`]
+    /// that releases them on drop. Fails if the total live reservation (this
+    /// frontier plus every other frontier currently holding slots, including
+    /// nested VMs) would exceed the per-match active-state ceiling.
+    pub fn reserve_states(self: &Arc<Self>, n: usize) -> Result<StateReservation, BudgetExceeded> {
+        let prev = self.active_states.fetch_add(n, Ordering::Relaxed);
+        if prev + n > self.budget.limits.max_pattern_states {
+            self.active_states.fetch_sub(n, Ordering::Relaxed);
+            return Err(BudgetExceeded::PatternStates {
+                limit: self.budget.limits.max_pattern_states,
+            });
+        }
+        Ok(StateReservation {
+            meter: Arc::clone(self),
+            held: n,
+        })
+    }
+}
+
+/// An RAII reservation of active-state slots on a [`PatternMeter`]. Holds a
+/// count of slots and releases exactly that many when dropped, so every exit
+/// path (including `?` early-returns) restores the live-state accounting.
+#[must_use]
+pub struct StateReservation {
+    meter: Arc<PatternMeter>,
+    held: usize,
+}
+
+impl StateReservation {
+    /// Grow this reservation by `extra` slots, failing if that would exceed the
+    /// per-match active-state ceiling (across all live frontiers). Used as a
+    /// frontier is built incrementally so runaway fan-out fails fast.
+    pub fn grow(&mut self, extra: usize) -> Result<(), BudgetExceeded> {
+        let prev = self.meter.active_states.fetch_add(extra, Ordering::Relaxed);
+        if prev + extra > self.meter.budget.limits.max_pattern_states {
+            self.meter.active_states.fetch_sub(extra, Ordering::Relaxed);
+            return Err(BudgetExceeded::PatternStates {
+                limit: self.meter.budget.limits.max_pattern_states,
+            });
+        }
+        self.held += extra;
+        Ok(())
+    }
+
+    /// Release `n` previously-reserved slots (e.g. when a generation is fully
+    /// consumed), keeping the remainder reserved. Saturates at the amount held.
+    pub fn release(&mut self, n: usize) {
+        let n = n.min(self.held);
+        self.held -= n;
+        self.meter.active_states.fetch_sub(n, Ordering::Relaxed);
+    }
+}
+
+impl Drop for StateReservation {
+    fn drop(&mut self) {
+        self.meter
+            .active_states
+            .fetch_sub(self.held, Ordering::Relaxed);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -876,20 +1016,68 @@ mod tests {
     }
 
     #[test]
-    fn pattern_step_meter_charges_and_resets() {
-        let budget = ExecutionBudget::new(tiny_limits()); // max_pattern_steps = 5
-        // Charging is shared across (simulated) nested VMs without resetting; the
-        // sixth charge (index 5 >= limit 5) trips.
+    fn pattern_meter_is_per_match_and_charges_transitions() {
+        let budget = Arc::new(ExecutionBudget::new(tiny_limits())); // max_pattern_steps = 5
+        let meter = PatternMeter::new(Arc::clone(&budget));
+        // Five transitions (indices 0..=4) fit; the sixth (index 5 >= 5) trips.
         for _ in 0..5 {
-            budget.charge_pattern_step().expect("within pattern budget");
+            meter.charge_step().expect("within pattern budget");
         }
         assert_eq!(
-            budget.charge_pattern_step(),
+            meter.charge_step(),
             Err(BudgetExceeded::PatternSteps { limit: 5 })
         );
-        // A top-level operation resets the shared meter for the next match.
-        budget.reset_pattern_steps();
-        assert!(budget.charge_pattern_step().is_ok());
+        // A direct top-level VM op resets *its own* meter for the next match.
+        meter.reset();
+        assert!(meter.charge_step().is_ok());
+
+        // A second match sharing the same run budget gets an INDEPENDENT meter,
+        // so it cannot reset or borrow the first meter's transition count.
+        let other = PatternMeter::new(Arc::clone(&budget));
+        for _ in 0..5 {
+            other.charge_step().expect("independent per-match quota");
+        }
+        assert_eq!(
+            other.charge_step(),
+            Err(BudgetExceeded::PatternSteps { limit: 5 })
+        );
+    }
+
+    #[test]
+    fn pattern_meter_reserves_states_across_frontiers() {
+        let budget = Arc::new(ExecutionBudget::new(tiny_limits())); // max_pattern_states = 4
+        let meter = PatternMeter::new(Arc::clone(&budget));
+        // A "current" frontier of 3 plus a "next" frontier growing to 1 = 4 fits.
+        let _current = meter.reserve_states(3).expect("current frontier");
+        let mut next = meter.reserve_states(0).expect("next frontier");
+        next.grow(1).expect("one more still fits (total 4)");
+        // A fifth simultaneously-live slot (e.g. a nested lookaround frontier)
+        // exceeds the ceiling even though no single frontier does.
+        assert_eq!(
+            meter.reserve_states(1).map(|_| ()),
+            Err(BudgetExceeded::PatternStates { limit: 4 })
+        );
+        // Releasing a frontier frees its slots for reuse.
+        drop(_current);
+        let _reused = meter.reserve_states(3).expect("slots freed on drop");
+    }
+
+    #[test]
+    fn pattern_meter_deadline_exemption_follows_budget() {
+        let mut limits = tiny_limits();
+        limits.max_duration = Some(Duration::from_secs(0));
+        let budget = Arc::new(ExecutionBudget::new(limits));
+        // Exempt (inside a `main loop`): a zero-second deadline is not enforced.
+        budget.set_deadline_exempt(true);
+        let exempt = PatternMeter::new(Arc::clone(&budget));
+        assert!(exempt.charge_step().is_ok());
+        // Not exempt: the elapsed zero-second deadline trips as a timeout.
+        budget.set_deadline_exempt(false);
+        let enforced = PatternMeter::new(Arc::clone(&budget));
+        assert_eq!(
+            enforced.charge_step(),
+            Err(BudgetExceeded::Deadline { limit_secs: 0 })
+        );
     }
 
     #[test]

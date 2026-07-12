@@ -2323,6 +2323,16 @@ impl Interpreter {
         }
     }
 
+    /// Enter or leave the `main loop` deadline exemption. Keeps the interpreter
+    /// flag and the shared budget's `deadline_exempt` in lockstep so pattern
+    /// matching launched from inside a `main loop` gets the same wall-clock
+    /// exemption as ordinary operations (a long-lived server must not time out
+    /// on its own uptime), while cancellation still applies everywhere.
+    fn set_in_main_loop(&self, in_main_loop: bool) {
+        *self.in_main_loop.borrow_mut() = in_main_loop;
+        self.budget.set_deadline_exempt(in_main_loop);
+    }
+
     /// Map a [`BudgetExceeded`] onto a `RuntimeError`.
     ///
     /// The deadline keeps its historic `[Timeout]` kind (and verbatim message)
@@ -2366,6 +2376,10 @@ impl Interpreter {
     ) -> RuntimeError {
         use crate::pattern::PatternError;
         let kind = match err {
+            // A pattern that outruns the wall-clock deadline is a timeout, with
+            // the historic `[Timeout]` kind and message, so existing timeout
+            // handling/tests keep matching.
+            PatternError::Timeout { .. } => ErrorKind::Timeout,
             PatternError::StepLimitExceeded
             | PatternError::StateLimitExceeded
             | PatternError::Cancelled => ErrorKind::ResourceLimit,
@@ -2455,6 +2469,9 @@ impl Interpreter {
         *self.in_count_loop.borrow_mut() = false;
         *self.current_count.borrow_mut() = None;
         self.call_depth.set(0);
+        // Clear any stale `main loop` deadline exemption (and its budget flag)
+        // left by a prior run that unwound mid-loop, so this run starts enforced.
+        self.set_in_main_loop(false);
         self.assert_invariants();
         self.call_stack.borrow_mut().clear();
 
@@ -3397,8 +3414,9 @@ impl Interpreter {
                 #[cfg(debug_assertions)]
                 exec_trace!("Executing main loop (timeout disabled)");
 
-                // Set the main loop flag to disable timeout
-                *self.in_main_loop.borrow_mut() = true;
+                // Set the main loop flag to disable timeout (and exempt pattern
+                // matching launched inside the loop from the wall-clock deadline)
+                self.set_in_main_loop(true);
 
                 let mut _last_value = Value::Null;
                 let mut loop_env_recycle = None;
@@ -3429,13 +3447,13 @@ impl Interpreter {
                         ControlFlow::Exit => {
                             #[cfg(debug_assertions)]
                             exec_trace!("Exiting from main loop");
-                            *self.in_main_loop.borrow_mut() = false;
+                            self.set_in_main_loop(false);
                             return Ok((_last_value, ControlFlow::Exit));
                         }
                         ControlFlow::Return(val) => {
                             #[cfg(debug_assertions)]
                             exec_trace!("Returning from main loop with value: {:?}", val);
-                            *self.in_main_loop.borrow_mut() = false;
+                            self.set_in_main_loop(false);
                             return Ok((val.clone(), ControlFlow::Return(val)));
                         }
                         ControlFlow::None => {}
@@ -3443,7 +3461,7 @@ impl Interpreter {
                 }
 
                 // Reset the main loop flag when exiting normally
-                *self.in_main_loop.borrow_mut() = false;
+                self.set_in_main_loop(false);
 
                 Ok((_last_value, ControlFlow::None))
             }
