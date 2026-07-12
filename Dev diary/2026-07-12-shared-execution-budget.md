@@ -163,20 +163,43 @@ Addressed in the same PR after the first round of automated review:
   the duplicate "Execution budget (resource limits)" doc heading was renamed so
   the anchor stays unique.
 
+## Deep review round (maintainer P1/P2 + bot reviewers)
+
+A subsequent maintainer review raised five blocking findings and several P2s;
+all were addressed on this PR:
+
+- **P1-1 — recursion guard robust under catch.** Enforcement depth moved to a
+  dedicated RAII `call_depth` counter, decoupled from the diagnostic `call_stack`.
+  `budget_error` no longer mutates *any* interpreter state (every breach is
+  catchable), and `interpret()` resets per-run loop/depth state, so
+  catch-and-recurse stays bounded and an enclosing `count` loop survives a caught
+  recursion error. Test: `catching_a_recursion_limit_leaves_a_consistent_interpreter`.
+- **P1-2 — pattern transitions counted for real.** Charged per *instruction* in
+  `step()` (bounds epsilon-jump cycles) on one shared meter that nested
+  lookaround/lookbehind VMs charge into (no reset); breaches now *propagate* as
+  catchable `ResourceLimit` errors through the interpreter operators AND the
+  stdlib builtins (`pattern_matches/find/find_all/split`), which reach the run
+  budget via a thread-local. `max_pattern_steps` default raised to 5_000_000 for
+  per-instruction granularity.
+- **P1-3 — HTTP OOM/leak paths closed.** Request body enforced *while streaming*
+  (chunked-safe → 413); one **global** in-flight `RequestGuard` (shared across
+  listeners) held from body-read until response / disconnect / 504 timeout
+  (`web_server_response_timeout_seconds`, default 300); response cap checks the
+  borrowed length before duplicating.
+- **P1-4 — one budget per run.** `main.rs` builds a single budget up front and
+  threads it through the source check and the interpreter
+  (`with_config_and_budget` + `budget()` handle); `execute file` shares it.
+- **P1-5 — bounded source loader everywhere.** A bounded reader (≤ `max+1` bytes)
+  covers the CLI, `load module`, `include`, `execute file`, and the REPL, so
+  oversized sources are refused without allocation even when metadata lies.
+- **P2** — `ConfigChecker` now knows every budget key (so `--configFix` can't
+  strip them); WebSocket `close server` sends a guaranteed close frame even under
+  backpressure and logs full/closed outbound queues; the large stack is deferred
+  for `--help`/`--version` and falls back on reservation failure; the REPL uses a
+  no-deadline budget; MSRV recorded as 1.88 (`let`-chains).
+
 ## Notes / Follow-ups
 
-- Stdlib pattern builtins (`pattern_replace`, `pattern_split`, and the
-  `pattern_*` natives) run under a standalone budget with the same step/state
-  ceilings, because native-function signatures have no interpreter handle. A
-  future refactor could thread the run budget through them for deadline
-  awareness; the ReDoS/state protection is already in place.
-- `CompiledPattern::find`/`find_all`/`matches` still fold a VM error (step/state
-  ceiling *or* cancellation) into "no match" rather than propagating it — the
-  pre-existing swallow-`Err` contract. The DoS protection still holds (matching
-  halts), and nothing triggers `budget.cancel()` in the current CLI flow, so a
-  cancelled pattern reporting "no match" is latent. Surfacing it would mean
-  changing those methods' return types (rippling through stdlib and the
-  interpreter's pattern arms) and is left as a follow-up.
 - The outbound `reqwest` client still has no per-request timeout or in-flight
   cap; that is a separate audit item (the budget's `max_pending_requests`
   covers the *inbound* accepted-request queue).
