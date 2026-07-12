@@ -96,6 +96,12 @@ pub struct TypeChecker {
     /// expose their actions dynamically at runtime, so undefined-action errors
     /// are suppressed to match the analyzer (see issue #548).
     has_includes: bool,
+    /// A shared-budget breach hit during type checking. Kept **separate** from
+    /// `errors` because callers (the CLI, `include`) print `TypeError`s as
+    /// non-fatal warnings and continue — which would erase a real
+    /// deadline/cancellation/resource breach. Callers must consult
+    /// [`TypeChecker::take_budget_error`] and stop when it is `Some`.
+    budget_error: Option<crate::exec::budget::BudgetExceeded>,
 }
 
 impl Default for TypeChecker {
@@ -116,6 +122,7 @@ impl TypeChecker {
             analyzer_already_run: false,
             current_container: None,
             has_includes: false,
+            budget_error: None,
         }
     }
 
@@ -128,7 +135,16 @@ impl TypeChecker {
             analyzer_already_run: true, // Analyzer has already been run when passed in
             current_container: None,
             has_includes: false,
+            budget_error: None,
         }
+    }
+
+    /// Take a shared-budget breach recorded during type checking, if any. A
+    /// caller that otherwise treats `TypeError`s as non-fatal warnings **must**
+    /// consult this and abort the run when it is `Some`, so a
+    /// deadline/cancellation/resource breach is never silently ignored.
+    pub fn take_budget_error(&mut self) -> Option<crate::exec::budget::BudgetExceeded> {
+        self.budget_error.take()
     }
 
     /// Get the action parameters from the analyzer
@@ -278,8 +294,11 @@ impl TypeChecker {
             if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
                 && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
             {
+                // Record the breach on the fatal channel (callers must stop) AND
+                // as a diagnostic so `Err` still short-circuits normal reporting.
                 self.errors
                     .push(TypeError::new(exceeded.message(), None, None, 0, 0));
+                self.budget_error = Some(exceeded);
                 break;
             }
             self.check_statement_types(statement);

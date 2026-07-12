@@ -622,7 +622,7 @@ Maximum nesting depth of `execute file` runs. Kept small because each level re-e
 Maximum number of pattern-VM transitions a single match attempt may take (Regular-expression Denial-of-Service, “ReDoS”, guard). A pathological pattern that would otherwise run away stops with a pattern step-limit error.
 
 - **Type:** Integer (at least 1)
-- **Default:** `100000`
+- **Default:** `5000000`
 - **Example:** `max_pattern_steps = 250000`
 
 #### `max_pattern_states`

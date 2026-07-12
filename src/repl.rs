@@ -83,24 +83,34 @@ impl ReplState {
             }
         }
 
-        if !self.input_buffer.is_empty() {
+        // Enforce the source-size ceiling on the *prospective* buffer length —
+        // computed with `checked_add` — BEFORE appending, so a single pasted line
+        // above the cap is never copied into the buffer at all (nor re-cloned and
+        // re-tokenized on every following line). Only mutate the buffer once the
+        // new size is known to fit.
+        let newline = usize::from(!self.input_buffer.is_empty());
+        let prospective = self
+            .input_buffer
+            .len()
+            .checked_add(newline)
+            .and_then(|n| n.checked_add(line.len()));
+        let within_cap = matches!(
+            prospective.map(|len| self.interpreter.budget().check_source_bytes(len)),
+            Some(Ok(())),
+        );
+        if !within_cap {
+            self.input_buffer.clear();
+            self.in_multiline = false;
+            let max = self.interpreter.budget().max_source_bytes();
+            return Err(format!(
+                "Source too large: exceeds the configured limit ({max} bytes)"
+            ));
+        }
+
+        if newline == 1 {
             self.input_buffer.push('\n');
         }
         self.input_buffer.push_str(line);
-
-        // Enforce the source-size ceiling *immediately after appending*, before
-        // the buffer is cloned/lexed/parsed. Otherwise an oversized incomplete
-        // paste would be retained and re-cloned + re-tokenized on every following
-        // line, defeating the pre-lexing cap and risking memory exhaustion.
-        if let Err(exceeded) = self
-            .interpreter
-            .budget()
-            .check_source_bytes(self.input_buffer.len())
-        {
-            self.input_buffer.clear();
-            self.in_multiline = false;
-            return Err(exceeded.message());
-        }
 
         let input = self.input_buffer.clone();
         let tokens = lex_wfl_with_positions(&input);
@@ -401,6 +411,13 @@ pub async fn run_repl() -> RustylineResult<()> {
                 // *during execution* cancels cooperatively. Ctrl-C while waiting
                 // for input is still handled by rustyline (below).
                 let budget = repl_state.reset_command_budget();
+                // Install the command's budget as the current-thread budget for
+                // the WHOLE pipeline — lexing, parsing, analysis, type checking,
+                // and interpretation — not just interpretation. Otherwise the
+                // front-end phases (which run before `interpret()` installs its
+                // own guard) would see `ExecutionBudget::current() == None` and
+                // skip every deadline/cancellation checkpoint.
+                let _budget_guard = ExecutionBudget::enter(std::sync::Arc::clone(&budget));
                 let outcome = {
                     let fut = repl_state.process_line(&line);
                     tokio::pin!(fut);

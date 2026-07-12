@@ -481,6 +481,17 @@ impl Analyzer {
     }
 
     pub fn analyze(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
+        // Front-end budget checkpoint at the analysis phase boundary. `analyze`
+        // backs the type checker and every `load module` / `include` /
+        // `execute file`, so consulting the run budget here (deadline/
+        // cancellation, exemption-aware) keeps those nested pipelines cooperative
+        // rather than only the top-level interpret.
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+        {
+            return Err(vec![SemanticError::new(exceeded.message(), 0, 0)]);
+        }
+
         // Detect include statements up front. Includes are resolved at runtime
         // and can expose actions/variables the analyzer never sees, so their
         // presence relaxes undefined-action reporting (see `has_includes`).

@@ -421,6 +421,20 @@ impl<'a> Parser<'a> {
 // Implementation of StmtParser trait
 impl<'a> StmtParser<'a> for Parser<'a> {
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
+        // Recursive front-end checkpoint: `parse_statement` is called for *every*
+        // statement, including deeply nested block bodies the top-level `parse`
+        // loop never revisits, so consulting the run budget here keeps a large
+        // nested parse interruptible (deadline/cancellation, exemption-aware).
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+            && self.cursor.peek().is_some()
+        {
+            let err = ParseError::from_token(exceeded.message(), self.cursor.peek().unwrap());
+            // Advance one token so the top-level `parse` loop's no-progress
+            // invariant holds even when the breach fires on the first statement.
+            self.bump_sync();
+            return Err(err);
+        }
         if let Some(token) = self.cursor.peek() {
             match &token.token {
                 Token::KeywordStore => self.parse_variable_declaration(),

@@ -1274,6 +1274,14 @@ async fn run() -> io::Result<()> {
                         }
                     }
                 }
+                // A shared-budget breach during type checking is FATAL — the type
+                // errors above are otherwise treated as non-fatal warnings, which
+                // would let an expired deadline / cancellation / resource breach
+                // slip through into execution.
+                if let Some(exceeded) = tc.take_budget_error() {
+                    eprintln!("Error: {}", exceeded.message());
+                    process::exit(2);
+                }
                 exec_trace!("Type checking completed.");
 
                 exec_trace!("Script directory: {:?}", script_dir);
