@@ -1,6 +1,6 @@
 [package]
 name = "wfl"
-version = "26.7.35"
+version = "26.7.36"
 edition = "2024"
 # Minimum supported Rust version. The codebase uses `if let … && …` let-chains
 # (stabilized in Rust 1.88) throughout, so 1.88 is the true floor — recorded
@@ -15,7 +15,7 @@ default-run = "wfl"
 name = "WFL"
 identifier = "com.logbie.wfl"
 icon = ["icons/wfl.png"]
-version = "26.7.35"
+version = "26.7.36"
 copyright = "© 2025 Logbie LLC"
 category = "Developer Tool"
 short_description = "WebFirst Language Compiler and Runtime"
