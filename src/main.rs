@@ -827,6 +827,16 @@ async fn run() -> io::Result<()> {
     let run_config = std::sync::Arc::new(run_config);
     let budget = std::sync::Arc::new(wfl::exec::budget::ExecutionBudget::from_config(&run_config));
 
+    // Install the run budget as the current-thread budget for the ENTIRE run, so
+    // every front-end phase — lexing, parsing, analysis, type checking — and the
+    // dump/`--analyze` modes consult *one* budget and honor its deadline and
+    // cooperative cancellation, not just the interpreter. The parser and the
+    // analyzer/type-checker read it via `ExecutionBudget::current()` at their
+    // top-level checkpoints; the interpreter re-enters the same budget when it
+    // runs. Held for the whole function (restored on drop).
+    let _run_budget_guard =
+        wfl::exec::budget::ExecutionBudget::enter(std::sync::Arc::clone(&budget));
+
     // Read the source under the shared source-size ceiling: read at most
     // `max_source_size + 1` bytes so an oversized file is refused without ever
     // allocating the whole thing (this holds even if metadata is unavailable).

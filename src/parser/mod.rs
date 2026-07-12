@@ -48,6 +48,22 @@ impl<'a> Parser<'a> {
         while self.cursor.peek().is_some() {
             let start_pos = self.cursor.pos();
 
+            // Front-end budget checkpoint: consult the shared run budget (if a run
+            // installed one on this thread) once per top-level statement, so the
+            // wall-clock deadline and cooperative cancellation are honored *during*
+            // parsing — not merely measured for later interpretation — and a
+            // pathological or oversized parse can be aborted cleanly.
+            if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+                && let Err(exceeded) = budget.charge_operation(true)
+                && let Some(token) = self.cursor.peek()
+            {
+                // `peek()` is `Some` here (the loop condition), so a position is
+                // always available for the diagnostic.
+                self.errors
+                    .push(ParseError::from_token(exceeded.message(), token));
+                break;
+            }
+
             // Skip any leading Eol tokens
             if let Some(token) = self.cursor.peek()
                 && matches!(token.token, Token::Eol)

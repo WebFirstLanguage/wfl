@@ -464,3 +464,31 @@ fn execute_file_shares_the_parent_recursion_depth() {
         "the child must not get a fresh depth allowance; got:\n{combined}"
     );
 }
+
+#[test]
+fn analyze_mode_consults_the_budget_in_the_front_end() {
+    // `--analyze` never interprets, so an operation-budget breach it surfaces can
+    // only come from the front end (lex/parse/analyze) actually consulting the
+    // shared budget — proving the phases poll it, not merely measure elapsed time
+    // for later interpretation.
+    let program = "display 1\n".repeat(40);
+    let dir = tempfile::tempdir().expect("create temp dir");
+    fs::write(dir.path().join(".wflcfg"), "max_operations = 3\n").expect("cfg");
+    let script = dir.path().join("program.wfl");
+    fs::write(&script, &program).expect("program");
+
+    let output = Command::new(test_helpers::get_wfl_binary_path())
+        .arg("--analyze")
+        .arg(&script)
+        .output()
+        .expect("run wfl --analyze");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("operation budget"),
+        "--analyze must consult the shared budget during the front end; got:\n{combined}"
+    );
+}

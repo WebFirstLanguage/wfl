@@ -272,6 +272,16 @@ impl TypeChecker {
         }
 
         for statement in &program.statements {
+            // Front-end budget checkpoint: honor the run's deadline/cancellation
+            // during type checking (via the current-thread budget), so a large
+            // program's type-check phase can be aborted rather than only measured.
+            if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+                && let Err(exceeded) = budget.charge_operation(true)
+            {
+                self.errors
+                    .push(TypeError::new(exceeded.message(), None, None, 0, 0));
+                break;
+            }
             self.check_statement_types(statement);
         }
 
