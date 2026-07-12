@@ -2494,6 +2494,22 @@ impl Analyzer {
     }
 
     fn analyze_expression(&mut self, expression: &Expression) {
+        // Recursive front-end checkpoint for expressions. `analyze_statement`
+        // polls per statement, but one statement can hold an arbitrarily large
+        // expression tree (a huge list/map literal, a long operator chain), so
+        // poll here too. The `budget_error` latch records the breach once and
+        // short-circuits the rest of the traversal.
+        if self.budget_error.is_some() {
+            return;
+        }
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+        {
+            self.errors
+                .push(SemanticError::new(exceeded.message(), 0, 0));
+            self.budget_error = Some(exceeded);
+            return;
+        }
         match expression {
             Expression::AwaitExpression {
                 expression,

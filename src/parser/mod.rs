@@ -17,11 +17,20 @@ use stmt::{
     StmtParser, TestingParser, VariableParser, WebParser,
 };
 
+/// Poll the run budget every this many primary-expression parses. The
+/// statement-boundary checkpoint does not cover one giant expression (a
+/// million-element list, a long flat operator chain), so this bounds the
+/// intra-statement token work too. A power of two so the stride test is a mask.
+const PARSE_CHECKPOINT_STRIDE: u64 = 2048;
+
 pub struct Parser<'a> {
     /// Cursor for efficient token navigation
     cursor: Cursor<'a>,
     /// Parse errors accumulated during parsing
     errors: Vec<ParseError>,
+    /// Count of primary-expression parses, for the strided budget checkpoint
+    /// (see [`Parser::charge_parse_step`]).
+    parse_steps: u64,
 }
 
 impl<'a> Parser<'a> {
@@ -29,6 +38,7 @@ impl<'a> Parser<'a> {
         Parser {
             cursor: Cursor::new(tokens),
             errors: Vec::with_capacity(4),
+            parse_steps: 0,
         }
     }
 
@@ -39,6 +49,28 @@ impl<'a> Parser<'a> {
     #[inline]
     fn bump_sync(&mut self) -> Option<&'a TokenWithPosition> {
         self.cursor.bump()
+    }
+
+    /// Strided run-budget checkpoint for expression parsing. Called at every
+    /// primary-expression parse; every [`PARSE_CHECKPOINT_STRIDE`] calls it
+    /// consults the run budget (exemption-aware) so a single huge expression is
+    /// interruptible on a deadline / cancellation / operation breach, not just at
+    /// statement boundaries. Returns the breach as a `ParseError` to abort the
+    /// parse; a no-op (returns `Ok`) when no run budget is installed.
+    #[inline]
+    fn charge_parse_step(&mut self) -> Result<(), ParseError> {
+        self.parse_steps = self.parse_steps.wrapping_add(1);
+        if self.parse_steps & (PARSE_CHECKPOINT_STRIDE - 1) == 0
+            && let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+            && let Some(token) = self.cursor.peek()
+        {
+            // Anchor the breach to the current token. At EOF (no token) there is
+            // nothing left to parse, so the downstream analyzer/type-checker
+            // checkpoint surfaces the breach instead.
+            return Err(ParseError::from_token(exceeded.message(), token));
+        }
+        Ok(())
     }
 
     pub fn parse(&mut self) -> Result<Program, Vec<ParseError>> {

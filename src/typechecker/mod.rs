@@ -2612,6 +2612,23 @@ impl TypeChecker {
     }
 
     fn infer_expression_type(&mut self, expression: &Expression) -> Type {
+        // Recursive front-end checkpoint for expressions (mirrors the analyzer's
+        // `analyze_expression`): `check_statement_types` polls per statement, but
+        // one statement can hold an arbitrarily large expression tree, so poll
+        // here too. The `budget_error` latch records the breach once and
+        // short-circuits; the returned `Any` is irrelevant because `check_types`
+        // turns the latched breach into the fatal `TypeCheckError::Budget`.
+        if self.budget_error.is_some() {
+            return Type::Any;
+        }
+        if let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && let Err(exceeded) = budget.charge_operation(!budget.is_deadline_exempt())
+        {
+            self.errors
+                .push(TypeError::new(exceeded.message(), None, None, 0, 0));
+            self.budget_error = Some(exceeded);
+            return Type::Any;
+        }
         match expression {
             Expression::Literal(literal, _, _) => match literal {
                 Literal::String(_) => Type::Text,

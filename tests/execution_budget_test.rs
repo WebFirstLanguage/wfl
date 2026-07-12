@@ -603,6 +603,32 @@ async fn task_local_budget_is_isolated_across_interleaved_runs() {
 }
 
 #[test]
+fn parser_polls_the_budget_inside_one_huge_expression() {
+    // A single statement whose expression is a giant list literal. The
+    // statement-boundary checkpoint fires only once (there is one statement), so
+    // only the strided per-operand checkpoint in expression parsing can trip the
+    // budget — proving a huge single expression is now interruptible, not parsed
+    // to completion after the deadline.
+    let mut src = String::from("store big as [");
+    for i in 0..6000 {
+        if i > 0 {
+            src.push_str(", ");
+        }
+        src.push('1');
+    }
+    src.push_str("]\n");
+
+    // Lex with no budget installed so the parser (not the lexer) is what trips.
+    let tokens = wfl::lexer::lex_wfl_with_positions(&src);
+    let _guard = enter_capped_budget(1);
+    let result = wfl::parser::Parser::new(&tokens).parse();
+    assert!(
+        result.is_err(),
+        "a huge single expression must trip the strided parser budget checkpoint"
+    );
+}
+
+#[test]
 fn analyzer_phase_budget_breach_is_fatal_and_typed() {
     // `TypeChecker::new()` runs the analyzer internally before type checking. A
     // breach during that analysis phase must surface as the fatal

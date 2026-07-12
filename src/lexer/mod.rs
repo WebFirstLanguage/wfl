@@ -11,6 +11,10 @@ pub mod token;
 use logos::Logos;
 use token::{Token, TokenWithPosition};
 
+/// Poll the run budget every this many lexed tokens. A power of two so the
+/// stride test is a mask.
+const LEX_CHECKPOINT_STRIDE: u64 = 4096;
+
 pub fn lex_wfl(input: &str) -> Vec<Token> {
     // Bolt: We no longer normalize line endings globally to avoid allocation.
     // Token::Newline now matches \r\n, \n, and \r.
@@ -124,8 +128,27 @@ pub fn lex_wfl_with_positions(input: &str) -> Vec<TokenWithPosition> {
     let mut current_line = 1;
     let mut current_column = 1;
     let mut last_span_end = 0;
+    // Strided run-budget checkpoint counter. The lexer is otherwise a tight loop
+    // with no budget call, so a large (source-size-capped) input would tokenize
+    // fully even after the run's deadline, and a same-task Ctrl-C could not
+    // interrupt lexing.
+    let mut lexed_tokens: u64 = 0;
 
     while let Some(token_result) = lexer.next() {
+        // Every `LEX_CHECKPOINT_STRIDE` tokens, consult the run budget and stop
+        // tokenizing cooperatively on a deadline / cancellation / operation
+        // breach. The lexer returns `Vec` (no `Result`), so this returns the
+        // tokens gathered so far; the truncated stream then trips the parser's
+        // (and analyzer/type-checker's) checkpoints, which surface the breach.
+        lexed_tokens = lexed_tokens.wrapping_add(1);
+        if lexed_tokens & (LEX_CHECKPOINT_STRIDE - 1) == 0
+            && let Some(budget) = crate::exec::budget::ExecutionBudget::current()
+            && budget
+                .charge_operation(!budget.is_deadline_exempt())
+                .is_err()
+        {
+            break;
+        }
         let span = lexer.span();
 
         // Calculate skipped whitespace/comments length
