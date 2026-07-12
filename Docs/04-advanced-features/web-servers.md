@@ -1029,7 +1029,7 @@ end check
 - **Bounded accept queue:** Because handlers are serial, incoming requests queue up behind the one being handled. That queue is bounded (default 256, configurable via `web_server_request_queue_bound`). When it is full, the server sheds new requests with a `503 Service Unavailable` (plus a `Retry-After` header) and logs a warning, rather than growing memory without bound. See [Configuration Reference](../reference/configuration-reference.md#web_server_request_queue_bound).
 - **Bounded response size:** A handler cannot `respond with` a body larger than `web_server_max_response_size` (default 64 MiB); an oversized response is refused with a runtime error rather than streamed unbounded. See [Configuration Reference](../reference/configuration-reference.md#web_server_max_response_size).
 - **Bounded request body (chunked-safe):** The request-body limit (`web_server_max_body_size`) is enforced *while the body streams in*, so a chunked upload with no `Content-Length` is bounded too — an oversized body is refused with `413 Payload Too Large` without being fully buffered.
-- **Global in-flight cap + response timeout:** The accepted-request cap is shared across every `listen` server via one budget, and each accepted request holds its slot until the handler responds, the client disconnects, or `web_server_response_timeout_seconds` (default 300s) elapses — in which case it is shed with `504 Gateway Timeout` so a stuck handler cannot pin capacity.
+- **Global in-flight cap + request deadline:** The accepted-request cap is shared across every `listen` server via one budget, and one deadline (`web_server_response_timeout_seconds`, default 300s) is set at admission and covers the whole accepted-request lifetime. A body that is not fully received in time is shed with `408 Request Timeout` (so a slow "trickle" upload under the size cap cannot pin a slot), and a handler that does not answer in time is shed with `504 Gateway Timeout`. A shed or abandoned request is skipped and its bookkeeping pruned rather than run as zombie work.
 - **No middleware system** (yet) - Implement manually
 - **No built-in session management** - Implement yourself
 
@@ -1166,17 +1166,30 @@ close server chat_server
 
 ### WebSocket resource limits
 
-WebSocket queues and connections are bounded so a flood or a slow client cannot
-grow memory without bound:
+WebSocket queues and connections are bounded — by **count and by bytes** — so a
+flood or a slow client cannot grow memory without bound:
 
 - **Queue bound** (`web_socket_queue_bound`, default 1024): the per-connection
-  outbound frame queue and the per-server event queue are bounded. When a queue
-  is full, the extra frame/event is dropped and a warning is logged.
+  outbound frame queue and the per-server event queue are bounded by frame
+  *count*. When a queue is full, the extra frame/event is dropped and a warning
+  is logged.
+- **Per-message size** (`web_socket_max_message_size`, default 1 MiB): a single
+  inbound or outbound text frame larger than this is dropped (with a warning)
+  rather than queued, so the count bound above also bounds each frame's size.
+- **Global queued bytes** (`web_socket_max_queued_bytes`, default 16 MiB): every
+  queued payload reserves its byte length against one global ceiling and releases
+  it when the frame is delivered, consumed, or shed — bounding total buffered
+  WebSocket memory across all connections at once.
 - **Connection limit** (`web_socket_max_connections`, default 1024): a
   connection attempt beyond the limit is refused with a close frame and a logged
   warning.
 
-Both are part of the shared [execution budget](../reference/configuration-reference.md#execution-budget-resource-limits).
+`close server` also terminates each live connection deterministically: it signals
+every connection to stop reading (so a peer that ignores the close handshake
+cannot keep a socket task or its connection slot alive), sends a close frame, and
+tears the socket down after a bounded close-handshake timeout.
+
+All of these are part of the shared [execution budget](../reference/configuration-reference.md#execution-budget-resource-limits).
 
 ## Security Considerations
 

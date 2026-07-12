@@ -198,6 +198,56 @@ all were addressed on this PR:
   for `--help`/`--version` and falls back on reservation failure; the REPL uses a
   no-deadline budget; MSRV recorded as 1.88 (`let`-chains).
 
+## Second deep review round (maintainer P1×8 + P2×7)
+
+A second maintainer review found the first round's mechanisms incomplete. All
+findings were addressed on this PR:
+
+- **Pattern meter is now per-match, not run-global.** The transition counter no
+  longer lives on the shared `ExecutionBudget` (two concurrent matches sharing one
+  `Arc` could reset each other's meter and grant unbounded quota). A new
+  `PatternMeter` owns the per-match transition and active-state counters and is
+  cloned only into nested lookaround/lookbehind VMs; it also **samples the
+  wall-clock deadline** on the transition stride (with the `main loop` exemption,
+  tracked via a `deadline_exempt` flag), surfacing a runaway synchronous match as
+  a catchable timeout. Active-state slots are reserved/released across the
+  current, next, and nested frontiers via one RAII `StateReservation`. The public
+  `PatternVM::find`/`find_all` API is restored (`Option`/`Vec`) with separate
+  `try_find`/`try_find_all` fallible entry points.
+- **HTTP request lifetime is fully bounded.** One deadline set at admission now
+  covers the body read *and* the handler response (a slow trickle upload sheds
+  with 408; a stuck handler with 504). A timed-out request's closed oneshot is
+  observed so the interpreter skips an abandoned request and prunes closed
+  `pending_responses` entries instead of running zombie work. `respond` takes the
+  sender into an RAII completion guard (500 on any early error) and rejects
+  composite/opaque bodies rather than materializing an unbounded `{:?}` string.
+  `read_body_capped` keeps its `max + 1` bound exact.
+- **WebSocket memory is bounded by bytes.** A per-message size cap
+  (`web_socket_max_message_size`) plus a global queued-byte permit
+  (`web_socket_max_queued_bytes`, RAII-released on send/consume/shed) bound both
+  the event queue and the outbound per-connection queues. `close server` signals
+  a per-server cancellation watch so each reader stops (releasing its connection
+  slot) even if the peer ignores the close handshake, with a bounded
+  close-handshake timeout.
+- **Recursion accounting spans `execute file`.** A child interpreter seeds its
+  base recursion depth from the parent's live depth (and `interpret()` resets to
+  that base), so nested execute files cannot each claim a fresh `max_call_depth`
+  allowance and multiply the native stack toward overflow.
+- **The front end consults the budget.** The run budget is installed as the
+  current-thread budget for the whole run, and the parser (per top-level
+  statement), the type checker (per top-level statement), and the analyzer (phase
+  boundary) poll it — so `--analyze`, the dump modes, and a slow parse honor the
+  deadline/cancellation instead of only measuring elapsed time.
+- **The REPL is bounded and cancellable.** It loads the applicable `.wflcfg`
+  (not defaults), enforces `max_source_size` immediately after each appended line
+  (before clone/lex/parse), gives each command a fresh per-command budget (a real
+  deadline, environment preserved), and wires Ctrl-C during execution to
+  `budget.cancel()`.
+- **Config-tool validation matches the loader.** Budget/web integer keys are
+  validated as non-negative `u64` with the loader's exact per-key minimums, the
+  `Execution Budget` category is included in the config wizard, and the two new
+  WebSocket byte keys are registered.
+
 ## Notes / Follow-ups
 
 - The outbound `reqwest` client still has no per-request timeout or in-flight

@@ -216,6 +216,8 @@ All keys currently loaded from config files, with defaults.
 | `web_server_response_timeout_seconds` | integer ≥ 0 | `300` | Seconds to await a handler before shedding with 504; `0` disables |
 | `web_socket_queue_bound` | integer ≥ 1 | `1024` | Max queued frames/events per WebSocket channel before shedding |
 | `web_socket_max_connections` | integer ≥ 1 | `1024` | Max simultaneous live WebSocket connections |
+| `web_socket_max_message_size` | integer ≥ 1 | `1048576` (1 MiB) | Max size of a single WebSocket text message (bytes); larger frames are dropped |
+| `web_socket_max_queued_bytes` | integer ≥ 1 | `16777216` (16 MiB) | Global ceiling on queued WebSocket payload bytes across all connections |
 
 ### Execution budget keys (summary)
 
@@ -230,7 +232,7 @@ clean, catchable error instead of a crash or unbounded memory growth.
 | `max_call_depth` | integer ≥ 1 | `1000` | Max WFL call/recursion depth |
 | `max_import_depth` | integer ≥ 1 | `64` | Max nested `load module` / `include` depth |
 | `max_execute_file_depth` | integer ≥ 1 | `4` | Max `execute file` nesting depth |
-| `max_pattern_steps` | integer ≥ 1 | `100000` | Max pattern-matching transitions per match (ReDoS guard) |
+| `max_pattern_steps` | integer ≥ 1 | `5000000` | Max pattern-matching transitions per match (ReDoS guard) |
 | `max_pattern_states` | integer ≥ 1 | `10000` | Max simultaneously-active pattern states per match |
 | `max_source_size` | integer ≥ 1 | `67108864` (64 MiB) | Max WFL source-file size (bytes) |
 
@@ -553,6 +555,22 @@ Maximum number of simultaneous live WebSocket connections. A connection attempt 
 - **Type:** Integer (at least 1)
 - **Default:** `1024`
 - **Example:** `web_socket_max_connections = 256`
+
+#### `web_socket_max_message_size`
+
+Maximum size in bytes of a single WebSocket text message, applied to both inbound frames and outbound `send`/`broadcast` frames. A larger frame is dropped (with a warning) rather than queued, so the per-message memory a connection can pin is bounded — the frame-count bound (`web_socket_queue_bound`) alone does not bound the *size* of each queued frame.
+
+- **Type:** Integer (at least 1)
+- **Default:** `1048576` (1 MiB)
+- **Example:** `web_socket_max_message_size = 262144`
+
+#### `web_socket_max_queued_bytes`
+
+Global ceiling in bytes on all WebSocket payloads queued across every connection's inbound event and outbound frame channels at once. Each queued frame reserves its byte length against this ceiling and releases it when the frame is delivered, consumed, or shed, so a slow or absent consumer cannot buffer WebSocket memory without bound even under the per-message and per-channel count limits.
+
+- **Type:** Integer (at least 1)
+- **Default:** `16777216` (16 MiB)
+- **Example:** `web_socket_max_queued_bytes = 8388608`
 
 ### Execution budget (resource limits)
 
