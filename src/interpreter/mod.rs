@@ -968,6 +968,12 @@ pub struct Interpreter {
     /// dedicated RAII counter means a caught `ResourceLimit` can never leave the
     /// enforcement depth under-counted, so catch-and-recurse stays bounded.
     call_depth: Cell<usize>,
+    /// The depth `call_depth` resets to at the start of a run. Normally 0, but a
+    /// child interpreter spawned by `execute file` inherits the parent's live
+    /// depth here, so recursion accounting *spans* the execute-file boundary: a
+    /// parent already near `max_call_depth` cannot run a child that consumes
+    /// another full allowance and multiplies the native stack toward overflow.
+    base_call_depth: usize,
     #[allow(dead_code)]
     io_client: Rc<IoClient>,
     step_mode: bool,          // Controls single-step execution mode
@@ -2036,6 +2042,7 @@ impl Interpreter {
             budget,
             call_stack: RefCell::new(Vec::new()),
             call_depth: Cell::new(0),
+            base_call_depth: 0,
             io_client: Rc::new(IoClient::new(Arc::clone(&config))),
             step_mode: false,                          // Default to non-step mode
             script_args: Vec::new(),                   // Initialize empty, will be set later
@@ -2574,7 +2581,11 @@ impl Interpreter {
         // the invariant holds regardless of how the previous run ended.
         *self.in_count_loop.borrow_mut() = false;
         *self.current_count.borrow_mut() = None;
-        self.call_depth.set(0);
+        // Reset to the inherited base depth (0 for a top-level run/REPL; the
+        // parent's live depth for an `execute file` child) so recursion
+        // accounting spans the execute-file boundary instead of granting the
+        // child a fresh full allowance.
+        self.call_depth.set(self.base_call_depth);
         // Clear any stale `main loop` deadline exemption (and its budget flag)
         // left by a prior run that unwound mid-loop, so this run starts enforced.
         self.set_in_main_loop(false);
@@ -7504,6 +7515,11 @@ impl Interpreter {
                 // and cancellation span the whole run — otherwise splitting work
                 // across `execute file` calls would reset them and evade the cap.
                 child.budget = Arc::clone(&self.budget);
+                // Seed the child's recursion accounting with the parent's live
+                // depth so the combined WFL call depth across nested `execute
+                // file` runs is bounded by `max_call_depth` (not multiplied per
+                // level), preventing native-stack overflow before the guard fires.
+                child.base_call_depth = self.call_depth.get();
 
                 {
                     let mut child_env = child.global_env().borrow_mut();

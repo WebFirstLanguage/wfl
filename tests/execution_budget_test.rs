@@ -400,3 +400,67 @@ fn execute_file_shares_the_parent_operation_budget() {
         "the operation ceiling must span parent + executed child; got:\n{combined}"
     );
 }
+
+#[test]
+fn execute_file_shares_the_parent_recursion_depth() {
+    // Recursion accounting must span the `execute file` boundary: a child cannot
+    // get a fresh full call-depth allowance, or nested execute files would
+    // multiply the native stack and overflow before the guard fires.
+    //
+    // With `max_call_depth = 20`, a parent recursed ~13 deep that then executes a
+    // child recursing ~13 deep exceeds the shared ceiling (only if the child
+    // inherits the parent's live depth); the child's own recursion (13 < 20)
+    // would otherwise pass on a reset allowance.
+    let dir = tempfile::tempdir().expect("create temp dir");
+    fs::write(dir.path().join(".wflcfg"), "max_call_depth = 20\n").expect("cfg");
+
+    let child = dir.path().join("child.wfl");
+    fs::write(
+        &child,
+        "define action called c with parameters n:\n\
+         \x20   check if n is greater than 0:\n\
+         \x20       return c of (n minus 1)\n\
+         \x20   end check\n\
+         \x20   return 0\n\
+         end action\n\
+         display c of 12\n\
+         display \"child-done\"\n",
+    )
+    .expect("child");
+
+    let parent = dir.path().join("program.wfl");
+    fs::write(
+        &parent,
+        format!(
+            "define action called p with parameters n:\n\
+             \x20   check if n is greater than 0:\n\
+             \x20       return p of (n minus 1)\n\
+             \x20   end check\n\
+             \x20   execute file at \"{}\" and read output as out\n\
+             \x20   display out\n\
+             \x20   return 0\n\
+             end action\n\
+             display p of 12\n",
+            wfl_path(&child)
+        ),
+    )
+    .expect("parent");
+
+    let output = Command::new(test_helpers::get_wfl_binary_path())
+        .arg(&parent)
+        .output()
+        .expect("run wfl");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("Maximum call depth (20)"),
+        "the recursion ceiling must span parent + executed child; got:\n{combined}"
+    );
+    assert!(
+        !combined.contains("child-done"),
+        "the child must not get a fresh depth allowance; got:\n{combined}"
+    );
+}
