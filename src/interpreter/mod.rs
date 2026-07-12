@@ -562,14 +562,29 @@ async fn handle_ws_connection(
     if let Ok(mut ids) = connection_ids.lock() {
         ids.retain(|c| c != &conn_id);
     }
-    if let Err(err) = events.try_send(WflWsEvent {
-        kind: WsEventKind::Disconnect,
-        connection_id: conn_id.clone(),
-        client_ip,
-        content: None,
-        _permit: None,
-    }) {
-        log::warn!("WebSocket event queue full; dropping disconnect event for {conn_id}: {err}");
+    // The disconnect event MUST be delivered. This connection's connect event
+    // was delivered (connect is fail-closed above), so its `on websocket
+    // connect` handler may have initialized per-connection application state,
+    // and the paired `on websocket disconnect` handler is the only place that
+    // state is cleaned up. A lossy `try_send` here could drop that cleanup under
+    // a momentarily-full queue, leaking application state and leaving a queued
+    // Connect with no matching Disconnect. Use a blocking send so every admitted
+    // Connect gets its paired Disconnect: it resolves as the interpreter drains
+    // the queue, and returns `Err` only if the server has shut down (its
+    // receiver dropped), in which case no disconnect handler remains to run.
+    if let Err(err) = events
+        .send(WflWsEvent {
+            kind: WsEventKind::Disconnect,
+            connection_id: conn_id.clone(),
+            client_ip,
+            content: None,
+            _permit: None,
+        })
+        .await
+    {
+        log::warn!(
+            "WebSocket disconnect event for {conn_id} could not be delivered (server shut down): {err}"
+        );
     }
     // Bounded close handshake: give the writer a moment to flush its close frame,
     // then force teardown so a peer that ignores the handshake cannot keep this
